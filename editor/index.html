@@ -82,10 +82,10 @@ button.danger { color: var(--neg) }
 #wires path { fill: none }
 #wires .hit { stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer }
 #wires .vis { stroke-width: 2.5; pointer-events: none }
-#wires .array .vis { stroke: var(--vec) } #wires .text .vis { stroke: var(--txt) }
+#wires .array .vis { stroke: var(--vec) } #wires .text .vis { stroke: var(--txt) } #wires .dist .vis { stroke: var(--grid) }
 .wtype { font-family: var(--mono); font-size: 11px; text-anchor: middle; fill: var(--fg); stroke: var(--bg); stroke-width: 4px; paint-order: stroke; pointer-events: none }
 #wires .on .vis { stroke: var(--sel); stroke-width: 3.5 }
-#wires .array .warr { fill: var(--vec) } #wires .text .warr { fill: var(--txt) } #wires .on .warr { fill: var(--sel) }
+#wires .array .warr { fill: var(--vec) } #wires .text .warr { fill: var(--txt) } #wires .dist .warr { fill: var(--grid) } #wires .on .warr { fill: var(--sel) }
 #tmp { stroke: var(--sel); stroke-width: 2.5; stroke-dasharray: 6 5 }
 #cutlayer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4 }
 #cutline { fill: none; stroke: var(--neg); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 2 5 }
@@ -113,7 +113,7 @@ button.danger { color: var(--neg) }
 .port { position: absolute; top: 11px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line) }
 .port::after { content: ""; position: absolute; inset: -10px }
 .port.in { left: -8px } .port.out { right: -8px; cursor: crosshair }
-.port.array { background: var(--vec) } .port.text { background: var(--txt) }
+.port.array { background: var(--vec) } .port.text { background: var(--txt) } .port.dist { background: var(--grid) }
 .port.in.back { left: auto; right: -8px; background: var(--surface); border-color: var(--vec); box-shadow: none }
 .bbody { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px }
 .bstatus { width: 0; min-width: 100%; padding: 7px 12px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere }
@@ -157,6 +157,7 @@ button.danger { color: var(--neg) }
 .chip { display: inline-flex; flex-direction: column; align-items: center; min-width: 26px; padding: 2px 5px; border: 1px solid var(--line); border-radius: 5px; font-family: var(--mono); font-size: 11.5px; line-height: 1.25 }
 .chip i { font-style: normal; color: var(--muted); font-size: 10px }
 .chip.pad { opacity: .5; border-style: dashed }
+canvas.plot { display: block; width: 260px; height: 75px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg) }
 canvas.wave { display: block; width: 280px; height: 96px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); touch-action: none; cursor: crosshair }
 .block input[type=range] { flex: 1; min-width: 0; accent-color: var(--vec) }
 .bars { display: flex; flex-direction: column; gap: 3px; font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums }
@@ -262,6 +263,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     <button class="ib" data-add="text" data-tip="Add a text buffer" aria-label="Add a text buffer"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 9h12M4 13h8"/><path d="M15.5 12v5M14 12h3M14 17h3"/></svg></button>
     <button class="ib" data-add="tok" data-tip="Add a tokenizer" aria-label="Add a tokenizer"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="7" width="4.4" height="6" rx="1.3"/><rect x="7.8" y="7" width="4.4" height="6" rx="1.3"/><rect x="13.6" y="7" width="4.4" height="6" rx="1.3"/></svg></button>
     <button class="ib" data-add="wave" data-tip="Add a waveform" aria-label="Add a waveform"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10c1.5-7 3.5-7 5 0s3.500 7 5 0 3.500-7 6 0"/></svg></button>
+    <button class="ib" data-add="dist" data-tip="Add a distribution" aria-label="Add a distribution"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 15.500c4 0 4.500-11 8-11s4 11 8 11"/><path d="M2 17.500h16"/></svg></button>
+    <button class="ib" data-add="samp" data-tip="Add a random sampler" aria-label="Add a random sampler"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3"/><circle class="f" cx="7" cy="7" r="1.200"/><circle class="f" cx="13" cy="7" r="1.200"/><circle class="f" cx="10" cy="10" r="1.200"/><circle class="f" cx="7" cy="13" r="1.200"/><circle class="f" cx="13" cy="13" r="1.200"/></svg></button>
     <button class="ib" data-add="data" data-tip="Add a dataset" aria-label="Add a dataset"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.500" y="6.500" width="11" height="11" rx="1.5"/><path d="M4.500 13.500v-8a1.500 1.500 0 0 1 1.500-1.500h8"/><path d="M2.500 11V3.500A1.500 1.500 0 0 1 4 2h7.500"/><path d="M9 14.500l2.200-2.800 1.800 2 1.200-1.300 1.800 2.100"/></svg></button>
     <button class="ib" data-add="lin" data-tip="Add a linearize block" aria-label="Add a linearize block"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h12l-12 6h12l-12 6h9"/><path d="M11.500 13.500L14 16l-2.500 2.500"/></svg></button>
     <button class="ib" data-add="perc" data-tip="Add an evaluation frame" aria-label="Add an evaluation frame"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3H3v14h2M15 3h2v14h-2"/><circle cx="7.5" cy="6.5" r="1.6"/><circle cx="7.5" cy="13.5" r="1.6"/><circle cx="12.8" cy="10" r="1.6"/><path d="M9 7.3l2.4 1.800M9 12.700l2.4-1.800"/></svg></button>
@@ -305,6 +308,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <span>thicker stroke = larger weight</span>
         <span>Drag the background to pan, scroll to zoom, right-click for the menu, hold the right button and drag across connections to cut them</span>
       </div>
+        <p>A Distribution block describes random numbers (uniform between a low and a high, or normal with a mean and a standard deviation). Wire it into a Random sampler to get that many draws as a float vector. The draws stay the same until you press Resample or Play.</p>
         <p>To train a model too large for the browser, select its frame and choose Export model, then run the file through the trainer project (<code>python run.py models/&lt;file&gt;.json</code>). It trains on your machine when that takes under five minutes and otherwise rents a GPU through box-boy. Import weights loads the result back into the frame.</p>
       </div>
     </div>
@@ -334,16 +338,18 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     text:   { title: 'Text buffer', out: 'text' },
     tok:    { title: 'Tokenizer', in: 'text', out: 'array' },
     wave:   { title: 'Waveform', out: 'array' },
+    dist:   { title: 'Distribution', out: 'dist' },
+    samp:   { title: 'Random sampler', in: 'dist', out: 'array', ins: [{ kind: 'dist', name: 'distribution' }], outs: [{ kind: 'array', name: 'samples' }] },
     perc:   { title: 'Evaluation frame', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true }], outs: [{ kind: 'array', name: 'output' }] },
     data:   { title: 'Dataset', out: 'array', outs: [{ kind: 'array', name: 'image' }, { kind: 'array', name: 'label' }] },
     lin:    { title: 'Linearize', in: 'array', out: 'array' },
     attn:   { title: 'Attention', in: 'array', out: 'array', outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'attention' }] },
     read:   { title: 'Cost function', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'prediction' }, { kind: 'array', name: 'ground truth' }], outs: [{ kind: 'array', name: 'loss' }] }
   };
-  const KIND = { array: 'an array', text: 'text' };
-  // A signal is { t: 'text', s } or { t: 'arr', dtype: 'bool' | 'int' | 'float', shape: [...], data: [...] } with data in row-major order.
+  const KIND = { array: 'an array', text: 'text', dist: 'a distribution' };
+  // A signal is { t: 'text', s }, { t: 'dist', kind: 'uniform' | 'normal', a, b } (low and high, or mean and spread) or { t: 'arr', dtype: 'bool' | 'int' | 'float', shape: [...], data: [...] } with data in row-major order.
   const arr = (dtype, shape, data) => ({ t: 'arr', dtype, shape, data });
-  const typeStr = sig => sig.t === 'text' ? 'text' : sig.shape.length ? `${sig.dtype}[${sig.shape.map(nf).join(', ')}]` : sig.dtype;   // a scalar has no brackets
+  const typeStr = sig => sig.t === 'text' ? 'text' : sig.t === 'dist' ? `${sig.kind}(${fmt(sig.a)}, ${fmt(sig.b)})` : sig.shape.length ? `${sig.dtype}[${sig.shape.map(nf).join(', ')}]` : sig.dtype;   // a scalar has no brackets
   const insOf = t => TYPES[t].ins || (TYPES[t].in ? [{ kind: TYPES[t].in, name: 'input' }] : []);
   const outsOf = t => TYPES[t].outs || (TYPES[t].out ? [{ kind: TYPES[t].out, name: 'output' }] : []);
   function portSlot(type, i, isOut) {        // how far down its side a port sits: outputs first on the right, then any back inputs
@@ -582,6 +588,23 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       const out = arr('int', [b.n], toks.map(t => t.id));
       return { out, toks, note: typeStr(out) + (total > b.n ? ` · first ${nf(b.n)} of ${nf(total)} tokens` : '') };
     }
+    if (b.type === 'dist') {                 // uniform between low and high, or normal with a mean and a standard deviation
+      const a = +b.a, c = +b.b;
+      if (!isFinite(a) || !isFinite(c)) return { err: 'Both numbers are needed.' };
+      if (b.kind === 'normal' ? c <= 0 : c <= a) return { err: b.kind === 'normal' ? 'The standard deviation must be above 0.' : 'High must be above low.' };
+      const out = { t: 'dist', kind: b.kind === 'normal' ? 'normal' : 'uniform', a, b: c };
+      return { out, note: typeStr(out) + (out.kind === 'normal' ? ' · mean, standard deviation' : ' · low, high') };
+    }
+    if (b.type === 'samp') {                 // n independent draws; the same seed gives the same draws, so nothing changes until Resample or Play
+      if (sig.t !== 'dist') return { err: 'Needs a distribution.' };
+      let t = (b.id * 7919 + (b.seed || 0) * 104729 + 1) >>> 0;
+      const rnd = () => { t = (t + 0x6D2B79F5) >>> 0; let x = Math.imul(t ^ (t >>> 15), 1 | t); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+      const v = [];
+      for (let i = 0; i < b.n; i++) v.push(sig.kind === 'normal' ? sig.a + sig.b * Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd()) : sig.a + (sig.b - sig.a) * rnd());
+      const mean = v.reduce((p, q) => p + q, 0) / v.length, sd = Math.sqrt(v.reduce((p, q) => p + (q - mean) * (q - mean), 0) / v.length);
+      const out = arr('float', [b.n], v);
+      return { out, dist: sig, note: `${typeStr(out)} from ${typeStr(sig)} · draw ${nf((b.seed || 0) + 1)} · mean ${sfmt(mean)}, sd ${sfmt(sd)}` };
+    }
     if (b.type === 'wave') {
       const L = b.samples.length, v = [];
       for (let i = 0; i < b.n; i++) v.push(b.samples[(b.pos + i) % L]);
@@ -693,6 +716,15 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       h = `<canvas class="wave" width="560" height="192" aria-label="Waveform, drag to draw"></canvas>` +
         `<div class="brow"><select data-f="preset" aria-label="Waveform preset"><option value="">Preset…</option><option value="sine">Sine</option><option value="square">Square</option><option value="saw">Saw</option><option value="noise">Noise</option></select><label class="filebtn">Load audio<input type="file" accept="audio/*" data-f="file" hidden></label>${stepper('Window', 'wn', b.n)}</div>` +
         `<div class="brow"><button data-act="wplay"></button><input type="range" data-f="pos" min="0" step="1" aria-label="Playhead"></div>`;
+    } else if (b.type === 'dist') {
+      const nrm = b.kind === 'normal';
+      h = `<div class="brow"><select data-f="dkind" aria-label="Distribution"><option value="uniform">Uniform</option><option value="normal">Normal</option></select>` +
+        `<label class="stp">${nrm ? 'mean' : 'low'} <input class="nin" style="width:4.4em" type="number" step="any" data-f="da" value="${+b.a}" aria-label="${nrm ? 'Mean' : 'Low'}"></label>` +
+        `<label class="stp">${nrm ? 'sd' : 'high'} <input class="nin" style="width:4.4em" type="number" step="any" data-f="db" value="${+b.b}" aria-label="${nrm ? 'Standard deviation' : 'High'}"></label></div>` +
+        `<canvas class="plot" width="520" height="150" aria-label="Density curve"></canvas>`;
+    } else if (b.type === 'samp') {
+      h = `<div class="brow">${stepper('Length', 'sn', b.n)}<button data-act="sdraw">Resample</button><button data-act="splay"></button></div>` +
+        `<canvas class="plot" width="520" height="150" aria-label="The samples, in order"></canvas>`;
     } else if (b.type === 'perc') {
       h = `<svg class="net" role="group" aria-label="${esc(b.name)} diagram"></svg><span class="rsz" title="Drag to resize the frame"></span>`;
     } else if (b.type === 'data') {
@@ -716,6 +748,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     st.innerHTML = esc(r.err || r.note) + (b.type === 'perc' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` + (b.avg != null ? `, average loss ${sfmt(b.avg)}` : '') : '') + (b.type === 'perc' && b.train && trainHint(b, r) ? `<br><span class="hintw">${esc(trainHint(b, r))}</span>` : '') + (r.backSig ? ' · backprop in: ' + (r.backSig.t === 'arr' && r.backSig.data.length === 1 ? sfmt(+r.backSig.data[0]) : esc(typeStr(r.backSig)) + ' (needs a single number)') : '') + (r.fit ? `<button data-act="fit" data-arg="${r.fit}">Resize the input vector to ${r.fit}</button>` : '') + (b.msg ? ' · ' + esc(b.msg) : '');
     el.classList.toggle('active', b.id === activeP);
     if (b.type === 'tok') el.querySelector('.chips').innerHTML = (r.toks || []).slice(0, 48).map(t => `<span class="chip${t.pad ? ' pad' : ''}">${esc(t.s)}<i>${t.id}</i></span>`).join('') + (r.toks && r.toks.length > 48 ? `<span class="chip pad">…<i>+${nf(r.toks.length - 48)}</i></span>` : '');
+    else if (b.type === 'dist') { el.querySelector('select[data-f=dkind]').value = b.kind === 'normal' ? 'normal' : 'uniform'; drawDist(r.out, null, el.querySelector('canvas')); }
+    else if (b.type === 'samp') { el.querySelector('[data-act=splay]').textContent = b.playing ? 'Pause' : 'Play'; drawDist(r.dist, r.out ? r.out.data : null, el.querySelector('canvas')); }
     else if (b.type === 'wave') {
       drawWave(b, el.querySelector('canvas'));
       const rg = el.querySelector('input[type=range]'); rg.max = b.samples.length - 1; rg.value = b.pos;
@@ -764,6 +798,31 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         return `<div class="bar${tv ? ' gt' : ''}"><span class="ix">${i}</span><span class="track"><i style="width:${w}%;${+x >= 0 ? 'left:50%' : 'right:50%'};background:var(--${+x >= 0 ? 'pos' : 'neg'})"></i>${tv ? `<u style="left:calc(${50 + (+tv[i]) / m * 50}% - 1px)"></u>` : ''}</span><span class="val">${show(x)}</span>${tv ? `<span class="tv">${show(tv[i])}</span>` : ''}</div>`;
       }).join('') + (v.length > 32 ? `<div class="bar"><span class="ix">…</span><span></span><span class="val">${nf(v.length - 32)} more</span></div>` : '');
     }
+  }
+  // A distribution's density curve; with samples, each one as a tick on the axis and a dot at its position in the output.
+  function drawDist(d, v, cv) {
+    const c = cv.getContext('2d'), W = cv.width, H = cv.height, cs = getComputedStyle(document.documentElement), col = k => cs.getPropertyValue(k);
+    c.clearRect(0, 0, W, H); if (!d) return;
+    let lo = d.kind === 'normal' ? d.a - 3.5 * d.b : d.a - (d.b - d.a) * .15, hi = d.kind === 'normal' ? d.a + 3.5 * d.b : d.b + (d.b - d.a) * .15;
+    if (v) v.forEach(x => { lo = Math.min(lo, x); hi = Math.max(hi, x); });
+    const base = v ? H * .55 : H - 22, X = x => (x - lo) / (hi - lo) * W, top = d.kind === 'normal' ? 1 / (d.b * Math.sqrt(2 * Math.PI)) : 1 / (d.b - d.a);
+    const pdf = x => d.kind === 'normal' ? Math.exp(-.5 * ((x - d.a) / d.b) ** 2) / (d.b * Math.sqrt(2 * Math.PI)) : (x >= d.a && x <= d.b ? top : 0);
+    c.beginPath(); c.moveTo(0, base);
+    for (let px = 0; px <= W; px += 2) c.lineTo(px, base - pdf(lo + px / W * (hi - lo)) / top * (base - 10));
+    c.lineTo(W, base); c.closePath(); c.fillStyle = col('--sel-soft'); c.fill(); c.strokeStyle = col('--grid'); c.lineWidth = 2.5; c.stroke();
+    c.strokeStyle = col('--line'); c.lineWidth = 1; c.beginPath(); c.moveTo(0, base); c.lineTo(W, base); c.stroke();
+    c.fillStyle = col('--muted'); c.font = '500 19px ' + col('--mono'); c.textBaseline = 'top';
+    const marks = d.kind === 'normal' ? [d.a - 2 * d.b, d.a, d.a + 2 * d.b] : [d.a, d.b];
+    if (!v) marks.forEach((m, i) => { c.textAlign = i === 0 ? 'left' : i === marks.length - 1 ? 'right' : 'center'; c.fillText(fmt(m), clamp(X(m), 2, W - 2), base + 4); });
+    if (!v) return;
+    const n = v.length, lane = H - base - 12, show = Math.min(n, 2000);
+    c.strokeStyle = col('--vec'); c.fillStyle = col('--vec'); c.globalAlpha = n > 200 ? .35 : .8; c.lineWidth = 1.5;
+    for (let k = 0; k < show; k++) {                                // a tick where the value falls, and below it a dot: left to right is the value, top to bottom the order drawn
+      const i = n > show ? Math.floor(k * n / show) : k, x = X(v[i]);
+      c.beginPath(); c.moveTo(x, base - 7); c.lineTo(x, base); c.stroke();
+      c.beginPath(); c.arc(x, base + 8 + (n > 1 ? i / (n - 1) : .5) * lane, n > 200 ? 1.5 : 3, 0, 7); c.fill();
+    }
+    c.globalAlpha = 1;
   }
   function drawWave(b, cv) {
     const c = cv.getContext('2d'), W = cv.width, H = cv.height, L = b.samples.length, cs = getComputedStyle(document.documentElement);
@@ -1138,6 +1197,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (type === 'data') Object.assign(b, { idx: 0, as: 'int' });
     if (type === 'read') b.loss = 'se';
     if (type === 'wave') Object.assign(b, { samples: sine(), n: 4, pos: 0 });
+    if (type === 'dist') Object.assign(b, { kind: 'uniform', a: 0, b: 1 });
+    if (type === 'samp') Object.assign(b, { n: 8, seed: 0 });
     if (type === 'perc') { Object.assign(b, { act: 'linear', rows: [{ w: [1, 1, 1] }, { w: [1, 1] }], links: [{}, {}] }); norm(b); activeP = id; }
     G.blocks.push(b); buildBlock(b); renderSide(); update(true);
   }
@@ -1312,7 +1373,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       if (tp < 0) tp = 0;
     }
     const inn = ins[tp];
-    if (out.kind !== inn.kind) return toast(`${a.name} sends ${KIND[out.kind]} and ${c.name} takes ${KIND[inn.kind]}.` + (out.kind === 'text' ? ' Put a Tokenizer between them.' : ''));
+    if (out.kind !== inn.kind) return toast(`${a.name} sends ${KIND[out.kind]} and ${c.name} takes ${KIND[inn.kind]}.` + (out.kind === 'text' && inn.kind === 'array' ? ' Put a Tokenizer between them.' : inn.kind === 'dist' ? ' Connect a Distribution block.' : ''));
     if (inn.back && sig && !scalar) return toast(`${c.name}'s backprop input takes a single number, such as a loss, and ${a.name} sends ${typeStr(sig)}.`);
     if (c.type === 'perc' && !inn.back && sig && sig.shape.length !== 1) return toast(`${a.name} sends ${typeStr(sig)} and ${c.name} takes a 1-D array. Put a Linearize block between them.`);
     G.wires = G.wires.filter(w => !sameWire(w, { to: c.id, tp })); G.wires.push({ from: a.id, to: c.id, fp: fp || 0, tp });
@@ -1335,7 +1396,9 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (name === 'pw') resizePx(b, clamp(b.w + arg, 1, 8), b.h);
     else if (name === 'ph') resizePx(b, b.w, clamp(b.h + arg, 1, 8));
     else if (name === 'pclear') b.px.fill(0);
-    else if (name === 'tn' || name === 'wn' || name === 'ak') b.n = Math.max(1, b.n + arg);
+    else if (name === 'tn' || name === 'wn' || name === 'ak' || name === 'sn') b.n = Math.max(1, b.n + arg);
+    else if (name === 'sdraw') b.seed = (b.seed || 0) + 1;
+    else if (name === 'splay') b.playing = !b.playing;
     else if (name === 'arand') { b.seed = (b.seed || 0) + 1; b.wq = null; }
     else if (name === 'wplay' || name === 'dplay') b.playing = !b.playing;
     else if (name === 'dstep') { const ds = dataset(b); if (ds && ds.n) { b.idx = (((b.idx + arg) % ds.n) + ds.n) % ds.n; sampleMoved = true; } }
@@ -1621,6 +1684,9 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (f === 'mode') b.mode = t.value;
     else if (f === 'n') return;
     else if (f === 'as') b.as = t.value;
+    else if (f === 'dkind') { const was = b.kind; b.kind = t.value; if (was !== b.kind) { b.a = 0; b.b = 1; buildBody(b); } }
+    else if (f === 'da') { if (t.value === '' || !isFinite(+t.value)) return; b.a = +t.value; }
+    else if (f === 'db') { if (t.value === '' || !isFinite(+t.value)) return; b.b = +t.value; }
     else if (f === 'causal') b.causal = t.checked;
     else if (f === 'loss') b.loss = t.value;
     else if (f === 'act') { b.act = t.value; renderMath(); }
@@ -1896,6 +1962,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       any = true;
     });
     if (dirty && tick % 12 === 0) { dirty = false; renderMath(); save(); }
+    G.blocks.forEach(b => { if (b.type === 'samp' && b.playing) { b.seed = (b.seed || 0) + 1; any = true; } });
     G.blocks.forEach(b => { if (b.type === 'wave' && b.playing) { const L = b.samples.length; b.pos = (b.pos + Math.max(1, Math.round(L / 256))) % L; any = true; } });
     if (any) update(false);
   }, 90);
