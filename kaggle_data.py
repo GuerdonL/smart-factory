@@ -10,6 +10,7 @@ into packed.npz beside that: greyscale images of one size with a label each. Two
 
   image files      label = the folder the file is in. Mixed sizes are scaled to --size (default 32) square.
   CSV of pixels    one row per image: a label column plus a square number of pixel columns (the MNIST-style files).
+  IDX files        the original MNIST layout: an images file and a labels file per split, gzipped or not.
 
 Train on it with `--data kaggle:<owner>/<name>`.
 """
@@ -142,21 +143,66 @@ def _pack_csv(paths):
     return pix, labels, side, side, 255, "CSV of pixels", f"{len(best)} CSV file{'s' if len(best) > 1 else ''} with a label column and {side * side} pixel columns"
 
 
+def _read_idx(path):
+    """An IDX file (the original MNIST layout, optionally gzipped) as an array, or None if the file is something else."""
+    import gzip
+    import struct
+    try:
+        with (gzip.open if path.lower().endswith(".gz") else open)(path, "rb") as f:
+            head = f.read(4)
+            if len(head) < 4 or head[:3] != b"\x00\x00\x08" or head[3] not in (1, 3):
+                return None
+            dims = struct.unpack(">" + "I" * head[3], f.read(4 * head[3]))
+            body = f.read()
+    except OSError:
+        return None
+    if len(body) != int(np.prod(dims)):
+        return None
+    return np.frombuffer(body, dtype=np.uint8).reshape(dims)
+
+
+def _pack_idx(paths):
+    seen, images, labels = set(), [], []
+    for p in sorted(paths, key=lambda q: _natural(os.path.basename(q))):
+        a = _read_idx(p)
+        if a is None:
+            continue
+        key = (a.shape, a[:64].tobytes(), a[-64:].tobytes())          # some datasets ship every file twice
+        if key in seen:
+            continue
+        seen.add(key)
+        (images if a.ndim == 3 else labels).append(a)
+    pairs = []
+    for im in images:
+        match = next((l for l in labels if len(l) == len(im)), None)
+        if match is not None and (not pairs or im.shape[1:] == pairs[0][0].shape[1:]):
+            pairs.append((im, match))
+            labels = [l for l in labels if l is not match]
+    if not pairs:
+        return None
+    h, w = pairs[0][0].shape[1:]
+    pix = np.concatenate([im.reshape(len(im), -1) for im, _ in pairs])
+    return pix, [str(v) for v in np.concatenate([l for _, l in pairs])], w, h, 255, "IDX files", f"{len(pairs)} image file{'s' if len(pairs) > 1 else ''} in the original MNIST layout"
+
+
 def pack(ref, size=None):
     """Read data/kaggle/<ref>/raw and write packed.npz + info.json beside it."""
     d = folder(ref)
     raw = os.path.join(d, "raw")
-    images, csvs = [], []
+    images, csvs, rest = [], [], []
     for root, _, files in os.walk(raw):
         for f in files:
             if f.lower().endswith(IMAGE_EXT):
                 images.append(os.path.join(root, f))
             elif f.lower().endswith(".csv"):
                 csvs.append(os.path.join(root, f))
-    got = _pack_images(images, raw, size) if images else _pack_csv(csvs) if csvs else None
+            else:
+                rest.append(os.path.join(root, f))
+    got = _pack_images(images, raw, size) if images else None
+    got = got or (_pack_csv(csvs) if csvs else None) or (_pack_idx(rest) if rest else None)
     if got is None:
         seen = sorted(os.listdir(raw))[:8] if os.path.isdir(raw) else []
-        raise KaggleError(f"{ref} has no image files and no CSV with a label column plus a square number of pixel columns "
+        raise KaggleError(f"{ref} has no image files, no CSV with a label column plus a square number of pixel columns, and no MNIST-style IDX files "
                           f"(it holds: {', '.join(seen) or 'nothing'}). Only image datasets can be used here.")
     pix, labels, w, h, mx, kind, note = got
     classes = sorted(set(labels), key=_natural)

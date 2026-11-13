@@ -41,6 +41,7 @@ h2 { font-family: var(--display); font-size: 12px; font-weight: 600; text-transf
 #kg li div { flex: 1 1 auto; min-width: 0 }
 #kg li b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 #kg li span, #kg .kgnote { color: var(--muted); font-size: 12px; overflow-wrap: anywhere }
+#kg .kgerr { color: var(--neg); font-size: 13px; font-weight: 600 }
 #kg h3 { margin: 4px 0 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600 }
 @media (max-width: 980px) { .work { flex-direction: column } }
 .toolbar { position: relative; z-index: 10 }
@@ -1753,6 +1754,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
 
   // ---------- Kaggle datasets (only when the page is served by serve.py, which runs the Kaggle CLI) ----------
   let API = null, kgBlock = null;
+  const kgMsg = $('kg-msg'), kgSay = (text, bad) => { kgMsg.textContent = text; kgMsg.className = bad ? 'kgnote kgerr' : 'kgnote'; };
   const tokenOf = () => { try { return localStorage.getItem('sf-token') || ''; } catch (e) { return ''; } };
   async function api(path, body) {
     const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'X-Token': tokenOf(), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -1777,39 +1779,39 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     try {
       const j = await api('api/datasets'); $('kg-havehead').hidden = !j.datasets.length;
       $('kg-have').innerHTML = j.datasets.map(d => kgItem(d.ref, `${nf(d.n)} images · ${d.w} × ${d.h} · ${nf(d.classes.length)} labels`, d.ref, 'use')).join('');
-    } catch (e) { $('kg-msg').textContent = e.message; }
+    } catch (e) { kgSay(e.message, true); }
   }
   function openKaggle(b) {
-    kgBlock = b.id; $('help').hidden = true; $('kg').hidden = false; $('kg-tokrow').hidden = !!API.token; $('kg-msg').textContent = '';
+    kgBlock = b.id; $('help').hidden = true; $('kg').hidden = false; $('kg-tokrow').hidden = !!API.token; kgMsg.className = 'kgnote'; kgMsg.textContent = '';
     if (API.token) kgHave(); (API.token ? $('kg-q') : $('kg-token')).focus();
   }
   $('kg-close').addEventListener('click', () => { $('kg').hidden = true; });
   $('kg-tokok').addEventListener('click', async () => {
     try { localStorage.setItem('sf-token', $('kg-token').value.trim()); } catch (e) {}
     try { const j = await api('api/ping'); API.token = j.token; } catch (e) {}
-    $('kg-tokrow').hidden = !!API.token; $('kg-msg').textContent = API.token ? '' : 'That token was not accepted.'; if (API.token) kgHave();
+    $('kg-tokrow').hidden = !!API.token; kgMsg.className = 'kgnote'; kgMsg.textContent = API.token ? '' : 'That token was not accepted.'; if (API.token) kgHave();
   });
   $('kg-form').addEventListener('submit', async e => {
     e.preventDefault(); const q = $('kg-q').value.trim(); if (!q) return;
-    $('kg-msg').textContent = 'Searching Kaggle…'; $('kg-results').innerHTML = '';
+    kgMsg.className = 'kgnote'; kgMsg.textContent = 'Searching Kaggle…'; $('kg-results').innerHTML = '';
     try {
       const j = await api('api/kaggle/search?q=' + encodeURIComponent(q));
       $('kg-results').innerHTML = j.results.map(d => kgItem(d.title || d.ref, `${d.ref} · ${d.size} · ${nf(+d.downloads || 0)} downloads`, d.ref, 'add')).join('');
-      $('kg-msg').textContent = j.results.length ? `${nf(j.results.length)} datasets, most voted first. Add downloads one to the server and loads it into the Dataset block.` : 'Nothing on Kaggle matches that.';
-    } catch (e2) { $('kg-msg').textContent = e2.message; }
+      kgMsg.className = 'kgnote'; kgMsg.textContent = j.results.length ? `${nf(j.results.length)} datasets, most voted first. Add downloads one to the server and loads it into the Dataset block.` : 'Nothing on Kaggle matches that.';
+    } catch (e2) { kgSay(e2.message, true); }
   });
   $('kg').addEventListener('click', async e => {
     const t = e.target.closest('button[data-ref]'), b = byId(kgBlock); if (!t || !b) return;
     const ref = t.dataset.ref;
     if (t.dataset.verb === 'add') {
-      t.disabled = true; $('kg-msg').textContent = `Downloading ${ref} to the server and reading its images. Large ones take a few minutes…`;
+      t.disabled = true; kgMsg.className = 'kgnote'; kgMsg.textContent = `Downloading ${ref} to the server and reading its images. Large ones take a few minutes…`;
       try { const size = +$('kg-size').value || null; await api('api/kaggle/add', { ref, size }); }
-      catch (e2) { t.disabled = false; $('kg-msg').textContent = e2.message; return; }
+      catch (e2) { t.disabled = false; kgSay(e2.message, true); return; }
       t.disabled = false; kgHave();
     }
     const j = await loadKaggle(b, ref);
     if (j) { $('kg').hidden = true; toast(`${b.name} now reads ${ref}: ${j.w} × ${j.h} images, ${nf(j.classes.length)} labels. A frame for it needs ${nf(j.w * j.h)} inputs and ${nf(j.classes.length)} outputs.`); }
-    else $('kg-msg').textContent = b.msg;
+    else kgSay(b.msg, true);
   });
   fetch('api/ping', { headers: { 'X-Token': tokenOf() } }).then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !j.ok) return; API = j;

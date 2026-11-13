@@ -116,3 +116,26 @@ def test_kaggle_packing(tmp_path, monkeypatch):
             assert False, bad
         except kaggle_data.KaggleError:
             pass
+
+
+def test_kaggle_idx_files(tmp_path, monkeypatch):
+    import gzip
+    import struct
+    import kaggle_data
+    monkeypatch.setattr(kaggle_data, "ROOT", str(tmp_path))
+    rng = np.random.default_rng(3)
+    raw = tmp_path / "o" / "idx" / "raw"
+    (raw / "train-images-idx3-ubyte").mkdir(parents=True)
+    tr, trl = rng.integers(0, 256, (9, 5, 5), dtype=np.uint8), rng.integers(0, 4, 9, dtype=np.uint8)
+    te, tel = rng.integers(0, 256, (4, 5, 5), dtype=np.uint8), rng.integers(0, 4, 4, dtype=np.uint8)
+    idx = lambda a: struct.pack(">BBBB", 0, 0, 8, a.ndim) + struct.pack(">" + "I" * a.ndim, *a.shape) + a.tobytes()
+    (raw / "train-images.idx3-ubyte").write_bytes(idx(tr))
+    (raw / "train-images-idx3-ubyte" / "train-images-idx3-ubyte").write_bytes(idx(tr))      # shipped twice, as on Kaggle
+    (raw / "train-labels.idx1-ubyte").write_bytes(idx(trl))
+    (raw / "t10k-images.idx3-ubyte.gz").write_bytes(gzip.compress(idx(te)))
+    (raw / "t10k-labels.idx1-ubyte").write_bytes(idx(tel))
+    (raw / "readme.txt").write_text("hello")
+    i = kaggle_data.pack("o/idx")
+    assert (i["w"], i["h"], i["n"], i["kind"]) == (5, 5, 13, "IDX files")
+    pix, labels, *_ = kaggle_data.load("o/idx")
+    assert (pix[4:] == tr.reshape(9, -1)).all() and labels[:4] == [str(v) for v in tel]
