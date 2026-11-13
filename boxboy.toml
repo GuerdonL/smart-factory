@@ -1,0 +1,12 @@
+# How box-boy (bb) runs this project's jobs on rented Vast.ai instances. `python run.py` writes the jobs files.
+setup = "pip install -q numpy pillow"
+check = "python -c 'import torch; assert torch.cuda.is_available()'"
+
+[offer]
+gpu = "RTX_4090"
+max_price = 0.60      # $/h for the one instance a run uses
+max_total = 1.00
+disk = 20
+
+[run]
+max_hours = 1         # run.py passes a tighter limit per job
