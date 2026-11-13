@@ -295,7 +295,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       <section class="panel pad" id="frame-panel" hidden>
         <h2 id="math-title">Frame</h2>
         <div class="brow" id="frame-ctl"><button data-fa="addscalar">Add neuron</button><button data-fa="addvec">Add vector</button><button data-fa="cclear">Clear connections</button><select id="frame-act" aria-label="Activation"><option value="linear">Linear</option><option value="step">Step</option><option value="relu">ReLU</option><option value="sigmoid">Sigmoid</option><option value="tanh">Tanh</option></select></div>
-        <div class="brow" id="train-ctl"><label class="chk"><input type="checkbox" id="tr-on"> Train</label><label class="stp">rate <input id="tr-lr" class="nin" type="number" step="0.001" min="0"></label><button id="tr-step">Step once</button><button id="tr-rand">Randomize weights</button><label class="chk"><input type="checkbox" id="tr-linout"> Linear output layer</label></div>
+        <div class="brow" id="train-ctl"><label class="chk"><input type="checkbox" id="tr-on"> Train</label><label class="stp">rate <input id="tr-lr" class="nin" type="number" step="0.001" min="0"></label><button id="tr-step">Step once</button><button id="tr-rand" title="Small random connection weights, and every neuron weight back to 1">Randomize weights</button><label class="chk"><input type="checkbox" id="tr-linout"> Linear output layer</label></div>
         <div class="brow" id="remote-ctl"><button id="ex-model" title="Save this frame, its dataset settings and its cost function as a file for trainer.py">Export model</button><button id="im-weights" title="Load a weights.json written by trainer.py into this frame">Import weights</button><input type="file" id="im-file" accept=".json,application/json" hidden></div>
         <p class="hint" id="math-hint"></p>
       </section>
@@ -1724,7 +1724,9 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const b = byId(activeP); if (!b) return; const fan = {};
     for (const key in b.edges) { const d = key.slice(key.indexOf('>') + 1); fan[d] = (fan[d] || 0) + 1; }
     for (const key in b.edges) b.edges[key] = Math.round((Math.random() * 2 - 1) / Math.sqrt(fan[key.slice(key.indexOf('>') + 1)]) * 1000) / 1000;
-    b.steps = 0; b.avg = null; renderSide(); update(true);
+    for (const k in b.ns) b.ns[k] = 1;                               // neuron weights train too, so a fresh start has to put them back as well
+    b.steps = 0; b.avg = null; STATS.clear(); renderSide(); update(true);
+    toast(`${b.name}: connections randomized and every neuron weight set back to 1.`);
   });
 
   // ---------- training elsewhere ----------
