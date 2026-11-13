@@ -130,6 +130,7 @@ button.danger { color: var(--neg) }
 .more2 { text-anchor: middle; font-size: 9px; fill: var(--muted) !important }
 .edge.bundle { pointer-events: none } .edge.bundle .vis { stroke: var(--muted); stroke-dasharray: 2 4; opacity: .8 } .edge.bundle .arr { fill: var(--muted) }
 .bhead select { font-size: 11.5px; padding: 2px 4px }
+.linax button[aria-pressed=true] { border-color: var(--grid); color: var(--grid) } .linax:empty { display: none }
 .fold svg { display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 6px }
 .fold polyline { fill: none; stroke: var(--grid); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round }
 .fold .s { fill: var(--grid) } .fold .e { fill: var(--surface); stroke: var(--grid); stroke-width: 1.5; vector-effect: non-scaling-stroke }
@@ -612,10 +613,17 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       return { out, note: `${typeStr(out)} · samples ${b.pos}–${(b.pos + b.n - 1) % L} of ${L}` };
     }
     if (b.type === 'lin') {                  // T[d1, …, dn] → T[d1 · … · dn]: the last two dimensions are read in the chosen pattern, slice by slice
-      const sh = sig.shape, w = sh[sh.length - 1], h = sh.length > 1 ? sh[sh.length - 2] : 1, ord = foldOrder(h, w, b.mode), v = [];
-      for (let base = 0; base < sig.data.length; base += h * w) for (let i = 0; i < ord.length; i++) v.push(sig.data[base + ord[i]]);
-      const out = arr(sig.dtype, [v.length], v);
-      return { out, shape: [h, w], ord, note: `${typeStr(sig)} → ${typeStr(out)}` };
+      // b.rev[k] reverses the direction along one axis, counted from the last: 0 = along a row, 1 = down the rows, 2 and up = the order of the slices.
+      const sh = sig.shape, w = sh[sh.length - 1], h = sh.length > 1 ? sh[sh.length - 2] : 1, rev = b.rev || [], v = [];
+      const ord = foldOrder(h, w, b.mode).map(i => { const r = Math.floor(i / w), c = i % w; return (rev[1] ? h - 1 - r : r) * w + (rev[0] ? w - 1 - c : c); });
+      const lead = sh.slice(0, Math.max(0, sh.length - 2)), slices = lead.reduce((p, q) => p * q, 1);
+      for (let k = 0; k < slices; k++) {
+        let src = 0, rem = k, mul = 1;                               // slice k of the output is which slice of the input
+        for (let a = lead.length - 1; a >= 0; a--) { const dgt = rem % lead[a]; rem = Math.floor(rem / lead[a]); src += (rev[sh.length - 1 - a] ? lead[a] - 1 - dgt : dgt) * mul; mul *= lead[a]; }
+        for (let i = 0; i < ord.length; i++) v.push(sig.data[src * h * w + ord[i]]);
+      }
+      const out = arr(sig.dtype, [v.length], v), flipped = sh.map((_, a) => rev[sh.length - 1 - a]).filter(Boolean).length;
+      return { out, shape: [h, w], dims: sh.length, ord, note: `${typeStr(sig)} → ${typeStr(out)}` + (flipped ? ` · ${flipped} ax${flipped > 1 ? 'es' : 'is'} reversed` : '') };
     }
     if (b.type === 'data') {                 // one image per step, as int (raw), float (0 to 1) or bool (at least half of the maximum)
       const ds = dataset(b);
@@ -734,7 +742,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         `<div class="brow"><label class="filebtn">Load folder<input type="file" webkitdirectory multiple data-f="dir" hidden></label><button data-act="dbuiltin">Built-in digits</button>${API ? '<button data-act="dkaggle">Kaggle</button>' : ''}</div>`;
     } else if (b.type === 'attn') {
       h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><button data-act="arand">Randomize</button></div><canvas width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
-    } else if (b.type === 'lin') h = '<div class="fold"></div>';
+    } else if (b.type === 'lin') h = '<div class="brow linax"></div><div class="fold"></div>';
     else h = '<div class="loss"></div><canvas hidden></canvas><div class="bars"></div>';
     body.innerHTML = h;
     if (b.type === 'text') body.querySelector('textarea').value = b.text;
@@ -772,7 +780,14 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       for (let i = 0; i < n * n; i++) { if (!r.att[i]) continue; c.globalAlpha = r.att[i]; c.fillRect((i % n) * k, Math.floor(i / n) * k, k, k); }
     }
     else if (b.type === 'lin') {
-      const box = el.querySelector('.fold');
+      const box = el.querySelector('.fold'), ax = el.querySelector('.linax'), rev = b.rev || [], dims = r.ord ? r.dims : 0;
+      // one direction button per axis of the incoming array, last axis first
+      const axHtml = Array.from({ length: dims }, (_, k) => {
+        const name = k === 0 ? 'x' : k === 1 ? 'y' : 'axis ' + (dims - k), arrow = k === 1 ? (rev[k] ? '↑' : '↓') : (rev[k] ? '←' : '→');
+        const say = k === 0 ? (rev[k] ? 'right to left' : 'left to right') : k === 1 ? (rev[k] ? 'bottom to top' : 'top to bottom') : (rev[k] ? 'last slice first' : 'first slice first');
+        return `<button data-act="lrev" data-arg="${k}" aria-pressed="${!!rev[k]}" title="${k > 1 ? 'Axis ' + (dims - k) + ' of ' + dims : k ? 'Rows' : 'Columns'}: ${say}. Click to reverse.">${name} ${arrow}</button>`;
+      }).join('');
+      if (ax.dataset.h !== axHtml) { ax.dataset.h = axHtml; ax.innerHTML = axHtml; }
       if (!r.ord) box.innerHTML = '<span class="hint">Connect an array to see the path.</span>';
       else {
         const [h, w] = r.shape, k = Math.min(150 / w, 150 / h, 30), pt = i => ((i % w) + .5) + ',' + (Math.floor(i / w) + .5), o = r.ord, rad = Math.min(.3, 4 / k);
@@ -1398,6 +1413,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (name === 'pclear') b.px.fill(0);
     else if (name === 'tn' || name === 'wn' || name === 'ak' || name === 'sn') b.n = Math.max(1, b.n + arg);
     else if (name === 'sdraw') b.seed = (b.seed || 0) + 1;
+    else if (name === 'lrev') { b.rev = b.rev || []; b.rev[arg] = !b.rev[arg]; for (let k = 0; k < b.rev.length; k++) b.rev[k] = !!b.rev[k]; }
     else if (name === 'splay') b.playing = !b.playing;
     else if (name === 'arand') { b.seed = (b.seed || 0) + 1; b.wq = null; }
     else if (name === 'wplay' || name === 'dplay') b.playing = !b.playing;
@@ -1889,8 +1905,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   // Export: one frame with what feeds it (Dataset, then Linearize) and what scores it (Cost function), as a file trainer.py reads.
   // Import: the weights.json trainer.py writes; weights are matched to this frame's neurons and connections by their ids.
   function modelOf(b) {
-    const wIn = G.wires.find(q => q.to === b.id && (q.tp || 0) === 0); let src = wIn && byId(wIn.from), fold = null;
-    if (src && src.type === 'lin') { fold = src.mode || 'rows'; const w2 = G.wires.find(q => q.to === src.id && (q.tp || 0) === 0); src = w2 && byId(w2.from); }
+    const wIn = G.wires.find(q => q.to === b.id && (q.tp || 0) === 0); let src = wIn && byId(wIn.from), fold = null, foldRev = [false, false];
+    if (src && src.type === 'lin') { fold = src.mode || 'rows'; foldRev = [!!(src.rev || [])[0], !!(src.rev || [])[1]]; const w2 = G.wires.find(q => q.to === src.id && (q.tp || 0) === 0); src = w2 && byId(w2.from); }
     if (!src || src.type !== 'data' || !fold) return { err: `Export needs Dataset → Linearize → ${b.name}. Other inputs cannot be trained elsewhere yet.` };
     const wOut = G.wires.find(q => q.from === b.id && byId(q.to) && byId(q.to).type === 'read' && (q.tp || 0) === 0), cost = wOut && byId(wOut.to);
     if (!cost) return { err: `Wire ${b.name}'s output into a Cost function's prediction first.` };
@@ -1906,7 +1922,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     for (const key in b.edges) { const cut = key.indexOf('>'); es.push(+key.slice(0, cut)); ed.push(+key.slice(cut + 1)); ew.push(b.edges[key]); }
     return { format: 'perceptron-editor/model', v: 1, name: b.name,
       data: { source: ds.kref ? 'kaggle' : DS[src.id] ? 'folder' : 'digits', ...(ds.kref ? { ref: ds.kref } : {}), name: ds.name, w: ds.w, h: ds.h, max: ds.max, as: src.as || 'int', classes: ds.classes },
-      fold, loss: LOSSES[cost.loss] ? cost.loss : 'se',
+      fold, foldRev, loss: LOSSES[cost.loss] ? cost.loss : 'se',
       frame: { act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, in: vin.n, out: vout.n, ns: { id, w }, edges: { s: es, d: ed, w: ew } } };
   }
   $('ex-model').addEventListener('click', async () => {

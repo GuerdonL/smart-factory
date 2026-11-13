@@ -224,8 +224,9 @@ def natural(s):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
 
-def fold_order(h, w, mode):
-    """The Linearize block's read-out order, as indices into the row-major image."""
+def fold_order(h, w, mode, rev=None):
+    """The Linearize block's read-out order, as indices into the row-major image.
+    rev = (x, y): read each row right to left, and/or the rows bottom to top, whatever the pattern."""
     o, at = [], lambda r, c: o.append(r * w + c)
     if mode == "cols":
         [at(r, c) for c in range(w) for r in range(h)]
@@ -249,6 +250,9 @@ def fold_order(h, w, mode):
             [at(r, c) for r, c in (cells[::-1] if dg % 2 == 0 else cells)]
     else:
         o = list(range(h * w))
+    rx, ry = (list(rev) + [False, False])[:2] if rev else (False, False)
+    if rx or ry:
+        o = [((h - 1 - i // w) if ry else i // w) * w + ((w - 1 - i % w) if rx else i % w) for i in o]
     return o
 
 
@@ -345,7 +349,7 @@ def tensors(model, spec, dtype):
         sys.exit(f"none of the labels in {spec} are among the model's classes {d['classes'][:12]}")
     if len(keep) < len(labels):
         print(f"{len(labels) - len(keep)} samples skipped: label not among the model's classes")
-    pix = pix[keep][:, fold_order(h, w, model.get("fold") or "rows")]
+    pix = pix[keep][:, fold_order(h, w, model.get("fold") or "rows", model.get("foldRev"))]
     x = torch.as_tensor(pix).to(dtype)
     x = x / mx if d.get("as") == "float" else (x >= mx / 2).to(dtype) if d.get("as") == "bool" else x
     return x, torch.as_tensor([classes[labels[i]] for i in keep])

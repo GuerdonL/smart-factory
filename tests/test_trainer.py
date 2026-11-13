@@ -64,6 +64,9 @@ def test_fold_orders():
     assert trainer.fold_order(2, 3, "snake") == [0, 1, 2, 5, 4, 3]
     assert trainer.fold_order(3, 3, "spiral") == [0, 1, 2, 5, 8, 7, 6, 3, 4]
     assert trainer.fold_order(3, 3, "zigzag") == [0, 1, 3, 6, 4, 2, 5, 7, 8]
+    assert trainer.fold_order(2, 3, "rows", (True, False)) == [2, 1, 0, 5, 4, 3]
+    assert trainer.fold_order(2, 3, "rows", (False, True)) == [3, 4, 5, 0, 1, 2]
+    assert trainer.fold_order(2, 3, "cols", (True, True)) == [5, 2, 4, 1, 3, 0]
     for mode in ("snakec", "spiral", "zigzag"):
         assert sorted(trainer.fold_order(5, 7, mode)) == list(range(35))
 
