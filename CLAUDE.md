@@ -8,4 +8,4 @@ Owner: Guerdon (GuerdonL). This project is the off-browser trainer for his Perce
   against the live editor page (headless Chrome) was done by hand on 2026-11-12 and is not in the test suite.
 - Not yet exercised: a real `bb launch` from this project, `--data hf:...`, CUDA and MPS devices, a resumed rented run.
   The GPU time figure in `run.py` is a rule of thumb (`GPU_FLOPS`), not a measurement; correct it after the first real runs.
-- `editor/perceptron-editor.html` is a copy of the published artifact's source; the artifact is the live version.
+- `editor/index.html` is the published Claude artifact's source wrapped in a plain HTML document; the artifact is edited first and this copy regenerated from it.

@@ -3,6 +3,13 @@
 Trains models built in the Perceptron Editor outside the browser: on this machine when that is quick,
 on a rented Vast.ai GPU through [box-boy](https://github.com/GuerdonL/box-boy) (`bb`) when it is not.
 
+## The editor
+
+    python -m http.server 8000 -d editor
+
+then open http://localhost:8000 in a browser. It has to be served like this: opened as a file, the page
+cannot load its digits. Graphs are kept in that browser's storage, separately from the copy on claude.ai.
+
 ## The loop
 
 1. In the editor, select an evaluation frame wired as Dataset → Linearize → frame → Cost function
@@ -42,7 +49,7 @@ cannot open those; it only imports weights into a frame it already has.
 - `trainer.py` trains one model file and writes `weights.json`, `metrics.json`, `log.csv`, `ckpt.pkl` (resume state) to `--out`.
 - `run.py` decides where to train and starts it.
 - `boxboy.toml` is the box-boy configuration (GPU type, price cap, setup and check commands).
-- `editor/` holds the editor page's source and its digits file.
+- `editor/` holds a standalone copy of the editor page and its digits file.
 - `tests/` checks the trainer against hand-computed and cross-checked results.
 
 Needs Python 3.11+, `torch`, `numpy`, `pillow`; renting also needs `bb` set up (`bb doctor`).
