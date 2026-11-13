@@ -56,7 +56,7 @@ def publish(paths, yes):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("model")
-    ap.add_argument("--data", default=None, help="digits | mnist | hf:<dataset repo> | folder in this repo; default: what the model was built on")
+    ap.add_argument("--data", default=None, help="digits | mnist | kaggle:<owner>/<name> | hf:<dataset repo> | folder in this repo; default: what the model was built on")
     ap.add_argument("--samples", type=int, default=None, help="how many samples the data has, when that cannot be counted from here (hf:)")
     ap.add_argument("--epochs", type=float, default=5)
     ap.add_argument("--batch", type=int, default=32)
@@ -121,6 +121,24 @@ def main():
     if os.path.isdir(os.path.join(ROOT, spec)):
         if not git("ls-files", "--", spec):
             sys.exit(f"{spec} is not committed, so the instance would not have it. Commit it, or put it in a Hugging Face dataset repo and pass --data hf:<repo>")
+    elif spec.startswith("kaggle:"):
+        # the instance has no Kaggle login, so the packed copy rides in box-boy's private Hugging Face repo
+        import tomllib
+        import kaggle_data
+        from huggingface_hub import HfApi
+        cfg = tomllib.load(open(os.path.join(ROOT, "boxboy.toml"), "rb"))
+        api = HfApi()
+        try:
+            repo = cfg.get("hf_repo") or f"{api.whoami()['name']}/{cfg.get('name') or os.path.basename(ROOT)}-runs"
+        except Exception:
+            if not a.plan:
+                sys.exit("no Hugging Face login found; run `hf auth login` first")
+            repo = "<your Hugging Face name>/" + (cfg.get("name") or os.path.basename(ROOT)) + "-runs"
+        if not a.plan:
+            api.create_repo(repo, private=True, exist_ok=True)
+            api.upload_folder(repo_id=repo, folder_path=kaggle_data.folder(spec[7:]), path_in_repo=kaggle_data.hf_path(spec[7:]),
+                              allow_patterns=["packed.npz", "info.json"], commit_message=f"dataset {spec}")
+        print(f"data    {'would copy' if a.plan else 'copied'} the packed dataset to the private Hugging Face repo {repo}")
     elif spec not in ("digits", "mnist") and not spec.startswith("hf:"):
         sys.exit(f"{spec} is outside this project, so the instance cannot read it")
     hours = max(0.5, math.ceil(gpu_s * 4 / 360) / 10)          # a stuck or slow job stops here instead of running up a bill

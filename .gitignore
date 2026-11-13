@@ -3,3 +3,6 @@ data/cache/
 __pycache__/
 models/_*
 jobs/_*
+.serve-token
+data/kaggle/
+data/hf/

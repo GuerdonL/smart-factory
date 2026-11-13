@@ -297,30 +297,40 @@ def load_mnist(cache):
 
 
 def load_data(spec):
-    """spec: digits | mnist | hf:<dataset repo of image folders> | a folder of images. -> pixels [n, w*h] uint8, labels, w, h, max"""
+    """spec: digits | mnist | kaggle:<owner>/<name> | hf:<dataset repo of image folders> | a folder of images. -> pixels [n, w*h] uint8, labels, w, h, max"""
     if spec == "digits":
         j = json.load(open(os.path.join(HERE, "data", "digits.json")))
         pix = np.array([int(c, 17) for c in j["pixels"]], dtype=np.uint8).reshape(j["n"], -1)
         return pix, list(j["labels"]), j["w"], j["h"], j["max"]
     if spec == "mnist":
         return load_mnist(os.path.join(HERE, "data", "cache", "mnist"))
+    if spec.startswith("kaggle:"):
+        import kaggle_data
+        return kaggle_data.load(spec[7:])
     if spec.startswith("hf:"):
         from huggingface_hub import snapshot_download
         return load_folder(snapshot_download(spec[3:], repo_type="dataset"))
     if os.path.isdir(spec):
         return load_folder(spec)
-    sys.exit(f"dataset {spec!r}: expected digits, mnist, hf:<dataset repo> or a folder of images")
+    sys.exit(f"dataset {spec!r}: expected digits, mnist, kaggle:<owner>/<name>, hf:<dataset repo> or a folder of images")
 
 
 def data_size(spec):
     """How many samples, without loading them when that can be avoided (None if it cannot be known cheaply)."""
     if spec in KNOWN_SIZES:
         return KNOWN_SIZES[spec]
+    if spec.startswith("kaggle:"):
+        import kaggle_data
+        i = kaggle_data.info(spec[7:])
+        return i["n"] if i else None
     return len(folder_files(spec)) if os.path.isdir(spec) else None
 
 
 def default_data(model):
-    return model["data"].get("source") if model["data"].get("source") in ("digits", "mnist") else None
+    d = model["data"]
+    if d.get("source") == "kaggle" and d.get("ref"):
+        return "kaggle:" + d["ref"]
+    return d.get("source") if d.get("source") in ("digits", "mnist") else None
 
 
 def tensors(model, spec, dtype):
@@ -375,7 +385,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("model")
     ap.add_argument("--out", required=True, help="folder for the results, e.g. runs/<name>")
-    ap.add_argument("--data", default=None, help="digits | mnist | hf:<dataset repo> | folder; default: what the model was built on")
+    ap.add_argument("--data", default=None, help="digits | mnist | kaggle:<owner>/<name> | hf:<dataset repo> | folder; default: what the model was built on")
     ap.add_argument("--epochs", type=float, default=5)
     ap.add_argument("--batch", type=int, default=32, help="1 with --no-shuffle reproduces the editor's own training exactly")
     ap.add_argument("--lr", type=float, default=None, help="default: the frame's rate in the editor")

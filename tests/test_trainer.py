@@ -81,3 +81,38 @@ def test_training_learns_digits_and_resumes(tmp_path):
     r = subprocess.run(cmd + ["12"], cwd=ROOT, check=True, capture_output=True, text=True)     # same folder: continues from ckpt.pkl
     assert f"resuming at step {m['steps']}" in r.stdout
     assert json.load(open(out / "metrics.json"))["steps"] > m["steps"]
+
+
+def test_kaggle_packing(tmp_path, monkeypatch):
+    import kaggle_data
+    from PIL import Image
+    monkeypatch.setattr(kaggle_data, "ROOT", str(tmp_path))
+    rng = np.random.default_rng(0)
+    # image folders of mixed sizes: scaled to one size, label = the folder
+    for i in range(12):
+        d = tmp_path / "o" / "imgs" / "raw" / ("train" if i % 2 else "test") / ("cat" if i % 3 else "dog")
+        d.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(rng.integers(0, 255, (20 + i, 30, 3), dtype=np.uint8)).save(d / f"{i}.png")
+    i = kaggle_data.pack("o/imgs")
+    assert (i["w"], i["h"], i["n"], i["classes"]) == (32, 32, 12, ["cat", "dog"])
+    pix, labels, w, h, mx = kaggle_data.load("o/imgs")
+    assert pix.shape == (12, 1024) and labels.count("dog") == 4 and mx == 255
+    # MNIST-style CSV: label column anywhere, pixel values 0-255
+    raw = tmp_path / "o" / "csv" / "raw"
+    raw.mkdir(parents=True)
+    rows = rng.integers(0, 256, (7, 16))
+    with open(raw / "train.csv", "w") as f:
+        f.write(",".join(f"p{k}" for k in range(16)) + ",Label\n")
+        for k, r in enumerate(rows):
+            f.write(",".join(map(str, r)) + f",{k % 3}\n")
+    (raw / "notes.csv").write_text("a,b\n1,2\n")
+    i = kaggle_data.pack("o/csv")
+    assert (i["w"], i["h"], i["n"], i["classes"]) == (4, 4, 7, ["0", "1", "2"])
+    pix, labels, *_ = kaggle_data.load("o/csv")
+    assert (pix == rows).all() and labels[:4] == ["0", "1", "2", "0"]
+    for bad in ("../x", "a/b/c", "a/..", "x"):
+        try:
+            kaggle_data.folder(bad)
+            assert False, bad
+        except kaggle_data.KaggleError:
+            pass

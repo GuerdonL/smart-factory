@@ -5,10 +5,41 @@ on a rented Vast.ai GPU through [box-boy](https://github.com/GuerdonL/box-boy) (
 
 ## The editor
 
-    python -m http.server 8000 -d editor
+    python serve.py                      # then open http://<this machine>:8000
 
-then open http://localhost:8000 in a browser. It has to be served like this: opened as a file, the page
-cannot load its digits. Graphs are kept in that browser's storage, separately from the copy on claude.ai.
+`serve.py` serves the page in `editor/` and adds the Dataset block's **Kaggle** button: search Kaggle, add a
+dataset to this machine, and load it into the block. It runs the Kaggle CLI with this machine's Kaggle login
+(`pip install kaggle`, then `kaggle auth login`, or a token in `KAGGLE_API_TOKEN`). Those calls need the access
+token `serve.py` prints at start (kept in `.serve-token`; set your own with `--token` or `SF_TOKEN`); the page
+asks for it once per browser. Anyone who can reach the port can open the editor itself.
+
+To keep it running on a server, as `/etc/systemd/system/smart-factory.service`:
+
+    [Unit]
+    Description=Perceptron Editor
+    After=network-online.target
+    [Service]
+    User=<the user that ran kaggle auth login>
+    WorkingDirectory=/path/to/smart-factory
+    ExecStart=/usr/bin/python3 serve.py --port 8000
+    Restart=always
+    [Install]
+    WantedBy=multi-user.target
+
+then `sudo systemctl enable --now smart-factory`. Without Kaggle, `python -m http.server 8000 -d editor` is enough.
+Graphs are kept in each browser's storage.
+
+## Kaggle datasets
+
+    python kaggle_data.py search "sign language"
+    python kaggle_data.py add datamunge/sign-language-mnist
+    python run.py models/<file>.json --data kaggle:datamunge/sign-language-mnist
+
+Two layouts are understood: image files (label = the folder each is in; mixed or large sizes are scaled to 32 px
+square unless `--size` says otherwise) and MNIST-style CSVs (a label column plus a square number of pixel columns).
+Everything becomes greyscale. Other datasets are refused with a note of what they hold. A model exported while
+a Kaggle dataset is in the Dataset block remembers it, so `--data` is not needed. For a rented run, `run.py`
+copies the packed dataset to box-boy's private Hugging Face repo, because the instance has no Kaggle login.
 
 ## The loop
 
@@ -29,7 +60,7 @@ the trainer saves what it has just before that.
 
 ## Data
 
-`--data` takes `digits` (the editor's built-in 8×8 set, in `data/`), `mnist` (28×28, downloaded on first
+`--data` takes `kaggle:<owner>/<name>` (above), `digits` (the editor's built-in 8×8 set, in `data/`), `mnist` (28×28, downloaded on first
 use), a folder of same-sized images inside this repo (label = subfolder, else the file name before `_`,
 as in the editor), or `hf:<dataset repo>` holding such a folder. A model exported while a browser-loaded
 folder was in the Dataset block needs `--data`, because the browser never keeps the files.
@@ -48,8 +79,9 @@ cannot open those; it only imports weights into a frame it already has.
 
 - `trainer.py` trains one model file and writes `weights.json`, `metrics.json`, `log.csv`, `ckpt.pkl` (resume state) to `--out`.
 - `run.py` decides where to train and starts it.
+- `serve.py` serves the editor and its Kaggle panel; `kaggle_data.py` finds, downloads and packs Kaggle datasets.
 - `boxboy.toml` is the box-boy configuration (GPU type, price cap, setup and check commands).
 - `editor/` holds a standalone copy of the editor page and its digits file.
 - `tests/` checks the trainer against hand-computed and cross-checked results.
 
-Needs Python 3.11+, `torch`, `numpy`, `pillow`; renting also needs `bb` set up (`bb doctor`).
+Needs Python 3.11+, `torch`, `numpy`, `pillow`; Kaggle needs the `kaggle` CLI; renting also needs `bb` set up (`bb doctor`).
