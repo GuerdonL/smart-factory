@@ -1,4 +1,4 @@
-# perceptron-trainer
+# smart-factory
 
 Trains models built in the Perceptron Editor outside the browser: on this machine when that is quick,
 on a rented Vast.ai GPU through [box-boy](https://github.com/GuerdonL/box-boy) (`bb`) when it is not.
