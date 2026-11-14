@@ -325,7 +325,7 @@ def train(g, a):
                 sys.exit("a weight grew without limit; lower the blocks' rates in the editor, or pass a smaller --lr")
             run, seen = run + v, seen + 1
         now = time.time()
-        if now - last_log > 15 or step == total:
+        if now - last_log > getattr(a, 'log_s', 15) or step == total:
             vl, va = evaluate(va_idx)
             wr.writerow([step, round(step / per_epoch, 3), round(now - t0, 1), run / max(seen, 1), vl, va]); log.flush()
             print(f"step {step:,}/{total:,}  loss {run / max(seen, 1):.4f}" + (f"  held-out accuracy {va:.1%}" if va is not None else f"  held-out loss {vl:.4f}" if vl is not None else ""), flush=True)
@@ -345,3 +345,13 @@ def train(g, a):
                "train_loss": tl, "train_accuracy": ta, "val_loss": vl, "val_accuracy": va, "note": stopped}
     trainer.atomic(os.path.join(a.out, "metrics.json"), lambda p: json.dump(metrics, open(p, "w"), indent=1))
     print(json.dumps(metrics))
+
+
+if __name__ == "__main__":                               # python graph.py bench models/x.json.gz --batch 32  ->  one line of JSON
+    if len(sys.argv) >= 3 and sys.argv[1] == "bench":
+        torch.set_num_threads(1)
+        batch = int(sys.argv[sys.argv.index("--batch") + 1]) if "--batch" in sys.argv else 32
+        per_step, n, held = bench(trainer.load_model(sys.argv[2]), batch, torch.device("cpu"), seconds=2.0)
+        print(json.dumps({"per_step": per_step, "n": n, "held": held}))
+    else:
+        sys.exit("usage: python graph.py bench <model file> [--batch N]")

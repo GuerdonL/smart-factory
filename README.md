@@ -29,20 +29,24 @@ To keep it running on a server, as `/etc/systemd/system/smart-factory.service`:
 then `sudo systemctl enable --now smart-factory`. Without Kaggle, `python -m http.server 8000 -d editor` is enough.
 Graphs are kept in each browser's storage.
 
-## Renting from the editor
+## Running a graph from the editor
 
-With `serve.py` running and box-boy set up on the same machine (`bb doctor` passes, and `git push` works from this
-clone), the editor can hand a training run to a rented GPU by itself:
+A graph predicts whenever its inputs are connected and trains whenever a loss is wired back through it; there is no
+Train switch. With `serve.py` behind the page, right-clicking any block of a graph offers:
 
-- Ticking **Train** on a frame times a few steps. If five passes over the data would take more than five minutes in
-  the browser, a dialog opens. **Train on a GPU…** in the frame panel opens the same dialog at any time.
-- The dialog shows the run, the machine and hourly price `bb launch --dry-run` found, the expected cost, and the most
-  it can cost (the run is stopped after a time limit of four times the estimate, at least half an hour).
-- Nothing is rented until **Rent and run** is pressed. That commits and pushes the model file to this public repo,
-  runs `bb launch`, follows the run, and loads the finished weights into the frame.
+- **Run locally**: on the machine running `serve.py`, not in the browser. It times a few steps first and shows how long
+  the run would take. One run at a time, one processor core, low priority, stopped after 10 minutes (`SF_LOCAL_MINUTES`)
+  with whatever it has learned. Needs PyTorch on that machine
+  (`pip install torch --index-url https://download.pytorch.org/whl/cpu`).
+- **Run on GPU**: through box-boy (`bb doctor` must pass on that machine and `git push` must work from this clone). The
+  dialog shows the machine and hourly price `bb launch --dry-run` found, the expected cost, and the most it can cost
+  (the run is stopped after four times the estimate, at least half an hour). Nothing is rented until **Rent and run** is
+  pressed; that commits and pushes the model file to this public repo and runs `bb launch`.
 
-Anything the trainer can train goes this way (see "What the trainer computes"). The GPU time is a rule of thumb, so
-the expected cost is too; the hourly price is box-boy's.
+Either way only the blocks behind that graph's Cost function are sent: other models on the page and loose blocks are
+never included. The run is followed from the page and its weights are loaded into the blocks it trained. The GPU time
+is a rule of thumb, so the expected cost is too; the hourly price is box-boy's. Without `serve.py` (the claude.ai copy,
+or a plain file server) the menu offers **Train in this browser** instead.
 
 ## Hugging Face datasets
 
@@ -100,8 +104,7 @@ folder was in the Dataset block needs `--data`, because the browser never keeps 
 ## What the trainer computes
 
 **Export model** saves everything behind the selected frame's Cost function as one file: the blocks with their settings
-and weights, the wires, and which blocks to train (those a gradient reaches through the backprop wires; if some have
-Train ticked, only those). `graph.py` runs it. Blocks it understands: Dataset (built-in digits, Kaggle or Hugging Face
+and weights, the wires, and which blocks to train (those a gradient reaches through the backprop wires). `graph.py` runs it. Blocks it understands: Dataset (built-in digits, Kaggle or Hugging Face
 images, Hugging Face text), Text buffer, Pixel array, Distribution, Random sampler, Tokenizer (Characters), Linearize,
 Attention, Evaluation frame and Cost function. Not yet: Waveform, the Tokenizer's Words mode, a folder loaded in the
 browser, more than one Dataset block. With no Dataset block a "pass" is 10,000 draws from the samplers. Each trained

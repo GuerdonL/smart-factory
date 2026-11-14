@@ -412,7 +412,11 @@ def main():
     ap.add_argument("--double", action="store_true", help="64-bit floats, like the editor")
     ap.add_argument("--max-minutes", type=float, default=None, help="stop cleanly and save after this long")
     ap.add_argument("--ckpt-s", type=float, default=120)
+    ap.add_argument("--log-s", type=float, default=15, help="seconds between progress lines")
+    ap.add_argument("--threads", type=int, default=None, help="limit the CPU threads used (a small shared machine: 1)")
     a = ap.parse_args()
+    if a.threads:
+        torch.set_num_threads(a.threads)
 
     model = load_model(a.model)
     if model["format"] == "perceptron-editor/graph":       # a whole graph (attention, text, samplers, several frames): graph.py runs it

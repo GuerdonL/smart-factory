@@ -4,7 +4,7 @@ Owner: Guerdon (GuerdonL). This project is the off-browser trainer for his Perce
 
 - **Renting is a purchase.** Never pass `--yes` to `bb launch` or pipe a "y" into it yourself. `run.py` shows the dry run and lets
   `bb` ask. The one exception in the code is `remote.launch()`, reached only through `serve.py`'s `/api/train/launch` when a person
-  presses the editor dialog's "Rent and run" button with the cost shown on it. Never call that endpoint or function to test it;
+  presses the editor dialog's "Rent and run" button with the cost shown on it. ("Run locally" uses `remote.local_start()`, which rents nothing.) Never call that endpoint or function to test it;
   the tests use a stand-in `bb`. Do not add any other path to a launch, and do not weaken the dialog.
 - The repo is public because box-boy instances clone it without a login. Do not commit anything private; `runs/` is ignored.
 - `graph.py` mirrors the editor's `compute()` block by block (tokenizer alphabet, Linearize order, attention with positions,

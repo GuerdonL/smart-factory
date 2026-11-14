@@ -81,6 +81,11 @@ class Handler(SimpleHTTPRequestHandler):
             if u.path == "/api/train/plan" and method == "POST":
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
                 return self.send(200, remote.plan(body.get("model") or {}, body.get("epochs", 5), body.get("batch", 32), body.get("levels", 3)))
+            if u.path in ("/api/train/local/plan", "/api/train/local/start", "/api/train/stop") and method == "POST":
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                if u.path.endswith("/plan"):
+                    return self.send(200, remote.local_plan(body.get("model") or {}, body.get("epochs", 5), body.get("batch", 32)))
+                return self.send(200, (remote.local_start if u.path.endswith("/start") else remote.stop)(body.get("name", "")))
             if u.path == "/api/train/launch" and method == "POST":      # the one call that spends money: only sent by the dialog's confirm button
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
                 if body.get("confirm") != "rent":

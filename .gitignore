@@ -7,3 +7,4 @@ jobs/_*
 data/kaggle/
 data/hf/
 data/hfds/
+models/*.json.gz

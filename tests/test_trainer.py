@@ -226,3 +226,30 @@ def test_graph_tokenizer_and_linearize_match_the_editor():
     assert toks.shape == (2, 4, 97) and toks[0].argmax(-1).tolist() == [41, 74, 13, 1] and labs[0].argmax(-1).tolist() == [74, 13, 1, 90]   # as the editor shows them
     lin = {"id": 9, "mode": "rows", "rev": [False, False, True]}
     assert net._lin_index(lin, (2, 2, 3)).tolist() == [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]
+
+
+def test_local_run_on_the_server(tmp_path, monkeypatch):
+    import remote
+    import shutil as sh
+    import time as tm
+    for f in ("trainer.py", "graph.py", "hf_data.py", "kaggle_data.py"):
+        sh.copy(os.path.join(ROOT, f), tmp_path / f)
+    monkeypatch.setattr(remote, "HERE", str(tmp_path))
+    monkeypatch.setattr(remote, "STATE", str(tmp_path / "runs" / "_remote"))
+    p = remote.local_plan(reversal_graph(True), epochs=0.05, batch=4)
+    assert p["kind"] == "local" and not p["problems"] and p["steps"] == 125 and p["est_s"] > 0 and p["val"] == 0
+    try:
+        remote.launch(p["name"])                                   # a local plan can never become a rental
+        assert False
+    except remote.RemoteError:
+        pass
+    m = remote.local_start(p["name"])
+    assert m["state"] == "running"
+    assert remote._local_alive(m)                                  # which is what makes the server refuse a second run meanwhile
+    for _ in range(120):
+        m = remote.status(p["name"])
+        if m["state"] != "running":
+            break
+        tm.sleep(0.5)
+    assert m["state"] == "done" and m["metrics"]["steps"] == 125
+    assert set(remote.weights(p["name"])["blocks"]) == {"3", "4"}

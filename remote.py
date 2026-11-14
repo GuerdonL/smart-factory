@@ -5,6 +5,10 @@ serve.py calls when the editor offers to move a large training load off the brow
     launch()  publishes the model file to GitHub and runs `bb launch --yes`. Only ever called after the person has
               confirmed the plan and its cost in the editor's dialog; never call it for any other reason.
     status()  where the run is; once its instance is gone, downloads the result with `bb collect`
+
+"Run locally" from the editor means on this machine, the one serving the page, which is assumed to be small:
+    local_plan()   saves the model and times a few steps here to say how long the run would take
+    local_start()  runs trainer.py as one low-priority, single-threaded process with a time limit; one at a time
 """
 import gzip
 import json
@@ -13,7 +17,9 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
+import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +28,9 @@ GPU_FLOPS = 3e12          # what a single rented card gets through on this kind 
 GPU_STEP_OVERHEAD = 4e-4  # seconds per level per step that no card speeds up
 STARTUP_S = 8 * 60        # renting, pulling the image, cloning and checking, before training starts; billed like the rest
 KNOWN_SIZES = {"digits": 1797, "mnist": 70000}
+LOCAL_MINUTES = float(os.environ.get("SF_LOCAL_MINUTES", 10))   # a run on this machine is stopped after this long
+LOCAL_MARGIN = 1.3        # a real run is slower than the timed steps
+PROCS = {}                # local runs started by this server process
 
 
 class RemoteError(Exception):
@@ -81,13 +90,7 @@ def plan(model, epochs=5, batch=32, levels=3, val=0.1):
     else:
         raise RemoteError("this model's images were loaded from a folder in the browser, which a rented machine cannot reach. "
                           "Load the data through the Dataset block's Kaggle or Hugging Face button instead.")
-    if os.path.isdir(STATE):                             # drop plans that were looked at and not taken
-        for f in os.listdir(STATE):
-            old = json.load(open(os.path.join(STATE, f)))
-            if old.get("state") == "planned":
-                for q in (old["path"], old["jobs"], os.path.join("runs", "_remote", f)):
-                    if os.path.exists(os.path.join(HERE, q)):
-                        os.remove(os.path.join(HERE, q))
+    _sweep()
     epochs, batch = max(0.01, float(epochs)), max(1, int(batch))
     if graph and d is None:
         val = 0                                          # nothing to hold out: every sample is a fresh draw
@@ -97,8 +100,7 @@ def plan(model, epochs=5, batch=32, levels=3, val=0.1):
     steps = max(1, round(epochs * math.ceil(n * (1 - val) / batch)))
     gpu_s = gpu_seconds(edges, int(levels), steps, batch)
     cap = hours_cap(gpu_s)
-    stem = re.sub(r"[^A-Za-z0-9]+", "-", model.get("name") or "model").strip("-").lower() or "model"
-    name = f"{stem}-{time.strftime('%m%d-%H%M%S')}"
+    name = f"{_stem(model)}-{time.strftime('%m%d-%H%M%S')}"
     os.makedirs(os.path.join(HERE, "models"), exist_ok=True)
     os.makedirs(os.path.join(HERE, "jobs"), exist_ok=True)
     path = f"models/{name}.json.gz"
@@ -109,7 +111,7 @@ def plan(model, epochs=5, batch=32, levels=3, val=0.1):
     job = f"{name}: python trainer.py {' '.join(shlex.quote(a) for a in args)}"
     jobs = f"jobs/{name}.txt"
     open(os.path.join(HERE, jobs), "w").write(job + "\n")
-    meta = {"name": name, "frame": model.get("name"), "path": path, "jobs": jobs, "job": job, "spec": spec, "samples": n, "edges": edges,
+    meta = {"name": name, "kind": "gpu", "frame": model.get("name"), "path": path, "jobs": jobs, "job": job, "spec": spec, "samples": n, "edges": edges,
             "steps": steps, "epochs": epochs, "batch": batch, "gpu_s": gpu_s, "startup_s": STARTUP_S, "hours_cap": cap, "state": "planned",
             "problems": [], "price": None, "offer": None, "dry_run": ""}
     if size > 95:
@@ -131,6 +133,123 @@ def plan(model, epochs=5, batch=32, levels=3, val=0.1):
     return meta
 
 
+def _stem(model):
+    return re.sub(r"[^A-Za-z0-9]+", "-", model.get("name") or "model").strip("-").lower() or "model"
+
+
+def _sweep():
+    """Drop plans that were looked at and not taken."""
+    if os.path.isdir(STATE):
+        for f in os.listdir(STATE):
+            old = json.load(open(os.path.join(STATE, f)))
+            if old.get("state") == "planned":
+                for q in (old["path"], old.get("jobs") or "", os.path.join("runs", "_remote", f)):
+                    if q and os.path.isfile(os.path.join(HERE, q)):
+                        os.remove(os.path.join(HERE, q))
+
+
+def _local_alive(meta):
+    p = PROCS.get(meta["name"])
+    if p is not None:
+        return p.poll() is None
+    try:                                                 # started by an earlier server process: look the pid up
+        return meta["name"] in open(f"/proc/{meta['pid']}/cmdline").read()
+    except (OSError, KeyError):
+        return False
+
+
+def local_plan(model, epochs=5, batch=32, val=0.1):
+    """Save the graph and time a few of its training steps on this machine. Starts nothing."""
+    if model.get("format") != "perceptron-editor/graph":
+        raise RemoteError("that is not a graph exported from the editor")
+    _sweep()
+    epochs, batch = max(0.01, float(epochs)), max(1, int(batch))
+    name = f"{_stem(model)}-{time.strftime('%m%d-%H%M%S')}"
+    os.makedirs(os.path.join(HERE, "models"), exist_ok=True)
+    path = f"models/{name}.json.gz"
+    with gzip.open(os.path.join(HERE, path), "wt") as f:
+        json.dump(model, f, separators=(",", ":"))
+    meta = {"name": name, "kind": "local", "frame": model.get("name"), "path": path, "epochs": epochs, "batch": batch, "val": val, "state": "planned",
+            "problems": [], "limit_min": LOCAL_MINUTES, "est_s": None, "steps": None, "samples": None}
+    code, out = _run([sys.executable, "graph.py", "bench", path, "--batch", str(batch)], timeout=180)
+    try:
+        b = json.loads(out.strip().splitlines()[-1])
+        held = b["held"]
+        meta["samples"] = b["n"]
+        meta["steps"] = max(1, round(epochs * math.ceil(b["n"] * (1 - (val if held else 0)) / batch)))
+        meta["est_s"] = b["per_step"] * meta["steps"] * LOCAL_MARGIN
+        if not held:
+            meta["val"] = 0
+    except (ValueError, IndexError, KeyError):
+        last = out.strip().splitlines()[-1] if out.strip() else "no output"
+        meta["problems"].append("PyTorch is not installed on the server: pip install torch --index-url https://download.pytorch.org/whl/cpu"
+                                if "No module named 'torch'" in out else "the server could not run this graph: " + last[:300])
+    if any(m.get("kind") == "local" and m["state"] == "running" and _local_alive(m) for m in _all()):
+        meta["problems"].append("another run is already going on the server; it does one at a time")
+    _save(meta)
+    return meta
+
+
+def local_start(name):
+    meta = _meta(name)
+    if meta.get("kind") != "local" or meta["state"] != "planned":
+        raise RemoteError(f"{name} cannot be started")
+    if meta["problems"]:
+        raise RemoteError("this run cannot start: " + "; ".join(meta["problems"]))
+    if any(m.get("kind") == "local" and m["state"] == "running" and _local_alive(m) for m in _all()):
+        raise RemoteError("another run is already going on the server; it does one at a time")
+    out_dir = os.path.join(HERE, "runs", name)
+    os.makedirs(out_dir, exist_ok=True)
+    cmd = [sys.executable, "trainer.py", meta["path"], "--out", f"runs/{name}", "--epochs", f"{meta['epochs']:g}", "--batch", str(meta["batch"]),
+           "--val", f"{meta['val']:g}", "--threads", "1", "--device", "cpu", "--log-s", "4", "--max-minutes", f"{meta['limit_min']:g}"]
+    if shutil.which("nice"):
+        cmd = ["nice", "-n", "15"] + cmd                 # the page and everything else on this machine come first
+    p = subprocess.Popen(cmd, cwd=HERE, stdout=open(os.path.join(out_dir, "out.txt"), "w"), stderr=subprocess.STDOUT)
+    PROCS[name] = p
+    meta.update(state="running", pid=p.pid, launched=time.time())
+    _save(meta)
+    return meta
+
+
+def stop(name):
+    meta = _meta(name)
+    if meta.get("kind") != "local" or meta["state"] != "running":
+        raise RemoteError("only a run on the server can be stopped from here; for a rented one use `bb destroy` on the server")
+    if _local_alive(meta):
+        os.kill(meta["pid"], signal.SIGTERM)
+    meta.update(state="failed", error="stopped before it finished")
+    _save(meta)
+    return meta
+
+
+def _local_status(meta):
+    d = os.path.join(HERE, "runs", meta["name"])
+    log = os.path.join(d, "log.csv")
+    if os.path.exists(log):
+        rows = open(log).read().strip().splitlines()
+        if len(rows) > 1:
+            c = rows[-1].split(",")
+            meta["progress"] = {"step": int(c[0]), "of": meta.get("steps"), "loss": float(c[3]) if c[3] else None}
+    if _local_alive(meta):
+        return meta
+    mp = os.path.join(d, "metrics.json")
+    if os.path.exists(mp) and os.path.exists(os.path.join(d, "weights.json")):
+        meta["state"], meta["metrics"] = "done", json.load(open(mp))
+    else:
+        tail = open(os.path.join(d, "out.txt")).read().strip().splitlines()[-1:] if os.path.exists(os.path.join(d, "out.txt")) else []
+        meta["state"], meta["error"] = "failed", "the run ended without a result" + (": " + tail[0][:300] if tail else "")
+    return meta
+
+
+def _all():
+    out = []
+    if os.path.isdir(STATE):
+        for f in sorted(os.listdir(STATE)):
+            if f.endswith(".json"):
+                out.append(json.load(open(os.path.join(STATE, f))))
+    return out
+
+
 def _git(*args):
     code, out = _run(["git", "-C", HERE, *args], timeout=180)
     if code != 0:
@@ -141,6 +260,8 @@ def _git(*args):
 def launch(name):
     """Rent the instance for a planned run. The caller must already hold the person's confirmation of its cost."""
     meta = _meta(name)
+    if meta.get("kind") == "local":
+        raise RemoteError(f"{name} is a run for this machine, not a rental")
     if meta["state"] != "planned":
         raise RemoteError(f"{name} was already started")
     if meta["problems"]:
@@ -157,7 +278,7 @@ def launch(name):
                               allow_patterns=["packed.npz", "info.json"], commit_message=f"dataset {meta['spec']}")
         except Exception as e:
             raise RemoteError(f"could not copy the dataset to Hugging Face: {type(e).__name__}: {str(e)[:160]}")
-    _git("add", "--", meta["path"])                       # the instance clones the public repo, so the model has to be in it
+    _git("add", "-f", "--", meta["path"])                       # the instance clones the public repo, so the model has to be in it
     if _git("status", "--porcelain", "--", meta["path"]):
         _git("commit", "-m", f"Add {os.path.basename(meta['path'])}", "--", meta["path"])
     _git("push")
@@ -179,6 +300,10 @@ def status(name):
     """Where a run is. While its instance exists: its state and price. Once it is gone: fetch the result and report done or failed."""
     meta = _meta(name)
     if meta["state"] in ("planned", "done", "failed"):
+        return meta
+    if meta.get("kind") == "local":
+        meta = _local_status(meta)
+        _save(meta)
         return meta
     code, out = _run(["bb", "status"], timeout=120)
     line = next((l for l in out.splitlines() if l.split()[:1] == [name]), None)

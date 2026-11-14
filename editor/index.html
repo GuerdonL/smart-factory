@@ -320,13 +320,13 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <ul id="kg-have"></ul>
         <div class="kgnote" id="kg-foot"></div>
       </div>
-      <div id="rt" hidden role="dialog" aria-label="Train on a rented GPU">
-        <div class="kgrow"><h2 style="flex:1">Train on a rented GPU</h2><button id="rt-close">Not now</button></div>
+      <div id="rt" hidden role="dialog" aria-label="Run a graph">
+        <div class="kgrow"><h2 style="flex:1" id="rt-title">Run</h2><button id="rt-close">Close</button></div>
         <div id="rt-why" class="kgnote"></div>
         <div class="kgrow kgnote" id="rt-opts"><label>epochs <input type="number" id="rt-epochs" min="0.1" step="any" value="5" style="width:74px"></label><label>batch <input type="number" id="rt-batch" min="1" step="1" value="32" style="width:74px"></label></div>
         <dl id="rt-plan"></dl>
         <div id="rt-msg" class="kgnote" aria-live="polite"></div>
-        <div class="kgrow"><button id="rt-go" class="go" disabled>Rent and run</button></div>
+        <div class="kgrow"><button id="rt-go" class="go" disabled>Start</button><button id="rt-stop" hidden>Stop the run</button></div>
         <details class="kgnote"><summary>What box-boy reported</summary><pre id="rt-raw"></pre></details>
       </div>
       <div id="help" hidden>
@@ -340,10 +340,11 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <span>thicker stroke = larger weight</span>
         <span>Drag the background to pan, scroll to zoom, right-click for the menu, hold the right button and drag across connections to cut them</span>
       </div>
-        <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block, which passes its own input's gradient on from its bottom left in the same way. With Train ticked, that block then adjusts its query, key and value weights on every sample the frames train on; its Weights button shows all three. Tick Positions when the task depends on order: without it, attention sees which values are present but not where they sit. A Random sampler on Play supplies training samples the same way a playing Dataset does.</p>
+        <p>A graph predicts whenever its inputs are connected. It can also train when a loss travels back through it: wire a Cost function's loss into a frame's backprop input, and each block's bottom-left port into the backprop input of the block before it (an Attention block's is at its bottom right). Every block a gradient reaches this way is trained; there is no separate switch. Tick Positions on an Attention block when the task depends on order, and use its Weights button to see its query, key and value weights.</p>
+        <p>To train, right-click any block of the graph. Run locally trains on the machine that serves this page (a small one: one run at a time, with a time limit); Run on GPU rents a machine through box-boy after showing what it will cost. Only the blocks behind that graph's Cost function are sent, never anything else on the canvas, and the weights come back into the blocks when the run ends. Without a server behind the page, the menu offers training in the browser instead.</p>
         <p>A Tokenizer has two outputs: the tokens, and their labels, which are the same text one token later, so each token's label is the token that follows it. Set it to one-hot to get a row per token over a fixed alphabet of 97 characters. A Cost function given one-hot labels like these scores each row separately with cross-entropy, and accepts a frame's flat output of the same total size.</p>
         <p>A Distribution block describes random numbers (uniform between a low and a high, or normal with a mean and a standard deviation). Wire it into a Random sampler to get that many draws as a float vector. The draws stay the same until you press Resample or Play.</p>
-        <p>To train a model too large for the browser, select its frame and choose Export model, then run the file through the trainer project (<code>python run.py models/&lt;file&gt;.json</code>). It trains on your machine when that takes under five minutes and otherwise rents a GPU through box-boy. Import weights loads the result back into the frame.</p>
+        <p>Export model saves the same blocks as a file for the trainer project's command line (<code>python run.py models/&lt;file&gt;.json</code>), and Import weights loads a result back.</p>
       </div>
     </div>
 
@@ -355,8 +356,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       <section class="panel pad" id="frame-panel" hidden>
         <h2 id="math-title">Frame</h2>
         <div class="brow" id="frame-ctl"><button data-fa="addscalar">Add neuron</button><button data-fa="addvec">Add vector</button><button data-fa="cclear">Clear connections</button><select id="frame-act" aria-label="Activation"><option value="linear">Linear</option><option value="step">Step</option><option value="relu">ReLU</option><option value="sigmoid">Sigmoid</option><option value="tanh">Tanh</option></select></div>
-        <div class="brow" id="train-ctl"><label class="chk"><input type="checkbox" id="tr-on"> Train</label><label class="stp">rate <input id="tr-lr" class="nin" type="number" step="0.001" min="0"></label><button id="tr-step">Step once</button><button id="tr-rand" title="Small random connection weights, and every neuron weight back to 1">Randomize weights</button><label class="chk"><input type="checkbox" id="tr-linout"> Linear output layer</label></div>
-        <div class="brow" id="remote-ctl"><button id="ex-model" title="Save everything behind this frame's Cost function (blocks, wires and weights) as a file for trainer.py">Export model</button><button id="im-weights" title="Load a weights.json written by trainer.py into this frame">Import weights</button><input type="file" id="im-file" accept=".json,application/json" hidden><button id="gpu-btn" hidden title="Estimate this training run and, if you confirm the cost, rent a GPU for it through box-boy">Train on a GPU…</button></div>
+        <div class="brow" id="train-ctl"><label class="stp" title="How far each training step moves this frame's weights">rate <input id="tr-lr" class="nin" type="number" step="0.001" min="0"></label><button id="tr-rand" title="Small random connection weights, and every neuron weight back to 1">Randomize weights</button><label class="chk"><input type="checkbox" id="tr-linout"> Linear output layer</label></div>
+        <div class="brow" id="remote-ctl"><button id="ex-model" title="Save everything behind this frame's Cost function (blocks, wires and weights) as a file for trainer.py">Export model</button><button id="im-weights" title="Load a weights.json written by trainer.py into this frame">Import weights</button><input type="file" id="im-file" accept=".json,application/json" hidden></div>
         <p class="hint" id="math-hint"></p>
       </section>
     </aside>
@@ -873,13 +874,13 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         `<div class="brow dsas"><select data-f="as" aria-label="Output type"><option value="int">int (raw values)</option><option value="float">float (0 to 1)</option><option value="bool">bool (half or brighter)</option></select></div>` +
         `<div class="brow"><label class="filebtn">Load folder<input type="file" webkitdirectory multiple data-f="dir" hidden></label><button data-act="dbuiltin">Built-in digits</button>${API ? '<button data-act="dkaggle">Kaggle</button><button data-act="dhf">Hugging Face</button>' : ''}</div>`;
     } else if (b.type === 'attn') {
-      h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><label class="chk" title="Let queries and keys see where each item sits. Needed for anything that depends on order, such as reversing."><input type="checkbox" data-f="apos"> Positions</label></div><div class="brow"><button data-act="arand">Randomize</button><label class="chk"><input type="checkbox" data-f="atrain"> Train</label><label class="stp">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="alr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label><button data-act="afly" aria-expanded="${!!b.fly}">Weights</button></div><canvas class="attg" width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
+      h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><label class="chk" title="Let queries and keys see where each item sits. Needed for anything that depends on order, such as reversing."><input type="checkbox" data-f="apos"> Positions</label></div><div class="brow"><button data-act="arand">Randomize</button><label class="stp">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="alr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label><button data-act="afly" aria-expanded="${!!b.fly}">Weights</button></div><canvas class="attg" width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
     } else if (b.type === 'lin') h = '<div class="brow linax"></div><div class="fold"></div>';
     else h = '<div class="loss"></div><canvas hidden></canvas><div class="bars"></div>';
     body.innerHTML = h;
     if (b.type === 'text') body.querySelector('textarea').value = b.text;
     if (b.type === 'tok') { body.querySelector('select').value = b.mode; body.querySelector('[data-f=tfmt]').value = b.fmt === 'onehot' ? 'onehot' : 'ids'; }
-    if (b.type === 'attn') { body.querySelector('[data-f=causal]').checked = !!b.causal; body.querySelector('[data-f=atrain]').checked = !!b.train; body.querySelector('[data-f=apos]').checked = !!b.pos; }
+    if (b.type === 'attn') { body.querySelector('[data-f=causal]').checked = !!b.causal; body.querySelector('[data-f=apos]').checked = !!b.pos; }
     if (b.type === 'data') body.querySelector('select').value = b.as;
   }
   function refresh(b, r) {
@@ -1181,7 +1182,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     $('frame-panel').hidden = !b;                                    // the frame's controls only show while that frame is selected
     $('math-title').textContent = b ? 'Frame · ' + b.name : 'Frame'; $('math-hint').hidden = true;
     $('frame-ctl').hidden = !b; $('train-ctl').hidden = !b; if (b) $('frame-act').value = b.act;
-    if (b) { $('tr-on').checked = !!b.train; $('tr-linout').checked = !!b.linOut; if (document.activeElement !== $('tr-lr')) $('tr-lr').value = b.lr || 0.01; }
+    if (b) { $('tr-linout').checked = !!b.linOut; if (document.activeElement !== $('tr-lr')) $('tr-lr').value = b.lr || 0.01; }
     G.blocks.forEach(q => { if (q.type === 'perc' && els[q.id]) { renderTV(q); renderBP(q); } });
   }
   function renderTV(b) {                     // the drawer under a frame's diagram
@@ -1490,6 +1491,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         items.push('sep');
       }
       if (b.type === 'pixels') items.push({ label: 'Clear pixels', fn: () => act('pclear', b, {}) }, 'sep');
+      const run = runItems(b); if (run.length) items.push(...run, 'sep');
       items.push({ label: 'Copy ' + b.name, fn: () => copyBlock(b) });
       if (clip) items.push({ label: 'Paste ' + clip.name, fn: () => pasteBlock({ x: at.x + 20, y: at.y + 20 }) });
       items.push({ label: 'Duplicate', fn: () => { clip = JSON.parse(JSON.stringify(b)); pasteBlock({ x: b.x + 30, y: b.y + 30 }); } }, { label: 'Delete ' + b.name, fn: () => act('del', b, {}) });
@@ -1870,7 +1872,6 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (f === 'db') { if (t.value === '' || !isFinite(+t.value)) return; b.b = +t.value; }
     else if (f === 'causal') b.causal = t.checked;
     else if (f === 'apos') { b.pos = t.checked; b.steps = 0; }
-    else if (f === 'atrain') { b.train = t.checked; if (b.train && !(last[b.id] && last[b.id].backGrad)) toast(last[b.id] && last[b.id].backErr ? `${b.name} cannot train: ${last[b.id].backErr}.` : `${b.name} has no gradient yet. Wire the bottom-left port of the block it feeds into the port at its bottom right, and make sure a loss reaches that block.`); if (b.train) setTimeout(() => offerRemote(b), 0); }
     else if (f === 'alr') { if (t.value === '' || !(+t.value >= 0)) return; b.lr = +t.value; save(); return; }
     else if (f === 'loss') b.loss = t.value;
     else if (f === 'act') { b.act = t.value; renderMath(); }
@@ -1990,10 +1991,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     G.blocks.forEach(b => { if (b.type === 'perc' && b.train) stepped = beginStep(b) || stepped; });
     if (stepped) update(false);
   }
-  $('tr-on').addEventListener('change', e => { const b = byId(activeP); if (!b) return; b.train = e.target.checked; if (b.train && !(last[b.id] && last[b.id].back)) toast(whyNoBackward(b)); if (b.train && b.act === 'step') toast('The step activation has no gradient, so nothing behind it will learn. Pick another activation.'); update(true); if (b.train) offerRemote(b); });
   $('tr-linout').addEventListener('change', e => { const b = byId(activeP); if (b) { b.linOut = e.target.checked; renderMath(); update(true); } });
   $('tr-lr').addEventListener('change', e => { const b = byId(activeP); if (b) { b.lr = Math.max(0, +e.target.value || 0); save(); } });
-  $('tr-step').addEventListener('click', () => { const b = byId(activeP); if (!b) return; if (!(last[b.id] && last[b.id].back)) return toast(whyNoBackward(b)); if (beginStep(b)) { update(true); renderMath(); } });
   $('tr-rand').addEventListener('click', () => {                    // small random connection weights, scaled by how many connections feed each neuron
     const b = byId(activeP); if (!b) return; const fan = {};
     for (const key in b.edges) { const d = key.slice(key.indexOf('>') + 1); fan[d] = (fan[d] || 0) + 1; }
@@ -2122,87 +2121,101 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   fetch('api/ping', { headers: { 'X-Token': tokenOf() } }).then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !j.ok) return; API = j;
     G.blocks.filter(b => b.type === 'data').forEach(b => { buildBody(b); if ((b.kref || b.href) && !DS[b.id] && j.token) loadServer(b, b.href || b.kref, b.href ? 'hf' : 'kaggle'); });
-    $('gpu-btn').hidden = false; const going = G.blocks.find(b => b.remote); if (going && j.token) rtWatch(going);
+    G.blocks.forEach(b => { delete b.train; }); const going = G.blocks.find(b => b.remote); if (going && j.token) rtWatch(going);
     update(false);
   }).catch(() => {});
 
-  // ---------- a large load goes to a rented GPU (needs serve.py with box-boy set up on the server) ----------
-  // Ticking Train times a few steps here. If five passes over the data would take more than five minutes in the browser, a dialog
-  // offers to rent a GPU instead, showing the run and what it is expected to cost. Nothing is rented until its button is pressed.
-  const RT_LIMIT_S = 300; let rtFor = null, rtPlan = null, rtPoll = null, rtSeq = 0;
+  // ---------- running a graph: on the server that hosts this page, or on a rented GPU ----------
+  // Right-clicking any block of a connected graph offers both. What is sent is only what one Cost function's loss is computed
+  // from (graphOf): nothing else on the canvas, connected or not, goes anywhere. Nothing trains in the browser when a server is there.
+  let rtFor = null, rtMode = 'local', rtPlan = null, rtPoll = null, rtSeq = 0;
   const mins = sec => sec < 90 ? `${Math.round(sec)} s` : sec < 5400 ? `${(sec / 60).toFixed(sec < 600 ? 1 : 0)} min` : `${(sec / 3600).toFixed(1)} h`, usd = v => '$' + (+v).toFixed(2);
-  function hereSeconds(cost, epochs) {       // seconds this graph would need in the browser, from a few timed forward-and-backward passes
-    const m = graphOf(cost); if (m.err) return null;
-    const total = m.est.samples;
-    const t0 = performance.now(); let k = 0; do { evalAll(); k++; } while (k < 3 || (performance.now() - t0 < 80 && k < 50));
-    return { sec: (performance.now() - t0) / k / 1000 * total * epochs, total, model: m };
+  function component(b) {                    // every block joined to b by wires, in either direction
+    const ids = new Set([b.id]), stack = [b.id];
+    while (stack.length) { const id = stack.pop(); G.wires.forEach(w => { const o = w.from === id ? w.to : w.to === id ? w.from : null; if (o != null && !ids.has(o)) { ids.add(o); stack.push(o); } }); }
+    return ids;
   }
-  function offerRemote(blk) {
-    const b = costOf(blk); if (!API || !API.token || !b || b.asked || b.remote) return;
-    const h = hereSeconds(b, 5); if (!h || h.sec <= RT_LIMIT_S) return;
-    b.asked = true; openRemote(b, `Five passes over the ${nf(h.total)} samples behind ${b.name} would take more than ${RT_LIMIT_S / 60} minutes in this browser, so here is what running it on a rented GPU would involve. Training carries on here unless you rent.`);
+  function runItems(b) {                     // menu entries for the graph b belongs to: one pair per Cost function in it
+    const ids = component(b), costs = G.blocks.filter(x => x.type === 'read' && ids.has(x.id)), items = [];
+    if (!costs.length) return items;
+    costs.forEach(c => {
+      const g = graphOf(c), tag = costs.length > 1 ? ` · ${c.name}` : '';
+      if (c.remote) return items.push({ label: 'Show the run in progress' + tag, fn: () => openRun(c, 'show') });
+      if (g.err) return items.push({ head: `Cannot run${tag}: ${g.err}` });
+      if (API) items.push({ label: 'Run locally' + tag, fn: () => openRun(c, 'local') }, { label: 'Run on GPU' + tag, fn: () => openRun(c, 'gpu') });
+      else { const on = g.train.some(id => byId(id).train); items.push({ label: (on ? 'Stop training in this browser' : 'Train in this browser') + tag, fn: () => { g.train.forEach(id => { byId(id).train = !on; }); if (!on) toast(`Training ${g.train.map(id => byId(id).name).join(', ')}. Press Play on the Dataset or Random sampler that feeds them.`); update(true); } }); }
+    });
+    return items;
   }
-  function openRemote(b, why) {              // b is the Cost function the run answers to
-    const m = graphOf(b); if (m.err) return toast(m.err);
-    rtFor = b.id; $('kg').hidden = true; $('help').hidden = true; $('rt').hidden = false; $('rt-why').textContent = why || '';
-    if (b.remote) { $('rt-opts').hidden = true; $('rt-go').hidden = true; rtShowRun({ name: b.remote, state: 'running' }); rtWatch(b); } else { $('rt-opts').hidden = false; $('rt-go').hidden = false; rtReplan(); }
+  function openRun(b, mode) {                // b is the Cost function the run answers to
+    rtFor = b.id; $('kg').hidden = true; $('help').hidden = true; $('rt').hidden = false; $('rt-plan').innerHTML = ''; $('rt-raw').textContent = '';
+    if (mode === 'show' || b.remote) { $('rt-title').textContent = 'Run in progress'; $('rt-opts').hidden = true; $('rt-go').hidden = true; $('rt-why').textContent = ''; rtShowRun({ name: b.remote, state: 'running' }); return rtWatch(b); }
+    rtMode = mode; $('rt-title').textContent = mode === 'gpu' ? 'Run on a rented GPU' : 'Run locally, on the server';
+    $('rt-why').textContent = mode === 'gpu' ? '' : 'This runs on the machine that serves this page, not in your browser. It is a small machine: one run at a time, on one processor core, at low priority.';
+    $('rt-opts').hidden = false; $('rt-go').hidden = false; $('rt-stop').hidden = true; rtReplan();
   }
   const rtRow = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
   async function rtReplan() {
-    const b = byId(rtFor), seq = ++rtSeq; if (!b) return;
-    const epochs = Math.max(0.1, +$('rt-epochs').value || 5), batch = Math.max(1, Math.round(+$('rt-batch').value || 32)), h = hereSeconds(b, epochs); if (!h) return;
-    rtPlan = null; $('rt-go').disabled = true; $('rt-go').textContent = 'Rent and run'; $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Asking box-boy what this would rent and at what price…';
-    let pl; try { pl = await api('api/train/plan', { model: h.model, epochs, batch, levels: h.model.est.levels }); } catch (e) { if (seq === rtSeq) { $('rt-plan').innerHTML = ''; $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; } return; }
+    const b = byId(rtFor), seq = ++rtSeq, g = b && graphOf(b); if (!b) return;
+    if (g.err) { $('rt-plan').innerHTML = ''; $('rt-go').disabled = true; $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = g.err; return; }
+    const epochs = Math.max(0.1, +$('rt-epochs').value || 5), batch = Math.max(1, Math.round(+$('rt-batch').value || 32)), gpu = rtMode === 'gpu';
+    rtPlan = null; $('rt-go').disabled = true; $('rt-go').textContent = gpu ? 'Rent and run' : 'Start'; $('rt-msg').className = 'kgnote';
+    $('rt-msg').textContent = gpu ? 'Asking box-boy what this would rent and at what price…' : 'Timing a few steps on the server…';
+    let pl; try { pl = await api(gpu ? 'api/train/plan' : 'api/train/local/plan', { model: g, epochs, batch, levels: g.est.levels }); } catch (e) { if (seq === rtSeq) { $('rt-plan').innerHTML = ''; $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; } return; }
     if (seq !== rtSeq) return;
-    rtPlan = pl; $('rt-raw').textContent = pl.dry_run || '(nothing)';
-    $('rt-plan').innerHTML = rtRow('Run', `trains ${esc(h.model.train.map(id => byId(id).name).join(', '))} against ${esc(b.name)} · ${esc(pl.spec)}, ${nf(pl.samples)} samples a pass · ${nf(pl.steps)} steps of ${nf(pl.batch)}`) +
-      rtRow('Here', `about ${mins(h.sec)} in this browser, one sample at a time`) +
-      rtRow('Rented', `${pl.gpu_s < 60 ? 'under a minute' : 'about ' + mins(pl.gpu_s)} of training, plus about ${mins(pl.startup_s)} for the machine to start. A rough estimate, not a measurement.`) +
-      (pl.price != null ? rtRow('Machine', `${esc(pl.offer)} at ${usd(pl.price)} an hour`) +
-        rtRow('Expected cost', `<b>about ${usd(Math.max(0.01, pl.expected_cost))}</b>`) +
+    rtPlan = pl; $('rt-raw').textContent = pl.dry_run || '';
+    const what = `trains ${esc(g.train.map(id => byId(id).name).join(', '))} against ${esc(b.name)} · ${nf(g.blocks.length)} blocks sent, nothing else on the canvas`;
+    if (gpu) $('rt-plan').innerHTML = rtRow('Run', `${what} · ${esc(pl.spec)}, ${nf(pl.samples)} samples a pass · ${nf(pl.steps)} steps of ${nf(pl.batch)}`) +
+      rtRow('Time', `${pl.gpu_s < 60 ? 'under a minute' : 'about ' + mins(pl.gpu_s)} of training, plus about ${mins(pl.startup_s)} for the machine to start. A rough estimate, not a measurement.`) +
+      (pl.price != null ? rtRow('Machine', `${esc(pl.offer)} at ${usd(pl.price)} an hour`) + rtRow('Expected cost', `<b>about ${usd(Math.max(0.01, pl.expected_cost))}</b>`) +
         rtRow('At most', `${usd(pl.max_cost)}: the run is stopped after ${pl.hours_cap} h whatever happens`) : '') +
       rtRow('Also', 'Renting publishes these blocks and their weights to your public GitHub repository, which is where the machine fetches them from.');
-    if (pl.problems.length) { $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = pl.problems.join(' · '); }
-    else { $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Nothing is rented until you press the button.'; $('rt-go').disabled = false; $('rt-go').textContent = `Rent and run · about ${usd(Math.max(0.01, pl.expected_cost))}`; }
+    else $('rt-plan').innerHTML = rtRow('Run', what + (pl.steps ? ` · ${nf(pl.samples)} samples a pass · ${nf(pl.steps)} steps of ${nf(pl.batch)}` : '')) +
+      (pl.est_s != null ? rtRow('Time', `<b>${pl.est_s < 5 ? 'a few seconds' : 'about ' + mins(pl.est_s)}</b> on the server, measured from a few timed steps`) : '') +
+      rtRow('Limit', `stopped after ${pl.limit_min} minutes whatever happens, keeping what it has learned by then`) + rtRow('Cost', 'nothing: no machine is rented');
+    const over = !gpu && pl.est_s != null && pl.est_s > pl.limit_min * 60;
+    if (pl.problems.length) { $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = pl.problems.join(' · '); return; }
+    $('rt-msg').className = over ? 'kgnote kgerr' : 'kgnote';
+    $('rt-msg').textContent = gpu ? 'Nothing is rented until you press the button.' : over ? `That is longer than the server's ${pl.limit_min}-minute limit, so it would be cut short. Fewer epochs would fit, or right-click the graph and choose Run on GPU.` : 'Nothing starts until you press the button.';
+    $('rt-go').disabled = false; $('rt-go').textContent = gpu ? `Rent and run · about ${usd(Math.max(0.01, pl.expected_cost))}` : over ? 'Start anyway' : 'Start';
   }
   function rtShowRun(m) {
-    const say = { launching: 'Renting the machine…', running: 'The machine is ' + (m.phase && m.phase !== 'running' ? 'starting (' + esc(m.phase) + ')' : 'running'), done: 'Finished', failed: 'Failed', planned: 'Not started' }[m.state] || m.state;
+    const local = m.kind === 'local', pg = m.progress;
+    const say = { launching: 'Renting the machine…', running: local ? 'Running on the server' : 'The machine is ' + (m.phase && m.phase !== 'running' ? 'starting (' + esc(m.phase) + ')' : 'running'), done: 'Finished', failed: 'Failed', planned: 'Not started' }[m.state] || m.state;
     $('rt-plan').innerHTML = rtRow('Run', esc(m.name)) + rtRow('State', `<b>${say}</b>`) + (m.instance ? rtRow('Machine', esc(m.instance)) : '') +
-      (m.metrics ? rtRow('Result', `${m.metrics.val_accuracy != null ? 'held-out accuracy ' + Math.round(m.metrics.val_accuracy * 100) + '%' : 'loss ' + sfmt(m.metrics.val_loss)} after ${nf(m.metrics.steps)} steps in ${mins(m.metrics.seconds)}`) : '');
-    $('rt-msg').className = m.error ? 'kgnote kgerr' : 'kgnote'; $('rt-msg').textContent = m.error || (m.state === 'done' ? '' : 'This checks every 20 seconds. You can close this and keep working; the weights load into the frame when the run finishes.');
-    if (m.launch_out) $('rt-raw').textContent = m.launch_out;
+      (pg && m.state === 'running' ? rtRow('Progress', `step ${nf(pg.step)}` + (pg.of ? ` of ${nf(pg.of)}` : '') + (pg.loss != null ? ` · loss ${sfmt(pg.loss)}` : '')) : '') +
+      (m.metrics ? rtRow('Result', `${m.metrics.val_accuracy != null ? 'held-out accuracy ' + Math.round(m.metrics.val_accuracy * 100) + '%' : 'loss ' + sfmt(m.metrics.val_loss)} after ${nf(m.metrics.steps)} steps in ${mins(m.metrics.seconds)}` + (m.metrics.note ? ` (${esc(m.metrics.note)})` : '')) : '');
+    $('rt-msg').className = m.error ? 'kgnote kgerr' : 'kgnote'; $('rt-msg').textContent = m.error || (m.state === 'done' ? 'Its weights are loaded into the blocks it trained.' : `This checks every ${local ? 5 : 20} seconds. You can close this and keep working; the weights load into the blocks when the run finishes.`);
+    $('rt-stop').hidden = !(local && m.state === 'running'); if (m.launch_out) $('rt-raw').textContent = m.launch_out;
   }
-  function rtWatch(b) {                      // follow a rented run to its end, then put its weights into the frame
+  function rtWatch(b, every) {               // follow a run to its end, then put its weights into the blocks it trained
     clearInterval(rtPoll);
     const tick = async () => {
       if (!byId(b.id) || !b.remote) return clearInterval(rtPoll);
       let m; try { m = await api('api/train/status?name=' + encodeURIComponent(b.remote)); } catch (e) { return; }
+      if (m.kind === 'local' && every !== 5000) return rtWatch(b, 5000);
       if (rtFor === b.id && !$('rt').hidden) rtShowRun(m);
       if (m.state === 'done') {
         clearInterval(rtPoll); const name = b.remote; delete b.remote;
         try { applyWeights(b, await api('api/train/weights?name=' + encodeURIComponent(name))); } catch (e) { toast(`${name} finished but its weights could not be loaded: ${e.message}`); }
         save();
-      } else if (m.state === 'planned' && Date.now() - (b.remoteAt || (b.remoteAt = Date.now())) > 600000) { clearInterval(rtPoll); delete b.remote; delete b.remoteAt; save(); toast(`The rented run behind ${b.name} never started.`);
-      } else if (m.state === 'failed') { clearInterval(rtPoll); delete b.remote; save(); toast(`The rented run behind ${b.name} failed: ${m.error || 'no reason given'}`); }
+      } else if (m.state === 'planned' && Date.now() - (b.remoteAt || (b.remoteAt = Date.now())) > 600000) { clearInterval(rtPoll); delete b.remote; delete b.remoteAt; save(); toast(`The run behind ${b.name} never started.`);
+      } else if (m.state === 'failed') { clearInterval(rtPoll); delete b.remote; save(); toast(`The run behind ${b.name} failed: ${m.error || 'no reason given'}`); }
     };
-    rtPoll = setInterval(tick, 20000); tick();
+    rtPoll = setInterval(tick, every || 20000); tick();
   }
   $('rt-epochs').addEventListener('change', rtReplan); $('rt-batch').addEventListener('change', rtReplan);
   $('rt-close').addEventListener('click', () => { $('rt').hidden = true; rtSeq++; });
-  $('gpu-btn').addEventListener('click', () => { const b = byId(activeP), c = b && costOf(b); if (!b) return; if (!c) return toast(graphOf(null).err); openRemote(c, ''); });
-  $('rt-go').addEventListener('click', async () => {             // the one place a rental starts: a person pressing this button with the cost on it
-    const b = byId(rtFor), pl = rtPlan; if (!b || !pl || pl.problems.length) return;
-    const pl_ids = (graphOf(b).train || []);
-    $('rt-go').disabled = true; $('rt-opts').hidden = true; $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Publishing the model and renting the machine. This takes up to a minute…';
-    b.remote = pl.name; G.blocks.forEach(x => { if (pl_ids.includes(x.id)) x.train = false; }); renderSide(); G.blocks.forEach(x => { if (x.type === 'attn') buildBody(x); }); save();     // remembered before the call, so a closed tab still finds the run again
-    let m; try { m = await api('api/train/launch', { name: pl.name, confirm: 'rent' }); }
+  $('rt-stop').addEventListener('click', async () => { const b = byId(rtFor); if (!b || !b.remote) return; try { rtShowRun(await api('api/train/stop', { name: b.remote })); } catch (e) { $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; } });
+  $('rt-go').addEventListener('click', async () => {             // the only place a run starts. For a rental, that is a person pressing this button with the cost on it.
+    const b = byId(rtFor), pl = rtPlan, gpu = rtMode === 'gpu'; if (!b || !pl || pl.problems.length) return;
+    $('rt-go').disabled = true; $('rt-opts').hidden = true; $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = gpu ? 'Publishing the model and renting the machine. This takes up to a minute…' : 'Starting…';
+    b.remote = pl.name; save();                                     // remembered before the call, so a closed tab still finds the run again
+    let m; try { m = await api(gpu ? 'api/train/launch' : 'api/train/local/start', gpu ? { name: pl.name, confirm: 'rent' } : { name: pl.name }); }
     catch (e) { delete b.remote; save(); $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; $('rt-opts').hidden = false; $('rt-raw').textContent = e.message; return; }
-    rtPlan = null; $('rt-go').hidden = true; rtShowRun(m); rtWatch(b);
+    rtPlan = null; $('rt-go').hidden = true; $('rt-title').textContent = 'Run in progress'; rtShowRun(m); rtWatch(b, gpu ? 20000 : 5000);
   });
 
-  // ---------- training elsewhere ----------
-  // Export: one frame with what feeds it (Dataset, then Linearize) and what scores it (Cost function), as a file trainer.py reads.
-  // Import: the weights.json trainer.py writes; weights are matched to this frame's neurons and connections by their ids.
   // The Cost function a block answers to: follow the backprop wires from the block back to where the loss comes from.
   function costOf(b) {
     for (let hop = 0, cur = b; cur && hop < 50; hop++) {
@@ -2217,7 +2230,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (!cost) return { err: 'This block is not connected to a Cost function through backprop wires, so there is nothing to train it on.' };
     const ids = new Set([cost.id]), stack = [cost.id], wires = [];
     while (stack.length) { const id = stack.pop(); G.wires.forEach(w => { const c = byId(w.to); if (w.to !== id || (insOf(c.type)[w.tp || 0] || {}).back) return; wires.push({ from: w.from, to: w.to, fp: w.fp || 0, tp: w.tp || 0 }); if (!ids.has(w.from)) { ids.add(w.from); stack.push(w.from); } }); }
-    const blocks = [], can = [], ticked = []; let work = 0, levels = 1, samples = 0, err = null;
+    const blocks = [], can = []; let work = 0, levels = 1, samples = 0, err = null;
     G.blocks.forEach(b => {
       if (!ids.has(b.id) || err) return; const r = last[b.id] || {}, o = { id: b.id, type: b.type, name: b.name };
       if (b.type === 'data') {
@@ -2235,14 +2248,14 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       else if (b.type === 'attn') {
         if (!b.wq || !r.out) return err = `${b.name} has no input yet.`;
         Object.assign(o, { dk: b.wdk, d: b.wd, dq: b.wdq || b.wd, n: r.n, causal: !!b.causal, pos: !!b.pos, lr: +b.lr || 0.01, wq: b.wq, wk: b.wk, wv: b.wv });
-        work += r.n * b.wd * (2 * b.wdk + b.wd) + r.n * r.n * (b.wdk + b.wd); levels += 2; if (r.backGrad) { can.push(b.id); if (b.train) ticked.push(b.id); }
+        work += r.n * b.wd * (2 * b.wdk + b.wd) + r.n * r.n * (b.wdk + b.wd); levels += 2; if (r.backGrad) can.push(b.id);
       } else if (b.type === 'perc') {
         const vin = b.vecs.find(v => v.id === b.inV), vout = b.vecs.find(v => v.id === b.outV); if (!vin || !vout) return err = `${b.name} needs an input vector and an output vector.`;
         const id = [], w = [], es = [], ed = [], ew = [];
         for (const k in b.ns) { id.push(+k); w.push(b.ns[k]); }
         for (const key in b.edges) { const cut = key.indexOf('>'); es.push(+key.slice(0, cut)); ed.push(+key.slice(cut + 1)); ew.push(b.edges[key]); }
         Object.assign(o, { act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, in: vin.n, out: vout.n, ns: { id, w }, edges: { s: es, d: ed, w: ew } });
-        work += ew.length; levels += r.back ? r.back.maxD + 1 : b.vecs.length; if (r.back) { can.push(b.id); if (b.train) ticked.push(b.id); }
+        work += ew.length; levels += r.back ? r.back.maxD + 1 : b.vecs.length; if (r.back) can.push(b.id);
       } else return err = `${b.name} (${TYPES[b.type].title}) cannot be trained outside the browser yet.`;
       blocks.push(o);
     });
@@ -2250,8 +2263,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (!last[cost.id] || last[cost.id].loss == null) return { err: `${cost.name} is not producing a loss yet: ${last[cost.id] && last[cost.id].err || 'connect a prediction and a ground truth'}.` };
     if (!can.length) return { err: `No block behind ${cost.name} receives a gradient. Wire its loss into a frame's backprop input, and bottom-left ports into the blocks further back.` };
     if (!samples) samples = 10000;                                    // nothing but samplers: call ten thousand draws a pass
-    // What trains: the blocks a gradient reaches. If some of them have Train ticked, only those; if none do, all of them.
-    return { format: 'perceptron-editor/graph', v: 1, name: cost.name, cost: cost.id, blocks, wires, train: ticked.length ? ticked : can, est: { work, levels, samples } };
+    // What trains is decided by the wires alone: every block a gradient reaches through the backprop connections.
+    return { format: 'perceptron-editor/graph', v: 1, name: cost.name, cost: cost.id, blocks, wires, train: can, est: { work, levels, samples } };
   }
   $('ex-model').addEventListener('click', async () => {
     const b = byId(activeP); if (!b) return; const m = graphOf(costOf(b)); if (m.err) return toast(m.err);
