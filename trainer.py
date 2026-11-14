@@ -312,6 +312,12 @@ def load_data(spec):
         import kaggle_data
         return kaggle_data.load(spec[7:])
     if spec.startswith("hf:"):
+        import hf_data
+        try:                                             # a slice taken with hf_data.py or the editor; else a repo of image folders
+            return hf_data.load_images(spec[3:])
+        except hf_data.HFError as e:
+            if "text dataset" in str(e):
+                sys.exit(str(e))
         from huggingface_hub import snapshot_download
         return load_folder(snapshot_download(spec[3:], repo_type="dataset"))
     if os.path.isdir(spec):
@@ -327,6 +333,10 @@ def data_size(spec):
         import kaggle_data
         i = kaggle_data.info(spec[7:])
         return i["n"] if i else None
+    if spec.startswith("hf:"):
+        import hf_data
+        i = hf_data.info(spec[3:])
+        return i["n"] if i and i["kind"] == "images" else None
     return len(folder_files(spec)) if os.path.isdir(spec) else None
 
 
@@ -334,6 +344,8 @@ def default_data(model):
     d = model["data"]
     if d.get("source") == "kaggle" and d.get("ref"):
         return "kaggle:" + d["ref"]
+    if d.get("source") == "hf" and d.get("ref"):
+        return "hf:" + d["ref"]
     return d.get("source") if d.get("source") in ("digits", "mnist") else None
 
 

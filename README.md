@@ -7,8 +7,8 @@ on a rented Vast.ai GPU through [box-boy](https://github.com/GuerdonL/box-boy) (
 
     python serve.py                      # then open http://<this machine>:8000
 
-`serve.py` serves the page in `editor/` and adds the Dataset block's **Kaggle** button: search Kaggle, add a
-dataset to this machine, and load it into the block. It runs the Kaggle CLI with this machine's Kaggle login
+`serve.py` serves the page in `editor/` and adds the Dataset block's **Kaggle** and **Hugging Face** buttons:
+search, add a dataset to this machine, and load it into the block. It runs the Kaggle CLI with this machine's Kaggle login
 (`pip install kaggle`, then `kaggle auth login`, or a token in `KAGGLE_API_TOKEN`). Those calls need the access
 token `serve.py` prints at start (kept in `.serve-token`; set your own with `--token` or `SF_TOKEN`); the page
 asks for it once per browser. Anyone who can reach the port can open the editor itself.
@@ -28,6 +28,20 @@ To keep it running on a server, as `/etc/systemd/system/smart-factory.service`:
 
 then `sudo systemctl enable --now smart-factory`. Without Kaggle, `python -m http.server 8000 -d editor` is enough.
 Graphs are kept in each browser's storage.
+
+## Hugging Face datasets
+
+    python hf_data.py search "common corpus"
+    python hf_data.py add PleIAs/common_corpus --rows 2000 --where language=English
+    python hf_data.py add ylecun/mnist --rows 5000
+
+The Dataset block's **Hugging Face** button does the same from the editor (it needs `serve.py`, as Kaggle does).
+Rows are read straight from the dataset's Parquet files and reading stops once enough are taken, so a slice of a
+multi-terabyte dataset costs a few megabytes and a few seconds. `--where column=value` keeps only matching rows.
+Text datasets are saved one document per line and come out of the Dataset block's text port a window of characters
+at a time; image datasets need an image column and a label column and become greyscale. Needs
+`pip install huggingface_hub pyarrow`; `HF_TOKEN` is only needed for gated or private datasets. The trainer can
+train on an image slice with `--data hf:<owner>/<name>`; it has no language-model training yet.
 
 ## Kaggle datasets
 
@@ -79,7 +93,7 @@ cannot open those; it only imports weights into a frame it already has.
 
 - `trainer.py` trains one model file and writes `weights.json`, `metrics.json`, `log.csv`, `ckpt.pkl` (resume state) to `--out`.
 - `run.py` decides where to train and starts it.
-- `serve.py` serves the editor and its Kaggle panel; `kaggle_data.py` finds, downloads and packs Kaggle datasets.
+- `serve.py` serves the editor and its Kaggle panel; `kaggle_data.py` and `hf_data.py` find, fetch and pack Kaggle and Hugging Face datasets.
 - `boxboy.toml` is the box-boy configuration (GPU type, price cap, setup and check commands).
 - `editor/` holds a standalone copy of the editor page and its digits file.
 - `tests/` checks the trainer against hand-computed and cross-checked results.

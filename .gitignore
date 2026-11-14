@@ -6,3 +6,4 @@ jobs/_*
 .serve-token
 data/kaggle/
 data/hf/
+data/hfds/

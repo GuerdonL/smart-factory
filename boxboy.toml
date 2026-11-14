@@ -1,6 +1,6 @@
 # How box-boy (bb) runs this project's jobs on rented Vast.ai instances. `python run.py` writes the jobs files.
 name = "smart-factory"
-setup = "pip install -q numpy pillow"
+setup = "pip install -q numpy pillow pyarrow"
 check = "python -c 'import torch; assert torch.cuda.is_available()'"
 
 [offer]

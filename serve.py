@@ -1,11 +1,11 @@
-"""Serve the editor, with Kaggle search and dataset loading behind it.
+"""Serve the editor, with Kaggle and Hugging Face dataset search and loading behind it.
 
     python serve.py                 # http://<this machine>:8000
     python serve.py --port 8080 --token my-passphrase
 
-The page works as plain files too; what this adds is the Dataset block's "Kaggle" button. Searching and adding
-run the Kaggle CLI on this machine with this machine's Kaggle login, so those calls need the access token this
-prints at start (kept in .serve-token, or set with --token / SF_TOKEN). Anyone can still open the editor itself.
+The page works as plain files too; what this adds is the Dataset block's "Kaggle" and "Hugging Face" buttons.
+Searching and adding run on this machine with its Kaggle and Hugging Face logins, so those calls need the access
+token this prints at start (kept in .serve-token, or set with --token / SF_TOKEN). Anyone can still open the editor itself.
 """
 import argparse
 import base64
@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
+import hf_data
 import kaggle_data
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,8 +52,20 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if u.path == "/api/kaggle/search" and method == "GET":
                 return self.send(200, {"results": kaggle_data.search(q.get("q", ""))})
+            if u.path == "/api/hf/search" and method == "GET":
+                return self.send(200, {"results": hf_data.search(q.get("q", ""))})
+            if u.path == "/api/hf/add" and method == "POST":
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                if not BUSY.acquire(blocking=False):
+                    return self.send(409, {"error": "another dataset is downloading; try again when it finishes"})
+                try:
+                    size = body.get("size")
+                    return self.send(200, {"info": hf_data.add(body.get("ref", ""), int(body.get("rows") or 2000), hf_data.parse_where(body.get("where")),
+                                                               size=int(size) if size else None)})
+                finally:
+                    BUSY.release()
             if u.path == "/api/datasets" and method == "GET":
-                return self.send(200, {"datasets": kaggle_data.added()})
+                return self.send(200, {"datasets": hf_data.added() if q.get("src") == "hf" else kaggle_data.added()})
             if u.path == "/api/kaggle/add" and method == "POST":
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
                 if not BUSY.acquire(blocking=False):
@@ -64,15 +77,19 @@ class Handler(SimpleHTTPRequestHandler):
                     BUSY.release()
             if u.path == "/api/dataset" and method == "GET":
                 ref = q.get("ref", "")
-                i = kaggle_data.info(ref)
+                mod = hf_data if q.get("src") == "hf" else kaggle_data
+                i = mod.info(ref)
+                if i and i.get("kind") == "text":                # the browser gets the first few million characters; the files hold the rest
+                    docs = hf_data.docs(ref, max(1000, min(int(q.get("chars", 3_000_000)), 20_000_000)))
+                    return self.send(200, {**i, "shown": sum(len(d) for d in docs), "docs": docs})
                 if not i:
                     return self.send(404, {"error": f"{ref} has not been added on this machine"})
-                z = np.load(os.path.join(kaggle_data.folder(ref), "packed.npz"))
+                z = np.load(os.path.join(mod.folder(ref), "packed.npz"))
                 limit = max(1, min(int(q.get("limit", 5000)), 50000))
                 pick = np.arange(i["n"]) if i["n"] <= limit else np.linspace(0, i["n"] - 1, limit).astype(np.int64)
                 return self.send(200, {**i, "shown": int(len(pick)), "labels": [int(v) for v in z["lab"][pick]],
                                        "pix": base64.b64encode(np.ascontiguousarray(z["pix"][pick]).tobytes()).decode()})
-        except kaggle_data.KaggleError as e:
+        except (kaggle_data.KaggleError, hf_data.HFError) as e:
             return self.send(400, {"error": str(e)})
         except Exception as e:                                   # a broken download should not take the server down
             return self.send(500, {"error": f"{type(e).__name__}: {e}"})

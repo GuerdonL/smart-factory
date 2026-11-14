@@ -142,3 +142,21 @@ def test_kaggle_idx_files(tmp_path, monkeypatch):
     assert (i["w"], i["h"], i["n"], i["kind"]) == (5, 5, 13, "IDX files")
     pix, labels, *_ = kaggle_data.load("o/idx")
     assert (pix[4:] == tr.reshape(9, -1)).all() and labels[:4] == [str(v) for v in tel]
+
+
+def test_hf_helpers(tmp_path, monkeypatch):
+    import hf_data
+    monkeypatch.setattr(hf_data, "ROOT", str(tmp_path))
+    assert hf_data.parse_where("language=English, open_type = 'Open Culture'") == {"language": "English", "open_type": "Open Culture"}
+    assert hf_data.parse_where("") == {}
+    for bad in ("../x", "a/b/c", "x"):
+        try:
+            hf_data.folder(bad)
+            assert False, bad
+        except hf_data.HFError:
+            pass
+    d = tmp_path / "o" / "t"
+    d.mkdir(parents=True)
+    (d / "text.jsonl").write_text('"abcdef"\n"gh\\nij"\n"klm"\n', encoding="utf-8")
+    assert hf_data.docs("o/t") == ["abcdef", "gh\nij", "klm"]
+    assert hf_data.docs("o/t", 8) == ["abcdef", "gh"]

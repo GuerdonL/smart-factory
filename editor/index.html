@@ -147,6 +147,8 @@ button.danger { color: var(--neg) }
 .t-attn .hint { font-size: 11.5px; width: 0; min-width: 100% }
 .dsprev { display: block; flex: none; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); image-rendering: pixelated }
 .dsinfo { min-width: 0; flex: 1; font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; line-height: 1.5 }
+.dstext { margin: 0; width: 0; min-width: 100%; box-sizing: border-box; max-height: 150px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.45 var(--mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px }
+.dswinv { font-family: var(--mono); font-weight: 600; min-width: 3.2em; text-align: center }
 .dsinfo b { color: var(--fg); font-size: 20px; font-weight: 600 }
 .t-read canvas { display: block; border: 1px solid var(--line); border-radius: 6px; image-rendering: pixelated }
 .t-text, .t-tok { width: 250px } .t-wave { width: 306px } .t-read { width: 290px }
@@ -295,15 +297,16 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <div id="menu" role="menu" hidden></div>
         <div class="zoom"><button data-zoom="out" aria-label="Zoom out">−</button><span id="zlabel">100%</span><button data-zoom="in" aria-label="Zoom in">+</button><button data-zoom="fit">Fit</button></div>
       </div>
-      <div id="kg" hidden role="dialog" aria-label="Kaggle datasets">
-        <div class="kgrow"><h2 style="flex:1">Kaggle datasets</h2><button id="kg-close" aria-label="Close">Close</button></div>
+      <div id="kg" hidden role="dialog" aria-label="Find a dataset">
+        <div class="kgrow"><h2 style="flex:1" id="kg-title">Kaggle datasets</h2><button id="kg-close" aria-label="Close">Close</button></div>
         <div class="kgrow" id="kg-tokrow" hidden><input type="password" id="kg-token" placeholder="Access token printed by serve.py" aria-label="Access token"><button id="kg-tokok">Unlock</button></div>
-        <form class="kgrow" id="kg-form"><input type="search" id="kg-q" placeholder="Search Kaggle, e.g. sign language mnist" aria-label="Search Kaggle"><label class="kgnote">scale to <input type="number" id="kg-size" min="4" max="128" step="1" placeholder="auto" style="width:70px" aria-label="Scale images to this many pixels square"> px</label><button>Search</button></form>
+        <form class="kgrow" id="kg-form"><input type="search" id="kg-q" aria-label="Search for a dataset"><button>Search</button></form>
+        <div class="kgrow kgnote"><label class="kg-hf">take <input type="number" id="kg-rows" min="1" max="200000" step="1" value="2000" style="width:86px" aria-label="How many rows to take"> rows</label><label class="kg-hf">where <input type="text" id="kg-where" placeholder="language=English" style="width:150px" aria-label="Keep only rows where column equals value"></label><label>scale images to <input type="number" id="kg-size" min="4" max="128" step="1" placeholder="auto" style="width:70px" aria-label="Scale images to this many pixels square"> px</label></div>
         <div class="kgnote" id="kg-msg" aria-live="polite"></div>
         <ul id="kg-results"></ul>
         <h3 id="kg-havehead" hidden>Already on the server</h3>
         <ul id="kg-have"></ul>
-        <div class="kgnote">Works with image datasets: image files in one folder per label, or a CSV with a label column and pixel columns. Images become greyscale. The editor shows up to 5,000 of them; training outside the browser uses them all.</div>
+        <div class="kgnote" id="kg-foot"></div>
       </div>
       <div id="help" hidden>
         <p>Blocks pass values along wires. Drag from a block's right-hand port onto another block to connect them. Inside an evaluation frame, drag a neuron to move it or drop it into a vector, drag a vector by its brackets (pull a bracket outward to lengthen it), drag the small dot on a neuron onto another neuron to connect them, and drag across empty space to box-select.</p>
@@ -350,7 +353,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     dist:   { title: 'Distribution', out: 'dist' },
     samp:   { title: 'Random sampler', in: 'dist', out: 'array', ins: [{ kind: 'dist', name: 'distribution' }], outs: [{ kind: 'array', name: 'samples' }] },
     perc:   { title: 'Evaluation frame', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'backprop', low: true }] },
-    data:   { title: 'Dataset', out: 'array', outs: [{ kind: 'array', name: 'image' }, { kind: 'array', name: 'label' }] },
+    data:   { title: 'Dataset', out: 'array', outs: [{ kind: 'array', name: 'image' }, { kind: 'array', name: 'label' }, { kind: 'text', name: 'text' }] },
     lin:    { title: 'Linearize', in: 'array', out: 'array' },
     attn:   { title: 'Attention', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true, low: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'attention' }] },
     read:   { title: 'Cost function', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'prediction' }, { kind: 'array', name: 'ground truth' }], outs: [{ kind: 'array', name: 'loss' }] }
@@ -504,7 +507,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (!files.length) { b.msg = 'No image files in that folder.'; return update(false); }
     const cv = document.createElement('canvas'), ctx = cv.getContext('2d', { willReadFrequently: true });
     let w = 0, h = 0, skipped = 0; const chunks = [], labels = [], names = [];
-    b.playing = false; delete b.kref;
+    b.playing = false; delete b.kref; delete b.href;
     for (let i = 0; i < files.length; i++) {
       let bmp; try { bmp = await createImageBitmap(files[i]); } catch (e) { skipped++; continue; }
       if (!w) { w = bmp.width; h = bmp.height; cv.width = w; cv.height = h; }
@@ -627,6 +630,14 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     }
     Object.assign(b, next); b.steps = (b.steps || 0) + 1; dirty = true; return true;
   }
+  // A text dataset cut into windows of `win` characters, document by document; the leftover at the end of each document is dropped.
+  function textWindows(ds, win) {
+    win = clamp(Math.round(win), 4, 4096);
+    if (ds.tw && ds.tw.win === win) return ds.tw;
+    const doc = [], off = [];
+    for (let d = 0; d < ds.docs.length; d++) for (let o = 0; o + win <= ds.docs[d].length; o += win) { doc.push(d); off.push(o); }
+    ds.n = doc.length; return ds.tw = { win, n: doc.length, doc: Int32Array.from(doc), off: Int32Array.from(off) };
+  }
   function compute(b, ins) {
     const sig = ins[0];
     if (b.type === 'pixels') { const out = arr('bool', [b.h, b.w], b.px.map(Boolean)); return { out, note: typeStr(out) }; }
@@ -682,6 +693,11 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       const ds = dataset(b);
       if (!ds) return { err: 'Loading the built-in digits…', idle: true };
       if (ds.failed) return { err: "Couldn't load the built-in digits. Load a folder of images instead." };
+      if (ds.kind === 'text') {             // a text dataset is served a window of characters at a time, out of the text port
+        const tw = textWindows(ds, b.win || 64); if (!tw.n) return { ds, err: `No document is as long as the ${nf(tw.win)}-character window.` };
+        const k = ((b.idx % tw.n) + tw.n) % tw.n, str = ds.docs[tw.doc[k]].substr(tw.off[k], tw.win), sg = { t: 'text', s: str };
+        return { outs: [undefined, undefined, sg], ds, i: k, text: str, note: `text · window ${nf(k + 1)} of ${nf(tw.n)} · ${nf(tw.win)} characters each` };
+      }
       const i = ((b.idx % ds.n) + ds.n) % ds.n, raw = ds.pix.subarray(i * ds.w * ds.h, (i + 1) * ds.w * ds.h);
       const out = b.as === 'float' ? arr('float', [ds.h, ds.w], Array.from(raw, v => v / ds.max)) : b.as === 'bool' ? arr('bool', [ds.h, ds.w], Array.from(raw, v => v >= ds.max / 2)) : arr('int', [ds.h, ds.w], Array.from(raw));
       const label = ds.classes.length && ds.labels[i] !== '' ? arr('bool', [ds.classes.length], ds.classes.map(c => c === ds.labels[i])) : undefined;   // one-hot over the label set
@@ -798,10 +814,11 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     } else if (b.type === 'perc') {
       h = `<svg class="net" role="group" aria-label="${esc(b.name)} diagram"></svg><span class="rsz" title="Drag to resize the frame"></span>`;
     } else if (b.type === 'data') {
-      h = `<div class="brow" style="align-items:flex-start;gap:10px"><canvas class="dsprev" width="96" height="96" aria-label="Current image"></canvas><div class="dsinfo"></div></div>` +
+      h = `<div class="brow" style="align-items:flex-start;gap:10px"><canvas class="dsprev" width="96" height="96" aria-label="Current image"></canvas><div class="dsinfo"></div></div><pre class="dstext" hidden aria-label="Current window of text"></pre>` +
         `<div class="brow"><button data-act="dstep" data-arg="-1" aria-label="Previous image">◀</button><input class="nin" type="number" min="1" step="1" data-f="idx" aria-label="Image number"><span class="dsof"></span><button data-act="dstep" data-arg="1" aria-label="Next image">▶</button><button data-act="dplay"></button></div>` +
-        `<div class="brow"><select data-f="as" aria-label="Output type"><option value="int">int (raw values)</option><option value="float">float (0 to 1)</option><option value="bool">bool (half or brighter)</option></select></div>` +
-        `<div class="brow"><label class="filebtn">Load folder<input type="file" webkitdirectory multiple data-f="dir" hidden></label><button data-act="dbuiltin">Built-in digits</button>${API ? '<button data-act="dkaggle">Kaggle</button>' : ''}</div>`;
+        `<div class="brow dswin" hidden><span class="stp">window</span><button data-act="dwin" data-arg="-1" aria-label="Halve the window">÷2</button><b class="dswinv"></b><button data-act="dwin" data-arg="1" aria-label="Double the window">×2</button><span class="stp">characters</span></div>` +
+        `<div class="brow dsas"><select data-f="as" aria-label="Output type"><option value="int">int (raw values)</option><option value="float">float (0 to 1)</option><option value="bool">bool (half or brighter)</option></select></div>` +
+        `<div class="brow"><label class="filebtn">Load folder<input type="file" webkitdirectory multiple data-f="dir" hidden></label><button data-act="dbuiltin">Built-in digits</button>${API ? '<button data-act="dkaggle">Kaggle</button><button data-act="dhf">Hugging Face</button>' : ''}</div>`;
     } else if (b.type === 'attn') {
       h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><label class="chk" title="Let queries and keys see where each item sits. Needed for anything that depends on order, such as reversing."><input type="checkbox" data-f="apos"> Positions</label></div><div class="brow"><button data-act="arand">Randomize</button><label class="chk"><input type="checkbox" data-f="atrain"> Train</label><label class="stp">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="alr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label><button data-act="afly" aria-expanded="${!!b.fly}">Weights</button></div><canvas class="attg" width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
     } else if (b.type === 'lin') h = '<div class="brow linax"></div><div class="fold"></div>';
@@ -828,6 +845,14 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (b.type === 'data') {
       el.querySelector('[data-act=dplay]').textContent = b.playing ? 'Pause' : 'Play';
       const ds = r.ds, cv = el.querySelector('.dsprev'), info = el.querySelector('.dsinfo'); if (!ds) { info.textContent = ''; return; }
+      const isText = ds.kind === 'text', pre = el.querySelector('.dstext');
+      cv.hidden = isText; pre.hidden = !isText; el.querySelector('.dswin').hidden = !isText; el.querySelector('.dsas').hidden = isText;
+      if (isText) {
+        pre.textContent = r.text == null ? '' : r.text; el.querySelector('.dswinv').textContent = nf(clamp(b.win || 64, 4, 4096));
+        info.innerHTML = `${esc(ds.name)}<br>${nf(ds.docs.length)} documents`;
+        const box = el.querySelector('[data-f=idx]'); if (document.activeElement !== box) box.value = (r.i || 0) + 1;
+        el.querySelector('.dsof').textContent = 'of ' + nf(ds.n); return;
+      }
       const k = Math.max(1, Math.floor(96 / Math.max(ds.w, ds.h))), c = cv.getContext('2d'), cs = getComputedStyle(document.documentElement);
       cv.width = ds.w * k; cv.height = ds.h * k; c.fillStyle = cs.getPropertyValue('--fg');
       for (let i = 0; i < r.raw.length; i++) { if (!r.raw[i]) continue; c.globalAlpha = r.raw[i] / ds.max; c.fillRect((i % ds.w) * k, Math.floor(i / ds.w) * k, k, k); }
@@ -1502,8 +1527,10 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (name === 'creset') STATS.delete(b.id);
     else if (name === 'tvtoggle') { b.tv = !b.tv; renderTV(b); drawWires(); return save(); }
     else if (name === 'bptoggle') { b.showBack = b.showBack === false; if (!b.showBack) ANIM.delete(b.id); renderBP(b); return update(true); }
-    else if (name === 'dbuiltin') { delete DS[b.id]; delete b.kref; b.idx = 0; b.msg = ''; }
-    else if (name === 'dkaggle') return openKaggle(b);
+    else if (name === 'dbuiltin') { delete DS[b.id]; delete b.kref; delete b.href; b.idx = 0; b.msg = ''; }
+    else if (name === 'dkaggle') return openFind(b, 'kaggle');
+    else if (name === 'dhf') return openFind(b, 'hf');
+    else if (name === 'dwin') { b.win = clamp(Math.round((b.win || 64) * (arg > 0 ? 2 : .5)), 4, 4096); b.idx = 0; }
     else if (name === 'fit') setLen(b, b.vecs.find(u => u.id === b.inV), arg);
     if (b.type === 'perc') { if (sel && sel.b === b.id) sel = null; renderSide(); }
     else if (name !== 'wplay' && b.type !== 'data') buildBody(b);
@@ -1930,26 +1957,41 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (!r.ok || !j) throw new Error(j && j.error ? j.error : 'The server did not answer (' + r.status + ').');
     return j;
   }
-  async function loadKaggle(b, ref) {
+  // Load a dataset the server holds into a Dataset block. src is 'kaggle' or 'hf'; images arrive packed, text as documents.
+  async function loadServer(b, ref, src) {
     b.msg = `Loading ${ref}…`; update(false);
     try {
-      const j = await api('api/dataset?limit=5000&ref=' + encodeURIComponent(ref)), bin = atob(j.pix), pix = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) pix[i] = bin.charCodeAt(i);
-      DS[b.id] = { name: j.name, w: j.w, h: j.h, n: j.shown, max: j.max, pix, labels: j.labels.map(k => j.classes[k]), names: null, classes: j.classes, kref: ref, total: j.n };
-      b.kref = ref; b.idx = 0; b.playing = false; STATS.clear();
-      b.msg = `${ref} · ${j.note}` + (j.shown < j.n ? ` · showing ${nf(j.shown)} of ${nf(j.n)}` : '');
+      const j = await api(`api/dataset?limit=5000&src=${src}&ref=` + encodeURIComponent(ref)), tag = src === 'hf' ? { href: ref } : { kref: ref };
+      if (j.kind === 'text') DS[b.id] = { kind: 'text', name: j.name, docs: j.docs, n: 0, classes: [], labels: [], ...tag, total: j.chars };
+      else {
+        const bin = atob(j.pix), pix = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) pix[i] = bin.charCodeAt(i);
+        DS[b.id] = { name: j.name, w: j.w, h: j.h, n: j.shown, max: j.max, pix, labels: j.labels.map(k => j.classes[k]), names: null, classes: j.classes, ...tag, total: j.n };
+      }
+      delete b.kref; delete b.href; Object.assign(b, tag); b.idx = 0; b.playing = false; STATS.clear();
+      b.msg = `${ref} · ${j.note}` + (j.kind === 'text' ? (j.shown < j.chars ? ` · the first ${nf(j.shown)} characters are loaded here` : '') : j.shown < j.n ? ` · showing ${nf(j.shown)} of ${nf(j.n)}` : '');
       update(true); return j;
     } catch (e) { b.msg = e.message; update(false); return null; }
   }
+  const FIND = {
+    kaggle: { title: 'Kaggle datasets', ph: 'Search Kaggle, e.g. sign language mnist', busy: 'Searching Kaggle…', none: 'Nothing on Kaggle matches that.', order: 'most voted first',
+      foot: 'Works with image datasets: image files in one folder per label, a CSV with a label column and pixel columns, or MNIST-style IDX files. Images become greyscale. The editor shows up to 5,000 of them; training outside the browser uses them all.',
+      row: d => [d.title || d.ref, `${d.ref} · ${d.size} · ${nf(+d.downloads || 0)} downloads`] },
+    hf: { title: 'Hugging Face datasets', ph: 'Search Hugging Face, e.g. common corpus', busy: 'Searching Hugging Face…', none: 'Nothing on Hugging Face matches that.', order: 'most downloaded first',
+      foot: 'Takes the first rows of a dataset without downloading the rest, so very large ones are fine. Text datasets come out of the Dataset block\'s text port a window of characters at a time; image datasets need an image column and a label column and become greyscale. "where" keeps only matching rows, such as language=English.',
+      row: d => [d.ref, `${d.kinds} · ${nf(+d.downloads || 0)} downloads` + (d.gated ? ' · gated: needs HF_TOKEN on the server' : '')] } };
+  let kgMode = 'kaggle';
   const kgItem = (title, sub, ref, verb) => `<li><div><b>${esc(title)}</b><span>${esc(sub)}</span></div><button data-ref="${esc(ref)}" data-verb="${verb}">${verb === 'use' ? 'Use' : 'Add'}</button></li>`;
+  const haveLine = d => d.kind === 'text' ? `text · ${nf(d.n)} documents · ${nf(d.chars)} characters` + (d.where ? ' · where ' + Object.entries(d.where).map(([k, v]) => k + '=' + v).join(', ') : '') : `${nf(d.n)} images · ${d.w} × ${d.h} · ${nf(d.classes.length)} labels`;
   async function kgHave() {
     try {
-      const j = await api('api/datasets'); $('kg-havehead').hidden = !j.datasets.length;
-      $('kg-have').innerHTML = j.datasets.map(d => kgItem(d.ref, `${nf(d.n)} images · ${d.w} × ${d.h} · ${nf(d.classes.length)} labels`, d.ref, 'use')).join('');
+      const j = await api('api/datasets?src=' + kgMode); $('kg-havehead').hidden = !j.datasets.length;
+      $('kg-have').innerHTML = j.datasets.map(d => kgItem(d.ref, haveLine(d), d.ref, 'use')).join('');
     } catch (e) { kgSay(e.message, true); }
   }
-  function openKaggle(b) {
-    kgBlock = b.id; $('help').hidden = true; $('kg').hidden = false; $('kg-tokrow').hidden = !!API.token; kgMsg.className = 'kgnote'; kgMsg.textContent = '';
+  function openFind(b, mode) {
+    const F = FIND[mode]; kgMode = mode; kgBlock = b.id; $('help').hidden = true; $('kg').hidden = false; $('kg-tokrow').hidden = !!API.token; kgMsg.className = 'kgnote'; kgMsg.textContent = '';
+    $('kg-title').textContent = F.title; $('kg-q').placeholder = F.ph; $('kg-foot').textContent = F.foot; $('kg-results').innerHTML = ''; $('kg-have').innerHTML = ''; $('kg-havehead').hidden = true;
+    document.querySelectorAll('#kg .kg-hf').forEach(el => { el.hidden = mode !== 'hf'; });
     if (API.token) kgHave(); (API.token ? $('kg-q') : $('kg-token')).focus();
   }
   $('kg-close').addEventListener('click', () => { $('kg').hidden = true; });
@@ -1959,30 +2001,31 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     $('kg-tokrow').hidden = !!API.token; kgMsg.className = 'kgnote'; kgMsg.textContent = API.token ? '' : 'That token was not accepted.'; if (API.token) kgHave();
   });
   $('kg-form').addEventListener('submit', async e => {
-    e.preventDefault(); const q = $('kg-q').value.trim(); if (!q) return;
-    kgMsg.className = 'kgnote'; kgMsg.textContent = 'Searching Kaggle…'; $('kg-results').innerHTML = '';
+    e.preventDefault(); const q = $('kg-q').value.trim(), F = FIND[kgMode]; if (!q) return;
+    kgMsg.className = 'kgnote'; kgMsg.textContent = F.busy; $('kg-results').innerHTML = '';
     try {
-      const j = await api('api/kaggle/search?q=' + encodeURIComponent(q));
-      $('kg-results').innerHTML = j.results.map(d => kgItem(d.title || d.ref, `${d.ref} · ${d.size} · ${nf(+d.downloads || 0)} downloads`, d.ref, 'add')).join('');
-      kgMsg.className = 'kgnote'; kgMsg.textContent = j.results.length ? `${nf(j.results.length)} datasets, most voted first. Add downloads one to the server and loads it into the Dataset block.` : 'Nothing on Kaggle matches that.';
+      const j = await api(`api/${kgMode}/search?q=` + encodeURIComponent(q));
+      $('kg-results').innerHTML = j.results.map(d => { const [title, sub] = F.row(d); return kgItem(title, sub, d.ref, 'add'); }).join('');
+      kgMsg.className = 'kgnote'; kgMsg.textContent = j.results.length ? `${nf(j.results.length)} datasets, ${F.order}. Add puts one on the server and loads it into the Dataset block.` : F.none;
     } catch (e2) { kgSay(e2.message, true); }
   });
   $('kg').addEventListener('click', async e => {
     const t = e.target.closest('button[data-ref]'), b = byId(kgBlock); if (!t || !b) return;
-    const ref = t.dataset.ref;
+    const ref = t.dataset.ref, mode = kgMode;
     if (t.dataset.verb === 'add') {
-      t.disabled = true; kgMsg.className = 'kgnote'; kgMsg.textContent = `Downloading ${ref} to the server and reading its images. Large ones take a few minutes…`;
-      try { const size = +$('kg-size').value || null; await api('api/kaggle/add', { ref, size }); }
+      t.disabled = true; kgMsg.className = 'kgnote'; kgMsg.textContent = mode === 'hf' ? `Reading rows of ${ref} from Hugging Face…` : `Downloading ${ref} to the server and reading its images. Large ones take a few minutes…`;
+      try { const size = +$('kg-size').value || null; await api(`api/${mode}/add`, mode === 'hf' ? { ref, size, rows: +$('kg-rows').value || 2000, where: $('kg-where').value.trim() } : { ref, size }); }
       catch (e2) { t.disabled = false; kgSay(e2.message, true); return; }
       t.disabled = false; kgHave();
     }
-    const j = await loadKaggle(b, ref);
-    if (j) { $('kg').hidden = true; toast(`${b.name} now reads ${ref}: ${j.w} × ${j.h} images, ${nf(j.classes.length)} labels. A frame for it needs ${nf(j.w * j.h)} inputs and ${nf(j.classes.length)} outputs.`); }
-    else kgSay(b.msg, true);
+    const j = await loadServer(b, ref, mode);
+    if (!j) return kgSay(b.msg, true);
+    $('kg').hidden = true;
+    toast(j.kind === 'text' ? `${b.name} now reads ${ref}: ${nf(j.n)} documents. Wire its text port into a Tokenizer.` : `${b.name} now reads ${ref}: ${j.w} × ${j.h} images, ${nf(j.classes.length)} labels. A frame for it needs ${nf(j.w * j.h)} inputs and ${nf(j.classes.length)} outputs.`);
   });
   fetch('api/ping', { headers: { 'X-Token': tokenOf() } }).then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !j.ok) return; API = j;
-    G.blocks.filter(b => b.type === 'data').forEach(b => { buildBody(b); if (b.kref && !DS[b.id] && j.token) loadKaggle(b, b.kref); });
+    G.blocks.filter(b => b.type === 'data').forEach(b => { buildBody(b); if ((b.kref || b.href) && !DS[b.id] && j.token) loadServer(b, b.href || b.kref, b.href ? 'hf' : 'kaggle'); });
     update(false);
   }).catch(() => {});
 
@@ -1998,6 +2041,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const wT = G.wires.find(q => q.to === cost.id && q.tp === 1), tsrc = wT && byId(wT.from);
     if (!tsrc || tsrc.type !== 'data' || wT.fp !== 1) return { err: `Wire the Dataset's label into ${cost.name}'s ground truth first.` };
     const ds = dataset(src); if (!ds || ds.failed) return { err: 'The dataset has not loaded yet.' };
+    if (ds.kind === 'text') return { err: 'Text datasets cannot be exported for training elsewhere yet; the trainer only handles images.' };
     const vin = b.vecs.find(v => v.id === b.inV), vout = b.vecs.find(v => v.id === b.outV);
     if (!vin || !vout) return { err: 'The frame needs an input vector and an output vector.' };
     if (vin.n.length !== ds.w * ds.h) return { err: `The input vector has ${nf(vin.n.length)} neurons but each image has ${nf(ds.w * ds.h)} pixels.` };
@@ -2006,7 +2050,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     for (const k in b.ns) { id.push(+k); w.push(b.ns[k]); }
     for (const key in b.edges) { const cut = key.indexOf('>'); es.push(+key.slice(0, cut)); ed.push(+key.slice(cut + 1)); ew.push(b.edges[key]); }
     return { format: 'perceptron-editor/model', v: 1, name: b.name,
-      data: { source: ds.kref ? 'kaggle' : DS[src.id] ? 'folder' : 'digits', ...(ds.kref ? { ref: ds.kref } : {}), name: ds.name, w: ds.w, h: ds.h, max: ds.max, as: src.as || 'int', classes: ds.classes },
+      data: { source: ds.kref ? 'kaggle' : ds.href ? 'hf' : DS[src.id] ? 'folder' : 'digits', ...(ds.kref || ds.href ? { ref: ds.kref || ds.href } : {}), name: ds.name, w: ds.w, h: ds.h, max: ds.max, as: src.as || 'int', classes: ds.classes },
       fold, foldRev, loss: LOSSES[cost.loss] ? cost.loss : 'se',
       frame: { act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, in: vin.n, out: vout.n, ns: { id, w }, edges: { s: es, d: ed, w: ew } } };
   }
