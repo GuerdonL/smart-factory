@@ -297,7 +297,7 @@ const boxOf = list => { const x = Math.min(...list.map(b => b.rect.x)), y = Math
 /* ---- selection ----
    Click a block to select it (with its group, if it has one); double-click one inside a selected group to select
    just that block. Double-click a block that is selected on its own to open its definition space.
-   Shift-click adds or removes. Click empty canvas or press Escape to clear. Press s to drag a box round several.
+   Shift-click adds or removes a block with its whole group; shift and a double click adds or removes the one block. Click empty canvas or press Escape to clear. Press s to drag a box round several.
    One block selected: it shows its dimension lines and can be resized. Several: a box is drawn round them with a
    group button and a place for a name, and they move together but do not resize. Whatever is not selected fades.
    Naming a plain selection folds it into a new block of that name. Naming a group makes it a named group. */
@@ -573,7 +573,7 @@ function dragged(el, from){
 
 /* ---- clicks ----
    A second click on the same thing soon after the first is a double click. */
-let lastEl = null, lastAt = 0;
+let lastEl = null, lastAt = 0, beforeShift = null;      /* beforeShift: what was selected before the last shift-click, in case it turns out to be the first of two */
 function clicked(el, e){
   const twice = el === lastEl && e.timeStamp - lastAt < 450;
   lastEl = twice ? null : el; lastAt = e.timeStamp;
@@ -619,6 +619,13 @@ function clicked(el, e){
     return;                                     /* a click on a measurement never changes the selection */
   }
   const b = blockAt(el);
+  /* shift and a double click: add or take away just this block, whatever group it is in. (The first click of the
+     pair has already added or taken away its whole group; that is undone, and the one block changed instead.) */
+  if (b && twice && e.shiftKey && el !== b.nameEl){
+    const next = new Set(beforeShift || selected); next.has(b) ? next.delete(b) : next.add(b);
+    selected.clear(); for (const x of next) selected.add(x); beforeShift = null;
+    return shown();
+  }
   if (b && twice){                              /* double click */
     if (el === b.nameEl){ select([b]); return b.rename((changed, was) => renamed(b, changed, was)); }      /* on a name: rename it */
     if (selected.size === 1 && selected.has(b)) return open(b);             /* on a block selected alone: open its definition space */
@@ -630,6 +637,8 @@ function clicked(el, e){
      otherwise the first half of a double click would hand the selection back to the outermost group, and the second
      half could never step inwards or open the block */
   if (b && !e.shiftKey && selected.has(b) && (selected.size === 1 || chain(b).includes(groupIs([...selected])))) return;
+  /* shift and a click: add this block to the selection, or take it away, along with the whole of its outermost group */
+  beforeShift = b && e.shiftKey ? new Set(selected) : null;
   select(b ? members(b) : [], { toggle: !!b && e.shiftKey });
 }
 
