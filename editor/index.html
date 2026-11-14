@@ -356,7 +356,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <h2 id="math-title">Frame</h2>
         <div class="brow" id="frame-ctl"><button data-fa="addscalar">Add neuron</button><button data-fa="addvec">Add vector</button><button data-fa="cclear">Clear connections</button><select id="frame-act" aria-label="Activation"><option value="linear">Linear</option><option value="step">Step</option><option value="relu">ReLU</option><option value="sigmoid">Sigmoid</option><option value="tanh">Tanh</option></select></div>
         <div class="brow" id="train-ctl"><label class="chk"><input type="checkbox" id="tr-on"> Train</label><label class="stp">rate <input id="tr-lr" class="nin" type="number" step="0.001" min="0"></label><button id="tr-step">Step once</button><button id="tr-rand" title="Small random connection weights, and every neuron weight back to 1">Randomize weights</button><label class="chk"><input type="checkbox" id="tr-linout"> Linear output layer</label></div>
-        <div class="brow" id="remote-ctl"><button id="ex-model" title="Save this frame, its dataset settings and its cost function as a file for trainer.py">Export model</button><button id="im-weights" title="Load a weights.json written by trainer.py into this frame">Import weights</button><input type="file" id="im-file" accept=".json,application/json" hidden><button id="gpu-btn" hidden title="Estimate this training run and, if you confirm the cost, rent a GPU for it through box-boy">Train on a GPU…</button></div>
+        <div class="brow" id="remote-ctl"><button id="ex-model" title="Save everything behind this frame's Cost function (blocks, wires and weights) as a file for trainer.py">Export model</button><button id="im-weights" title="Load a weights.json written by trainer.py into this frame">Import weights</button><input type="file" id="im-file" accept=".json,application/json" hidden><button id="gpu-btn" hidden title="Estimate this training run and, if you confirm the cost, rent a GPU for it through box-boy">Train on a GPU…</button></div>
         <p class="hint" id="math-hint"></p>
       </section>
     </aside>
@@ -2252,28 +2252,6 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (!samples) samples = 10000;                                    // nothing but samplers: call ten thousand draws a pass
     // What trains: the blocks a gradient reaches. If some of them have Train ticked, only those; if none do, all of them.
     return { format: 'perceptron-editor/graph', v: 1, name: cost.name, cost: cost.id, blocks, wires, train: ticked.length ? ticked : can, est: { work, levels, samples } };
-  }
-  function modelOf(b) {
-    const wIn = G.wires.find(q => q.to === b.id && (q.tp || 0) === 0); let src = wIn && byId(wIn.from), fold = null, foldRev = [false, false];
-    if (src && src.type === 'lin') { fold = src.mode || 'rows'; foldRev = [!!(src.rev || [])[0], !!(src.rev || [])[1]]; const w2 = G.wires.find(q => q.to === src.id && (q.tp || 0) === 0); src = w2 && byId(w2.from); }
-    if (!src || src.type !== 'data' || !fold) return { err: `Export needs Dataset → Linearize → ${b.name}. Other inputs cannot be trained elsewhere yet.` };
-    const wOut = G.wires.find(q => q.from === b.id && byId(q.to) && byId(q.to).type === 'read' && (q.tp || 0) === 0), cost = wOut && byId(wOut.to);
-    if (!cost) return { err: `Wire ${b.name}'s output into a Cost function's prediction first.` };
-    const wT = G.wires.find(q => q.to === cost.id && q.tp === 1), tsrc = wT && byId(wT.from);
-    if (!tsrc || tsrc.type !== 'data' || wT.fp !== 1) return { err: `Wire the Dataset's label into ${cost.name}'s ground truth first.` };
-    const ds = dataset(src); if (!ds || ds.failed) return { err: 'The dataset has not loaded yet.' };
-    if (ds.kind === 'text') return { err: 'Text datasets cannot be exported for training elsewhere yet; the trainer only handles images.' };
-    const vin = b.vecs.find(v => v.id === b.inV), vout = b.vecs.find(v => v.id === b.outV);
-    if (!vin || !vout) return { err: 'The frame needs an input vector and an output vector.' };
-    if (vin.n.length !== ds.w * ds.h) return { err: `The input vector has ${nf(vin.n.length)} neurons but each image has ${nf(ds.w * ds.h)} pixels.` };
-    if (vout.n.length !== ds.classes.length) return { err: `The output vector has ${nf(vout.n.length)} neurons but the dataset has ${nf(ds.classes.length)} labels.` };
-    const id = [], w = [], es = [], ed = [], ew = [];
-    for (const k in b.ns) { id.push(+k); w.push(b.ns[k]); }
-    for (const key in b.edges) { const cut = key.indexOf('>'); es.push(+key.slice(0, cut)); ed.push(+key.slice(cut + 1)); ew.push(b.edges[key]); }
-    return { format: 'perceptron-editor/model', v: 1, name: b.name,
-      data: { source: ds.kref ? 'kaggle' : ds.href ? 'hf' : DS[src.id] ? 'folder' : 'digits', ...(ds.kref || ds.href ? { ref: ds.kref || ds.href } : {}), ...(ds.slice ? { slice: ds.slice } : {}), name: ds.name, w: ds.w, h: ds.h, max: ds.max, as: src.as || 'int', classes: ds.classes, total: ds.total || ds.n },
-      fold, foldRev, loss: LOSSES[cost.loss] ? cost.loss : 'se',
-      frame: { act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, in: vin.n, out: vout.n, ns: { id, w }, edges: { s: es, d: ed, w: ew } } };
   }
   $('ex-model').addEventListener('click', async () => {
     const b = byId(activeP); if (!b) return; const m = graphOf(costOf(b)); if (m.err) return toast(m.err);
