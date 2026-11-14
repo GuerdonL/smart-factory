@@ -1,11 +1,12 @@
 /* What a piece (one shape, or several touching) comes to, written beside it:   [shapes]  =  ⎡ … ⎤
 
-   createResult({ unit }) -> { el, set(box, type, side, drop, letter) -> rect, name(done) }
+   createResult({ unit }) -> { el, set(box, type, side, drop, letter, values) -> rect, name(done) }
      unit   world units to one "u"
      set    box is the rectangle round the piece's shapes ({ x, y, w, h }, world coordinates). side says where the
             "=" and the matrix go: 'right' (the default) puts them to the right of the box, level with its middle;
             'below' puts them under it, starting at its left edge, `drop` further units down (default 0).
-            Either way they sit on the dots. letter is what the matrix's entries are called (default "x").
+            Either way they sit on the dots. letter is what the matrix's entries are called (default "x");
+            values are the entries that have been given a number (see matrix.js).
             type is what the piece comes to: { cols, rows } is written out in matrix notation; { error } is written
             as the error, in the warning colour. With no type nothing is shown.
             Returns the rectangle the "=" and the matrix now cover, so the caller can see what they would overlap.
@@ -34,12 +35,12 @@ export function createResult({ unit }){
   const el = html`<div class="result"><div class="result-sign">=</div></div>`, sign = el.firstElementChild;
   const nameEl = html`<span class="result-name" hidden></span>`; el.append(nameEl);
   let showing = '', body = null, width = 0, height = 0;
-  return { el, set(box, type, side = 'right', drop = 0, letter = 'x'){
+  return { el, set(box, type, side = 'right', drop = 0, letter = 'x', values = new Map()){
     el.hidden = !type; if (!type) return null;
-    const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + letter;
+    const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + letter + [...values].join(';');
     if (key !== showing){ showing = key; body?.remove();
       if (type.error){ body = html`<div class="result-error"></div>`; body.textContent = type.error; width = 4 * unit; height = 0; }
-      else { const m = createMatrix({ cols: type.cols, rows: type.rows, cell: unit, letter }); body = m.el; width = m.width; height = m.height; }
+      else { const m = createMatrix({ cols: type.cols, rows: type.rows, cell: unit, letter, values }); body = m.el; width = m.width; height = m.height; }
       el.append(body); }
     /* the matrix sits on the dots; the sign is level with the matrix, a unit and a half before it */
     const left = side === 'below' ? on(box.x) : on(box.x + box.w) + 1.5 * unit;

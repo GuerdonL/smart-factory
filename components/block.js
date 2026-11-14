@@ -1,12 +1,14 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, set(rect), select(on), dim(on), grips(on), stripes(way, unit), rename() }
+   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), rename() }
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
      rect     { x, y, w, h } in world coordinates
      name     the text shown above it
      nameEl   the element showing the name
      sides    { w, h }: the names of its width and its height, null where unnamed. Kept here for whoever names them;
               the block itself does nothing with them.
+     values   a Map from "column,row" to a number: the entries of this variable that have been given one.
+              Kept here for the same reason.
      set      moves and resizes it
      select   shows or hides the selection halo, and brings the block in front of the others
      grips    turns the resize grips on or off
@@ -71,7 +73,7 @@ export function createBlock(shape, rect, name = ''){
   for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
-  const block = { el, nameEl, shape, rect, name, sides: { w: null, h: null },
+  const block = { el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(),
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
     grips(on){ el.classList.toggle('no-grips', !on); },

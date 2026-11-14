@@ -13,7 +13,8 @@ import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { joins, pieces, typeOf, initials } from './algebra.js';
+import { joins, pieces, typeOf, initials, readEntry } from './algebra.js';
+import { written } from './components/matrix.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
 let shapes = [];
@@ -36,15 +37,20 @@ function go(to){
   for (const b of space.blocks) b.el.remove(); space.definition?.el.remove();
   space = to;
   view.world.append(...space.blocks.map(b => b.el));
-  if (space.owner){                            /* written afresh each time, so it follows the block's current size */
-    const r = space.owner.rect;
-    space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
-      letter: initials(space.owner.name), colsName: space.owner.sides.w, rowsName: space.owner.sides.h });
-    view.world.prepend(space.definition.el);   /* beneath the blocks */
-  }
+  write();
   view.origin.hidden = !!space.owner;          /* the equals sign sits at the origin of a definition space */
   view.look(space.camera);
   crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Top'));
+}
+/* writes out the current space's equation: afresh each time it is opened, so it follows its block's size, and again
+   whenever one of the block's entries is given a number */
+function write(){
+  space.definition?.el.remove(); space.definition = null;
+  if (!space.owner) return;
+  const o = space.owner, r = o.rect;
+  space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
+    letter: initials(o.name), values: o.values, colsName: o.sides.w, rowsName: o.sides.h });
+  view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
 const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); deeper.length = 0; go(spaceOf.get(b)); };
 /* out and back in again, like a browser's back and forward: stepping out remembers the space left, so stepping in can return to it */
@@ -157,9 +163,10 @@ function shown(){                              /* brings what is on screen in li
   ps.forEach((piece, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u };
     r.piece = { blocks: piece.members.map(m => space.blocks[m]), type: piece.type, box };       /* what this result is the result of */
-    const letter = piece.members.length === 1 ? initials(space.blocks[piece.members[0]].name) : 'x';      /* one block: its own initials; a product has no name yet */
-    let at = r.set(box, piece.type, 'right', 0, letter);
-    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, 'below', drop, letter);
+    /* one block: its own initials and the numbers its entries have been given; a product has no name yet, and is not worked out */
+    const alone = piece.members.length === 1 ? space.blocks[piece.members[0]] : null, letter = alone ? initials(alone.name) : 'x', values = alone ? alone.values : undefined;
+    let at = r.set(box, piece.type, 'right', 0, letter, values);
+    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, 'below', drop, letter, values);
     taken.push(at); });
   for (const r of results.slice(ps.length)) r.el.remove();
 }
@@ -174,7 +181,7 @@ function select(list, { toggle = false } = {}){
    Click a result's matrix and give it a name: the blocks that came to it fold away into a new block of that name,
    the size of the result, in a bold colour picked at random. They become its definition: open it to find them on
    the left of its "=". */
-const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'flamingo', 'marigold', 'lagoon'];      /* colours in the theme */
+const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'];      /* colours in the theme */
 function fold({ blocks: inside, type, box }, name){
   const u = view.unit, used = new Set(space.blocks.map(b => b.shape.color));
   const free = PALETTE.filter(c => !used.has(c)), from = free.length ? free : PALETTE;                /* one this space is not using, while there is one */
@@ -195,12 +202,12 @@ function fold({ blocks: inside, type, box }, name){
 }
 
 /* ---- copy and paste ----
-   Copy takes a picture of the selected blocks as they are now: size, name, colour, side names, grouping, and each
+   Copy takes a picture of the selected blocks as they are now: size, name, colour, side names, entries, grouping, and each
    one's whole definition space, all the way down. Paste makes new blocks from that picture in the current space,
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, group: s.groupOf.get(b) ?? null,
+const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: new Map(b.values), group: s.groupOf.get(b) ?? null,
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null });
 function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
 /* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
@@ -210,7 +217,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengths.has(pic.sides[dim])) r[dim] = lengths.get(pic.sides[dim]) * u;      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides };
+    const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
     s.blocks.push(b); made.push(b);
     if (pic.group !== null){ if (!groups.has(pic.group)) groups.set(pic.group, nextGroup++); s.groupOf.set(b, groups.get(pic.group)); }
     if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
@@ -294,6 +301,15 @@ function clicked(el, e){
     const list = [...selected];
     if (isOneGroup(list)) ungroup(list); else { ungroup(list); const id = nextGroup++; for (const b of list) space.groupOf.set(b, id); }
     return shown();
+  }
+  /* an entry of this space's own matrix: type a whole number, or inf / -inf, over it. Nothing typed puts the symbol back. */
+  const entry = el.closest?.('.definition [data-c]');
+  if (entry){
+    const o = space.owner, key = entry.dataset.c + ',' + entry.dataset.r;
+    select([]); entry.textContent = o.values.has(key) ? written(o.values.get(key)) : '';
+    return editText(entry, text => { const v = text === null ? undefined : readEntry(text);
+      if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
+      write(); shown(); });
   }
   /* a result's matrix: name it, and the blocks that came to it fold into a new block */
   const r = results.find(r => r.el.isConnected && r.el.contains(el));

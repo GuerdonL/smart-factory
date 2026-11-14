@@ -20,6 +20,9 @@
    typeOf(rects) -> null | { cols, rows, colsName, rowsName } | { error }
        what everything comes to: nothing is null, one piece is that piece's type, and several pieces are not one
        thing: { error: 'n pieces' }.
+   readEntry(text) -> what was typed into a matrix entry: a whole number ("7", "-3", "+12"), plus or minus infinity
+       ("inf", "+inf", "-inf", "infinity", "∞", "-∞"), null for nothing typed (the entry goes back to being a
+       symbol), or undefined for anything else (not accepted)
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
 
 export function joins(rects){
@@ -51,6 +54,14 @@ export function pieces(rects){
 export function typeOf(rects){
   const ps = pieces(rects);
   return !ps.length ? null : ps.length === 1 ? ps[0].type : { error: ps.length + ' pieces' };
+}
+
+export function readEntry(text){
+  const t = String(text).replace(/\s+/g, '').replace(/−/g, '-').toLowerCase();
+  if (!t) return null;
+  if (/^[+-]?\d+$/.test(t)) return parseInt(t, 10);
+  const m = t.match(/^([+-]?)(inf|infinity|∞)$/);
+  return m ? (m[1] === '-' ? -Infinity : Infinity) : undefined;
 }
 
 export function initials(name){
