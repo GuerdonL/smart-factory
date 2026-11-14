@@ -9,11 +9,14 @@
    or shapes touching so that they multiply. Separate pieces are not one thing and do not count.
    (What it comes to is worked out elsewhere and handed to check.)
 
-   createDefinition({ cols, rows, unit }) -> { el, check(type) }
+   createDefinition({ cols, rows, unit, letter, colsName, rowsName }) -> { el, check(type) }
      cols, rows   the block's promised shape, in units
+     letter       the block's initials, for the matrix's entries
+     colsName, rowsName   the names of the block's sides, where it has them
      unit         world units to one "u"
      check        takes what the space's content comes to: null for nothing yet (the outline waits),
-                  { cols, rows } for a size ("=" if it is the promised one, otherwise "≠" with that size),
+                  { cols, rows, colsName, rowsName } for a size ("=" if it is the promised one, otherwise "≠" with
+                  that size; where both a promised side and the content's side are named, the names must agree too),
                   or { error } for content that has no size ("≠" with the error). */
 import { html, style } from './dom.js';
 import { createMatrix } from './matrix.js';
@@ -28,10 +31,10 @@ style('definition', `
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
 
-export function createDefinition({ cols, rows, unit }){
+export function createDefinition({ cols, rows, unit, letter = 'x', colsName = null, rowsName = null }){
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign"><span>=</span><small></small></div></div>`;
-  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit });
+  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit, letter });
   /* the sign is at the origin; one unit of air each side; the slot and the matrix are level with each other */
   const top = on(-rows * unit / 2);
   Object.assign(slot.style, { left: -unit - cols * unit + 'px', top: top + 'px', width: cols * unit + 'px', height: rows * unit + 'px' });
@@ -40,7 +43,8 @@ export function createDefinition({ cols, rows, unit }){
   Object.assign(matrix.el.style, { left: unit + 'px', top: on(top + (rows * unit - matrix.height) / 2) + 'px' });
   el.append(matrix.el);
   return { el, check(type){
-    const wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows);
+    const named = (a, b) => !a || !b || a === b;
+    const wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows || !named(type.colsName, colsName) || !named(type.rowsName, rowsName));
     el.classList.toggle('filled', !!type); el.classList.toggle('wrong', wrong);
-    sign.firstElementChild.textContent = wrong ? '≠' : '='; sign.lastElementChild.textContent = wrong ? type.error || `${type.cols} × ${type.rows}` : ''; } };
+    sign.firstElementChild.textContent = wrong ? '≠' : '='; sign.lastElementChild.textContent = wrong ? type.error || `${type.colsName || type.cols} × ${type.rowsName || type.rows}` : ''; } };
 }

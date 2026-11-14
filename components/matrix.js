@@ -1,13 +1,14 @@
 /* A variable written out in matrix notation, laid on the dot grid.
 
-   createMatrix({ cols, rows, cell }) -> { el, width, height }
+   createMatrix({ cols, rows, cell, letter }) -> { el, width, height }
      cols, rows   the variable's promised shape
      cell         the size of one entry's square, in world units
+     letter       what the entries are called: the variable's initials, say "k" for Keys (default "x")
      width, height  the size of what was made, in world units (for placing it)
 
-   One row or one column is a vector, written x₁ … xₙ. Otherwise it is a matrix, each entry named by its column and
-   row: x₁y₁ … xₙy₁ down to x₁yₙ … xₙyₙ. Past eight along a side, the middle is elided the way it is on paper:
-   the first three, dots, and the last. */
+   One row or one column is a vector, written k₁ … kₙ. Otherwise it is a matrix, each entry carrying its column then
+   its row: k₁₁ … kₙ₁ down to k₁ₙ … kₙₙ (with a comma between them once either passes nine: k₁₀,₃). Past eight along
+   a side, the middle is elided the way it is on paper: the first three, dots, and the last. */
 import { html, style } from './dom.js';
 
 style('matrix', `
@@ -22,17 +23,19 @@ style('matrix', `
 
 const shown = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 3, null, n];      /* null: the elided middle */
 
-export function createMatrix({ cols, rows, cell }){
+export function createMatrix({ cols, rows, cell, letter = 'x' }){
   const cs = shown(cols), rs = shown(rows), vector = cols === 1 || rows === 1;
   const el = html`<div class="matrix"></div>`;
   /* one size of type for the whole matrix, small enough that its widest entry fits its square:
      a letter is about half an em wide and a subscript digit about a third */
-  const digits = n => String(n).length, widest = vector ? .5 + .34 * digits(Math.max(cols, rows)) : 1 + .34 * (digits(cols) + digits(rows));
+  const comma = cols > 9 || rows > 9 ? ',' : '', digits = n => String(n).length;
+  const widest = .5 * letter.length + .34 * (vector ? digits(Math.max(cols, rows)) : digits(cols) + digits(rows) + (comma ? .6 : 0));
   el.style.fontSize = Math.min(cell * .6, cell * .8 / widest) + 'px';
   el.style.gridTemplateColumns = `repeat(${cs.length}, ${cell}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
   for (const r of rs) for (const c of cs){
     if (r === null || c === null){ el.append(html`<span class="dots">${r === null && c === null ? '⋱' : r === null ? '⋮' : '⋯'}</span>`); continue; }
-    el.append(vector ? html`<span>x<sub>${cols === 1 ? r : c}</sub></span>` : html`<span>x<sub>${c}</sub>y<sub>${r}</sub></span>`);
+    const cell = html`<span><sub></sub></span>`; cell.prepend(letter); cell.lastChild.textContent = vector ? (cols === 1 ? r : c) : c + comma + r;
+    el.append(cell);
   }
   return { el, width: cs.length * cell, height: rs.length * cell };
 }

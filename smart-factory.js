@@ -13,7 +13,7 @@ import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { joins, pieces, typeOf } from './algebra.js';
+import { joins, pieces, typeOf, initials } from './algebra.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
 let shapes = [];
@@ -38,7 +38,8 @@ function go(to){
   view.world.append(...space.blocks.map(b => b.el));
   if (space.owner){                            /* written afresh each time, so it follows the block's current size */
     const r = space.owner.rect;
-    space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit });
+    space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
+      letter: initials(space.owner.name), colsName: space.owner.sides.w, rowsName: space.owner.sides.h });
     view.world.prepend(space.definition.el);   /* beneath the blocks */
   }
   view.origin.hidden = !!space.owner;          /* the equals sign sits at the origin of a definition space */
@@ -67,6 +68,45 @@ function freeName(){
   for (let n = 1; ; n++) if (!used.has('Shape ' + n)) return 'Shape ' + n;
 }
 
+/* ---- named sides ----
+   A side of a block (its width or its height) can be given a name, such as "context". Every side with the same name,
+   on any block in any space, is the same length: change one and they all change. Two named sides multiply only if
+   they carry the same name. */
+const lengths = new Map();                     /* a name -> how many units long its sides are */
+const everyBlock = () => [...top.blocks, ...[...spaceOf.values()].flatMap(s => s.blocks)];
+/* after b's size has changed: its named sides give their new length to every side of the same name */
+function agree(b){
+  const u = view.unit;
+  for (const dim of ['w', 'h']) if (b.sides[dim]) lengths.set(b.sides[dim], Math.max(1, Math.round(b.rect[dim] / u)));
+  for (const o of everyBlock()){ let r = o.rect;
+    for (const dim of ['w', 'h']) if (o.sides[dim] && r[dim] !== lengths.get(o.sides[dim]) * u) r = { ...r, [dim]: lengths.get(o.sides[dim]) * u };
+    if (r !== o.rect) o.set(r); }
+}
+/* Runs change(), then puts back together whatever it pulled apart: blocks that were touching side by side, in any
+   space, still touch afterwards, the right-hand one moving to stay against the left-hand one. A length that changes
+   would otherwise leave products overlapping or gapped. except(left, right) can name pairs to leave alone. */
+function keepTouching(change, except = () => false){
+  const u = view.unit, pairs = [];
+  for (const s of [top, ...spaceOf.values()]){
+    const rects = s.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
+    for (const j of joins(rects)) if (!except(s.blocks[j.left], s.blocks[j.right])) pairs.push([s.blocks[j.left], s.blocks[j.right]]);
+  }
+  change();
+  pairs.sort((a, b) => a[0].rect.x - b[0].rect.x);                       /* left to right, so a row shuffles along in order */
+  for (const [left, right] of pairs) if (right.rect.x !== left.rect.x + left.rect.w) right.set({ ...right.rect, x: left.rect.x + left.rect.w });
+}
+
+/* what was typed into a measurement:  "8" a length;  "context" a name (the side takes that name's length, or gives it
+   its own if the name is new);  "context 8" both;  "-" takes the name off. */
+function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
+function typedNow(b, dim, text){
+  const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(), n = m[2] ? Math.round(parseFloat(m[2])) : null;
+  if (name === '-'){ b.sides[dim] = null; if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); return; }
+  if (name){ b.sides[dim] = name; if (n === null && lengths.has(name)) b.set({ ...b.rect, [dim]: lengths.get(name) * view.unit }); }
+  if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit });
+  agree(b);
+}
+
 /* ---- groups: blocks that are selected together. A block is in at most one group, within its space. ---- */
 let nextGroup = 1;
 const members = b => { const g = space.groupOf; return g.has(b) ? space.blocks.filter(o => g.get(o) === g.get(b)) : [b]; };
@@ -90,7 +130,7 @@ let marks = [];                                /* the product marks now on the c
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
-  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, sides(view, one.rect)); }
+  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h }); }
   else measure?.el.remove();
   if (list.length > 1){
     const x = Math.min(...list.map(b => b.rect.x)), y = Math.min(...list.map(b => b.rect.y));
@@ -98,9 +138,9 @@ function shown(){                              /* brings what is on screen in li
     view.world.append(bounds.el);
   } else bounds.el.remove();
   /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
-  const u = view.unit, rects = space.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
+  const u = view.unit, rects = space.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   for (const j of marks) j.el.remove();
-  marks = joins(rects).map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: `${rects[j.left].w} ≠ ${rects[j.right].h}` }));
+  marks = joins(rects).map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: j.note }));
   view.world.append(...marks.map(j => j.el));
   /* a definition space checks what is here against its block's promised size. The top space has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
@@ -112,8 +152,9 @@ function shown(){                              /* brings what is on screen in li
   ps.forEach((piece, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u };
     r.piece = { blocks: piece.members.map(m => space.blocks[m]), type: piece.type, box };       /* what this result is the result of */
-    let at = r.set(box, piece.type, 'right');
-    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, 'below', drop);
+    const letter = piece.members.length === 1 ? initials(space.blocks[piece.members[0]].name) : 'x';      /* one block: its own initials; a product has no name yet */
+    let at = r.set(box, piece.type, 'right', 0, letter);
+    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, 'below', drop, letter);
     taken.push(at); });
   for (const r of results.slice(ps.length)) r.el.remove();
 }
@@ -134,6 +175,7 @@ function fold({ blocks: inside, type, box }, name){
   const free = PALETTE.filter(c => !used.has(c)), from = free.length ? free : PALETTE;                /* one this space is not using, while there is one */
   const made = createBlock({ label: 'Named', draw: 'rectangle', color: from[Math.floor(Math.random() * from.length)] },
     { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
+  made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
   /* its definition space: the folded blocks, moved so they end one unit left of the "=" and sit level with it */
   const def = newSpace(made, space); spaceOf.set(made, def);
   const dx = -u - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
@@ -183,7 +225,9 @@ function dragged(el, from){
     return { end, move(p){
       const x0 = grip.includes('w') ? Math.min(snap(p.x), right - g) : r.x, x1 = grip.includes('e') ? Math.max(snap(p.x), r.x + g) : right;
       const y0 = grip.includes('n') ? Math.min(snap(p.y), bottom - g) : r.y, y1 = grip.includes('s') ? Math.max(snap(p.y), r.y + g) : bottom;
-      b.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }); shown(); } };
+      /* what touches its right side follows that side; pulling its own left side away from a neighbour is allowed */
+      keepTouching(() => { b.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }); agree(b); }, (left, right) => right === b || (left === b && !grip.includes('e') && !b.sides.w));
+      shown(); } };
   }
   if (!selected.has(b)) return;
   const start = [...selected].map(b => [b, b.rect]);
@@ -207,10 +251,10 @@ function clicked(el, e){
   /* a result's matrix: name it, and the blocks that came to it fold into a new block */
   const r = results.find(r => r.el.isConnected && r.el.contains(el));
   if (r){ const piece = r.piece; select([]); return r.name(name => { if (name && !piece.type.error && piece.blocks.every(b => space.blocks.includes(b))) fold(piece, name); }); }
-  /* a measurement: double-click to type a size in whole units; the block keeps its top-left corner */
+  /* a measurement: double-click to type a length in whole units, a name for that side, or both; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
     const b = [...selected][0];
-    if (twice) editText(el, text => { const n = Math.round(parseFloat(text)); if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); shown(); });
+    if (twice) editText(el, text => { if (text) typed(b, dim, text); shown(); });
     return;                                     /* a click on a measurement never changes the selection */
   }
   const b = blockAt(el);

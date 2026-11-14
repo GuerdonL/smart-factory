@@ -1,29 +1,35 @@
 /* What shapes on a canvas mean as algebra. No drawing here: only rectangles in, facts out.
-   A rect is { x, y, w, h } in units: w is a variable's columns, h its rows.
+   A rect is { x, y, w, h, wName, hName } in units: w is a variable's columns, h its rows, and wName / hName are the
+   names of those sides where they have them (say "context", "embed"); sides with the same name are the same length.
 
    Two shapes that touch side by side, the left one's right edge against the right one's left edge (along an edge,
-   not just at a corner), are a matrix product, left · right. It is defined when the left one's columns equal the
-   right one's rows (left.w === right.h), and gives a variable with the left one's rows and the right one's columns.
+   not just at a corner), are a matrix product, left · right. It is defined when the left one's columns are the right
+   one's rows: where both of those sides are named, they must carry the same name; otherwise they must be the same
+   length. It gives a variable with the left one's rows and the right one's columns.
    Touching is the only thing that combines shapes. Shapes that do not touch side by side have nothing to do with
    each other, however close they are, and one above another is not an operation.
 
-   joins(rects)  -> [{ left, right, x, y, ok }]
-       every side-by-side touch: indexes into rects, the middle of the shared edge, and whether the product is defined
+   joins(rects)  -> [{ left, right, x, y, ok, note }]
+       every side-by-side touch: indexes into rects, the middle of the shared edge, whether the product is defined,
+       and, where it is not, what does not agree ("4 ≠ 3", or "embed ≠ key")
    pieces(rects) -> [{ members, box, type }]
        the shapes sorted into pieces, a piece being shapes joined to one another by touching. members are indexes
        into rects, left to right where that means something; box is the rectangle round the piece; type is what the
-       piece comes to: { cols, rows }, or { error: 'undefined' } when a product in it is not defined or its shapes
-       do not form a single row (one shape touching two on the same side has no one reading).
-   typeOf(rects) -> null | { cols, rows } | { error }
+       piece comes to: { cols, rows, colsName, rowsName }, or { error: 'undefined' } when a product in it is not
+       defined or its shapes do not form a single row (one shape touching two on the same side has no one reading).
+   typeOf(rects) -> null | { cols, rows, colsName, rowsName } | { error }
        what everything comes to: nothing is null, one piece is that piece's type, and several pieces are not one
-       thing: { error: 'n pieces' }. */
+       thing: { error: 'n pieces' }.
+   initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
 
 export function joins(rects){
   const out = [];
   rects.forEach((a, left) => rects.forEach((b, right) => {
     if (left === right || a.x + a.w !== b.x) return;
     const top = Math.max(a.y, b.y), bottom = Math.min(a.y + a.h, b.y + b.h);
-    if (bottom > top) out.push({ left, right, x: b.x, y: (top + bottom) / 2, ok: a.w === b.h });
+    if (bottom <= top) return;
+    const byName = a.wName && b.hName, ok = byName ? a.wName === b.hName : a.w === b.h;
+    out.push({ left, right, x: b.x, y: (top + bottom) / 2, ok, note: ok ? '' : byName ? `${a.wName} ≠ ${b.hName}` : `${a.w} ≠ ${b.h}` });
   }));
   return out;
 }
@@ -36,8 +42,8 @@ export function pieces(rects){
     const members = rects.map((_, i) => i).filter(i => piece[i] === id), inside = js.filter(j => piece[j.left] === id);
     const x = Math.min(...members.map(i => rects[i].x)), y = Math.min(...members.map(i => rects[i].y));
     const box = { x, y, w: Math.max(...members.map(i => rects[i].x + rects[i].w)) - x, h: Math.max(...members.map(i => rects[i].y + rects[i].h)) - y };
-    const row = inOneRow(members, inside);
-    const type = !row || inside.some(j => !j.ok) ? { error: 'undefined' } : { cols: rects[row[row.length - 1]].w, rows: rects[row[0]].h };
+    const row = inOneRow(members, inside), first = row && rects[row[0]], last = row && rects[row[row.length - 1]];
+    const type = !row || inside.some(j => !j.ok) ? { error: 'undefined' } : { cols: last.w, rows: first.h, colsName: last.wName || null, rowsName: first.hName || null };
     return { members: row || members, box, type };
   });
 }
@@ -45,6 +51,10 @@ export function pieces(rects){
 export function typeOf(rects){
   const ps = pieces(rects);
   return !ps.length ? null : ps.length === 1 ? ps[0].type : { error: ps.length + ' pieces' };
+}
+
+export function initials(name){
+  return (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toLowerCase()).join('').slice(0, 3) || 'x';
 }
 
 /* the members' order left to right if they form a single row, each touching the next and nothing else; otherwise null */

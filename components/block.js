@@ -1,10 +1,12 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, set(rect), select(on), dim(on), grips(on), rename() }
+   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, set(rect), select(on), dim(on), grips(on), rename() }
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
      rect     { x, y, w, h } in world coordinates
      name     the text shown above it
      nameEl   the element showing the name
+     sides    { w, h }: the names of its width and its height, null where unnamed. Kept here for whoever names them;
+              the block itself does nothing with them.
      set      moves and resizes it
      select   shows or hides the selection halo, and brings the block in front of the others
      grips    turns the resize grips on or off
@@ -42,7 +44,8 @@ style('block', `
 .block.selected .block-name { color: var(--select); }
 /* grips: a strip along each side and a square on each corner, half in and half out, showing which way it stretches */
 .block.no-grips .block-grip { display: none; }
-.block-grip { position: absolute; z-index: 1; --t: calc(10 * var(--px)); --c: calc(14 * var(--px)); }
+/* layer 0: over the blocks, but under a selected block (layer 1), so where two blocks share an edge the selected one's grip is the one you get */
+.block-grip { position: absolute; z-index: 0; --t: calc(10 * var(--px)); --c: calc(14 * var(--px)); }
 .block-grip[data-grip="n"], .block-grip[data-grip="s"] { left: 0; right: 0; height: var(--t); cursor: ns-resize; }
 .block-grip[data-grip="e"], .block-grip[data-grip="w"] { top: 0; bottom: 0; width: var(--t); cursor: ew-resize; }
 .block-grip[data-grip="n"] { top: calc(var(--t) / -2); } .block-grip[data-grip="s"] { bottom: calc(var(--t) / -2); }
@@ -60,7 +63,7 @@ export function createBlock(shape, rect, name = ''){
   for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
-  const block = { el, nameEl, shape, rect, name,
+  const block = { el, nameEl, shape, rect, name, sides: { w: null, h: null },
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
     grips(on){ el.classList.toggle('no-grips', !on); },

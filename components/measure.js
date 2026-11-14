@@ -1,10 +1,11 @@
 /* Dimension lines for a rectangle on the canvas:  |-------- 6u --------|
 
-   createMeasure(unit) -> { el, labels: { w, h }, set(rect, { top, right }) }
+   createMeasure(unit) -> { el, labels: { w, h }, set(rect, { top, right, wName, hName }) }
      labels  the two elements showing the numbers, for whoever wants to make them editable
      unit    how many world units make one "u"
      set     fits the lines to rect ({ x, y, w, h } in world coordinates). The width is shown along the bottom
              and the height down the left side; pass top / right as true to move them to the other side.
+             wName / hName are the names of those sides, if they have them: "context 6u" in place of "6u".
    Put el in the view's world. The lines and text keep their size on screen at any zoom.
 
    sides(view, rect) -> { top, right }   which fallbacks are needed for the lines to stay on screen */
@@ -39,9 +40,9 @@ export function createMeasure(unit){
   el.append(w, h);
   const u = n => +(n / unit).toFixed(2) + 'u';
   const labels = { w: w.querySelector('span'), h: h.querySelector('span') };
-  return { el, labels, set(r, { top = false, right = false } = {}){
+  return { el, labels, set(r, { top = false, right = false, wName = null, hName = null } = {}){
     Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
-    if (!labels.w.isContentEditable) labels.w.textContent = u(r.w);        /* a number being typed is left alone */
-    if (!labels.h.isContentEditable) labels.h.textContent = u(r.h);
+    if (!labels.w.isContentEditable) labels.w.textContent = (wName ? wName + ' ' : '') + u(r.w);        /* a number being typed is left alone */
+    if (!labels.h.isContentEditable) labels.h.textContent = (hName ? hName + ' ' : '') + u(r.h);
     w.classList.toggle('top', top); h.classList.toggle('right', right); } };
 }
