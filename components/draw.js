@@ -9,18 +9,14 @@
 
    While it is being drawn, dimension lines show its width along the bottom and its height down the left, in
    units of one dot spacing ("u"). Where there is no room on screen, they move to the top or the right. */
-import { createMeasure } from './measure.js';
-
-const ROOM = 30;      /* screen pixels a dimension line needs beside the rectangle */
+import { createMeasure, sides } from './measure.js';
 
 export function drawRectangle(view, make){
   return new Promise(resolve => {
     const g = view.grid(), snap = p => ({ x: Math.round(p.x / g) * g, y: Math.round(p.y / g) * g });
     let anchor = null, made = null, dragged = false;
     const measure = createMeasure(view.unit);
-    const show = r => { made.set(r);
-      const a = view.toScreen(r.x, r.y), b = view.toScreen(r.x + r.w, r.y + r.h);
-      measure.set(r, { top: b.y + ROOM > innerHeight && a.y - ROOM >= 0, right: a.x - ROOM < 0 && b.x + ROOM <= innerWidth }); };
+    const show = r => { made.set(r); measure.set(r, sides(view, r)); };
     /* from the anchor to the cursor, never smaller than one square of the grid */
     const rect = p => { const c = snap(p), w = Math.max(g, Math.abs(c.x - anchor.x)), h = Math.max(g, Math.abs(c.y - anchor.y));
       return { x: c.x < anchor.x ? anchor.x - w : anchor.x, y: c.y < anchor.y ? anchor.y - h : anchor.y, w, h }; };

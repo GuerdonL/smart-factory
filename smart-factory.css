@@ -28,4 +28,5 @@
   --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); color-scheme: dark }
 
 html, body { height: 100%; }
+::selection { background: var(--select-halo); }
 body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
