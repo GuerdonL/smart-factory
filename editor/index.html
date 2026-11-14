@@ -327,7 +327,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <span>thicker stroke = larger weight</span>
         <span>Drag the background to pan, scroll to zoom, right-click for the menu, hold the right button and drag across connections to cut them</span>
       </div>
-        <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block. With Train ticked, that block then adjusts its query, key and value weights on every sample the frames train on; its Weights button shows all three. Tick Positions when the task depends on order: without it, attention sees which values are present but not where they sit. A Random sampler on Play supplies training samples the same way a playing Dataset does.</p>
+        <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block, which passes its own input's gradient on from its bottom left in the same way. With Train ticked, that block then adjusts its query, key and value weights on every sample the frames train on; its Weights button shows all three. Tick Positions when the task depends on order: without it, attention sees which values are present but not where they sit. A Random sampler on Play supplies training samples the same way a playing Dataset does.</p>
         <p>A Distribution block describes random numbers (uniform between a low and a high, or normal with a mean and a standard deviation). Wire it into a Random sampler to get that many draws as a float vector. The draws stay the same until you press Resample or Play.</p>
         <p>To train a model too large for the browser, select its frame and choose Export model, then run the file through the trainer project (<code>python run.py models/&lt;file&gt;.json</code>). It trains on your machine when that takes under five minutes and otherwise rents a GPU through box-boy. Import weights loads the result back into the frame.</p>
       </div>
@@ -363,7 +363,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     perc:   { title: 'Evaluation frame', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'backprop', low: true }] },
     data:   { title: 'Dataset', out: 'array', outs: [{ kind: 'array', name: 'image' }, { kind: 'array', name: 'label' }, { kind: 'text', name: 'text' }] },
     lin:    { title: 'Linearize', in: 'array', out: 'array' },
-    attn:   { title: 'Attention', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true, low: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'attention' }] },
+    attn:   { title: 'Attention', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true, low: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'attention' }, { kind: 'array', name: 'backprop', low: true }] },
     read:   { title: 'Cost function', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'prediction' }, { kind: 'array', name: 'ground truth' }], outs: [{ kind: 'array', name: 'loss' }] }
   };
   const KIND = { array: 'an array', text: 'text', dist: 'a distribution' };
@@ -569,17 +569,21 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         bo.grad = gin; bo.loss = sigLoss(r.backSig);
         r.outs = [r.out, bo]; moved = true;
       });
+      // An Attention block's gradient arrives in the order the next block read its output, so undo any Linearize block between them.
+      // It then offers the gradient for its own input on its bottom-left port, for whatever feeds it.
+      backWires.forEach(w => {
+        const c = byId(w.to), r = memo[c.id], sg = r.backSig; if (c.type !== 'attn' || !sg || !sg.grad || !r.out || r.backGrad || r.backErr) return;
+        const fr = byId(w.from), wi = G.wires.find(q => q.to === fr.id && (q.tp || 0) === 0), mid = wi && byId(wi.from);
+        const wl = mid && mid.type === 'lin' && G.wires.find(q => q.to === mid.id && (q.tp || 0) === 0), ord = wl && wl.from === c.id && (wl.fp || 0) === 0 ? memo[mid.id].ord : mid === c && (wi.fp || 0) === 0 ? null : undefined;
+        if (ord === undefined) { r.backErr = `the gradient comes from ${fr.name}, which this block's output does not feed`; return; }
+        if (sg.grad.length !== r.out.data.length) { r.backErr = `the gradient has ${nf(sg.grad.length)} values but the output has ${nf(r.out.data.length)}`; return; }
+        const g = new Array(sg.grad.length); for (let i = 0; i < g.length; i++) g[ord ? ord[i] : i] = sg.grad[i];
+        r.backGrad = arr('float', r.out.shape.slice(), g);
+        r.grads = attnBackward(r, g);
+        const gx = Array.from(r.grads.gx), bo = arr('float', r.out.shape.slice(), gx); bo.grad = gx; bo.loss = sigLoss(sg);
+        r.outs = [r.out, r.outs[1], bo]; moved = true;
+      });
     }
-    // An Attention block's gradient arrives in the order its frame read it, so undo the Linearize block that sits between them.
-    backWires.forEach(w => {
-      const c = byId(w.to), r = memo[c.id], sg = r.backSig; if (c.type !== 'attn' || !sg || !sg.grad || !r.out) return;
-      const fr = byId(w.from), wi = G.wires.find(q => q.to === fr.id && (q.tp || 0) === 0), mid = wi && byId(wi.from);
-      const wl = mid && mid.type === 'lin' && G.wires.find(q => q.to === mid.id && (q.tp || 0) === 0), ord = wl && wl.from === c.id && (wl.fp || 0) === 0 ? memo[mid.id].ord : mid === c && (wi.fp || 0) === 0 ? null : undefined;
-      if (ord === undefined) { r.backErr = `the gradient comes from ${fr.name}, which this block's output does not feed`; return; }
-      if (sg.grad.length !== r.out.data.length) { r.backErr = `the gradient has ${nf(sg.grad.length)} values but the output has ${nf(r.out.data.length)}`; return; }
-      const g = new Array(sg.grad.length); for (let i = 0; i < g.length; i++) g[ord ? ord[i] : i] = sg.grad[i];
-      r.backGrad = arr('float', r.out.shape.slice(), g);
-    });
     return memo;
   }
   // Backward pass through a frame. For neuron n with input sum s, weight w and output a = f(w·s):
@@ -627,11 +631,19 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       for (let j = 0; j < n; j++) { const ds = P[i * n + j] * (dP[j] - mean) * sc; if (!ds) continue; for (let c = 0; c < dk; c++) { dQ[i * dk + c] += ds * K[j * dk + c]; dK[j * dk + c] += ds * Q[i * dk + c]; } }
     }
     const back = (D, cols, withPos) => { const g = new Float64Array((d + (withPos ? n : 0)) * cols); for (let i = 0; i < n; i++) { for (let k = 0; k < d; k++) { const x = +X[i * d + k]; if (x) for (let c = 0; c < cols; c++) g[k * cols + c] += x * D[i * cols + c]; } if (withPos) for (let c = 0; c < cols; c++) g[(d + i) * cols + c] += D[i * cols + c]; } return g; };
-    return { gq: back(dQ, dk, pos), gk: back(dK, dk, pos), gv: back(dV, d, false) };
+    // and the input itself gets d loss / dX = dQ·Wqᵀ + dK·Wkᵀ + dV·Wvᵀ (feature rows only; a position is not an input)
+    const gx = new Float64Array(n * d), { wq, wk, wv } = r.W;
+    for (let i = 0; i < n; i++) for (let k = 0; k < d; k++) {
+      let t = 0;
+      for (let c = 0; c < dk; c++) t += dQ[i * dk + c] * wq[k * dk + c] + dK[i * dk + c] * wk[k * dk + c];
+      for (let c = 0; c < d; c++) t += dV[i * d + c] * wv[k * d + c];
+      gx[i * d + k] = t;
+    }
+    return { gq: back(dQ, dk, pos), gk: back(dK, dk, pos), gv: back(dV, d, false), gx };
   }
   function attnStep(b) {                     // one gradient step on the query, key and value weights
     const r = last[b.id]; if (!r || !r.backGrad || !b.wq) return false;
-    const g = attnBackward(r, r.backGrad.data), lr = +b.lr || 0.01, next = {};
+    const g = r.grads || attnBackward(r, r.backGrad.data), lr = +b.lr || 0.01, next = {};
     for (const [w, gr] of [['wq', g.gq], ['wk', g.gk], ['wv', g.gv]]) {
       next[w] = b[w].map((v, i) => v - lr * gr[i]);
       if (!next[w].every(isFinite)) { b.train = false; toast(`${b.name} stopped training because a weight grew without limit: lower its rate, then Randomize.`); return false; }
@@ -728,7 +740,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         for (let j = 0; j < n; j++) { A[i * n + j] = pr[j]; if (pr[j]) for (let c = 0; c < d; c++) Y[i * d + c] += pr[j] * V[j * d + c]; }
       }
       const out = arr('float', sh.slice(), Y), att = arr('float', [n, n], A);
-      return { out, outs: [out, att], att: A, n, d, dk, pos, X, Q, K, V, note: `${typeStr(sig)} → ${typeStr(out)} · ${nf(n)} item${n === 1 ? '' : 's'} of ${nf(d)} feature${d === 1 ? '' : 's'} · key size ${dk}` + (b.causal ? ' · causal' : '') + (pos ? ' · positions' : '') };
+      return { out, outs: [out, att], att: A, n, d, dk, pos, X, Q, K, V, W: { wq: b.wq, wk: b.wk, wv: b.wv }, note: `${typeStr(sig)} → ${typeStr(out)} · ${nf(n)} item${n === 1 ? '' : 's'} of ${nf(d)} feature${d === 1 ? '' : 's'} · key size ${dk}` + (b.causal ? ' · causal' : '') + (pos ? ' · positions' : '') };
     }
     if (b.type === 'read') {                 // cost function: prediction and ground truth in, one number out
       const truth = ins[1];
@@ -779,7 +791,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const M = TYPES[b.type], el = document.createElement('div');
     const ins = insOf(b.type), outs = outsOf(b.type), nLeft = ins.filter(q => !q.back).length, nRight = outs.filter(q => !q.low).length + ins.filter(q => q.back && !q.low).length;
     // A "low" port sits at a bottom corner: a frame sends the gradient for its input out of its bottom left, and an Attention block takes one in at its bottom right.
-    const lowHTML = (q, i, isOut) => `<span class="port low ${isOut ? 'out' : 'in back'} ${q.kind}" data-p="${i}" title="${q.name}: ${isOut ? 'the gradient of the loss for this block\'s input. Drag it onto the backprop input of the block that feeds this one' : 'takes the gradient sent back by the frame this block feeds'}"></span><span class="plab low ${isOut ? 'in' : 'out'}">${q.name}</span>`;
+    const lowHTML = (q, i, isOut) => `<span class="port low ${isOut ? 'out' : 'in back'} ${q.kind}" data-p="${i}" title="${q.name}: ${isOut ? 'the gradient of the loss for this block\'s input. Drag it onto the backprop input of the block that feeds this one' : 'takes the gradient sent back by the block this one feeds'}"></span><span class="plab low ${isOut ? 'in' : 'out'}">${q.name}</span>`;
     const lowPorts = outs.map((q, i) => q.low ? lowHTML(q, i, true) : '').join('') + ins.map((q, i) => q.low ? lowHTML(q, i, false) : '').join('');
     const portHTML = (q, i, isOut) => { if (q.low) return ''; const right = isOut || q.back, slot = portSlot(b.type, i, isOut), many = right ? nRight > 1 : nLeft > 1;
       return `<span class="port ${isOut ? 'out' : 'in'}${q.back ? ' back' : ''} ${q.kind}" data-p="${i}" style="top:${11 + slot * PORTGAP}px" title="${q.name}: ${isOut ? 'drag onto another block to connect' : q.back ? 'takes a loss or reward signal' : 'takes ' + KIND[q.kind]}"></span>` +
@@ -1501,7 +1513,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const inn = ins[tp];
     if (out.kind !== inn.kind) return toast(`${a.name} sends ${KIND[out.kind]} and ${c.name} takes ${KIND[inn.kind]}.` + (out.kind === 'text' && inn.kind === 'array' ? ' Put a Tokenizer between them.' : inn.kind === 'dist' ? ' Connect a Distribution block.' : ''));
     if (out.low && !inn.back) return toast(`${a.name}'s backprop output is a gradient. Drop it on a backprop input.`);
-    if (inn.low && !out.low) return toast(`${c.name}'s backprop input takes the gradient from the bottom-left port of the evaluation frame it feeds, and ${a.name} sends ${sig ? typeStr(sig) : KIND[out.kind]}.`);
+    if (inn.low && !out.low) return toast(`${c.name}'s backprop input takes the gradient from the bottom-left port of the block it feeds, and ${a.name} sends ${sig ? typeStr(sig) : KIND[out.kind]}.`);
     if (inn.back && sig && !scalar && !out.low) return toast(`${c.name}'s backprop input takes a single number, such as a loss, and ${a.name} sends ${typeStr(sig)}.`);
     if (c.type === 'perc' && !inn.back && sig && sig.shape.length !== 1) return toast(`${a.name} sends ${typeStr(sig)} and ${c.name} takes a 1-D array. Put a Linearize block between them.`);
     G.wires = G.wires.filter(w => !sameWire(w, { to: c.id, tp })); G.wires.push({ from: a.id, to: c.id, fp: fp || 0, tp });
@@ -1821,7 +1833,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (f === 'db') { if (t.value === '' || !isFinite(+t.value)) return; b.b = +t.value; }
     else if (f === 'causal') b.causal = t.checked;
     else if (f === 'apos') { b.pos = t.checked; b.steps = 0; }
-    else if (f === 'atrain') { b.train = t.checked; if (b.train && !(last[b.id] && last[b.id].backGrad)) toast(last[b.id] && last[b.id].backErr ? `${b.name} cannot train: ${last[b.id].backErr}.` : `${b.name} has no gradient yet. Wire the bottom-left port of the evaluation frame it feeds into the port at its bottom right, and give that frame a loss.`); }
+    else if (f === 'atrain') { b.train = t.checked; if (b.train && !(last[b.id] && last[b.id].backGrad)) toast(last[b.id] && last[b.id].backErr ? `${b.name} cannot train: ${last[b.id].backErr}.` : `${b.name} has no gradient yet. Wire the bottom-left port of the block it feeds into the port at its bottom right, and make sure a loss reaches that block.`); }
     else if (f === 'alr') { if (t.value === '' || !(+t.value >= 0)) return; b.lr = +t.value; save(); return; }
     else if (f === 'loss') b.loss = t.value;
     else if (f === 'act') { b.act = t.value; renderMath(); }
