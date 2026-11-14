@@ -10,6 +10,7 @@
   --dot: #a9b0c1;           /* grid dots */
   --shadow: rgba(20, 26, 40, .28);
   --focus: #1c2230;         /* keyboard focus ring */
+  --measure: #4a5266;       /* dimension lines and their numbers */
   /* blocks: one colour per shape, named by the shape's config ("color": "tensor" -> --tensor) */
   --tensor: #e5534b;        /* a friendly red */
   --raise-light: rgba(255, 255, 255, .35);   /* the lit top edge of a raised block */
@@ -17,11 +18,11 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0;
+  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5;
   --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0;
+  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5;
   --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); color-scheme: dark }
 
 html, body { height: 100%; }

@@ -1,6 +1,6 @@
 /* The canvas: an endless dot grid that pans and zooms.
 
-   createView({ onChange(camera), onMenu(x, y) }) -> { el, world, grid, camera(), home(), toWorld(x, y), tool(t) }
+   createView({ onChange(camera), onMenu(x, y) }) -> { el, world, unit, grid(), camera(), home(), toWorld(x, y), toScreen(x, y), tool(t) }
      el        the element to put on the page
      world     put things here to place them on the canvas, in world coordinates. It carries the CSS variable
                --zoom, so a thing can keep a detail the same size on screen: calc(8px / var(--zoom))
@@ -8,7 +8,8 @@
                Zoomed far out, the dots thin to every 2nd, 4th… so they stay apart, and grid() follows.
      camera()  { x, y, zoom }: the world point at the centre of the screen, and the zoom
      home()    back to 0, 0 at 100%
-     toWorld   screen coordinates -> world coordinates
+     unit      the spacing of the dots at 100%, in world units: the size of one "u"
+     toWorld   screen coordinates -> world coordinates; toScreen goes the other way
      tool(t)   hands the pointer to a tool: while one is set, a left press, moves and release go to
                t.down(point), t.move(point), t.up(point) (world coordinates) instead of panning, a right click
                goes to t.cancel(), and the cursor is t.cursor. Scrolling and zooming still work.
@@ -91,7 +92,7 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
   addEventListener('resize', moved);
   draw();
 
-  return { el, world, grid, camera, toWorld,
+  return { el, world, unit: GRID, grid, camera, toWorld, toScreen: (x, y) => ({ x: x * cam.z + cam.tx, y: y * cam.z + cam.ty }),
     home(){ cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; moved(); },
     tool(t){ tool = t; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';
       return () => { if (tool === t){ tool = null; el.style.cursor = ''; } }; } };
