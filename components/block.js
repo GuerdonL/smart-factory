@@ -7,7 +7,8 @@
      nameEl   the element showing the name
      set      moves and resizes it
      select   shows or hides the selection halo
-   Each corner has a handle, an element with data-corner = nw | ne | sw | se, for whoever wants to resize by it.
+   Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
+   wants to resize by it.
      rename   lets the user type a new name in place: Enter or clicking away keeps it, Escape puts the old one back,
               and an empty name is not kept */
 import { html, style, editText } from './dom.js';
@@ -30,17 +31,23 @@ style('block', `
 .block-name { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--fg); border-radius: calc(3 * var(--px)); cursor: default; }
 .block.selected .block-name { color: var(--select); }
-/* corners: a handle on each, half in and half out, showing which way it stretches */
-.block-corner { position: absolute; width: calc(14 * var(--px)); height: calc(14 * var(--px)); margin: calc(-7 * var(--px)); z-index: 1; }
-.block-corner[data-corner="nw"] { left: 0; top: 0; cursor: nwse-resize; }
-.block-corner[data-corner="se"] { right: 0; bottom: 0; cursor: nwse-resize; }
-.block-corner[data-corner="ne"] { right: 0; top: 0; cursor: nesw-resize; }
-.block-corner[data-corner="sw"] { left: 0; bottom: 0; cursor: nesw-resize; }
+/* grips: a strip along each side and a square on each corner, half in and half out, showing which way it stretches */
+.block-grip { position: absolute; z-index: 1; --t: calc(10 * var(--px)); --c: calc(14 * var(--px)); }
+.block-grip[data-grip="n"], .block-grip[data-grip="s"] { left: 0; right: 0; height: var(--t); cursor: ns-resize; }
+.block-grip[data-grip="e"], .block-grip[data-grip="w"] { top: 0; bottom: 0; width: var(--t); cursor: ew-resize; }
+.block-grip[data-grip="n"] { top: calc(var(--t) / -2); } .block-grip[data-grip="s"] { bottom: calc(var(--t) / -2); }
+.block-grip[data-grip="w"] { left: calc(var(--t) / -2); } .block-grip[data-grip="e"] { right: calc(var(--t) / -2); }
+.block-grip[data-grip="nw"], .block-grip[data-grip="ne"], .block-grip[data-grip="sw"], .block-grip[data-grip="se"] {
+  width: var(--c); height: var(--c); margin: calc(var(--c) / -2); }
+.block-grip[data-grip="nw"] { left: 0; top: 0; cursor: nwse-resize; }
+.block-grip[data-grip="se"] { right: 0; bottom: 0; cursor: nwse-resize; }
+.block-grip[data-grip="ne"] { right: 0; top: 0; cursor: nesw-resize; }
+.block-grip[data-grip="sw"] { left: 0; bottom: 0; cursor: nesw-resize; }
 `);
 
 export function createBlock(shape, rect, name = ''){
   const el = html`<div class="block"><span class="block-name"></span></div>`, nameEl = el.firstElementChild;
-  for (const c of ['nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-corner" data-corner="${c}"></i>`);
+  for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
   const block = { el, nameEl, shape, rect, name,

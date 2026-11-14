@@ -44,20 +44,20 @@ addEventListener('keydown', e => {
 const fit = b => selected.get(b)?.set(b.rect, sides(view, b.rect));
 const blockAt = el => blocks.find(b => b.el.contains(el));
 
-/* drags that begin on a block: by a corner, resize it; on a selected block, move every selected block.
+/* drags that begin on a block: by a side or corner, resize it; on a selected block, move every selected block.
    Both go in steps of the dots on screen. Anything else is left to the view, which pans. */
 function dragged(el, from){
   const b = blockAt(el);
   if (!b || el.isContentEditable) return;
   const g = view.grid(), snap = v => Math.round(v / g) * g, cursor = c => { view.el.style.cursor = c; }, end = () => cursor('');
-  const corner = el.dataset.corner;
-  if (corner){                                  /* the opposite corner stays where it is; never smaller than one square */
+  const grip = el.dataset.grip;
+  if (grip){                                    /* the opposite side or corner stays where it is; never smaller than one square */
     if (!selected.has(b)) select([b]);
     const r = b.rect, right = r.x + r.w, bottom = r.y + r.h;
     cursor(getComputedStyle(el).cursor);
     return { end, move(p){
-      const x0 = corner[1] === 'w' ? Math.min(snap(p.x), right - g) : r.x, x1 = corner[1] === 'e' ? Math.max(snap(p.x), r.x + g) : right;
-      const y0 = corner[0] === 'n' ? Math.min(snap(p.y), bottom - g) : r.y, y1 = corner[0] === 's' ? Math.max(snap(p.y), r.y + g) : bottom;
+      const x0 = grip.includes('w') ? Math.min(snap(p.x), right - g) : r.x, x1 = grip.includes('e') ? Math.max(snap(p.x), r.x + g) : right;
+      const y0 = grip.includes('n') ? Math.min(snap(p.y), bottom - g) : r.y, y1 = grip.includes('s') ? Math.max(snap(p.y), r.y + g) : bottom;
       b.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }); fit(b); } };
   }
   if (!selected.has(b)) return;
