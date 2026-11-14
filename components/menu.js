@@ -1,8 +1,10 @@
 /* A pop-up menu, with submenus.
 
    createMenu(items) -> { el, openAt(x, y), close() }
-     items   [{ label, run, items }]
+     items   [{ label, run, items, hint, disabled }]
                run     called when the item is chosen; the menu then closes
+               hint    a few characters shown at the item's right, such as its keyboard shortcut
+               disabled  true, or a function returning true, greys the item out; it is asked each time the menu opens
                items   a list of the same kind, or a function returning one: makes the item open a submenu
                        on hover or click. A function is asked each time the menu opens, so the list can change.
    It closes itself on a click elsewhere, Escape, or the window losing focus. */
@@ -15,7 +17,9 @@ style('menu', `
 .menu button { display: flex; justify-content: space-between; gap: 24px; width: 100%; font: inherit; color: var(--fg);
   background: none; border: 0; border-radius: 4px; padding: 5px 10px; text-align: left; cursor: default; }
 .menu button:hover, .menu button:focus-visible, .menu li.open > button { background: var(--hover); outline: none; }
-.menu-more, .menu-empty { color: var(--muted); }
+.menu-more, .menu-empty, .menu-hint { color: var(--muted); }
+.menu button:disabled { color: var(--muted); }
+.menu button:disabled:hover { background: none; }
 .menu-empty { padding: 5px 10px; }
 `);
 
@@ -44,7 +48,9 @@ export function createMenu(items = []){
           const r = li.getBoundingClientRect(); place(sub, r.right + 6, r.top - 5, r.left - 6); };
         b.addEventListener('pointerenter', open); b.addEventListener('click', open);
       } else {
-        b.addEventListener('pointerenter', shut);
+        if (it.hint) b.append(html`<span class="menu-hint"></span>`), b.lastChild.textContent = it.hint;
+        b.disabled = !!(typeof it.disabled === 'function' ? it.disabled() : it.disabled);
+        li.addEventListener('pointerenter', shut);
         b.addEventListener('click', () => { if (it.run){ close(); it.run(); } });
       }
       ul.append(li);

@@ -189,9 +189,48 @@ function fold({ blocks: inside, type, box }, name){
   select([made]);
 }
 
+/* ---- copy and paste ----
+   Copy takes a picture of the selected blocks as they are now: size, name, colour, side names, grouping, and each
+   one's whole definition space, all the way down. Paste makes new blocks from that picture in the current space,
+   centred on a point, and selects them. The picture stays, so it can be pasted again and again.
+   This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
+let clipboard = null;
+const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, group: s.groupOf.get(b) ?? null,
+  inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null });
+function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
+/* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
+function develop(pictures, s, dx, dy){
+  const u = view.unit, groups = new Map(), made = [];
+  for (const pic of pictures){
+    const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
+    for (const dim of ['w', 'h']) if (pic.sides[dim] && lengths.has(pic.sides[dim])) r[dim] = lengths.get(pic.sides[dim]) * u;      /* a named side is whatever length that name is now */
+    const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
+    const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides };
+    s.blocks.push(b); made.push(b);
+    if (pic.group !== null){ if (!groups.has(pic.group)) groups.set(pic.group, nextGroup++); s.groupOf.set(b, groups.get(pic.group)); }
+    if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
+  }
+  return made;
+}
+function paste(at){                             /* at: a world point; the pasted blocks are centred on it, on the dots */
+  if (!clipboard) return;
+  const u = view.unit, rs = clipboard.map(p => p.rect), x0 = Math.min(...rs.map(r => r.x)), y0 = Math.min(...rs.map(r => r.y));
+  const cx = (x0 + Math.max(...rs.map(r => r.x + r.w))) / 2, cy = (y0 + Math.max(...rs.map(r => r.y + r.h))) / 2;
+  let dx = Math.round((at.x - cx) / u) * u, dy = Math.round((at.y - cy) / u) * u;
+  /* pasting twice in one place would hide one copy exactly behind the other: step down and right until it would not */
+  while (space.blocks.some(b => clipboard.some(p => b.rect.x === p.rect.x + dx && b.rect.y === p.rect.y + dy))){ dx += u; dy += u; }
+  const made = develop(clipboard, space, dx, dy);
+  view.world.append(...made.map(b => b.el));
+  select(made);
+}
+
 /* ---- keys ---- */
 let boxing = null;                             /* the box selection in progress, if any */
 addEventListener('keydown', e => {
+  /* Ctrl or Cmd with c copies the selection; with v pastes in the middle of the screen. (While typing in a name or a
+     measurement these keys never reach here, so text is copied and pasted as usual.) */
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); copy(); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); paste(view.camera()); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === 'Escape') return selected.size || !space.parent || boxing ? select([]) : out();      /* with nothing selected, Escape steps out of a definition space */
   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
@@ -272,12 +311,21 @@ const draw = {
     return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block){ space.blocks.push(block); shown(); } }); },
 };
 
-const menu = createMenu([{ label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) }]);
+/* the right-click menu. A right click on a block that is not selected selects it first, so Copy means that block.
+   Paste puts the copy where the click was. */
+let menuAt = { x: 0, y: 0 };
+const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
+const menu = createMenu([
+  { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) },
+  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: copy },
+  { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
+]);
 const hud = createHud({ onHome: () => view.home() });
 const crumbs = createCrumbs({ onGo: i => { deeper.length = 0; go(trail()[i]); } });
 const view = createView({
   onChange: cam => { hud.show(cam); menu.close(); shown(); },
-  onMenu: (x, y) => menu.openAt(x, y),
+  onMenu: (x, y, el) => { const b = blockAt(el); if (b && !selected.has(b)) select(members(b));
+    menuAt = view.toWorld(x, y); menu.openAt(x, y); },
   onClick: clicked,
   onDrag: dragged,
 });

@@ -1,6 +1,6 @@
 /* The canvas: an endless dot grid that pans and zooms.
 
-   createView({ onChange(camera), onMenu(x, y), onClick(element, event), onDrag(element, point) }) -> { el, world, origin, unit, grid(), camera(), look(camera), home(), toWorld(x, y), toScreen(x, y), tool(t) }
+   createView({ onChange(camera), onMenu(x, y, element), onClick(element, event), onDrag(element, point) }) -> { el, world, origin, unit, grid(), camera(), look(camera), home(), toWorld(x, y), toScreen(x, y), tool(t) }
      el        the element to put on the page
      world     put things here to place them on the canvas, in world coordinates. It carries the CSS variable
                --zoom, so a thing can keep a detail the same size on screen: calc(8px / var(--zoom))
@@ -17,7 +17,8 @@
                goes to t.cancel(), and the cursor is t.cursor. Zooming still works.
                Returns a function that takes the tool away again.
      onChange  called whenever the camera moves
-     onMenu    called with screen coordinates on right click (the browser's own menu is suppressed)
+     onMenu    called on right click with screen coordinates and the element under the pointer (the browser's
+               own menu is suppressed)
      onClick   called with (element, event) for a press and release without dragging: the element is whatever
                was under the pointer, the view's own el for empty canvas. A drag is not a click.
      onDrag    called when a drag begins, with the element it began on and that point in world coordinates.
@@ -101,7 +102,7 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
     moved();
   }, { passive: false });
 
-  el.addEventListener('contextmenu', e => { e.preventDefault(); if (tool) return tool.cancel?.(); onMenu(e.clientX, e.clientY); });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); if (tool) return tool.cancel?.(); onMenu(e.clientX, e.clientY, e.target); });
   addEventListener('resize', moved);
   draw();
 
