@@ -22,7 +22,7 @@ function freeName(){
 }
 
 /* selection: click a block to select it alone, shift-click to add or remove one, click empty canvas or press Escape to clear.
-   A selected block shows its dimension lines. */
+   A selected block shows its dimension lines and comes to the front; the others fade. */
 const selected = new Map();                    /* block -> its dimension lines */
 function select(list, { toggle = false } = {}){
   const drop = b => { b.select(false); selected.get(b).el.remove(); selected.delete(b); };
@@ -31,6 +31,7 @@ function select(list, { toggle = false } = {}){
     if (selected.has(b)){ if (toggle) drop(b); continue; }
     const m = createMeasure(view.unit); selected.set(b, m); view.world.append(m.el); b.select(true); m.set(b.rect, sides(view, b.rect));
   }
+  for (const b of blocks) b.dim(selected.size > 0 && !selected.has(b));        /* while something is selected, the rest fade back */
 }
 addEventListener('keydown', e => {
   if (e.key === 'Escape') return select([]);
