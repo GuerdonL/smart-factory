@@ -12,6 +12,7 @@ import { boxSelect } from './components/marquee.js';
 import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
 import { createJoin } from './components/join.js';
+import { createResult } from './components/result.js';
 import { joins, typeOf } from './algebra.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
@@ -22,7 +23,7 @@ fetch('shapes/index.json').then(r => r.json())
 
 /* ---- spaces ----
    A space is one canvas-full of blocks. The page opens on the top space. Every block has a definition space of its
-   own, made the first time it is opened: a canvas showing an equation, with the block as a variable in matrix
+   own, made the first time it is opened (the top space instead shows "=" and whatever its shapes come to): a canvas showing an equation, with the block as a variable in matrix
    notation on the right and, on the left, the place for what defines it. What is put in the space must come to the
    block's promised size (w units across, h units down). Only the current space's blocks are on the canvas. */
 const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
@@ -84,6 +85,7 @@ function ungroup(list){
 const selected = new Set();
 let measure = null;                            /* the dimension lines of the one selected block */
 const bounds = createBounds();
+let result = null;                             /* the top space's "= …" */
 let marks = [];                                /* the product marks now on the canvas */
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   const list = [...selected], one = list.length === 1 ? list[0] : null;
@@ -100,7 +102,15 @@ function shown(){                              /* brings what is on screen in li
   for (const j of marks) j.el.remove();
   marks = joins(rects).map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: `${rects[j.left].w} ≠ ${rects[j.right].h}` }));
   view.world.append(...marks.map(j => j.el));
-  space.definition?.check(typeOf(rects));
+  /* a definition space checks the result against its block's promised size; the top space has no promise, so it
+     simply writes out whatever its shapes come to, beside them */
+  const type = typeOf(rects);
+  space.definition?.check(type);
+  if (!space.owner && type){
+    const all = space.blocks.map(b => b.rect), x = Math.min(...all.map(r => r.x)), y = Math.min(...all.map(r => r.y));
+    result ||= createResult({ unit: u }); view.world.prepend(result.el);
+    result.set({ x, y, w: Math.max(...all.map(r => r.x + r.w)) - x, h: Math.max(...all.map(r => r.y + r.h)) - y }, type);
+  } else result?.el.remove();
 }
 function select(list, { toggle = false } = {}){
   if (!toggle) selected.clear();
