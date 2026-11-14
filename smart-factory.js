@@ -14,7 +14,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { joins, pieces, typeOf, initials, readEntry } from './algebra.js';
-import { written } from './components/matrix.js';
+import { written, squares } from './components/matrix.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
 let shapes = [];
@@ -38,7 +38,7 @@ function go(to){
   space = to;
   view.world.append(...space.blocks.map(b => b.el));
   write();
-  view.origin.hidden = !!space.owner;          /* the equals sign sits at the origin of a definition space */
+  view.origin.hidden = !!space.owner;          /* an empty definition space has its equals sign at the origin */
   view.look(space.camera);
   crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Top'));
 }
@@ -181,20 +181,26 @@ function shown(){                              /* brings what is on screen in li
   space.blocks.forEach((b, i) => { const rows = js.some(j => j.ok && j.left === i), cols = js.some(j => j.ok && j.right === i);
     b.stripes(rows && cols ? 'both' : rows ? 'rows' : cols ? 'cols' : null, u); });
   view.world.append(...marks.map(j => j.el));
-  /* a definition space checks what is here against its block's promised size. The top space has no promise, so it
+  /* how a piece's matrix is written. One block: its own initials, colour and numbers. A product: each entry as the
+     row it takes from the first block against the column it takes from the last, each in its block's colour.
+     (A product is not worked out in numbers yet.) */
+  const lookOf = piece => { const bs = piece.members.map(m => space.blocks[m]), first = bs[0], last = bs[bs.length - 1];
+    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: first.values }
+      : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
+  /* a definition space sets what is here beside its block's promised size. The top space has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
-  space.definition?.check(typeOf(rects));
-  const ps = space.owner ? [] : pieces(rects);
+  const all = pieces(rects);
+  space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {},
+    space.blocks.length ? boxOf(space.blocks) : null);
+  const ps = space.owner ? [] : all;
   /* a result goes to the right of its piece; if something else is there (another block, or a result already placed),
      it goes below instead, as far down as it takes to be clear */
   const taken = space.blocks.map(b => b.rect), hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   ps.forEach((piece, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
-    const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u };
+    const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u }, look = lookOf(piece);
     r.piece = { blocks: piece.members.map(m => space.blocks[m]), type: piece.type, box };       /* what this result is the result of */
-    /* one block: its own initials and the numbers its entries have been given; a product has no name yet, and is not worked out */
-    const alone = piece.members.length === 1 ? space.blocks[piece.members[0]] : null, letter = alone ? initials(alone.name) : 'x', values = alone ? alone.values : undefined;
-    let at = r.set(box, piece.type, 'right', 0, letter, values);
-    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, 'below', drop, letter, values);
+    let at = r.set(box, piece.type, { look });
+    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, { side: 'below', drop, look });
     taken.push(at); });
   for (const r of results.slice(ps.length)) r.el.remove();
 }
@@ -220,9 +226,9 @@ function fold({ blocks: inside, type, box }, name){
   const made = createBlock({ label: 'Named', draw: 'rectangle', color: someColour() },
     { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
   made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
-  /* its definition space: the folded blocks, moved so they end one unit left of the "=" and sit level with it */
+  /* its definition space: the folded blocks, level with the origin and a little to its left */
   const def = newSpace(made, space); spaceOf.set(made, def);
-  const dx = -u - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
+  const dx = -u * (4 + squares(type.cols)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;      /* placed so that the equation that follows them puts its sign at the origin */
   for (const b of inside){
     b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b);
     b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); def.blocks.push(b);
