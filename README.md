@@ -38,7 +38,9 @@ Train switch. With `serve.py` behind the page, right-clicking any block of a gra
   the run would take. One run at a time, one processor core, low priority, stopped after 10 minutes (`SF_LOCAL_MINUTES`)
   with whatever it has learned. Needs PyTorch on that machine
   (`pip install torch --index-url https://download.pytorch.org/whl/cpu`).
-- **Run on GPU**: through box-boy (`bb doctor` must pass on that machine and `git push` must work from this clone). The
+- **Run on GPU**: through box-boy (`bb doctor` must pass on that machine, as the user `serve.py` runs as, and `git push`
+  must work from this clone). `bb` is looked for on the PATH and in `~/.local/bin`, where box-boy's setup puts it; set
+  `SF_BB=/full/path/to/bb` if it lives elsewhere. The
   dialog shows the machine and hourly price `bb launch --dry-run` found, the expected cost, and the most it can cost
   (the run is stopped after four times the estimate, at least half an hour). Nothing is rented until **Rent and run** is
   pressed; that commits and pushes the model file to this public repo and runs `bb launch`.

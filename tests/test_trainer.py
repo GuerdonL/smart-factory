@@ -168,11 +168,13 @@ def test_remote_plan_rents_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(remote, "HERE", str(tmp_path))
     monkeypatch.setattr(remote, "STATE", str(tmp_path / "runs" / "_remote"))
     monkeypatch.setenv("PATH", str(tmp_path))                      # no bb here
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("SF_BB", raising=False)
     model = {"format": "perceptron-editor/model", "name": "Frame 1", "data": {"source": "digits"},
              "frame": {"edges": {"s": [1, 2], "d": [3, 3], "w": [0.1, 0.2]}}}
     p = remote.plan(model, epochs=5, batch=32, levels=2)
     assert p["steps"] == 5 * 51 and p["hours_cap"] == 0.5 and p["state"] == "planned" and p["price"] is None
-    assert any("bb" in x for x in p["problems"])
+    assert any("bb (box-boy) was not found" in x for x in p["problems"])
     assert (tmp_path / p["path"]).exists() and (tmp_path / p["jobs"]).read_text().startswith(p["name"] + ": python trainer.py models/")
     try:
         remote.launch(p["name"])                                   # a plan with problems can never be launched
@@ -253,3 +255,22 @@ def test_local_run_on_the_server(tmp_path, monkeypatch):
         tm.sleep(0.5)
     assert m["state"] == "done" and m["metrics"]["steps"] == 125
     assert set(remote.weights(p["name"])["blocks"]) == {"3", "4"}
+
+
+def test_bb_is_found_where_box_boy_installs_it(tmp_path, monkeypatch):
+    import remote
+    bin_ = tmp_path / ".local" / "bin"
+    bin_.mkdir(parents=True)
+    (bin_ / "bb").write_text("#!/bin/sh\necho hi\n")
+    (bin_ / "bb").chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")                    # what a systemd service gets: no ~/.local/bin
+    monkeypatch.delenv("SF_BB", raising=False)
+    assert remote._which("bb") == str(bin_ / "bb")
+    assert remote._run(["bb"])[1] == "hi"
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    (other / "bb").write_text("#!/bin/sh\necho there\n")
+    (other / "bb").chmod(0o755)
+    monkeypatch.setenv("SF_BB", str(other / "bb"))
+    assert remote._which("bb") == str(other / "bb")

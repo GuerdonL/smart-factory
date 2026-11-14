@@ -37,9 +37,31 @@ class RemoteError(Exception):
     pass
 
 
+def _env():
+    """The environment commands run in. A server started by systemd or cron does not read ~/.bashrc, which is where box-boy's
+    setup puts ~/.local/bin (bb, vastai, hf) on the PATH, so the usual places are added here."""
+    home = os.path.expanduser("~")
+    extra = [os.path.dirname(os.environ["SF_BB"])] if os.environ.get("SF_BB") else []
+    extra += [os.path.join(home, ".local", "bin"), os.path.join(home, "bin"), os.path.dirname(sys.executable), "/usr/local/bin", "/usr/bin", "/bin"]
+    have = os.environ.get("PATH", "").split(os.pathsep)
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join([p for p in extra if p and p not in have] + have)
+    return env
+
+
+def _which(cmd):
+    return shutil.which(cmd, path=_env()["PATH"])
+
+
+def _bb_missing():
+    import getpass
+    return (f"bb (box-boy) was not found for the user this server runs as ({getpass.getuser()}, home {os.path.expanduser('~')}). "
+            "Run serve.py as the user that set box-boy up, or set SF_BB to the full path of bb (see `which bb` in your own shell)")
+
+
 def _run(cmd, timeout=600):
     try:
-        r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, timeout=timeout, env=_env())
     except FileNotFoundError:
         raise RemoteError(f"{cmd[0]} is not installed on the server")
     except subprocess.TimeoutExpired:
@@ -116,8 +138,8 @@ def plan(model, epochs=5, batch=32, levels=3, val=0.1):
             "problems": [], "price": None, "offer": None, "dry_run": ""}
     if size > 95:
         meta["problems"].append(f"the model file is {size:.0f} MB and GitHub refuses files over 100 MB; use fewer connections")
-    if not shutil.which("bb"):
-        meta["problems"].append("bb (box-boy) is not installed on the server, so nothing can be rented from here")
+    if not _which("bb"):
+        meta["problems"].append(_bb_missing())
     else:
         code, out = _run(["bb", "launch", jobs, "--dry-run", "--max-hours", f"{cap:g}"], timeout=180)
         meta["dry_run"] = out
@@ -202,9 +224,9 @@ def local_start(name):
     os.makedirs(out_dir, exist_ok=True)
     cmd = [sys.executable, "trainer.py", meta["path"], "--out", f"runs/{name}", "--epochs", f"{meta['epochs']:g}", "--batch", str(meta["batch"]),
            "--val", f"{meta['val']:g}", "--threads", "1", "--device", "cpu", "--log-s", "4", "--max-minutes", f"{meta['limit_min']:g}"]
-    if shutil.which("nice"):
+    if _which("nice"):
         cmd = ["nice", "-n", "15"] + cmd                 # the page and everything else on this machine come first
-    p = subprocess.Popen(cmd, cwd=HERE, stdout=open(os.path.join(out_dir, "out.txt"), "w"), stderr=subprocess.STDOUT)
+    p = subprocess.Popen(cmd, cwd=HERE, stdout=open(os.path.join(out_dir, "out.txt"), "w"), stderr=subprocess.STDOUT, env=_env())
     PROCS[name] = p
     meta.update(state="running", pid=p.pid, launched=time.time())
     _save(meta)
