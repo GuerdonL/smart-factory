@@ -226,6 +226,9 @@ def test_graph_tokenizer_and_linearize_match_the_editor():
     net = graph.Graph(g, torch.float64)
     _, toks, labs = net({}, 2, torch.device("cpu"))
     assert toks.shape == (2, 4, 97) and toks[0].argmax(-1).tolist() == [41, 74, 13, 1] and labs[0].argmax(-1).tolist() == [74, 13, 1, 90]   # as the editor shows them
+    g2 = dict(g, wires=[g["wires"][0], {"from": 2, "to": 3, "fp": 2, "tp": 0}, {"from": 2, "to": 3, "fp": 2, "tp": 1}])   # the third output: the token after the context
+    _, _, nxt = graph.Graph(g2, torch.float64)({}, 2, torch.device("cpu"))
+    assert nxt.shape == (2, 97) and nxt[0].argmax().item() == 90 and nxt[0].sum().item() == 1                              # "y"
     lin = {"id": 9, "mode": "rows", "rev": [False, False, True]}
     assert net._lin_index(lin, (2, 2, 3)).tolist() == [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]
 

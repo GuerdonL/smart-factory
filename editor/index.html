@@ -342,7 +342,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       </div>
         <p>A graph predicts whenever its inputs are connected. It can also train when a loss travels back through it: wire a Cost function's loss into a frame's backprop input, and each block's bottom-left port into the backprop input of the block before it (an Attention block's is at its bottom right). Every block a gradient reaches this way is trained; there is no separate switch. Tick Positions on an Attention block when the task depends on order, and use its Weights button to see its query, key and value weights.</p>
         <p>To train, right-click any block of the graph. Run locally trains on the machine that serves this page (a small one: one run at a time, with a time limit); Run on GPU rents a machine through box-boy after showing what it will cost. Only the blocks behind that graph's Cost function are sent, never anything else on the canvas, and the weights come back into the blocks when the run ends. Without a server behind the page, the menu offers training in the browser instead.</p>
-        <p>A Tokenizer has two outputs: the tokens, and their labels, which are the same text one token later, so each token's label is the token that follows it. Set it to one-hot to get a row per token over a fixed alphabet of 97 characters. A Cost function given one-hot labels like these scores each row separately with cross-entropy, and accepts a frame's flat output of the same total size.</p>
+        <p>A Tokenizer has three outputs: the tokens; their labels, which are the same text one token later, so each token's label is the token that follows it; and next, the one token that follows the whole context. Set it to one-hot to get a row per token over a fixed alphabet of 97 characters. A Cost function given one-hot labels like these scores each row separately with cross-entropy, and accepts a frame's flat output of the same total size.</p>
         <p>A Distribution block describes random numbers (uniform between a low and a high, or normal with a mean and a standard deviation). Wire it into a Random sampler to get that many draws as a float vector. The draws stay the same until you press Resample or Play.</p>
         <p>Export model saves the same blocks as a file for the trainer project's command line (<code>python run.py models/&lt;file&gt;.json</code>), and Import weights loads a result back.</p>
       </div>
@@ -371,7 +371,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   const TYPES = {
     pixels: { title: 'Pixel array', out: 'array' },
     text:   { title: 'Text buffer', out: 'text' },
-    tok:    { title: 'Tokenizer', in: 'text', out: 'array', outs: [{ kind: 'array', name: 'tokens' }, { kind: 'array', name: 'labels' }] },
+    tok:    { title: 'Tokenizer', in: 'text', out: 'array', outs: [{ kind: 'array', name: 'tokens' }, { kind: 'array', name: 'labels' }, { kind: 'array', name: 'next' }] },
     wave:   { title: 'Waveform', out: 'array' },
     dist:   { title: 'Distribution', out: 'dist' },
     samp:   { title: 'Random sampler', in: 'dist', out: 'array', ins: [{ kind: 'dist', name: 'distribution' }], outs: [{ kind: 'array', name: 'samples' }] },
@@ -679,7 +679,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (b.type === 'pixels') { const out = arr('bool', [b.h, b.w], b.px.map(Boolean)); return { out, note: typeStr(out) }; }
     if (b.type === 'text') return { out: { t: 'text', s: b.text }, note: 'text · ' + nf(Array.from(b.text).length) + ' characters' };
     if (b.type === 'tok') {
-      // Two outputs: the first n tokens, and their labels, which are the same text one token later (token i's label is token i + 1).
+      // Three outputs: the first n tokens; their labels, which are the same text one token later (token i's label is token i + 1);
+      // and next, the single token that follows the n, for predicting what comes after the whole context.
       // As numbers a character is its code point; one-hot uses a fixed alphabet of 97: new line, the 95 printable ASCII characters, and "anything else".
       let toks;
       if (b.mode === 'word') {
@@ -690,8 +691,9 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       const ins = take(0), labs = take(1), hot = b.fmt === 'onehot';
       if (hot && b.mode === 'word') return { err: 'One-hot needs a fixed vocabulary, and only Characters has one. Switch to Characters or to numbers.' };
       const pack = list => hot ? arr('bool', [b.n, TOKV], [].concat(...list.map(t => Array.from({ length: TOKV }, (_, k) => !t.pad && k === t.k)))) : arr('int', [b.n], list.map(t => t.id));
-      const out = pack(ins), lab = pack(labs), short = total < b.n + 1;
-      return { out, outs: [out, lab], toks: ins, labs, note: typeStr(out) + (total > b.n ? ` · first ${nf(b.n)} of ${nf(total)} tokens` : '') + ` · labels ${typeStr(lab)}` + (short ? ` · the text needs ${nf(b.n + 1)} tokens to label every one` : '') };
+      const out = pack(ins), lab = pack(labs), short = total < b.n + 1, nx = toks[b.n] || pad;
+      const nxt = hot ? arr('bool', [TOKV], Array.from({ length: TOKV }, (_, k) => !nx.pad && k === nx.k)) : arr('int', [1], [nx.id]);
+      return { out, outs: [out, lab, nxt], toks: ins, labs, nx, note: typeStr(out) + (total > b.n ? ` · first ${nf(b.n)} of ${nf(total)} tokens` : '') + ` · labels ${typeStr(lab)} · next ${typeStr(nxt)}` + (short ? ` · the text needs ${nf(b.n + 1)} tokens to have a next one` : '') };
     }
     if (b.type === 'dist') {                 // uniform between low and high, or normal with a mean and a standard deviation
       const a = +b.a, c = +b.b;
@@ -851,7 +853,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     } else if (b.type === 'text') {
       h = '<textarea data-f="text" aria-label="Text buffer" spellcheck="false"></textarea>';
     } else if (b.type === 'tok') {
-      h = `<div class="brow"><select data-f="mode" aria-label="Tokenizer mode"><option value="char">Characters</option><option value="word">Words</option></select><select data-f="tfmt" aria-label="Output format"><option value="ids">as numbers</option><option value="onehot">one-hot</option></select>${stepper('Context', 'tn', b.n)}</div><div class="chips"></div><div class="hint">labels: the next token for each</div><div class="chips labs"></div>`;
+      h = `<div class="brow"><select data-f="mode" aria-label="Tokenizer mode"><option value="char">Characters</option><option value="word">Words</option></select><select data-f="tfmt" aria-label="Output format"><option value="ids">as numbers</option><option value="onehot">one-hot</option></select>${stepper('Context', 'tn', b.n)}</div><div class="chips"></div><div class="hint">labels: the next token for each</div><div class="chips labs"></div><div class="hint">next: the token after the context</div><div class="chips nxt"></div>`;
     } else if (b.type === 'wave') {
       h = `<canvas class="wave" width="560" height="192" aria-label="Waveform, drag to draw"></canvas>` +
         `<div class="brow"><select data-f="preset" aria-label="Waveform preset"><option value="">Preset…</option><option value="sine">Sine</option><option value="square">Square</option><option value="saw">Saw</option><option value="noise">Noise</option></select><label class="filebtn">Load audio<input type="file" accept="audio/*" data-f="file" hidden></label>${stepper('Window', 'wn', b.n)}</div>` +
@@ -890,7 +892,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     el.classList.toggle('active', b.id === activeP);
     if (b.type === 'tok') {
       const chips = list => (list || []).slice(0, 48).map(t => `<span class="chip${t.pad ? ' pad' : ''}">${esc(t.s)}<i>${b.fmt === 'onehot' && !t.pad ? t.k : t.id}</i></span>`).join('') + (list && list.length > 48 ? `<span class="chip pad">…<i>+${nf(list.length - 48)}</i></span>` : '');
-      el.querySelector('.chips').innerHTML = chips(r.toks); el.querySelector('.chips.labs').innerHTML = chips(r.labs);
+      el.querySelector('.chips').innerHTML = chips(r.toks); el.querySelector('.chips.labs').innerHTML = chips(r.labs); el.querySelector('.chips.nxt').innerHTML = chips(r.nx ? [r.nx] : []);
     }
     else if (b.type === 'dist') { el.querySelector('select[data-f=dkind]').value = b.kind === 'normal' ? 'normal' : 'uniform'; drawDist(r.out, null, el.querySelector('canvas')); }
     else if (b.type === 'samp') { el.querySelector('[data-act=splay]').textContent = b.playing ? 'Pause' : 'Play'; drawDist(r.dist, r.out ? r.out.data : null, el.querySelector('canvas')); }

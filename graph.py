@@ -125,7 +125,8 @@ class Graph(torch.nn.Module):
                         return part.to(dt)
                     k = torch.where(part == 10, torch.zeros_like(part), torch.where((part >= 32) & (part <= 126), part - 31, torch.full_like(part, TOKV - 1)))
                     return torch.nn.functional.one_hot(k, TOKV).to(dt) * real.unsqueeze(-1)
-                out[i] = [take(0), take(1)]
+                nxt = take(n)[:, 0]                              # the one token after the context: [B, 97] one-hot, or [B] as a number
+                out[i] = [take(0), take(1), nxt if b["fmt"] == "onehot" else nxt.unsqueeze(1)]
             elif t == "lin":
                 x = get(i)
                 out[i] = [x.reshape(B, -1).index_select(1, self._lin_index(b, x.shape[1:]).to(device))]
