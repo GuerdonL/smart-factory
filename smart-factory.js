@@ -413,6 +413,7 @@ const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, 
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null });
 function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
+function cut(){ if (selected.size){ copy(); remove(); } }
 /* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
 function develop(pictures, s, dx, dy){
   const u = view.unit, groups = new Map(), made = [];
@@ -527,9 +528,10 @@ zipPicker.addEventListener('change', async () => { const file = zipPicker.files[
 /* ---- keys ---- */
 let boxing = null;                             /* the box selection in progress, if any */
 addEventListener('keydown', e => {
-  /* Ctrl or Cmd with c copies the selection; with v pastes in the middle of the screen. (While typing in a name or a
+  /* Ctrl or Cmd with c copies the selection; with x cuts it (copies, then removes); with v pastes in the middle of the screen. (While typing in a name or a
      measurement these keys never reach here, so text is copied and pasted as usual.) */
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); copy(); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); cut(); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); paste(view.camera()); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === 'Escape') return selected.size || !space.parent || boxing ? select([]) : out();      /* with nothing selected, Escape steps out of a definition space */
@@ -573,9 +575,10 @@ function dragged(el, from){
 
 /* ---- clicks ----
    A second click on the same thing soon after the first is a double click. */
+const DOUBLE = 600;                            /* two clicks on the same thing within this many milliseconds are a double click */
 let lastEl = null, lastAt = 0, beforeShift = null;      /* beforeShift: what was selected before the last shift-click, in case it turns out to be the first of two */
 function clicked(el, e){
-  const twice = el === lastEl && e.timeStamp - lastAt < 450;
+  const twice = el === lastEl && e.timeStamp - lastAt < DOUBLE;
   lastEl = twice ? null : el; lastAt = e.timeStamp;
   /* the frame round the selection (dashed), or round a named group (solid): its buttons and its name */
   for (const [id, f] of [[null, bounds], ...space.frames]){
@@ -648,12 +651,13 @@ const draw = {
     return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block){ space.blocks.push(block); shown(); } }); },
 };
 
-/* the right-click menu. A right click on a block that is not selected selects it first, so Copy and Delete mean that block.
+/* the right-click menu. A right click on a block that is not selected selects it first, so Cut, Copy and Delete mean that block.
    Paste puts the copy where the click was. */
 let menuAt = { x: 0, y: 0 };
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) },
+  { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: cut },
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: copy },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
