@@ -41,8 +41,8 @@ clone), the editor can hand a training run to a rented GPU by itself:
 - Nothing is rented until **Rent and run** is pressed. That commits and pushes the model file to this public repo,
   runs `bb launch`, follows the run, and loads the finished weights into the frame.
 
-Only what the trainer can train goes this way: Dataset (built-in digits, Kaggle or Hugging Face images) → Linearize →
-frame → Cost function. The GPU time is a rule of thumb, so the expected cost is too; the hourly price is box-boy's.
+Anything the trainer can train goes this way (see "What the trainer computes"). The GPU time is a rule of thumb, so
+the expected cost is too; the hourly price is box-boy's.
 
 ## Hugging Face datasets
 
@@ -99,6 +99,23 @@ folder was in the Dataset block needs `--data`, because the browser never keeps 
 
 ## What the trainer computes
 
+**Export model** saves everything behind the selected frame's Cost function as one file: the blocks with their settings
+and weights, the wires, and which blocks to train (those a gradient reaches through the backprop wires; if some have
+Train ticked, only those). `graph.py` runs it. Blocks it understands: Dataset (built-in digits, Kaggle or Hugging Face
+images, Hugging Face text), Text buffer, Pixel array, Distribution, Random sampler, Tokenizer (Characters), Linearize,
+Attention, Evaluation frame and Cost function. Not yet: Waveform, the Tokenizer's Words mode, a folder loaded in the
+browser, more than one Dataset block. With no Dataset block a "pass" is 10,000 draws from the samplers. Each trained
+block keeps its own rate from the editor.
+
+Checked against the editor to 1e-15 (`--batch 1 --no-shuffle --val 0 --double`) on three graphs: digits → attention →
+frame; text → tokenizer → causal attention → frame with per-token cross-entropy; and frame → attention → frame.
+Two known differences: a block whose output feeds two blocks gets the gradient from both here but only from the one
+wired to its backprop port in the editor, and a character outside the Basic Multilingual Plane (an emoji, say) counts
+as two tokens here and one in the editor.
+
+Older single-frame files still work, and this is what they compute:
+
+
 The editor's rule, checked against the editor to 1e-15 with `--batch 1 --no-shuffle --val 0 --double`:
 each neuron outputs `f(w * (x + sum of c * source output))`; input neurons, and output neurons with
 "Linear output layer" on, skip `f`; neuron weights `w` and connection weights `c` both train by plain
@@ -109,6 +126,7 @@ cannot open those; it only imports weights into a frame it already has.
 
 ## Files
 
+- `graph.py` trains a whole exported graph (attention, text, samplers, several frames); `trainer.py` hands it such files.
 - `trainer.py` trains one model file and writes `weights.json`, `metrics.json`, `log.csv`, `ckpt.pkl` (resume state) to `--out`.
 - `run.py` decides where to train and starts it.
 - `remote.py` plans, launches and follows rented runs for the editor.

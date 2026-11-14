@@ -63,18 +63,21 @@ def _save(meta):
 
 def plan(model, epochs=5, batch=32, levels=3, val=0.1):
     """Save the model and work out what a rented run would be and cost. Rents nothing."""
-    if model.get("format") != "perceptron-editor/model":
+    graph = model.get("format") == "perceptron-editor/graph"
+    if not graph and model.get("format") != "perceptron-editor/model":
         raise RemoteError("that is not a model exported from the editor")
-    d = model["data"]
-    src, ref = d.get("source"), d.get("ref")
-    if src in KNOWN_SIZES:
+    d = next((b for b in model["blocks"] if b["type"] == "data"), None) if graph else model["data"]
+    src, ref = (d or {}).get("source"), (d or {}).get("ref")
+    if graph and d is None:                              # samplers only: a pass is a fixed number of draws
+        spec, n = "random samples", int(model.get("est", {}).get("samples") or 10000)
+    elif src in KNOWN_SIZES:
         spec, n = src, KNOWN_SIZES[src]
     elif src in ("kaggle", "hf") and ref:
         mod = __import__("kaggle_data" if src == "kaggle" else "hf_data")
         i = mod.info(ref)
         if not i:
             raise RemoteError(f"{ref} is not on the server any more; add it again from the Dataset block")
-        spec, n = f"{src}:{ref}", i["n"]
+        spec, n = f"{src}:{ref}", (max(1, i.get("chars", 0) // int(d.get("win") or 64)) if i.get("kind") == "text" else i["n"])
     else:
         raise RemoteError("this model's images were loaded from a folder in the browser, which a rented machine cannot reach. "
                           "Load the data through the Dataset block's Kaggle or Hugging Face button instead.")
@@ -86,7 +89,11 @@ def plan(model, epochs=5, batch=32, levels=3, val=0.1):
                     if os.path.exists(os.path.join(HERE, q)):
                         os.remove(os.path.join(HERE, q))
     epochs, batch = max(0.01, float(epochs)), max(1, int(batch))
-    edges = len(model["frame"]["edges"]["w"])
+    if graph and d is None:
+        val = 0                                          # nothing to hold out: every sample is a fresh draw
+    edges = int(model["est"]["work"]) if graph else len(model["frame"]["edges"]["w"])
+    if graph:
+        levels = int(model["est"].get("levels") or levels)
     steps = max(1, round(epochs * math.ceil(n * (1 - val) / batch)))
     gpu_s = gpu_seconds(edges, int(levels), steps, batch)
     cap = hours_cap(gpu_s)
@@ -98,7 +105,7 @@ def plan(model, epochs=5, batch=32, levels=3, val=0.1):
     with gzip.open(os.path.join(HERE, path), "wt") as f:
         json.dump(model, f, separators=(",", ":"))
     size = os.path.getsize(os.path.join(HERE, path)) / 1e6
-    args = [path, "--out", f"runs/{name}", "--epochs", f"{epochs:g}", "--batch", str(batch), "--val", f"{val:g}", "--data", spec, "--max-minutes", f"{cap * 48:g}"]
+    args = [path, "--out", f"runs/{name}", "--epochs", f"{epochs:g}", "--batch", str(batch), "--val", f"{val:g}"] + ([] if graph else ["--data", spec]) + ["--max-minutes", f"{cap * 48:g}"]
     job = f"{name}: python trainer.py {' '.join(shlex.quote(a) for a in args)}"
     jobs = f"jobs/{name}.txt"
     open(os.path.join(HERE, jobs), "w").write(job + "\n")

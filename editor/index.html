@@ -1870,7 +1870,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (f === 'db') { if (t.value === '' || !isFinite(+t.value)) return; b.b = +t.value; }
     else if (f === 'causal') b.causal = t.checked;
     else if (f === 'apos') { b.pos = t.checked; b.steps = 0; }
-    else if (f === 'atrain') { b.train = t.checked; if (b.train && !(last[b.id] && last[b.id].backGrad)) toast(last[b.id] && last[b.id].backErr ? `${b.name} cannot train: ${last[b.id].backErr}.` : `${b.name} has no gradient yet. Wire the bottom-left port of the block it feeds into the port at its bottom right, and make sure a loss reaches that block.`); }
+    else if (f === 'atrain') { b.train = t.checked; if (b.train && !(last[b.id] && last[b.id].backGrad)) toast(last[b.id] && last[b.id].backErr ? `${b.name} cannot train: ${last[b.id].backErr}.` : `${b.name} has no gradient yet. Wire the bottom-left port of the block it feeds into the port at its bottom right, and make sure a loss reaches that block.`); if (b.train) setTimeout(() => offerRemote(b), 0); }
     else if (f === 'alr') { if (t.value === '' || !(+t.value >= 0)) return; b.lr = +t.value; save(); return; }
     else if (f === 'loss') b.loss = t.value;
     else if (f === 'act') { b.act = t.value; renderMath(); }
@@ -2122,7 +2122,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   fetch('api/ping', { headers: { 'X-Token': tokenOf() } }).then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !j.ok) return; API = j;
     G.blocks.filter(b => b.type === 'data').forEach(b => { buildBody(b); if ((b.kref || b.href) && !DS[b.id] && j.token) loadServer(b, b.href || b.kref, b.href ? 'hf' : 'kaggle'); });
-    $('gpu-btn').hidden = false; const going = G.blocks.find(b => b.type === 'perc' && b.remote); if (going && j.token) rtWatch(going);
+    $('gpu-btn').hidden = false; const going = G.blocks.find(b => b.remote); if (going && j.token) rtWatch(going);
     update(false);
   }).catch(() => {});
 
@@ -2131,19 +2131,19 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   // offers to rent a GPU instead, showing the run and what it is expected to cost. Nothing is rented until its button is pressed.
   const RT_LIMIT_S = 300; let rtFor = null, rtPlan = null, rtPoll = null, rtSeq = 0;
   const mins = sec => sec < 90 ? `${Math.round(sec)} s` : sec < 5400 ? `${(sec / 60).toFixed(sec < 600 ? 1 : 0)} min` : `${(sec / 3600).toFixed(1)} h`, usd = v => '$' + (+v).toFixed(2);
-  function hereSeconds(b, epochs) {          // seconds this frame would need in the browser, from a few timed forward-and-backward passes
-    const m = modelOf(b); if (m.err) return null;
-    const total = m.data.total || 0;
+  function hereSeconds(cost, epochs) {       // seconds this graph would need in the browser, from a few timed forward-and-backward passes
+    const m = graphOf(cost); if (m.err) return null;
+    const total = m.est.samples;
     const t0 = performance.now(); let k = 0; do { evalAll(); k++; } while (k < 3 || (performance.now() - t0 < 80 && k < 50));
     return { sec: (performance.now() - t0) / k / 1000 * total * epochs, total, model: m };
   }
-  function offerRemote(b) {
-    if (!API || !API.token || b.asked || b.remote) return;
+  function offerRemote(blk) {
+    const b = costOf(blk); if (!API || !API.token || !b || b.asked || b.remote) return;
     const h = hereSeconds(b, 5); if (!h || h.sec <= RT_LIMIT_S) return;
-    b.asked = true; openRemote(b, `Five passes over ${b.name}'s ${nf(h.total)} images would take more than ${RT_LIMIT_S / 60} minutes in this browser, so here is what running it on a rented GPU would involve. Training carries on here unless you rent.`);
+    b.asked = true; openRemote(b, `Five passes over the ${nf(h.total)} samples behind ${b.name} would take more than ${RT_LIMIT_S / 60} minutes in this browser, so here is what running it on a rented GPU would involve. Training carries on here unless you rent.`);
   }
-  function openRemote(b, why) {
-    const m = modelOf(b); if (m.err) return toast(m.err);
+  function openRemote(b, why) {              // b is the Cost function the run answers to
+    const m = graphOf(b); if (m.err) return toast(m.err);
     rtFor = b.id; $('kg').hidden = true; $('help').hidden = true; $('rt').hidden = false; $('rt-why').textContent = why || '';
     if (b.remote) { $('rt-opts').hidden = true; $('rt-go').hidden = true; rtShowRun({ name: b.remote, state: 'running' }); rtWatch(b); } else { $('rt-opts').hidden = false; $('rt-go').hidden = false; rtReplan(); }
   }
@@ -2152,24 +2152,23 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const b = byId(rtFor), seq = ++rtSeq; if (!b) return;
     const epochs = Math.max(0.1, +$('rt-epochs').value || 5), batch = Math.max(1, Math.round(+$('rt-batch').value || 32)), h = hereSeconds(b, epochs); if (!h) return;
     rtPlan = null; $('rt-go').disabled = true; $('rt-go').textContent = 'Rent and run'; $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Asking box-boy what this would rent and at what price…';
-    const r = last[b.id], levels = r && r.back ? r.back.maxD + 1 : b.vecs.length;
-    let pl; try { pl = await api('api/train/plan', { model: h.model, epochs, batch, levels }); } catch (e) { if (seq === rtSeq) { $('rt-plan').innerHTML = ''; $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; } return; }
+    let pl; try { pl = await api('api/train/plan', { model: h.model, epochs, batch, levels: h.model.est.levels }); } catch (e) { if (seq === rtSeq) { $('rt-plan').innerHTML = ''; $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; } return; }
     if (seq !== rtSeq) return;
     rtPlan = pl; $('rt-raw').textContent = pl.dry_run || '(nothing)';
-    $('rt-plan').innerHTML = rtRow('Run', `${esc(b.name)} · ${nf(pl.edges)} connections · ${esc(pl.spec)}, ${nf(pl.samples)} images · ${nf(pl.steps)} steps of ${nf(pl.batch)}`) +
-      rtRow('Here', `about ${mins(h.sec)} in this browser, one image at a time`) +
+    $('rt-plan').innerHTML = rtRow('Run', `trains ${esc(h.model.train.map(id => byId(id).name).join(', '))} against ${esc(b.name)} · ${esc(pl.spec)}, ${nf(pl.samples)} samples a pass · ${nf(pl.steps)} steps of ${nf(pl.batch)}`) +
+      rtRow('Here', `about ${mins(h.sec)} in this browser, one sample at a time`) +
       rtRow('Rented', `${pl.gpu_s < 60 ? 'under a minute' : 'about ' + mins(pl.gpu_s)} of training, plus about ${mins(pl.startup_s)} for the machine to start. A rough estimate, not a measurement.`) +
       (pl.price != null ? rtRow('Machine', `${esc(pl.offer)} at ${usd(pl.price)} an hour`) +
         rtRow('Expected cost', `<b>about ${usd(Math.max(0.01, pl.expected_cost))}</b>`) +
         rtRow('At most', `${usd(pl.max_cost)}: the run is stopped after ${pl.hours_cap} h whatever happens`) : '') +
-      rtRow('Also', 'Renting publishes this model\'s weights to your public GitHub repository, which is where the machine fetches them from.');
+      rtRow('Also', 'Renting publishes these blocks and their weights to your public GitHub repository, which is where the machine fetches them from.');
     if (pl.problems.length) { $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = pl.problems.join(' · '); }
     else { $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Nothing is rented until you press the button.'; $('rt-go').disabled = false; $('rt-go').textContent = `Rent and run · about ${usd(Math.max(0.01, pl.expected_cost))}`; }
   }
   function rtShowRun(m) {
     const say = { launching: 'Renting the machine…', running: 'The machine is ' + (m.phase && m.phase !== 'running' ? 'starting (' + esc(m.phase) + ')' : 'running'), done: 'Finished', failed: 'Failed', planned: 'Not started' }[m.state] || m.state;
     $('rt-plan').innerHTML = rtRow('Run', esc(m.name)) + rtRow('State', `<b>${say}</b>`) + (m.instance ? rtRow('Machine', esc(m.instance)) : '') +
-      (m.metrics ? rtRow('Result', `held-out accuracy ${m.metrics.val_accuracy != null ? Math.round(m.metrics.val_accuracy * 100) + '%' : '–'} after ${nf(m.metrics.steps)} steps in ${mins(m.metrics.seconds)}`) : '');
+      (m.metrics ? rtRow('Result', `${m.metrics.val_accuracy != null ? 'held-out accuracy ' + Math.round(m.metrics.val_accuracy * 100) + '%' : 'loss ' + sfmt(m.metrics.val_loss)} after ${nf(m.metrics.steps)} steps in ${mins(m.metrics.seconds)}`) : '');
     $('rt-msg').className = m.error ? 'kgnote kgerr' : 'kgnote'; $('rt-msg').textContent = m.error || (m.state === 'done' ? '' : 'This checks every 20 seconds. You can close this and keep working; the weights load into the frame when the run finishes.');
     if (m.launch_out) $('rt-raw').textContent = m.launch_out;
   }
@@ -2183,18 +2182,19 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         clearInterval(rtPoll); const name = b.remote; delete b.remote;
         try { applyWeights(b, await api('api/train/weights?name=' + encodeURIComponent(name))); } catch (e) { toast(`${name} finished but its weights could not be loaded: ${e.message}`); }
         save();
-      } else if (m.state === 'planned' && Date.now() - (b.remoteAt || (b.remoteAt = Date.now())) > 600000) { clearInterval(rtPoll); delete b.remote; delete b.remoteAt; save(); toast(`The rented run for ${b.name} never started.`);
-      } else if (m.state === 'failed') { clearInterval(rtPoll); delete b.remote; save(); toast(`The rented run for ${b.name} failed: ${m.error || 'no reason given'}`); }
+      } else if (m.state === 'planned' && Date.now() - (b.remoteAt || (b.remoteAt = Date.now())) > 600000) { clearInterval(rtPoll); delete b.remote; delete b.remoteAt; save(); toast(`The rented run behind ${b.name} never started.`);
+      } else if (m.state === 'failed') { clearInterval(rtPoll); delete b.remote; save(); toast(`The rented run behind ${b.name} failed: ${m.error || 'no reason given'}`); }
     };
     rtPoll = setInterval(tick, 20000); tick();
   }
   $('rt-epochs').addEventListener('change', rtReplan); $('rt-batch').addEventListener('change', rtReplan);
   $('rt-close').addEventListener('click', () => { $('rt').hidden = true; rtSeq++; });
-  $('gpu-btn').addEventListener('click', () => { const b = byId(activeP); if (b) openRemote(b, ''); });
+  $('gpu-btn').addEventListener('click', () => { const b = byId(activeP), c = b && costOf(b); if (!b) return; if (!c) return toast(graphOf(null).err); openRemote(c, ''); });
   $('rt-go').addEventListener('click', async () => {             // the one place a rental starts: a person pressing this button with the cost on it
     const b = byId(rtFor), pl = rtPlan; if (!b || !pl || pl.problems.length) return;
+    const pl_ids = (graphOf(b).train || []);
     $('rt-go').disabled = true; $('rt-opts').hidden = true; $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Publishing the model and renting the machine. This takes up to a minute…';
-    b.remote = pl.name; b.train = false; renderSide(); save();     // remembered before the call, so a closed tab still finds the run again
+    b.remote = pl.name; G.blocks.forEach(x => { if (pl_ids.includes(x.id)) x.train = false; }); renderSide(); G.blocks.forEach(x => { if (x.type === 'attn') buildBody(x); }); save();     // remembered before the call, so a closed tab still finds the run again
     let m; try { m = await api('api/train/launch', { name: pl.name, confirm: 'rent' }); }
     catch (e) { delete b.remote; save(); $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; $('rt-opts').hidden = false; $('rt-raw').textContent = e.message; return; }
     rtPlan = null; $('rt-go').hidden = true; rtShowRun(m); rtWatch(b);
@@ -2203,6 +2203,56 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   // ---------- training elsewhere ----------
   // Export: one frame with what feeds it (Dataset, then Linearize) and what scores it (Cost function), as a file trainer.py reads.
   // Import: the weights.json trainer.py writes; weights are matched to this frame's neurons and connections by their ids.
+  // The Cost function a block answers to: follow the backprop wires from the block back to where the loss comes from.
+  function costOf(b) {
+    for (let hop = 0, cur = b; cur && hop < 50; hop++) {
+      if (cur.type === 'read') return cur;
+      const w = G.wires.find(q => q.to === cur.id && (insOf(cur.type)[q.tp || 0] || {}).back); cur = w && byId(w.from);
+    }
+    return null;
+  }
+  // Everything a Cost function's loss is computed from, as one file trainer.py can run: the blocks behind its prediction and
+  // ground truth with their settings and weights, the wires between them, and which blocks are to be trained.
+  function graphOf(cost) {
+    if (!cost) return { err: 'This block is not connected to a Cost function through backprop wires, so there is nothing to train it on.' };
+    const ids = new Set([cost.id]), stack = [cost.id], wires = [];
+    while (stack.length) { const id = stack.pop(); G.wires.forEach(w => { const c = byId(w.to); if (w.to !== id || (insOf(c.type)[w.tp || 0] || {}).back) return; wires.push({ from: w.from, to: w.to, fp: w.fp || 0, tp: w.tp || 0 }); if (!ids.has(w.from)) { ids.add(w.from); stack.push(w.from); } }); }
+    const blocks = [], can = [], ticked = []; let work = 0, levels = 1, samples = 0, err = null;
+    G.blocks.forEach(b => {
+      if (!ids.has(b.id) || err) return; const r = last[b.id] || {}, o = { id: b.id, type: b.type, name: b.name };
+      if (b.type === 'data') {
+        const ds = dataset(b); if (!ds || ds.failed) return err = 'The dataset has not loaded yet.';
+        if (DS[b.id] && !ds.kref && !ds.href) return err = `${b.name} reads a folder loaded in the browser, which nothing outside the browser can reach. Load the data through its Kaggle or Hugging Face button instead.`;
+        Object.assign(o, { source: ds.kref ? 'kaggle' : ds.href ? 'hf' : 'digits', ref: ds.kref || ds.href || null, slice: ds.slice || null, text: ds.kind === 'text', as: b.as || 'int', win: clamp(b.win || 64, 4, 4096), w: ds.w, h: ds.h, max: ds.max, classes: ds.classes });
+        samples = ds.kind === 'text' ? Math.floor((ds.total || 0) / o.win) : ds.total || ds.n;
+      } else if (b.type === 'text') o.text = b.text;
+      else if (b.type === 'pixels') Object.assign(o, { w: b.w, h: b.h, px: b.px.map(v => +!!v) });
+      else if (b.type === 'dist') Object.assign(o, { kind: b.kind === 'normal' ? 'normal' : 'uniform', a: +b.a, b: +b.b });
+      else if (b.type === 'samp') o.n = b.n;
+      else if (b.type === 'tok') { if (b.mode === 'word') return err = `${b.name} is set to Words, which has no fixed vocabulary to train on. Use Characters.`; Object.assign(o, { fmt: b.fmt === 'onehot' ? 'onehot' : 'ids', n: b.n }); }
+      else if (b.type === 'lin') Object.assign(o, { mode: b.mode || 'rows', rev: (b.rev || []).map(Boolean) });
+      else if (b.type === 'read') o.loss = LOSSES[b.loss] ? b.loss : 'se';
+      else if (b.type === 'attn') {
+        if (!b.wq || !r.out) return err = `${b.name} has no input yet.`;
+        Object.assign(o, { dk: b.wdk, d: b.wd, dq: b.wdq || b.wd, n: r.n, causal: !!b.causal, pos: !!b.pos, lr: +b.lr || 0.01, wq: b.wq, wk: b.wk, wv: b.wv });
+        work += r.n * b.wd * (2 * b.wdk + b.wd) + r.n * r.n * (b.wdk + b.wd); levels += 2; if (r.backGrad) { can.push(b.id); if (b.train) ticked.push(b.id); }
+      } else if (b.type === 'perc') {
+        const vin = b.vecs.find(v => v.id === b.inV), vout = b.vecs.find(v => v.id === b.outV); if (!vin || !vout) return err = `${b.name} needs an input vector and an output vector.`;
+        const id = [], w = [], es = [], ed = [], ew = [];
+        for (const k in b.ns) { id.push(+k); w.push(b.ns[k]); }
+        for (const key in b.edges) { const cut = key.indexOf('>'); es.push(+key.slice(0, cut)); ed.push(+key.slice(cut + 1)); ew.push(b.edges[key]); }
+        Object.assign(o, { act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, in: vin.n, out: vout.n, ns: { id, w }, edges: { s: es, d: ed, w: ew } });
+        work += ew.length; levels += r.back ? r.back.maxD + 1 : b.vecs.length; if (r.back) { can.push(b.id); if (b.train) ticked.push(b.id); }
+      } else return err = `${b.name} (${TYPES[b.type].title}) cannot be trained outside the browser yet.`;
+      blocks.push(o);
+    });
+    if (err) return { err };
+    if (!last[cost.id] || last[cost.id].loss == null) return { err: `${cost.name} is not producing a loss yet: ${last[cost.id] && last[cost.id].err || 'connect a prediction and a ground truth'}.` };
+    if (!can.length) return { err: `No block behind ${cost.name} receives a gradient. Wire its loss into a frame's backprop input, and bottom-left ports into the blocks further back.` };
+    if (!samples) samples = 10000;                                    // nothing but samplers: call ten thousand draws a pass
+    // What trains: the blocks a gradient reaches. If some of them have Train ticked, only those; if none do, all of them.
+    return { format: 'perceptron-editor/graph', v: 1, name: cost.name, cost: cost.id, blocks, wires, train: ticked.length ? ticked : can, est: { work, levels, samples } };
+  }
   function modelOf(b) {
     const wIn = G.wires.find(q => q.to === b.id && (q.tp || 0) === 0); let src = wIn && byId(wIn.from), fold = null, foldRev = [false, false];
     if (src && src.type === 'lin') { fold = src.mode || 'rows'; foldRev = [!!(src.rev || [])[0], !!(src.rev || [])[1]]; const w2 = G.wires.find(q => q.to === src.id && (q.tp || 0) === 0); src = w2 && byId(w2.from); }
@@ -2226,22 +2276,34 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       frame: { act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, in: vin.n, out: vout.n, ns: { id, w }, edges: { s: es, d: ed, w: ew } } };
   }
   $('ex-model').addEventListener('click', async () => {
-    const b = byId(activeP); if (!b) return; const m = modelOf(b); if (m.err) return toast(m.err);
-    const text = JSON.stringify(m), file = (b.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'model') + '.json';
+    const b = byId(activeP); if (!b) return; const m = graphOf(costOf(b)); if (m.err) return toast(m.err);
+    const text = JSON.stringify(m), file = (m.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'model') + '.json';
     let dl = null; try { dl = await window.claude.use('downloads'); } catch (e) {}
     if (dl) {
-      try { await dl.save({ filename: file, data: new Blob([text]) }); return toast(`Saved ${file}: ${nf(m.frame.edges.w.length)} connections. Put it in the trainer's models folder.`); }
+      try { await dl.save({ filename: file, data: new Blob([text]) }); return toast(`Saved ${file}: ${nf(m.blocks.length)} blocks, ${nf(m.train.length)} of them to train. Put it in the trainer's models folder.`); }
       catch (e) { if (e && e.code === 'declined') return; }
     }
     if (!window.claude) {                                           // opened outside Claude (the repo's local copy): an ordinary browser download
       const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); link.download = file;
       document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 5000);
-      return toast(`Downloaded ${file}: ${nf(m.frame.edges.w.length)} connections. Move it into the models folder.`);
+      return toast(`Downloaded ${file}: ${nf(m.blocks.length)} blocks, ${nf(m.train.length)} of them to train. Move it into the models folder.`);
     }
     try { await navigator.clipboard.writeText(text); toast(`Copied the model as JSON (${nf(text.length)} characters). Paste it into models/${file}.`); }
     catch (e) { toast('Could not save or copy the model from this view. Open the page on claude.ai and try again.'); }
   });
   function applyWeights(b, j) {
+    if (j && j.blocks && !Array.isArray(j.blocks)) {                   // from a whole-graph run: weights for every trained block, matched by block id and kind
+      let n = 0; const names = [];
+      for (const id in j.blocks) {
+        const t = byId(+id), wts = j.blocks[id]; if (!t) continue; let k = 0;
+        if (t.type === 'perc' && wts.ns) { wts.ns.id.forEach((q, i) => { if (q in t.ns && isFinite(wts.ns.w[i])) { t.ns[q] = +wts.ns.w[i]; k++; } }); wts.edges.w.forEach((w, i) => { const key = wts.edges.s[i] + '>' + wts.edges.d[i]; if (key in t.edges && isFinite(w)) { t.edges[key] = +w; k++; } }); }
+        else if (t.type === 'attn' && wts.wq && t.wq && wts.wq.length === t.wq.length && wts.wk.length === t.wk.length && wts.wv.length === t.wv.length) { t.wq = wts.wq.map(Number); t.wk = wts.wk.map(Number); t.wv = wts.wv.map(Number); k = t.wq.length + t.wk.length + t.wv.length; }
+        if (k) { n += k; names.push(t.name); t.train = false; t.avg = null; if (j.steps) t.steps = j.steps; }
+      }
+      if (!n) return toast('Nothing in that file matches the blocks in this graph. Import into the graph the model was exported from.');
+      STATS.clear(); renderSide(); G.blocks.forEach(x => { if (x.type === 'attn') buildBody(x); }); update(true);
+      return toast(`Imported ${nf(n)} weights into ${names.join(', ')}` + (j.steps ? `, trained for ${nf(j.steps)} steps.` : '.'));
+    }
     const f = j.format === 'perceptron-editor/model' ? j.frame : j;
     if (!f || !f.ns || !f.edges || !Array.isArray(f.ns.id) || !Array.isArray(f.edges.w)) return toast('That file is not a weights.json from trainer.py.');
     let n = 0, miss = 0;

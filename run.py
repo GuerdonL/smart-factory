@@ -72,24 +72,38 @@ def main():
     if path.startswith(".."):
         sys.exit("the model file must be inside this project (put it in models/)")
     model = trainer.load_model(os.path.join(ROOT, path))
-    spec = a.data or trainer.default_data(model)
-    if not spec:
-        sys.exit("this model was built on a folder loaded in the browser; say where the data is with --data")
-    n = a.samples or trainer.data_size(spec)
-    if n is None:
-        sys.exit(f"cannot count the samples in {spec} from here; pass --samples N")
+    is_graph = model["format"] == "perceptron-editor/graph"
+    if is_graph:                                         # a whole graph says where its own data comes from
+        d = next((b for b in model["blocks"] if b["type"] == "data"), None)
+        spec = a.data or ("random samples" if d is None else "digits" if d["source"] == "digits" else f"{d['source']}:{d['ref']}")
+        n = None
+    else:
+        spec = a.data or trainer.default_data(model)
+        if not spec:
+            sys.exit("this model was built on a folder loaded in the browser; say where the data is with --data")
+        n = a.samples or trainer.data_size(spec)
+        if n is None:
+            sys.exit(f"cannot count the samples in {spec} from here; pass --samples N")
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", os.path.splitext(os.path.basename(path))[0]).strip("-") or "model"
     name = a.name or f"{stem}-{time.strftime('%m%d-%H%M%S')}"
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
         sys.exit("--name may only use letters, digits, _ . and -")
 
     device = trainer.pick_device()
-    per_step, net = trainer.bench(model, a.batch, device)
-    steps = max(1, round(a.epochs * math.ceil(n * (1 - a.val) / a.batch)))
+    if is_graph:
+        import graph
+        per_step, n, held = graph.bench(model, a.batch, device, a.data)
+        n = a.samples or n
+        edges, levels = int(model["est"]["work"]), int(model["est"]["levels"])
+        steps = max(1, round(a.epochs * math.ceil(n * (1 - (a.val if held else 0)) / a.batch)))
+    else:
+        per_step, net = trainer.bench(model, a.batch, device)
+        edges, levels = net.n_edges, net.n_levels
+        steps = max(1, round(a.epochs * math.ceil(n * (1 - a.val) / a.batch)))
     local_s = per_step * steps * LOCAL_MARGIN
-    gpu_s = steps * (GPU_STEP_OVERHEAD * net.n_levels + 6 * net.n_edges * a.batch / GPU_FLOPS)
+    gpu_s = steps * (GPU_STEP_OVERHEAD * levels + 6 * edges * a.batch / GPU_FLOPS)
     remote = a.where == "remote" or (a.where == "auto" and local_s > a.target_min * 60)
-    print(f"model   {path}: {net.n_edges:,} connections in {net.n_levels} levels")
+    print(f"model   {path}: " + (f"{len(model['blocks'])} blocks, training {len(model['train'])} of them" if is_graph else f"{edges:,} connections in {levels} levels"))
     print(f"data    {spec}: {n:,} samples, {steps:,} steps of {a.batch}")
     print(f"here    {device}: {per_step * 1000:.2f} ms a step measured, so about {minutes(local_s)}")
     why = "forced with --where" if a.where != "auto" else f"{'over' if remote else 'within'} the {a.target_min:g} min target"
@@ -97,7 +111,7 @@ def main():
 
     args = [path, "--out", f"runs/{name}", "--epochs", f"{a.epochs:g}", "--batch", str(a.batch), "--val", f"{a.val:g}"]
     args += (["--data", spec] if a.data else []) + (["--lr", f"{a.lr:g}"] if a.lr is not None else [])
-    done = f"result: runs/{name}/weights.json  (in the editor: select the frame, Import weights)"
+    done = f"result: runs/{name}/weights.json  (in the editor: select a frame, Import weights)"
 
     if not remote:
         if a.plan:
@@ -137,7 +151,7 @@ def main():
             api.upload_folder(repo_id=repo, folder_path=kaggle_data.folder(spec[7:]), path_in_repo=kaggle_data.hf_path(spec[7:]),
                               allow_patterns=["packed.npz", "info.json"], commit_message=f"dataset {spec}")
         print(f"data    {'would copy' if a.plan else 'copied'} the packed dataset to the private Hugging Face repo {repo}")
-    elif spec not in ("digits", "mnist") and not spec.startswith("hf:"):
+    elif spec not in ("digits", "mnist", "random samples") and not spec.startswith("hf:"):
         sys.exit(f"{spec} is outside this project, so the instance cannot read it")
     hours = max(0.5, math.ceil(gpu_s * 4 / 360) / 10)          # a stuck or slow job stops here instead of running up a bill
     print(f"gpu     about {minutes(gpu_s)} of training by a rough rule of thumb, plus 5 to 10 min for the instance to start; "

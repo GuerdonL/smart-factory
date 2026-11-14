@@ -7,6 +7,8 @@ Owner: Guerdon (GuerdonL). This project is the off-browser trainer for his Perce
   presses the editor dialog's "Rent and run" button with the cost shown on it. Never call that endpoint or function to test it;
   the tests use a stand-in `bb`. Do not add any other path to a launch, and do not weaken the dialog.
 - The repo is public because box-boy instances clone it without a login. Do not commit anything private; `runs/` is ignored.
+- `graph.py` mirrors the editor's `compute()` block by block (tokenizer alphabet, Linearize order, attention with positions,
+  row-wise cross-entropy). Any change to those in `editor/index.html` needs the same change there, and the comparison rerun.
 - `trainer.py` must keep matching the editor's arithmetic exactly. `tests/test_trainer.py` holds the checks; the comparison
   against the live editor page (headless Chrome) was done by hand on 2026-11-12 and is not in the test suite.
 - Kaggle: `kaggle_data.py` shells out to the `kaggle` CLI (written against 2.2.5: `datasets list -s Q --csv`, `datasets download REF -p DIR --unzip`).

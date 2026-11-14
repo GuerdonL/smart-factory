@@ -38,7 +38,7 @@ IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
 # ---------------------------------------------------------------- model ---
 def load_model(path):
     m = json.load(gzip.open(path, "rt") if path.endswith(".gz") else open(path))
-    if m.get("format") != "perceptron-editor/model":
+    if m.get("format") not in ("perceptron-editor/model", "perceptron-editor/graph"):
         sys.exit(f"{path} is not a model exported from the Perceptron Editor")
     return m
 
@@ -415,6 +415,9 @@ def main():
     a = ap.parse_args()
 
     model = load_model(a.model)
+    if model["format"] == "perceptron-editor/graph":       # a whole graph (attention, text, samplers, several frames): graph.py runs it
+        import graph
+        return graph.train(model, a)
     spec = a.data or default_data(model)
     if not spec:
         sys.exit("this model was built on a folder loaded in the browser; say where the data is with --data")

@@ -188,3 +188,41 @@ def test_remote_plan_rents_nothing(tmp_path, monkeypatch):
         assert False
     except remote.RemoteError as e:
         assert "folder" in str(e)
+
+
+def reversal_graph(pos):
+    n = 6
+    return {"format": "perceptron-editor/graph", "v": 1, "name": "Cost function 1", "cost": 5, "train": [3, 4], "est": {"work": 100, "levels": 4, "samples": 10000},
+            "blocks": [{"id": 1, "type": "dist", "kind": "uniform", "a": 0, "b": 1}, {"id": 2, "type": "samp", "n": n},
+                       {"id": 3, "type": "attn", "name": "Attention 1", "dk": 4, "d": 1, "dq": 1 + (n if pos else 0), "n": n, "causal": False, "pos": pos, "lr": 0.2,
+                        "wq": list(np.random.default_rng(0).uniform(-1, 1, (1 + (n if pos else 0)) * 4)), "wk": list(np.random.default_rng(1).uniform(-1, 1, (1 + (n if pos else 0)) * 4)), "wv": [0.7]},
+                       {"id": 4, "type": "perc", "name": "Frame", "act": "linear", "linOut": False, "lr": 0.01, "in": list(range(1, n + 1)), "out": list(range(n + 1, 2 * n + 1)),
+                        "ns": {"id": list(range(1, 2 * n + 1)), "w": [1.0] * (2 * n)}, "edges": {"s": list(range(1, n + 1)), "d": list(range(n + 1, 2 * n + 1)), "w": [1.0] * n}},
+                       {"id": 6, "type": "lin", "mode": "rows", "rev": [True]}, {"id": 5, "type": "read", "loss": "se"}],
+            "wires": [{"from": 1, "to": 2, "fp": 0, "tp": 0}, {"from": 2, "to": 3, "fp": 0, "tp": 0}, {"from": 3, "to": 4, "fp": 0, "tp": 0}, {"from": 4, "to": 5, "fp": 0, "tp": 0},
+                      {"from": 2, "to": 6, "fp": 0, "tp": 0}, {"from": 6, "to": 5, "fp": 0, "tp": 1}]}
+
+
+def test_graph_trainer_learns_reversal_only_with_positions(tmp_path):
+    losses = {}
+    for pos in (True, False):
+        model = tmp_path / f"g{pos}.json"
+        json.dump(reversal_graph(pos), open(model, "w"))
+        out = tmp_path / f"run{pos}"
+        subprocess.run([sys.executable, "trainer.py", str(model), "--out", str(out), "--device", "cpu", "--epochs", "0.6", "--batch", "4"], cwd=ROOT, check=True)
+        losses[pos] = json.load(open(out / "metrics.json"))["train_loss"]
+        w = json.load(open(out / "weights.json"))
+        assert w["v"] == 2 and set(w["blocks"]) == {"3", "4"} and len(w["blocks"]["3"]["wq"]) == (7 if pos else 1) * 4
+    assert losses[True] < 0.02 and losses[False] > 0.2
+
+
+def test_graph_tokenizer_and_linearize_match_the_editor():
+    import graph
+    g = {"format": "perceptron-editor/graph", "cost": 3, "train": [], "blocks": [
+        {"id": 1, "type": "text", "text": "Hi, yo~\nu"}, {"id": 2, "type": "tok", "fmt": "onehot", "n": 4}, {"id": 3, "type": "read", "loss": "ce"}],
+        "wires": [{"from": 1, "to": 2, "fp": 0, "tp": 0}, {"from": 2, "to": 3, "fp": 0, "tp": 0}, {"from": 2, "to": 3, "fp": 1, "tp": 1}]}
+    net = graph.Graph(g, torch.float64)
+    _, toks, labs = net({}, 2, torch.device("cpu"))
+    assert toks.shape == (2, 4, 97) and toks[0].argmax(-1).tolist() == [41, 74, 13, 1] and labs[0].argmax(-1).tolist() == [74, 13, 1, 90]   # as the editor shows them
+    lin = {"id": 9, "mode": "rows", "rev": [False, False, True]}
+    assert net._lin_index(lin, (2, 2, 3)).tolist() == [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5]
