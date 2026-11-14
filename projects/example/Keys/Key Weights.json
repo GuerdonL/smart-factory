@@ -1,0 +1,26 @@
+{
+  "format": "smart-factory/shape",
+  "version": 1,
+  "type": "tensor",
+  "name": "Key Weights",
+  "named": true,
+  "commented": false,
+  "color": "fanta",
+  "position": {
+    "x": -7,
+    "y": -3
+  },
+  "size": {
+    "cols": 4,
+    "rows": 5
+  },
+  "sides": {
+    "cols": "key",
+    "rows": "embed"
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 1
+}

@@ -1,0 +1,27 @@
+{
+  "format": "smart-factory/shape",
+  "version": 1,
+  "type": "tensor",
+  "name": "Keys",
+  "named": true,
+  "commented": false,
+  "color": "watermelon",
+  "position": {
+    "x": -10,
+    "y": -4
+  },
+  "size": {
+    "cols": 4,
+    "rows": 6
+  },
+  "sides": {
+    "cols": "key",
+    "rows": "context"
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Keys/",
+  "order": 0
+}

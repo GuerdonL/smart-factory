@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 1,
+  "type": "tensor",
+  "name": "a/b: c?",
+  "named": true,
+  "commented": false,
+  "color": "fanta",
+  "position": {
+    "x": 16,
+    "y": -4
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 7
+    }
+  },
+  "order": 6
+}

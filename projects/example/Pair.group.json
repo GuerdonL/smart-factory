@@ -1,0 +1,60 @@
+{
+  "format": "smart-factory/group",
+  "version": 1,
+  "name": "Pair",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 1,
+      "type": "tensor",
+      "name": "Shape 1",
+      "named": false,
+      "commented": false,
+      "color": null,
+      "position": {
+        "x": 6,
+        "y": 3
+      },
+      "size": {
+        "cols": 3,
+        "rows": 2
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 2
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 1,
+      "type": "tensor",
+      "name": "Shape 2",
+      "named": false,
+      "commented": false,
+      "color": null,
+      "position": {
+        "x": 10,
+        "y": 3
+      },
+      "size": {
+        "cols": 3,
+        "rows": 2
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 3
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 /* The readout in the corner: where the centre of the screen is, the zoom, and a way back.
 
-   createHud({ onHome() }) -> { el, show(camera) }
+   createHud({ onHome() }) -> { el, show(camera), say(text) }
      show     takes the view's camera, { x, y, zoom }
+     say      shows a short message in place of the readout for a few seconds, such as "Saved"
      onHome   called when "Centre" is pressed */
 import { html, style } from './dom.js';
 
@@ -19,5 +20,8 @@ export function createHud({ onHome = () => {} } = {}){
   const [pos, home] = el.children;
   home.addEventListener('click', onHome);
   el.addEventListener('contextmenu', e => e.preventDefault());
-  return { el, show({ x, y, zoom }){ pos.textContent = `${Math.round(x)}, ${Math.round(y)} · ${Math.round(zoom * 100)}%`; } };
+  let text = '', note = '', until = 0, timer = 0;
+  const draw = () => { pos.textContent = Date.now() < until ? note : text; };
+  return { el, show({ x, y, zoom }){ text = `${Math.round(x)}, ${Math.round(y)} · ${Math.round(zoom * 100)}%`; draw(); },
+    say(message){ note = message; until = Date.now() + 5000; draw(); clearTimeout(timer); timer = setTimeout(draw, 5100); } };
 }

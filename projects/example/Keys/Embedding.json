@@ -1,0 +1,26 @@
+{
+  "format": "smart-factory/shape",
+  "version": 1,
+  "type": "tensor",
+  "name": "Embedding",
+  "named": true,
+  "commented": false,
+  "color": "lavender",
+  "position": {
+    "x": -12,
+    "y": -3
+  },
+  "size": {
+    "cols": 5,
+    "rows": 6
+  },
+  "sides": {
+    "cols": "embed",
+    "rows": "context"
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 0
+}

@@ -1,0 +1,26 @@
+{
+  "format": "smart-factory/shape",
+  "version": 1,
+  "type": "tensor",
+  "name": "Keys",
+  "named": true,
+  "commented": false,
+  "color": "lagoon",
+  "position": {
+    "x": 14,
+    "y": -4
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 5
+}

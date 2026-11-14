@@ -15,6 +15,8 @@ import { createSettingsButton } from './components/settings.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { joins, pieces, typeOf, initials, readEntry } from './algebra.js';
+import * as project from './project.js';
+import { zip, unzip } from './zip.js';
 import { written, squares } from './components/matrix.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
@@ -239,7 +241,7 @@ function foldable(list){
 }
 function fold({ blocks: inside, type, box }, name){
   const u = view.unit;
-  const made = createBlock({ label: 'Named', draw: 'rectangle', color: someColour() },
+  const made = createBlock({ ...typeNamed('tensor'), color: someColour() },
     { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
   made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
   /* its definition space: the folded blocks, level with the equation at the centre and clear of it on the left */
@@ -297,6 +299,73 @@ function remove(){
   for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b); }
   ungroup(gone); shown();
 }
+
+/* ---- saving and opening a project ----
+   The whole tree of shapes is written as a tree of files, a directory for every space (project.js has the format),
+   and read back from one. Where the browser can write to a folder directly, Save asks for the project's folder, say
+   projects/attention in a copy of this repository, and writes the files into it. Elsewhere it hands over one zip of
+   the same tree, to unpack there. Open takes either: a folder, or a zip. */
+const typeNamed = name => shapes.find(s => s.name === name) || { name, label: name, draw: 'rectangle', color: 'tensor' };
+/* the page's spaces as plain data, lengths in units */
+function gather(){
+  const u = view.unit;
+  const plain = s => ({
+    shapes: s.blocks.map(b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
+      colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null })),
+    groups: [...new Set(s.groupOf.values())].map(id => ({ name: s.groupNames.get(id) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === id ? i : -1).filter(i => i >= 0) })) });
+  return { top: plain(top), settings: plain(settings), lengths: Object.fromEntries(lengths), saved: new Date().toISOString() };
+}
+/* the reverse: everything on the page is replaced by what the data describes */
+function rebuild(data){
+  go(top); select([]);
+  for (const s of [top, settings]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
+    s.blocks.length = 0; s.groupOf.clear(); s.groupNames.clear(); s.frames.clear(); }
+  spaceOf.clear(); lengths.clear(); deeper.length = 0; clipboard = null;
+  for (const [name, n] of Object.entries(data.lengths)) lengths.set(name, n);
+  const u = view.unit;
+  const fill = (plain, s) => {
+    for (const d of plain.shapes){ const type = typeNamed(d.type);
+      const b = createBlock({ ...type, color: d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
+      b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); s.blocks.push(b);
+      if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); } }
+    for (const g of plain.groups){ const id = nextGroup++; for (const i of g.members) s.groupOf.set(s.blocks[i], id); if (g.name) s.groupNames.set(id, g.name); }
+  };
+  fill(data.top, top); fill(data.settings, settings);
+  view.world.append(...top.blocks.map(b => b.el)); shown();
+}
+const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top) + n(data.settings); };
+const canPickFolders = () => typeof showDirectoryPicker === 'function' && self === parent;      /* not offered inside another page's frame */
+
+async function save(){
+  const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
+  try {
+    if (canPickFolders()){                       /* straight into a folder */
+      const root = await showDirectoryPicker({ mode: 'readwrite' });
+      for (const f of files){ const parts = f.path.split('/'); let dir = root;
+        for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
+        const w = await (await dir.getFileHandle(parts[parts.length - 1], { create: true })).createWritable(); await w.write(f.text); await w.close(); }
+      return hud.say(`Saved ${what} to ${root.name}/`);
+    }
+    const bytes = zip(files.map(f => ({ path: 'project/' + f.path, text: f.text }))), downloads = await window.claude?.use?.('downloads');
+    if (downloads){ await downloads.save({ filename: 'smart-factory-project.zip', data: new Blob([bytes]) }); return hud.say(`Saved ${what} as a zip`); }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' })); a.download = 'smart-factory-project.zip'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000); hud.say(`Saved ${what} as a zip`);
+  } catch (e) { hud.say(e.name === 'AbortError' || e.code === 'declined' ? 'Not saved' : 'Could not save: ' + (e.message || e.code || e)); }
+}
+
+/* files chosen to open: one zip, or the files of a folder */
+async function openFiles(list){
+  try {
+    const chosen = [...list], one = chosen.length === 1 && /\.zip$/i.test(chosen[0].name) ? chosen[0] : null;
+    const files = one ? await unzip(new Uint8Array(await one.arrayBuffer()))
+      : await Promise.all(chosen.filter(f => /\.json$/i.test(f.name)).map(async f => ({ path: f.webkitRelativePath || f.name, text: await f.text() })));
+    const data = project.read(files);
+    rebuild(data); hud.say(`Opened ${count(data)} shapes`);
+  } catch (e) { hud.say('Could not open: ' + (e.message || e)); }
+}
+const pickers = { zip: Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true }),
+  folder: Object.assign(document.createElement('input'), { type: 'file', webkitdirectory: true, multiple: true, hidden: true }) };
+for (const input of Object.values(pickers)){ document.body.append(input); input.addEventListener('change', () => { if (input.files.length) openFiles(input.files); input.value = ''; }); }
 
 /* ---- keys ---- */
 let boxing = null;                             /* the box selection in progress, if any */
@@ -419,6 +488,8 @@ const menu = createMenu([
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: copy },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
+  { label: 'Save project', run: save },
+  { label: 'Open project', items: [{ label: 'From a folder', run: () => pickers.folder.click() }, { label: 'From a zip', run: () => pickers.zip.click() }] },
 ]);
 const hud = createHud({ onHome: () => view.home() });
 /* the gear opens the settings from wherever you are; pressed again, or with Escape or Back, it returns to where you were */

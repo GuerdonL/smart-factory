@@ -1,0 +1,26 @@
+{
+  "format": "smart-factory/shape",
+  "version": 1,
+  "type": "tensor",
+  "name": "// Old idea",
+  "named": true,
+  "commented": true,
+  "color": "marigold",
+  "position": {
+    "x": -10,
+    "y": 5
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 4
+}
