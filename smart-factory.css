@@ -22,15 +22,16 @@
   --tensor: #e5534b;        /* a friendly red */
   --raise-light: rgba(255, 255, 255, .35);   /* the lit top edge of a raised block */
   --raise-dark: rgba(0, 0, 0, .22);          /* its shaded bottom edge */
+  --edge: rgba(60, 10, 8, .55);              /* the thin rim that separates touching blocks */
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
   --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
-  --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); color-scheme: dark } }
+  --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
   --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
-  --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); color-scheme: dark }
+  --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); color-scheme: dark }
 
 html, body { height: 100%; }
 ::selection { background: var(--select-halo); }
