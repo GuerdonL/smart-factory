@@ -198,8 +198,10 @@ function shown(){                              /* brings what is on screen in li
   ps.forEach((piece, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u }, look = lookOf(piece);
     r.piece = { blocks: piece.members.map(m => space.blocks[m]), type: piece.type, box };       /* what this result is the result of */
-    let at = r.set(box, piece.type, { look });
-    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, { side: 'below', drop, look });
+    /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
+    const nameable = piece.members.length > 1;
+    let at = r.set(box, piece.type, { look, nameable });
+    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, { side: 'below', drop, look, nameable });
     taken.push(at); });
   for (const r of results.slice(ps.length)) r.el.remove();
 }
@@ -211,7 +213,7 @@ function select(list, { toggle = false } = {}){
 }
 
 /* ---- naming a result ----
-   Click a result's matrix and give it a name: the blocks that came to it fold away into a new block of that name,
+   Click the matrix a product comes to and give it a name: the blocks that came to it fold away into a new block of that name,
    the size of the result, in a bold colour picked at random. They become its definition: open it to find them on
    the left of its "=". */
 /* what folding these blocks would make: if they come to one thing (a product, say) the new block is that size;
@@ -368,7 +370,7 @@ function clicked(el, e){
   }
   /* a result's matrix: name it, and the blocks that came to it fold into a new block */
   const r = results.find(r => r.el.isConnected && r.el.contains(el));
-  if (r){ const piece = r.piece; select([]); return r.name(name => { if (name && !piece.type.error && piece.blocks.every(b => space.blocks.includes(b))) fold(piece, name); }); }
+  if (r){ const piece = r.piece; if (piece.blocks.length < 2) return; select([]); return r.name(name => { if (name && !piece.type.error && piece.blocks.every(b => space.blocks.includes(b))) fold(piece, name); }); }
   /* a measurement: double-click to type a length in whole units, a name for that side, or both; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
     const b = [...selected][0];

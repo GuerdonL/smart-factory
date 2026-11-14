@@ -1,6 +1,6 @@
 /* What a piece (one shape, or several touching) comes to, written beside it:   [shapes]  =  ⎡ … ⎤
 
-   createResult({ unit }) -> { el, set(box, type, { side, drop, look }) -> rect, name(done) }
+   createResult({ unit }) -> { el, set(box, type, { side, drop, look, nameable }) -> rect, name(done) }
      unit   world units to one "u"
      set    box is the rectangle round the piece's shapes ({ x, y, w, h }, world coordinates). side says where the
             "=" and the matrix go: 'right' (the default) puts them to the right of the box, level with its middle;
@@ -9,10 +9,11 @@
             type is what the piece comes to: { cols, rows } is written out in matrix notation; { error } is written
             as the error, in the warning colour. With no type nothing is shown.
             look is how the matrix is written: any of createMatrix's letter, color, values and product.
+            nameable says the matrix can be pressed, to name the result (default false).
             Returns the rectangle the "=" and the matrix now cover, so the caller can see what they would overlap.
      name   asks the user to name this result: the matrix is ringed and a field opens above it to type in.
             done(text) is called with the name, or with null if they gave none or pressed Escape.
-   The matrix can be pressed (an error cannot); the canvas hands clicks to the page, which decides what one means.
+   Where the matrix can be pressed, the canvas hands the click to the page, which decides what it means.
    Put el in the view's world, beneath the blocks. Call set whenever the shapes change; it only rewrites the matrix
    when the size it has to show is a different one. */
 import { html, style, editText } from './dom.js';
@@ -21,8 +22,9 @@ import { createMatrix } from './matrix.js';
 style('result', `
 .result { position: absolute; left: 0; top: 0; pointer-events: none; }
 .result-sign { position: absolute; transform: translate(-50%, -50%); color: var(--fg); font-family: var(--font-math); font-size: 22px; line-height: 1; }
-.result .matrix { pointer-events: auto; cursor: pointer; border-radius: 3px; }
-.result .matrix:hover { background: var(--hover); }
+.result .matrix { border-radius: 3px; }
+.result.nameable .matrix { pointer-events: auto; cursor: pointer; }
+.result.nameable .matrix:hover { background: var(--hover); }
 .result.naming .matrix { background: var(--select-halo); outline: 2px solid var(--select); outline-offset: 5px; }
 .result-name { position: absolute; pointer-events: auto; transform: translateY(-100%); margin-top: -12px; padding: 0 3px; min-width: 3ch;
   font-family: var(--font-name); font-size: 14px; line-height: 1.2; white-space: nowrap; color: var(--select); }
@@ -35,7 +37,8 @@ export function createResult({ unit }){
   const el = html`<div class="result"><div class="result-sign">=</div></div>`, sign = el.firstElementChild;
   const nameEl = html`<span class="result-name" hidden></span>`; el.append(nameEl);
   let showing = '', body = null, width = 0, height = 0;
-  return { el, set(box, type, { side = 'right', drop = 0, look = {} } = {}){
+  return { el, set(box, type, { side = 'right', drop = 0, look = {}, nameable = false } = {}){
+    el.classList.toggle('nameable', nameable);
     el.hidden = !type; if (!type) return null;
     const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + JSON.stringify({ ...look, values: look.values ? [...look.values] : [] });
     if (key !== showing){ showing = key; body?.remove();
