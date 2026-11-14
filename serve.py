@@ -20,6 +20,7 @@ import numpy as np
 
 import hf_data
 import kaggle_data
+import remote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN = None
@@ -77,6 +78,20 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.send(200, {"info": kaggle_data.add(body.get("ref", ""), int(size) if size else None)})
                 finally:
                     BUSY.release()
+            if u.path == "/api/train/plan" and method == "POST":
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                return self.send(200, remote.plan(body.get("model") or {}, body.get("epochs", 5), body.get("batch", 32), body.get("levels", 3)))
+            if u.path == "/api/train/launch" and method == "POST":      # the one call that spends money: only sent by the dialog's confirm button
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                if body.get("confirm") != "rent":
+                    return self.send(400, {"error": "not confirmed"})
+                return self.send(200, remote.launch(body.get("name", "")))
+            if u.path == "/api/train/status" and method == "GET":
+                return self.send(200, remote.status(q.get("name", "")))
+            if u.path == "/api/train/weights" and method == "GET":
+                return self.send(200, remote.weights(q.get("name", "")))
+            if u.path == "/api/train/runs" and method == "GET":
+                return self.send(200, {"runs": remote.runs()})
             if u.path == "/api/dataset" and method == "GET":
                 ref = q.get("ref", "")
                 mod = hf_data if q.get("src") == "hf" else kaggle_data
@@ -91,7 +106,7 @@ class Handler(SimpleHTTPRequestHandler):
                 pick = np.arange(i["n"]) if i["n"] <= limit else np.linspace(0, i["n"] - 1, limit).astype(np.int64)
                 return self.send(200, {**i, "shown": int(len(pick)), "labels": [int(v) for v in z["lab"][pick]],
                                        "pix": base64.b64encode(np.ascontiguousarray(z["pix"][pick]).tobytes()).decode()})
-        except (kaggle_data.KaggleError, hf_data.HFError) as e:
+        except (kaggle_data.KaggleError, hf_data.HFError, remote.RemoteError) as e:
             return self.send(400, {"error": str(e)})
         except Exception as e:                                   # a broken download should not take the server down
             return self.send(500, {"error": f"{type(e).__name__}: {e}"})

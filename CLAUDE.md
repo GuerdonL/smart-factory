@@ -2,7 +2,10 @@
 
 Owner: Guerdon (GuerdonL). This project is the off-browser trainer for his Perceptron Editor and a box-boy (`bb`) project.
 
-- **Renting is a purchase.** Never pass `--yes` to `bb launch` or pipe a "y" into it. `run.py` shows the dry run and lets `bb` ask.
+- **Renting is a purchase.** Never pass `--yes` to `bb launch` or pipe a "y" into it yourself. `run.py` shows the dry run and lets
+  `bb` ask. The one exception in the code is `remote.launch()`, reached only through `serve.py`'s `/api/train/launch` when a person
+  presses the editor dialog's "Rent and run" button with the cost shown on it. Never call that endpoint or function to test it;
+  the tests use a stand-in `bb`. Do not add any other path to a launch, and do not weaken the dialog.
 - The repo is public because box-boy instances clone it without a login. Do not commit anything private; `runs/` is ignored.
 - `trainer.py` must keep matching the editor's arithmetic exactly. `tests/test_trainer.py` holds the checks; the comparison
   against the live editor page (headless Chrome) was done by hand on 2026-11-12 and is not in the test suite.
@@ -14,6 +17,8 @@ Owner: Guerdon (GuerdonL). This project is the off-browser trainer for his Perce
   `trainer.py` nor Export model handles text or attention yet. A rented run given `--data hf:<ref>` re-reads the default
   2,000 rows on the instance, not the row count chosen in the editor.
 - `serve.py` exposes the Kaggle calls to anyone with the access token; never remove the token check or log the token.
+- The editor's rent-from-the-dialog path (`remote.py`) has only ever run against a stand-in `bb` that prints what `boxboy/cli.py`
+  (7f9555d) prints. Its parsing of the dry-run price line and the status line breaks if box-boy changes those formats.
 - Not yet exercised: a real `bb launch` from this project, `--data hf:...`, CUDA and MPS devices, a resumed rented run.
   The GPU time figure in `run.py` is a rule of thumb (`GPU_FLOPS`), not a measurement; correct it after the first real runs.
 - `editor/index.html` is the published Claude artifact's source wrapped in a plain HTML document; the artifact is edited first and this copy regenerated from it.

@@ -23,9 +23,7 @@ import trainer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 LOCAL_MARGIN = 1.3        # a real run is slower than the timed steps (held-out checks, logging); measured at 1.3x on a 5.8M-connection model
-GPU_FLOPS = 3e12          # what a single rented card gets through on this kind of work; a rough figure, not a measurement
-GPU_STEP_OVERHEAD = 4e-4  # seconds per level per step that no card speeds up
-
+from remote import GPU_FLOPS, GPU_STEP_OVERHEAD       # shared with the editor's own planning (remote.py)
 
 def git(*args, check=True):
     r = subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True)

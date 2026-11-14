@@ -280,9 +280,11 @@ def docs(ref, max_chars=None):
     return out
 
 
-def load_images(ref):
-    """-> pixels [n, w*h] uint8, labels (class names), w, h, max; reads the slice from Hugging Face first if it is not here."""
-    i = info(ref) or add(ref)
+def load_images(ref, slice_=None):
+    """-> pixels [n, w*h] uint8, labels (class names), w, h, max. If the slice is not here (a rented machine), it is read from
+    Hugging Face first, the way `slice_` says: {rows, where, config, split} as the editor recorded it."""
+    sl = slice_ or {}
+    i = info(ref) or add(ref, sl.get("rows") or 2000, sl.get("where"), sl.get("config"), sl.get("split"))
     if i["kind"] != "images":
         raise HFError(f"{ref} is a text dataset; the trainer only handles images so far")
     z = np.load(os.path.join(folder(ref), "packed.npz"))

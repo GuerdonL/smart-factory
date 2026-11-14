@@ -161,3 +161,30 @@ def test_hf_helpers(tmp_path, monkeypatch):
     (d / "text.jsonl").write_text('"abcdef"\n"gh\\nij"\n"klm"\n', encoding="utf-8")
     assert hf_data.docs("o/t") == ["abcdef", "gh\nij", "klm"]
     assert hf_data.docs("o/t", 8) == ["abcdef", "gh"]
+
+
+def test_remote_plan_rents_nothing(tmp_path, monkeypatch):
+    import remote
+    monkeypatch.setattr(remote, "HERE", str(tmp_path))
+    monkeypatch.setattr(remote, "STATE", str(tmp_path / "runs" / "_remote"))
+    monkeypatch.setenv("PATH", str(tmp_path))                      # no bb here
+    model = {"format": "perceptron-editor/model", "name": "Frame 1", "data": {"source": "digits"},
+             "frame": {"edges": {"s": [1, 2], "d": [3, 3], "w": [0.1, 0.2]}}}
+    p = remote.plan(model, epochs=5, batch=32, levels=2)
+    assert p["steps"] == 5 * 51 and p["hours_cap"] == 0.5 and p["state"] == "planned" and p["price"] is None
+    assert any("bb" in x for x in p["problems"])
+    assert (tmp_path / p["path"]).exists() and (tmp_path / p["jobs"]).read_text().startswith(p["name"] + ": python trainer.py models/")
+    try:
+        remote.launch(p["name"])                                   # a plan with problems can never be launched
+        assert False
+    except remote.RemoteError:
+        pass
+    q = remote.plan(model)                                         # an untaken plan is cleaned up by the next one
+    assert q["name"] == p["name"] or not (tmp_path / p["jobs"]).exists()
+    assert remote.hours_cap(3600) == 4.0 and remote.gpu_seconds(1_000_000, 3, 1000, 32) > 1
+    folder = dict(model, data={"source": "folder"})
+    try:
+        remote.plan(folder)
+        assert False
+    except remote.RemoteError as e:
+        assert "folder" in str(e)

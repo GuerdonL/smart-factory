@@ -300,7 +300,7 @@ def load_mnist(cache):
     return pix, [str(v) for v in np.concatenate([arrs[1], arrs[3]])], 28, 28, 255
 
 
-def load_data(spec):
+def load_data(spec, slice_=None):
     """spec: digits | mnist | kaggle:<owner>/<name> | hf:<dataset repo of image folders> | a folder of images. -> pixels [n, w*h] uint8, labels, w, h, max"""
     if spec == "digits":
         j = json.load(open(os.path.join(HERE, "data", "digits.json")))
@@ -314,7 +314,7 @@ def load_data(spec):
     if spec.startswith("hf:"):
         import hf_data
         try:                                             # a slice taken with hf_data.py or the editor; else a repo of image folders
-            return hf_data.load_images(spec[3:])
+            return hf_data.load_images(spec[3:], slice_)
         except hf_data.HFError as e:
             if "text dataset" in str(e):
                 sys.exit(str(e))
@@ -351,8 +351,8 @@ def default_data(model):
 
 def tensors(model, spec, dtype):
     """Images as the frame receives them (Dataset setting, then Linearize order) and labels as class numbers."""
-    pix, labels, w, h, mx = load_data(spec)
     d = model["data"]
+    pix, labels, w, h, mx = load_data(spec, d.get("slice") if d.get("source") == "hf" else None)
     if (w, h) != (d["w"], d["h"]):
         sys.exit(f"the model was built for {d['w']}x{d['h']} images but {spec} has {w}x{h}")
     classes = {c: i for i, c in enumerate(d["classes"])}

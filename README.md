@@ -29,6 +29,21 @@ To keep it running on a server, as `/etc/systemd/system/smart-factory.service`:
 then `sudo systemctl enable --now smart-factory`. Without Kaggle, `python -m http.server 8000 -d editor` is enough.
 Graphs are kept in each browser's storage.
 
+## Renting from the editor
+
+With `serve.py` running and box-boy set up on the same machine (`bb doctor` passes, and `git push` works from this
+clone), the editor can hand a training run to a rented GPU by itself:
+
+- Ticking **Train** on a frame times a few steps. If five passes over the data would take more than five minutes in
+  the browser, a dialog opens. **Train on a GPU…** in the frame panel opens the same dialog at any time.
+- The dialog shows the run, the machine and hourly price `bb launch --dry-run` found, the expected cost, and the most
+  it can cost (the run is stopped after a time limit of four times the estimate, at least half an hour).
+- Nothing is rented until **Rent and run** is pressed. That commits and pushes the model file to this public repo,
+  runs `bb launch`, follows the run, and loads the finished weights into the frame.
+
+Only what the trainer can train goes this way: Dataset (built-in digits, Kaggle or Hugging Face images) → Linearize →
+frame → Cost function. The GPU time is a rule of thumb, so the expected cost is too; the hourly price is box-boy's.
+
 ## Hugging Face datasets
 
     python hf_data.py search "common corpus"
@@ -96,6 +111,7 @@ cannot open those; it only imports weights into a frame it already has.
 
 - `trainer.py` trains one model file and writes `weights.json`, `metrics.json`, `log.csv`, `ckpt.pkl` (resume state) to `--out`.
 - `run.py` decides where to train and starts it.
+- `remote.py` plans, launches and follows rented runs for the editor.
 - `serve.py` serves the editor and its Kaggle panel; `kaggle_data.py` and `hf_data.py` find, fetch and pack Kaggle and Hugging Face datasets.
 - `boxboy.toml` is the box-boy configuration (GPU type, price cap, setup and check commands).
 - `editor/` holds a standalone copy of the editor page and its digits file.

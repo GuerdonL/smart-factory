@@ -28,20 +28,20 @@ h1 { font-family: var(--display); font-size: 16px; font-weight: 600; margin: 0 6
 h2 { font-family: var(--display); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 }
 .work { flex: 1; min-height: 0; display: flex }
 .stage { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column }
-#help, #kg { position: absolute; left: max(12px, env(safe-area-inset-left, 0px)); top: 12px; z-index: 6; width: min(560px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+#help, #kg, #rt { position: absolute; left: max(12px, env(safe-area-inset-left, 0px)); top: 12px; z-index: 6; width: min(560px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
   padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px var(--shadow); cursor: default }
 #help p { margin: 0; max-width: 70ch }
-#kg { z-index: 7; width: min(640px, calc(100% - 24px)) }
-#kg h2 { margin: 0; font: 600 15px var(--display) }
-#kg .kgrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
-#kg input { font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; min-width: 0 }
+#kg, #rt { z-index: 7; width: min(640px, calc(100% - 24px)) } #rt { z-index: 8 }
+#kg h2, #rt h2 { margin: 0; font: 600 15px var(--display) }
+#kg .kgrow, #rt .kgrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+#kg input, #rt input { font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; min-width: 0 }
 #kg input[type=search], #kg input[type=password] { flex: 1 1 200px }
 #kg ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px }
 #kg li { display: flex; gap: 10px; align-items: center; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px }
 #kg li div { flex: 1 1 auto; min-width: 0 }
 #kg li b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-#kg li span, #kg .kgnote { color: var(--muted); font-size: 12px; overflow-wrap: anywhere }
-#kg .kgerr { color: var(--neg); font-size: 13px; font-weight: 600 }
+#kg li span, #kg .kgnote, #rt .kgnote { color: var(--muted); font-size: 12px; overflow-wrap: anywhere }
+#kg .kgerr, #rt .kgerr { color: var(--neg); font-size: 13px; font-weight: 600 }
 #kg-parts { display: flex; flex-direction: column; gap: 8px } #kg-parts[hidden] { display: none }
 #kg-parts details { border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px }
 #kg-parts summary { cursor: pointer; font-weight: 600 } #kg-parts summary span { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px }
@@ -49,6 +49,10 @@ h2 { font-family: var(--display); font-size: 12px; font-weight: 600; text-transf
 #kg-parts .kplist label { display: flex; gap: 6px; align-items: baseline; min-width: 0; font-size: 12.5px } #kg-parts .kplist label b { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 }
 #kg-parts .kplist label span { color: var(--muted); font: 11px var(--mono) } #kg-parts .kpfind { width: 100%; box-sizing: border-box; margin-top: 6px }
 #kg-parts select { font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px }
+#rt dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; align-items: baseline }
+#rt dt { color: var(--muted); font-size: 12px } #rt dd { margin: 0 } #rt dd b { font: 600 17px var(--display) }
+#rt .go { background: var(--sel); color: #fff; border-color: var(--sel); font-weight: 600 } #rt .go:disabled { opacity: .45 }
+#rt pre { margin: 0; font: 11px/1.45 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto }
 #kg h3 { margin: 4px 0 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600 }
 @media (max-width: 980px) { .work { flex-direction: column } }
 .toolbar { position: relative; z-index: 10 }
@@ -316,6 +320,15 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <ul id="kg-have"></ul>
         <div class="kgnote" id="kg-foot"></div>
       </div>
+      <div id="rt" hidden role="dialog" aria-label="Train on a rented GPU">
+        <div class="kgrow"><h2 style="flex:1">Train on a rented GPU</h2><button id="rt-close">Not now</button></div>
+        <div id="rt-why" class="kgnote"></div>
+        <div class="kgrow kgnote" id="rt-opts"><label>epochs <input type="number" id="rt-epochs" min="0.1" step="any" value="5" style="width:74px"></label><label>batch <input type="number" id="rt-batch" min="1" step="1" value="32" style="width:74px"></label></div>
+        <dl id="rt-plan"></dl>
+        <div id="rt-msg" class="kgnote" aria-live="polite"></div>
+        <div class="kgrow"><button id="rt-go" class="go" disabled>Rent and run</button></div>
+        <details class="kgnote"><summary>What box-boy reported</summary><pre id="rt-raw"></pre></details>
+      </div>
       <div id="help" hidden>
         <p>Blocks pass values along wires. Drag from a block's right-hand port onto another block to connect them. Inside an evaluation frame, drag a neuron to move it or drop it into a vector, drag a vector by its brackets (pull a bracket outward to lengthen it), drag the small dot on a neuron onto another neuron to connect them, and drag across empty space to box-select.</p>
         <div class="legend">
@@ -343,7 +356,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <h2 id="math-title">Frame</h2>
         <div class="brow" id="frame-ctl"><button data-fa="addscalar">Add neuron</button><button data-fa="addvec">Add vector</button><button data-fa="cclear">Clear connections</button><select id="frame-act" aria-label="Activation"><option value="linear">Linear</option><option value="step">Step</option><option value="relu">ReLU</option><option value="sigmoid">Sigmoid</option><option value="tanh">Tanh</option></select></div>
         <div class="brow" id="train-ctl"><label class="chk"><input type="checkbox" id="tr-on"> Train</label><label class="stp">rate <input id="tr-lr" class="nin" type="number" step="0.001" min="0"></label><button id="tr-step">Step once</button><button id="tr-rand" title="Small random connection weights, and every neuron weight back to 1">Randomize weights</button><label class="chk"><input type="checkbox" id="tr-linout"> Linear output layer</label></div>
-        <div class="brow" id="remote-ctl"><button id="ex-model" title="Save this frame, its dataset settings and its cost function as a file for trainer.py">Export model</button><button id="im-weights" title="Load a weights.json written by trainer.py into this frame">Import weights</button><input type="file" id="im-file" accept=".json,application/json" hidden></div>
+        <div class="brow" id="remote-ctl"><button id="ex-model" title="Save this frame, its dataset settings and its cost function as a file for trainer.py">Export model</button><button id="im-weights" title="Load a weights.json written by trainer.py into this frame">Import weights</button><input type="file" id="im-file" accept=".json,application/json" hidden><button id="gpu-btn" hidden title="Estimate this training run and, if you confirm the cost, rent a GPU for it through box-boy">Train on a GPU…</button></div>
         <p class="hint" id="math-hint"></p>
       </section>
     </aside>
@@ -1977,7 +1990,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     G.blocks.forEach(b => { if (b.type === 'perc' && b.train) stepped = beginStep(b) || stepped; });
     if (stepped) update(false);
   }
-  $('tr-on').addEventListener('change', e => { const b = byId(activeP); if (!b) return; b.train = e.target.checked; if (b.train && !(last[b.id] && last[b.id].back)) toast(whyNoBackward(b)); if (b.train && b.act === 'step') toast('The step activation has no gradient, so nothing behind it will learn. Pick another activation.'); update(true); });
+  $('tr-on').addEventListener('change', e => { const b = byId(activeP); if (!b) return; b.train = e.target.checked; if (b.train && !(last[b.id] && last[b.id].back)) toast(whyNoBackward(b)); if (b.train && b.act === 'step') toast('The step activation has no gradient, so nothing behind it will learn. Pick another activation.'); update(true); if (b.train) offerRemote(b); });
   $('tr-linout').addEventListener('change', e => { const b = byId(activeP); if (b) { b.linOut = e.target.checked; renderMath(); update(true); } });
   $('tr-lr').addEventListener('change', e => { const b = byId(activeP); if (b) { b.lr = Math.max(0, +e.target.value || 0); save(); } });
   $('tr-step').addEventListener('click', () => { const b = byId(activeP); if (!b) return; if (!(last[b.id] && last[b.id].back)) return toast(whyNoBackward(b)); if (beginStep(b)) { update(true); renderMath(); } });
@@ -2009,7 +2022,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       if (j.kind === 'text') DS[b.id] = { kind: 'text', name: j.name, docs: j.docs, n: 0, classes: [], labels: [], ...tag, total: j.chars };
       else {
         const bin = atob(j.pix), pix = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) pix[i] = bin.charCodeAt(i);
-        DS[b.id] = { name: j.name, w: j.w, h: j.h, n: j.shown, max: j.max, pix, labels: j.labels.map(k => j.classes[k]), names: null, classes: j.classes, ...tag, total: j.n };
+        DS[b.id] = { name: j.name, w: j.w, h: j.h, n: j.shown, max: j.max, pix, labels: j.labels.map(k => j.classes[k]), names: null, classes: j.classes, ...tag, total: j.n, slice: src === 'hf' ? { rows: j.n, where: j.where, config: j.config, split: j.split } : null };
       }
       delete b.kref; delete b.href; Object.assign(b, tag); b.idx = 0; b.playing = false; STATS.clear();
       b.msg = `${ref} · ${j.note}` + (j.kind === 'text' ? (j.shown < j.chars ? ` · the first ${nf(j.shown)} characters are loaded here` : '') : j.shown < j.n ? ` · showing ${nf(j.shown)} of ${nf(j.n)}` : '');
@@ -2109,8 +2122,83 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   fetch('api/ping', { headers: { 'X-Token': tokenOf() } }).then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !j.ok) return; API = j;
     G.blocks.filter(b => b.type === 'data').forEach(b => { buildBody(b); if ((b.kref || b.href) && !DS[b.id] && j.token) loadServer(b, b.href || b.kref, b.href ? 'hf' : 'kaggle'); });
+    $('gpu-btn').hidden = false; const going = G.blocks.find(b => b.type === 'perc' && b.remote); if (going && j.token) rtWatch(going);
     update(false);
   }).catch(() => {});
+
+  // ---------- a large load goes to a rented GPU (needs serve.py with box-boy set up on the server) ----------
+  // Ticking Train times a few steps here. If five passes over the data would take more than five minutes in the browser, a dialog
+  // offers to rent a GPU instead, showing the run and what it is expected to cost. Nothing is rented until its button is pressed.
+  const RT_LIMIT_S = 300; let rtFor = null, rtPlan = null, rtPoll = null, rtSeq = 0;
+  const mins = sec => sec < 90 ? `${Math.round(sec)} s` : sec < 5400 ? `${(sec / 60).toFixed(sec < 600 ? 1 : 0)} min` : `${(sec / 3600).toFixed(1)} h`, usd = v => '$' + (+v).toFixed(2);
+  function hereSeconds(b, epochs) {          // seconds this frame would need in the browser, from a few timed forward-and-backward passes
+    const m = modelOf(b); if (m.err) return null;
+    const total = m.data.total || 0;
+    const t0 = performance.now(); let k = 0; do { evalAll(); k++; } while (k < 3 || (performance.now() - t0 < 80 && k < 50));
+    return { sec: (performance.now() - t0) / k / 1000 * total * epochs, total, model: m };
+  }
+  function offerRemote(b) {
+    if (!API || !API.token || b.asked || b.remote) return;
+    const h = hereSeconds(b, 5); if (!h || h.sec <= RT_LIMIT_S) return;
+    b.asked = true; openRemote(b, `Five passes over ${b.name}'s ${nf(h.total)} images would take more than ${RT_LIMIT_S / 60} minutes in this browser, so here is what running it on a rented GPU would involve. Training carries on here unless you rent.`);
+  }
+  function openRemote(b, why) {
+    const m = modelOf(b); if (m.err) return toast(m.err);
+    rtFor = b.id; $('kg').hidden = true; $('help').hidden = true; $('rt').hidden = false; $('rt-why').textContent = why || '';
+    if (b.remote) { $('rt-opts').hidden = true; $('rt-go').hidden = true; rtShowRun({ name: b.remote, state: 'running' }); rtWatch(b); } else { $('rt-opts').hidden = false; $('rt-go').hidden = false; rtReplan(); }
+  }
+  const rtRow = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  async function rtReplan() {
+    const b = byId(rtFor), seq = ++rtSeq; if (!b) return;
+    const epochs = Math.max(0.1, +$('rt-epochs').value || 5), batch = Math.max(1, Math.round(+$('rt-batch').value || 32)), h = hereSeconds(b, epochs); if (!h) return;
+    rtPlan = null; $('rt-go').disabled = true; $('rt-go').textContent = 'Rent and run'; $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Asking box-boy what this would rent and at what price…';
+    const r = last[b.id], levels = r && r.back ? r.back.maxD + 1 : b.vecs.length;
+    let pl; try { pl = await api('api/train/plan', { model: h.model, epochs, batch, levels }); } catch (e) { if (seq === rtSeq) { $('rt-plan').innerHTML = ''; $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; } return; }
+    if (seq !== rtSeq) return;
+    rtPlan = pl; $('rt-raw').textContent = pl.dry_run || '(nothing)';
+    $('rt-plan').innerHTML = rtRow('Run', `${esc(b.name)} · ${nf(pl.edges)} connections · ${esc(pl.spec)}, ${nf(pl.samples)} images · ${nf(pl.steps)} steps of ${nf(pl.batch)}`) +
+      rtRow('Here', `about ${mins(h.sec)} in this browser, one image at a time`) +
+      rtRow('Rented', `${pl.gpu_s < 60 ? 'under a minute' : 'about ' + mins(pl.gpu_s)} of training, plus about ${mins(pl.startup_s)} for the machine to start. A rough estimate, not a measurement.`) +
+      (pl.price != null ? rtRow('Machine', `${esc(pl.offer)} at ${usd(pl.price)} an hour`) +
+        rtRow('Expected cost', `<b>about ${usd(Math.max(0.01, pl.expected_cost))}</b>`) +
+        rtRow('At most', `${usd(pl.max_cost)}: the run is stopped after ${pl.hours_cap} h whatever happens`) : '') +
+      rtRow('Also', 'Renting publishes this model\'s weights to your public GitHub repository, which is where the machine fetches them from.');
+    if (pl.problems.length) { $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = pl.problems.join(' · '); }
+    else { $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Nothing is rented until you press the button.'; $('rt-go').disabled = false; $('rt-go').textContent = `Rent and run · about ${usd(Math.max(0.01, pl.expected_cost))}`; }
+  }
+  function rtShowRun(m) {
+    const say = { launching: 'Renting the machine…', running: 'The machine is ' + (m.phase && m.phase !== 'running' ? 'starting (' + esc(m.phase) + ')' : 'running'), done: 'Finished', failed: 'Failed', planned: 'Not started' }[m.state] || m.state;
+    $('rt-plan').innerHTML = rtRow('Run', esc(m.name)) + rtRow('State', `<b>${say}</b>`) + (m.instance ? rtRow('Machine', esc(m.instance)) : '') +
+      (m.metrics ? rtRow('Result', `held-out accuracy ${m.metrics.val_accuracy != null ? Math.round(m.metrics.val_accuracy * 100) + '%' : '–'} after ${nf(m.metrics.steps)} steps in ${mins(m.metrics.seconds)}`) : '');
+    $('rt-msg').className = m.error ? 'kgnote kgerr' : 'kgnote'; $('rt-msg').textContent = m.error || (m.state === 'done' ? '' : 'This checks every 20 seconds. You can close this and keep working; the weights load into the frame when the run finishes.');
+    if (m.launch_out) $('rt-raw').textContent = m.launch_out;
+  }
+  function rtWatch(b) {                      // follow a rented run to its end, then put its weights into the frame
+    clearInterval(rtPoll);
+    const tick = async () => {
+      if (!byId(b.id) || !b.remote) return clearInterval(rtPoll);
+      let m; try { m = await api('api/train/status?name=' + encodeURIComponent(b.remote)); } catch (e) { return; }
+      if (rtFor === b.id && !$('rt').hidden) rtShowRun(m);
+      if (m.state === 'done') {
+        clearInterval(rtPoll); const name = b.remote; delete b.remote;
+        try { applyWeights(b, await api('api/train/weights?name=' + encodeURIComponent(name))); } catch (e) { toast(`${name} finished but its weights could not be loaded: ${e.message}`); }
+        save();
+      } else if (m.state === 'planned' && Date.now() - (b.remoteAt || (b.remoteAt = Date.now())) > 600000) { clearInterval(rtPoll); delete b.remote; delete b.remoteAt; save(); toast(`The rented run for ${b.name} never started.`);
+      } else if (m.state === 'failed') { clearInterval(rtPoll); delete b.remote; save(); toast(`The rented run for ${b.name} failed: ${m.error || 'no reason given'}`); }
+    };
+    rtPoll = setInterval(tick, 20000); tick();
+  }
+  $('rt-epochs').addEventListener('change', rtReplan); $('rt-batch').addEventListener('change', rtReplan);
+  $('rt-close').addEventListener('click', () => { $('rt').hidden = true; rtSeq++; });
+  $('gpu-btn').addEventListener('click', () => { const b = byId(activeP); if (b) openRemote(b, ''); });
+  $('rt-go').addEventListener('click', async () => {             // the one place a rental starts: a person pressing this button with the cost on it
+    const b = byId(rtFor), pl = rtPlan; if (!b || !pl || pl.problems.length) return;
+    $('rt-go').disabled = true; $('rt-opts').hidden = true; $('rt-msg').className = 'kgnote'; $('rt-msg').textContent = 'Publishing the model and renting the machine. This takes up to a minute…';
+    b.remote = pl.name; b.train = false; renderSide(); save();     // remembered before the call, so a closed tab still finds the run again
+    let m; try { m = await api('api/train/launch', { name: pl.name, confirm: 'rent' }); }
+    catch (e) { delete b.remote; save(); $('rt-msg').className = 'kgnote kgerr'; $('rt-msg').textContent = e.message; $('rt-opts').hidden = false; $('rt-raw').textContent = e.message; return; }
+    rtPlan = null; $('rt-go').hidden = true; rtShowRun(m); rtWatch(b);
+  });
 
   // ---------- training elsewhere ----------
   // Export: one frame with what feeds it (Dataset, then Linearize) and what scores it (Cost function), as a file trainer.py reads.
@@ -2133,7 +2221,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     for (const k in b.ns) { id.push(+k); w.push(b.ns[k]); }
     for (const key in b.edges) { const cut = key.indexOf('>'); es.push(+key.slice(0, cut)); ed.push(+key.slice(cut + 1)); ew.push(b.edges[key]); }
     return { format: 'perceptron-editor/model', v: 1, name: b.name,
-      data: { source: ds.kref ? 'kaggle' : ds.href ? 'hf' : DS[src.id] ? 'folder' : 'digits', ...(ds.kref || ds.href ? { ref: ds.kref || ds.href } : {}), name: ds.name, w: ds.w, h: ds.h, max: ds.max, as: src.as || 'int', classes: ds.classes },
+      data: { source: ds.kref ? 'kaggle' : ds.href ? 'hf' : DS[src.id] ? 'folder' : 'digits', ...(ds.kref || ds.href ? { ref: ds.kref || ds.href } : {}), ...(ds.slice ? { slice: ds.slice } : {}), name: ds.name, w: ds.w, h: ds.h, max: ds.max, as: src.as || 'int', classes: ds.classes, total: ds.total || ds.n },
       fold, foldRev, loss: LOSSES[cost.loss] ? cost.loss : 'se',
       frame: { act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, in: vin.n, out: vout.n, ns: { id, w }, edges: { s: es, d: ed, w: ew } } };
   }
