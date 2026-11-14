@@ -23,6 +23,7 @@
   --measure: #4a5266;       /* dimension lines and their numbers */
   /* blocks: one colour per shape, named by the shape's config ("color": "tensor" -> --tensor) */
   --tensor: #e5534b;        /* a friendly red */
+  --data-in: #ff2e93;       /* a bright pink */
   /* named shapes take one of these at random; the list of names is in smart-factory.js */
   --lavender: #9a7bea; --watermelon: #2fae62; --lazuli: #2c5fdc; --fanta: #ff7a14; --flamingo: #ee4f93; --marigold: #e3a008; --lagoon: #0fa3a8;
   --raise-light: rgba(255, 255, 255, .35);   /* the lit top edge of a raised block */
@@ -34,11 +35,11 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
   --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --warn: #fb923c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
-  --tensor: #e0615a; --lavender: #a78bf0; --watermelon: #3dbb70; --lazuli: #4a7af0; --fanta: #ff8a30; --flamingo: #f2649f; --marigold: #e8ae22; --lagoon: #22b3b8; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark } }
+  --tensor: #e0615a; --data-in: #ff4fa3; --lavender: #a78bf0; --watermelon: #3dbb70; --lazuli: #4a7af0; --fanta: #ff8a30; --flamingo: #f2649f; --marigold: #e8ae22; --lagoon: #22b3b8; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
   --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --warn: #fb923c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
-  --tensor: #e0615a; --lavender: #a78bf0; --watermelon: #3dbb70; --lazuli: #4a7af0; --fanta: #ff8a30; --flamingo: #f2649f; --marigold: #e8ae22; --lagoon: #22b3b8; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark }
+  --tensor: #e0615a; --data-in: #ff4fa3; --lavender: #a78bf0; --watermelon: #3dbb70; --lazuli: #4a7af0; --fanta: #ff8a30; --flamingo: #f2649f; --marigold: #e8ae22; --lagoon: #22b3b8; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark }
 
 html, body { height: 100%; }
 ::selection { background: var(--select-halo); }
