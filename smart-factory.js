@@ -224,6 +224,13 @@ function paste(at){                             /* at: a world point; the pasted
   select(made);
 }
 
+/* removes the selected blocks, and with each its definition space */
+function remove(){
+  const gone = [...selected]; select([]);
+  for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b); }
+  ungroup(gone); shown();
+}
+
 /* ---- keys ---- */
 let boxing = null;                             /* the box selection in progress, if any */
 addEventListener('keydown', e => {
@@ -242,11 +249,7 @@ addEventListener('keydown', e => {
       select([...new Set(hit.flatMap(members))]); });
   }
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
-  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){
-    e.preventDefault(); const gone = [...selected]; select([]);
-    for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b); }
-    ungroup(gone); shown();
-  }
+  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); remove(); }
 });
 
 /* ---- drags that begin on a block ----
@@ -311,7 +314,7 @@ const draw = {
     return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block){ space.blocks.push(block); shown(); } }); },
 };
 
-/* the right-click menu. A right click on a block that is not selected selects it first, so Copy means that block.
+/* the right-click menu. A right click on a block that is not selected selects it first, so Copy and Delete mean that block.
    Paste puts the copy where the click was. */
 let menuAt = { x: 0, y: 0 };
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
@@ -319,6 +322,7 @@ const menu = createMenu([
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) },
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: copy },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
+  { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
 ]);
 const hud = createHud({ onHome: () => view.home() });
 const crumbs = createCrumbs({ onGo: i => { deeper.length = 0; go(trail()[i]); } });
