@@ -7,9 +7,10 @@
      nameEl   the element showing the name
      set      moves and resizes it
      select   shows or hides the selection halo
+   Each corner has a handle, an element with data-corner = nw | ne | sw | se, for whoever wants to resize by it.
      rename   lets the user type a new name in place: Enter or clicking away keeps it, Escape puts the old one back,
               and an empty name is not kept */
-import { html, style } from './dom.js';
+import { html, style, editText } from './dom.js';
 
 style('block', `
 .block { position: absolute; box-sizing: border-box; --px: calc(1px / var(--zoom, 1));   /* one screen pixel, whatever the zoom */
@@ -29,28 +30,23 @@ style('block', `
 .block-name { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--fg); border-radius: calc(3 * var(--px)); cursor: default; }
 .block.selected .block-name { color: var(--select); }
-.block-name[contenteditable="true"] { cursor: text; user-select: text; -webkit-user-select: text; min-width: calc(12 * var(--px));
-  background: var(--panel); outline: calc(1.5 * var(--px)) solid var(--select); }
+/* corners: a handle on each, half in and half out, showing which way it stretches */
+.block-corner { position: absolute; width: calc(14 * var(--px)); height: calc(14 * var(--px)); margin: calc(-7 * var(--px)); z-index: 1; }
+.block-corner[data-corner="nw"] { left: 0; top: 0; cursor: nwse-resize; }
+.block-corner[data-corner="se"] { right: 0; bottom: 0; cursor: nwse-resize; }
+.block-corner[data-corner="ne"] { right: 0; top: 0; cursor: nesw-resize; }
+.block-corner[data-corner="sw"] { left: 0; bottom: 0; cursor: nesw-resize; }
 `);
 
 export function createBlock(shape, rect, name = ''){
   const el = html`<div class="block"><span class="block-name"></span></div>`, nameEl = el.firstElementChild;
+  for (const c of ['nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-corner" data-corner="${c}"></i>`);
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
   const block = { el, nameEl, shape, rect, name,
     select(on){ el.classList.toggle('selected', on); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },
-    rename(){
-      if (nameEl.isContentEditable) return;
-      nameEl.contentEditable = 'true'; nameEl.focus(); getSelection().selectAllChildren(nameEl);
-      const done = keep => { nameEl.removeEventListener('keydown', key); nameEl.removeEventListener('blur', blur);
-        nameEl.contentEditable = 'false'; getSelection().removeAllRanges();
-        const text = nameEl.textContent.replace(/\s+/g, ' ').trim(); if (keep && text) block.name = text; nameEl.textContent = block.name; };
-      const key = e => { e.stopPropagation();          /* typing stays in the name: Escape here does not reach the page */
-        if (e.key === 'Enter'){ e.preventDefault(); nameEl.blur(); } else if (e.key === 'Escape'){ e.preventDefault(); done(false); nameEl.blur(); } };
-      const blur = () => done(true);
-      nameEl.addEventListener('keydown', key); nameEl.addEventListener('blur', blur);
-    } };
+    rename(){ editText(nameEl, text => { if (text) block.name = text; nameEl.textContent = block.name; }); } };
   block.set(rect);
   return block;
 }

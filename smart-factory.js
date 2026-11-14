@@ -3,6 +3,7 @@
 import { createView } from './components/view.js';
 import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
+import { editText } from './components/dom.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { drawRectangle } from './components/draw.js';
@@ -40,21 +41,45 @@ addEventListener('keydown', e => {
   }
 });
 
-/* dragging a selected block moves every selected block, in steps of the dots on screen */
+const fit = b => selected.get(b)?.set(b.rect, sides(view, b.rect));
+const blockAt = el => blocks.find(b => b.el.contains(el));
+
+/* drags that begin on a block: by a corner, resize it; on a selected block, move every selected block.
+   Both go in steps of the dots on screen. Anything else is left to the view, which pans. */
 function dragged(el, from){
-  const b = blocks.find(b => b.el.contains(el));
-  if (!b || !selected.has(b) || el.isContentEditable) return;
-  const g = view.grid(), start = [...selected.keys()].map(b => [b, b.rect]);
-  return { move(p){ const dx = Math.round((p.x - from.x) / g) * g, dy = Math.round((p.y - from.y) / g) * g;
-    for (const [b, r] of start){ b.set({ ...r, x: r.x + dx, y: r.y + dy }); selected.get(b).set(b.rect, sides(view, b.rect)); } } };
+  const b = blockAt(el);
+  if (!b || el.isContentEditable) return;
+  const g = view.grid(), snap = v => Math.round(v / g) * g, cursor = c => { view.el.style.cursor = c; }, end = () => cursor('');
+  const corner = el.dataset.corner;
+  if (corner){                                  /* the opposite corner stays where it is; never smaller than one square */
+    if (!selected.has(b)) select([b]);
+    const r = b.rect, right = r.x + r.w, bottom = r.y + r.h;
+    cursor(getComputedStyle(el).cursor);
+    return { end, move(p){
+      const x0 = corner[1] === 'w' ? Math.min(snap(p.x), right - g) : r.x, x1 = corner[1] === 'e' ? Math.max(snap(p.x), r.x + g) : right;
+      const y0 = corner[0] === 'n' ? Math.min(snap(p.y), bottom - g) : r.y, y1 = corner[0] === 's' ? Math.max(snap(p.y), r.y + g) : bottom;
+      b.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }); fit(b); } };
+  }
+  if (!selected.has(b)) return;
+  const start = [...selected.keys()].map(b => [b, b.rect]);
+  cursor('move');
+  return { end, move(p){ const dx = snap(p.x - from.x), dy = snap(p.y - from.y);
+    for (const [b, r] of start){ b.set({ ...r, x: r.x + dx, y: r.y + dy }); fit(b); } } };
 }
 
-/* a second click on a name soon after the first is a double click: edit the name */
-let lastName = null, lastAt = 0;
+/* clicks. A second click on the same name or measurement soon after the first is a double click: edit it.
+   A typed measurement resizes the block to that many whole units, keeping its top-left corner. */
+let lastEl = null, lastAt = 0;
 function clicked(el, e){
-  const b = blocks.find(b => b.el.contains(el));
-  if (b && el === b.nameEl && lastName === b && e.timeStamp - lastAt < 450){ lastName = null; select([b]); return b.rename(); }
-  lastName = b && el === b.nameEl ? b : null; lastAt = e.timeStamp;
+  const twice = el === lastEl && e.timeStamp - lastAt < 450;
+  lastEl = twice ? null : el; lastAt = e.timeStamp;
+  for (const [b, m] of selected) for (const dim of ['w', 'h']) if (el === m.labels[dim]){
+    if (twice) editText(el, text => { const n = Math.round(parseFloat(text));
+      if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); fit(b); });
+    return;                                     /* a click on a measurement never changes the selection */
+  }
+  const b = blockAt(el);
+  if (b && el === b.nameEl && twice){ select([b]); return b.rename(); }
   select(b ? [b] : [], { toggle: !!b && e.shiftKey });
 }
 
@@ -67,7 +92,7 @@ const draw = {
 const menu = createMenu([{ label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) }]);
 const hud = createHud({ onHome: () => view.home() });
 const view = createView({
-  onChange: cam => { hud.show(cam); menu.close(); for (const [b, m] of selected) m.set(b.rect, sides(view, b.rect)); },
+  onChange: cam => { hud.show(cam); menu.close(); for (const b of selected.keys()) fit(b); },
   onMenu: (x, y) => menu.openAt(x, y),
   onClick: clicked,
   onDrag: dragged,

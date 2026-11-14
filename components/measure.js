@@ -1,6 +1,7 @@
 /* Dimension lines for a rectangle on the canvas:  |-------- 6u --------|
 
-   createMeasure(unit) -> { el, set(rect, { top, right }) }
+   createMeasure(unit) -> { el, labels: { w, h }, set(rect, { top, right }) }
+     labels  the two elements showing the numbers, for whoever wants to make them editable
      unit    how many world units make one "u"
      set     fits the lines to rect ({ x, y, w, h } in world coordinates). The width is shown along the bottom
              and the height down the left side; pass top / right as true to move them to the other side.
@@ -22,7 +23,8 @@ style('measure', `
 .measure i.line { flex: 1; min-width: 0; min-height: 0; }
 .measure-w i { height: var(--px); } .measure-w i.cap { width: var(--px); height: 100%; }
 .measure-h i { width: var(--px); } .measure-h i.cap { height: var(--px); width: 100%; }
-.measure-w span { padding: 0 calc(5 * var(--px)); } .measure-h span { padding: calc(4 * var(--px)) 0; }
+.measure-w span { margin: 0 calc(5 * var(--px)); } .measure-h span { margin: calc(4 * var(--px)) 0; }
+.measure span { pointer-events: auto; cursor: default; padding: 0 calc(2 * var(--px)); }
 `);
 
 const ROOM = 34, ROOM_TOP = 54;      /* screen pixels a line needs beside the rectangle; more on top, to clear the name */
@@ -36,8 +38,10 @@ export function createMeasure(unit){
   const el = html`<div class="measure"></div>`, w = side('measure-w'), h = side('measure-h');
   el.append(w, h);
   const u = n => +(n / unit).toFixed(2) + 'u';
-  return { el, set(r, { top = false, right = false } = {}){
+  const labels = { w: w.querySelector('span'), h: h.querySelector('span') };
+  return { el, labels, set(r, { top = false, right = false } = {}){
     Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
-    w.querySelector('span').textContent = u(r.w); h.querySelector('span').textContent = u(r.h);
+    if (!labels.w.isContentEditable) labels.w.textContent = u(r.w);        /* a number being typed is left alone */
+    if (!labels.h.isContentEditable) labels.h.textContent = u(r.h);
     w.classList.toggle('top', top); h.classList.toggle('right', right); } };
 }
