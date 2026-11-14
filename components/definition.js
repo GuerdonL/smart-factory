@@ -5,7 +5,8 @@
        └ ─ ─ ─ ┘     ⎣ x₁y₂ x₂y₂ x₃y₂ ⎦
 
    On the right, the block as a variable in matrix notation. On the left, the place for what defines it: a dashed
-   outline of exactly the block's promised size. Whatever is put in the space must come to that size.
+   outline of exactly the block's promised size. Whatever is put in the space must come to that size: one shape,
+   or shapes touching so that they multiply. Separate pieces are not one thing and do not count.
    (What it comes to is worked out elsewhere and handed to check.)
 
    createDefinition({ cols, rows, unit }) -> { el, check(type) }
