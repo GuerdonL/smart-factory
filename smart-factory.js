@@ -11,6 +11,8 @@ import { drawRectangle } from './components/draw.js';
 import { boxSelect } from './components/marquee.js';
 import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
+import { createJoin } from './components/join.js';
+import { joins, typeOf } from './algebra.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
 let shapes = [];
@@ -82,6 +84,7 @@ function ungroup(list){
 const selected = new Set();
 let measure = null;                            /* the dimension lines of the one selected block */
 const bounds = createBounds();
+let marks = [];                                /* the product marks now on the canvas */
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
@@ -92,7 +95,12 @@ function shown(){                              /* brings what is on screen in li
     bounds.set({ x, y, w: Math.max(...list.map(b => b.rect.x + b.rect.w)) - x, h: Math.max(...list.map(b => b.rect.y + b.rect.h)) - y }, { grouped: isOneGroup(list) });
     view.world.append(bounds.el);
   } else bounds.el.remove();
-  space.definition?.check(space.blocks.map(b => b.rect));       /* does what is here come to the promised size? */
+  /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
+  const u = view.unit, rects = space.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
+  for (const j of marks) j.el.remove();
+  marks = joins(rects).map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: `${rects[j.left].w} ≠ ${rects[j.right].h}` }));
+  view.world.append(...marks.map(j => j.el));
+  space.definition?.check(typeOf(rects));
 }
 function select(list, { toggle = false } = {}){
   if (!toggle) selected.clear();

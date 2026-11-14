@@ -6,12 +6,14 @@
 
    On the right, the block as a variable in matrix notation. On the left, the place for what defines it: a dashed
    outline of exactly the block's promised size. Whatever is put in the space must come to that size.
+   (What it comes to is worked out elsewhere and handed to check.)
 
-   createDefinition({ cols, rows, unit }) -> { el, check(rects) }
+   createDefinition({ cols, rows, unit }) -> { el, check(type) }
      cols, rows   the block's promised shape, in units
      unit         world units to one "u"
-     check        takes the rects ({ x, y, w, h }, world coordinates) of everything in the space. Nothing yet: the
-                  outline waits. Together exactly cols × rows: "=". Any other size: "≠", with the size it is. */
+     check        takes what the space's content comes to: null for nothing yet (the outline waits),
+                  { cols, rows } for a size ("=" if it is the promised one, otherwise "≠" with that size),
+                  or { error } for content that has no size ("≠" with the error). */
 import { html, style } from './dom.js';
 import { createMatrix } from './matrix.js';
 
@@ -36,11 +38,8 @@ export function createDefinition({ cols, rows, unit }){
   Object.assign(sign.style, { left: '0px', top: top + rows * unit / 2 + 'px' });
   Object.assign(matrix.el.style, { left: unit + 'px', top: on(top + (rows * unit - matrix.height) / 2) + 'px' });
   el.append(matrix.el);
-  return { el, check(rects){
-    let is = null;
-    if (rects.length){ const x = Math.min(...rects.map(r => r.x)), y = Math.min(...rects.map(r => r.y));
-      is = [Math.round((Math.max(...rects.map(r => r.x + r.w)) - x) / unit), Math.round((Math.max(...rects.map(r => r.y + r.h)) - y) / unit)]; }
-    const wrong = !!is && (is[0] !== cols || is[1] !== rows);
-    el.classList.toggle('filled', !!is); el.classList.toggle('wrong', wrong);
-    sign.firstElementChild.textContent = wrong ? '≠' : '='; sign.lastElementChild.textContent = wrong ? `${is[0]} × ${is[1]}` : ''; } };
+  return { el, check(type){
+    const wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows);
+    el.classList.toggle('filled', !!type); el.classList.toggle('wrong', wrong);
+    sign.firstElementChild.textContent = wrong ? '≠' : '='; sign.lastElementChild.textContent = wrong ? type.error || `${type.cols} × ${type.rows}` : ''; } };
 }
