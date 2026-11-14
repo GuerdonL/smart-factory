@@ -17,8 +17,10 @@ style('block', `
   /* lit from above: a soft highlight fading down the face, a bright top lip, a dark bottom lip, and a shadow underneath.
      These are sized in screen pixels, so a block looks the same zoomed in or out. */
   background: linear-gradient(var(--raise-light), transparent 55%) var(--block);
-  box-shadow: var(--halo, 0 0), inset 0 calc(1.5 * var(--px)) 0 var(--raise-light), inset 0 calc(-4 * var(--px)) 0 var(--raise-dark),
-    0 calc(2 * var(--px)) calc(3 * var(--px)) var(--shadow), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--shadow); }
+  box-shadow: var(--halo, 0 0), inset 0 calc(1.5 * var(--px)) 0 var(--raise-light), inset 0 calc(-4 * var(--px)) 0 var(--raise-dark); }
+/* the shadow underneath is drawn on a layer below every block (z-index -1), so it falls on the canvas and never on another block */
+.block::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 calc(2 * var(--px)) calc(3 * var(--px)) var(--shadow), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--shadow); }
 .block.selected { outline: calc(2 * var(--px)) solid var(--select); outline-offset: calc(2 * var(--px));
   --halo: 0 0 0 calc(7 * var(--px)) var(--select-halo); cursor: move; }
 /* a block makes no layer of its own, so its name (z-index 2) sits above every block on the canvas, not just this one */
