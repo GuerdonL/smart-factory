@@ -49,7 +49,7 @@ function write(){
   if (!space.owner) return;
   const o = space.owner, r = o.rect;
   space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
-    letter: initials(o.name), values: o.values, colsName: o.sides.w, rowsName: o.sides.h });
+    letter: initials(o.name), values: o.values, editable: isNamed(o), colsName: o.sides.w, rowsName: o.sides.h });
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
 const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); deeper.length = 0; go(spaceOf.get(b)); };
@@ -66,6 +66,17 @@ for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, 
   e.preventDefault(); e.stopPropagation();
   if (type === 'mouseup') e.button === 3 ? out() : backIn();
 }, true);
+
+/* a block is named once it has been given a name of its own, in place of the "Shape n" it was drawn with.
+   Naming a block gives it a colour (never the red of an unnamed one), and only a named block's entries can be given numbers. */
+const isNamed = b => !/^Shape \d+$/.test(b.name);
+const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'];      /* colours in the theme */
+function someColour(not){                        /* one this space is not using, while there is one; never the one it has */
+  const used = new Set(space.blocks.map(b => b.shape.color)), free = PALETTE.filter(c => !used.has(c) && c !== not);
+  const from = free.length ? free : PALETTE.filter(c => c !== not);
+  return from[Math.floor(Math.random() * from.length)];
+}
+function renamed(b, changed){ if (changed && isNamed(b)) b.paint(someColour(b.shape.color)); shown(); }
 
 const blockAt = el => space.blocks.find(b => b.el.contains(el));
 /* a new block is "Shape n", with the lowest n no block in this space is using */
@@ -181,11 +192,9 @@ function select(list, { toggle = false } = {}){
    Click a result's matrix and give it a name: the blocks that came to it fold away into a new block of that name,
    the size of the result, in a bold colour picked at random. They become its definition: open it to find them on
    the left of its "=". */
-const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'];      /* colours in the theme */
 function fold({ blocks: inside, type, box }, name){
-  const u = view.unit, used = new Set(space.blocks.map(b => b.shape.color));
-  const free = PALETTE.filter(c => !used.has(c)), from = free.length ? free : PALETTE;                /* one this space is not using, while there is one */
-  const made = createBlock({ label: 'Named', draw: 'rectangle', color: from[Math.floor(Math.random() * from.length)] },
+  const u = view.unit;
+  const made = createBlock({ label: 'Named', draw: 'rectangle', color: someColour() },
     { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
   made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
   /* its definition space: the folded blocks, moved so they end one unit left of the "=" and sit level with it */
@@ -302,8 +311,8 @@ function clicked(el, e){
     if (isOneGroup(list)) ungroup(list); else { ungroup(list); const id = nextGroup++; for (const b of list) space.groupOf.set(b, id); }
     return shown();
   }
-  /* an entry of this space's own matrix: type a whole number, or inf / -inf, over it. Nothing typed puts the symbol back. */
-  const entry = el.closest?.('.definition [data-c]');
+  /* an entry of this space's own matrix, if its block has been named: type a whole number, or inf / -inf, over it. Nothing typed puts the symbol back. */
+  const entry = el.closest?.('.definition.editable [data-c]');
   if (entry){
     const o = space.owner, key = entry.dataset.c + ',' + entry.dataset.r;
     select([]); entry.textContent = o.values.has(key) ? written(o.values.get(key)) : '';
@@ -322,7 +331,7 @@ function clicked(el, e){
   }
   const b = blockAt(el);
   if (b && twice){                              /* double click */
-    if (el === b.nameEl){ select([b]); return b.rename(); }                 /* on a name: rename it */
+    if (el === b.nameEl){ select([b]); return b.rename(changed => renamed(b, changed)); }      /* on a name: rename it */
     if (selected.size === 1 && selected.has(b)) return open(b);             /* on a block selected alone: open its definition space */
     return select([b]);                                                     /* on one of several: select just that block */
   }
