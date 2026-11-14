@@ -12,7 +12,7 @@
      toWorld   screen coordinates -> world coordinates; toScreen goes the other way
      tool(t)   hands the pointer to a tool: while one is set, a left press, moves and release go to
                t.down(point), t.move(point), t.up(point) (world coordinates) instead of panning, a right click
-               goes to t.cancel(), and the cursor is t.cursor. Scrolling and zooming still work.
+               goes to t.cancel(), and the cursor is t.cursor. Zooming still works.
                Returns a function that takes the tool away again.
      onChange  called whenever the camera moves
      onMenu    called with screen coordinates on right click (the browser's own menu is suppressed)
@@ -87,10 +87,9 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
     const p = press; press = null; up(e); if (p) onClick(p.target, e); });
   el.addEventListener('pointercancel', up);
 
-  /* wheel and trackpad: scroll pans; pinch, or ctrl/cmd + wheel, zooms about the pointer */
+  /* the wheel zooms about the pointer (so does a trackpad pinch); a wheel notch is about a quarter step. Panning is by dragging. */
   el.addEventListener('wheel', e => { e.preventDefault();
-    if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-Math.max(-25, Math.min(25, e.deltaY * (e.deltaMode ? 16 : 1))) * 0.01));   /* a wheel notch is about a quarter step */
-    else { const m = e.deltaMode ? 16 : 1, side = e.shiftKey && !e.deltaX; cam.tx -= (side ? e.deltaY : e.deltaX) * m; cam.ty -= (side ? 0 : e.deltaY) * m; }
+    zoomAt(e.clientX, e.clientY, Math.exp(-Math.max(-25, Math.min(25, e.deltaY * (e.deltaMode ? 16 : 1))) * 0.01));
     moved();
   }, { passive: false });
 
