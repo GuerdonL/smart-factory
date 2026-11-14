@@ -1,0 +1,84 @@
+<title>Smart Factory</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* One full-screen canvas that pans without end. Nothing else is decided yet. */
+:root { --bg: #f6f7f9; --fg: #1c2230; --muted: #6b7385; --dot: #c9cedb; --dot-strong: #aab1c2; --panel: #ffffff; --line: #d9dde6; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --dot: #2b3142; --dot-strong: #3d455a; --panel: #1a1e28; --line: #2a3040; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --dot: #2b3142; --dot-strong: #3d455a; --panel: #1a1e28; --line: #2a3040; color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+#view { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  background-image: radial-gradient(circle, var(--dot-strong) 1.2px, transparent 1.6px), radial-gradient(circle, var(--dot) 1px, transparent 1.4px); }
+#view.panning { cursor: grabbing; }
+#world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+#origin { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border: 1px solid var(--muted); border-radius: 50%; }
+#hud { position: fixed; display: flex; gap: 8px; align-items: center; color: var(--muted); font-variant-numeric: tabular-nums;
+  left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px 4px 10px; }
+#hud button { font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+#hud button:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+#menu { position: fixed; z-index: 20; min-width: 140px; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+#menu button { display: flex; justify-content: space-between; gap: 24px; width: 100%; font: inherit; color: var(--fg); background: none; border: 0; border-radius: 4px; padding: 5px 10px; text-align: left; cursor: default; }
+#menu button:hover, #menu button:focus-visible { background: var(--line); outline: none; }
+#menu .more { color: var(--muted); }
+</style>
+<div id="view">
+  <div id="world"><div id="origin" title="0, 0"></div></div>
+</div>
+<ul id="menu" role="menu" hidden><li role="none"><button id="m-new" type="button" role="menuitem" aria-haspopup="true"><span>New</span><span class="more">+</span></button></li></ul>
+<div id="hud"><span id="pos">0, 0 · 100%</span><button id="home" type="button">Centre</button></div>
+<script>
+(() => {
+  const view = document.getElementById('view'), world = document.getElementById('world'), pos = document.getElementById('pos');
+  /* the camera: world point (x, y) appears at screen (x * z + tx, y * z + ty) */
+  const cam = { tx: innerWidth / 2, ty: innerHeight / 2, z: 1 };
+  const ZMIN = 0.1, ZMAX = 4, GRID = 24;
+  try { const s = JSON.parse(localStorage.getItem('sf-cam')); if (s && isFinite(s.tx + s.ty + s.z)) Object.assign(cam, s); } catch (e) {}
+  let saveT = 0;
+  function draw(){
+    world.style.transform = 'translate(' + cam.tx + 'px,' + cam.ty + 'px) scale(' + cam.z + ')';
+    /* the dot grid lives in the background so it never runs out; minor dots fade away when zoomed far out */
+    let g = GRID * cam.z; const major = g * 5; const showMinor = g >= 9;
+    view.style.backgroundSize = major + 'px ' + major + 'px, ' + (showMinor ? g + 'px ' + g + 'px' : '0 0');
+    view.style.backgroundPosition = (cam.tx - major / 2) + 'px ' + (cam.ty - major / 2) + 'px, ' + (cam.tx - g / 2) + 'px ' + (cam.ty - g / 2) + 'px';
+    pos.textContent = Math.round((innerWidth / 2 - cam.tx) / cam.z) + ', ' + Math.round((innerHeight / 2 - cam.ty) / cam.z) + ' · ' + Math.round(cam.z * 100) + '%';
+    clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem('sf-cam', JSON.stringify(cam)); } catch (e) {} }, 300);
+  }
+  function zoomAt(sx, sy, f){
+    const z = Math.min(ZMAX, Math.max(ZMIN, cam.z * f)), k = z / cam.z;
+    cam.tx = sx - (sx - cam.tx) * k; cam.ty = sy - (sy - cam.ty) * k; cam.z = z; draw();
+  }
+  /* drag to pan; two fingers pan and pinch */
+  const pts = new Map(); let pinch = 0;
+  /* right click: the browser's menu is swallowed and ours opens at the pointer. "New" will get a submenu; for now it does nothing. */
+  const menu = document.getElementById('menu');
+  const closeMenu = () => { menu.hidden = true; };
+  addEventListener('contextmenu', e => { e.preventDefault(); if (e.target.closest('#hud')) return closeMenu();
+    menu.hidden = false; const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.max(4, Math.min(e.clientX, innerWidth - w - 4)) + 'px'; menu.style.top = Math.max(4, Math.min(e.clientY, innerHeight - h - 4)) + 'px'; });
+  addEventListener('pointerdown', e => { if (!menu.hidden && !e.target.closest('#menu')) closeMenu(); }, true);
+  addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+  addEventListener('blur', closeMenu);
+  view.addEventListener('pointerdown', e => { if (e.button === 2 || (e.button === 0 && e.ctrlKey)) return; view.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); view.classList.add('panning'); pinch = 0; });
+  view.addEventListener('pointermove', e => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    if (pts.size === 1){ cam.tx += e.clientX - p.x; cam.ty += e.clientY - p.y; p.x = e.clientX; p.y = e.clientY; draw(); return; }
+    const before = [...pts.values()].map(q => ({ x: q.x, y: q.y })); p.x = e.clientX; p.y = e.clientY;
+    const [a, b] = [...pts.values()], [a0, b0] = before;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, mx0 = (a0.x + b0.x) / 2, my0 = (a0.y + b0.y) / 2;
+    cam.tx += mx - mx0; cam.ty += my - my0;
+    const d = Math.hypot(a.x - b.x, a.y - b.y), d0 = Math.hypot(a0.x - b0.x, a0.y - b0.y);
+    zoomAt(mx, my, d0 > 0 ? d / d0 : 1);
+  });
+  const up = e => { pts.delete(e.pointerId); if (!pts.size) view.classList.remove('panning'); };
+  view.addEventListener('pointerup', up); view.addEventListener('pointercancel', up);
+  /* wheel and trackpad: scroll pans, pinch or ctrl/cmd + wheel zooms about the pointer */
+  view.addEventListener('wheel', e => { e.preventDefault(); closeMenu();
+    if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.01)));
+    else { const m = e.deltaMode ? 16 : 1; cam.tx -= (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) * m; cam.ty -= (e.shiftKey && !e.deltaX ? 0 : e.deltaY) * m; draw(); }
+  }, { passive: false });
+  document.getElementById('home').addEventListener('click', () => { cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; draw(); });
+  addEventListener('resize', draw);
+  draw();
+})();
+</script>
