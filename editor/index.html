@@ -328,6 +328,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <span>Drag the background to pan, scroll to zoom, right-click for the menu, hold the right button and drag across connections to cut them</span>
       </div>
         <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block, which passes its own input's gradient on from its bottom left in the same way. With Train ticked, that block then adjusts its query, key and value weights on every sample the frames train on; its Weights button shows all three. Tick Positions when the task depends on order: without it, attention sees which values are present but not where they sit. A Random sampler on Play supplies training samples the same way a playing Dataset does.</p>
+        <p>A Tokenizer has two outputs: the tokens, and their labels, which are the same text one token later, so each token's label is the token that follows it. Set it to one-hot to get a row per token over a fixed alphabet of 97 characters. A Cost function given one-hot labels like these scores each row separately with cross-entropy, and accepts a frame's flat output of the same total size.</p>
         <p>A Distribution block describes random numbers (uniform between a low and a high, or normal with a mean and a standard deviation). Wire it into a Random sampler to get that many draws as a float vector. The draws stay the same until you press Resample or Play.</p>
         <p>To train a model too large for the browser, select its frame and choose Export model, then run the file through the trainer project (<code>python run.py models/&lt;file&gt;.json</code>). It trains on your machine when that takes under five minutes and otherwise rents a GPU through box-boy. Import weights loads the result back into the frame.</p>
       </div>
@@ -356,7 +357,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   const TYPES = {
     pixels: { title: 'Pixel array', out: 'array' },
     text:   { title: 'Text buffer', out: 'text' },
-    tok:    { title: 'Tokenizer', in: 'text', out: 'array' },
+    tok:    { title: 'Tokenizer', in: 'text', out: 'array', outs: [{ kind: 'array', name: 'tokens' }, { kind: 'array', name: 'labels' }] },
     wave:   { title: 'Waveform', out: 'array' },
     dist:   { title: 'Distribution', out: 'dist' },
     samp:   { title: 'Random sampler', in: 'dist', out: 'array', ins: [{ kind: 'dist', name: 'distribution' }], outs: [{ kind: 'array', name: 'samples' }] },
@@ -658,20 +659,25 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     for (let d = 0; d < ds.docs.length; d++) for (let o = 0; o + win <= ds.docs[d].length; o += win) { doc.push(d); off.push(o); }
     ds.n = doc.length; return ds.tw = { win, n: doc.length, doc: Int32Array.from(doc), off: Int32Array.from(off) };
   }
+  const TOKV = 97;                           // the Tokenizer's one-hot alphabet
   function compute(b, ins) {
     const sig = ins[0];
     if (b.type === 'pixels') { const out = arr('bool', [b.h, b.w], b.px.map(Boolean)); return { out, note: typeStr(out) }; }
     if (b.type === 'text') return { out: { t: 'text', s: b.text }, note: 'text · ' + nf(Array.from(b.text).length) + ' characters' };
     if (b.type === 'tok') {
+      // Two outputs: the first n tokens, and their labels, which are the same text one token later (token i's label is token i + 1).
+      // As numbers a character is its code point; one-hot uses a fixed alphabet of 97: new line, the 95 printable ASCII characters, and "anything else".
       let toks;
       if (b.mode === 'word') {
         const words = sig.s.toLowerCase().match(/[\p{L}\p{N}']+/gu) || [], vocab = [...new Set(words)].sort();
         toks = words.map(w => ({ s: w, id: vocab.indexOf(w) + 1 }));
-      } else toks = Array.from(sig.s).map(c => ({ s: c === ' ' ? '␣' : c, id: c.codePointAt(0) }));
-      const total = toks.length; toks = toks.slice(0, b.n);
-      while (toks.length < b.n) toks.push({ s: 'pad', id: 0, pad: true });
-      const out = arr('int', [b.n], toks.map(t => t.id));
-      return { out, toks, note: typeStr(out) + (total > b.n ? ` · first ${nf(b.n)} of ${nf(total)} tokens` : '') };
+      } else toks = Array.from(sig.s).map(c => { const cp = c.codePointAt(0); return { s: c === ' ' ? '␣' : c === '\n' ? '↵' : c, id: cp, k: c === '\n' ? 0 : cp >= 32 && cp <= 126 ? cp - 31 : TOKV - 1 }; });
+      const total = toks.length, pad = { s: 'pad', id: 0, pad: true }, take = from => { const o = toks.slice(from, from + b.n); while (o.length < b.n) o.push(pad); return o; };
+      const ins = take(0), labs = take(1), hot = b.fmt === 'onehot';
+      if (hot && b.mode === 'word') return { err: 'One-hot needs a fixed vocabulary, and only Characters has one. Switch to Characters or to numbers.' };
+      const pack = list => hot ? arr('bool', [b.n, TOKV], [].concat(...list.map(t => Array.from({ length: TOKV }, (_, k) => !t.pad && k === t.k)))) : arr('int', [b.n], list.map(t => t.id));
+      const out = pack(ins), lab = pack(labs), short = total < b.n + 1;
+      return { out, outs: [out, lab], toks: ins, labs, note: typeStr(out) + (total > b.n ? ` · first ${nf(b.n)} of ${nf(total)} tokens` : '') + ` · labels ${typeStr(lab)}` + (short ? ` · the text needs ${nf(b.n + 1)} tokens to label every one` : '') };
     }
     if (b.type === 'dist') {                 // uniform between low and high, or normal with a mean and a standard deviation
       const a = +b.a, c = +b.b;
@@ -745,12 +751,26 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (b.type === 'read') {                 // cost function: prediction and ground truth in, one number out
       const truth = ins[1];
       if (!truth) return { pred: sig, note: typeStr(sig) + ' · connect a ground truth to get a loss' };
-      if (truth.data.length !== sig.data.length || truth.shape.join() !== sig.shape.join()) return { pred: sig, truth, err: `Prediction is ${typeStr(sig)} but ground truth is ${typeStr(truth)}.` };
-      const kind = LOSSES[b.loss] ? b.loss : 'se', loss = lossOf[kind](sig.data, truth.data), out = arr('float', [], [loss]);
-      const oneHot = truth.dtype === 'bool' || (truth.data.every(v => +v === 0 || +v === 1) && truth.data.reduce((p, q) => p + +q, 0) === 1);   // a class label, as opposed to numbers to match
-      const hit = oneHot && sig.shape.length === 1 && sig.data.length > 1 ? argmax(sig.data) === argmax(truth.data) : undefined;   // is the largest prediction where the truth is?
-      out.grad = lossGrad[kind](sig.data, truth.data);    // d loss / d prediction, used by a frame's backward pass
-      return { out, pred: sig, truth, loss, hit, probs: kind === 'ce' ? softmax(sig.data) : null, note: `${typeStr(out)} · ${LOSSES[kind].toLowerCase()} of ${typeStr(sig)} against ${typeStr(truth)}` };
+      const flatOk = sig.shape.length === 1 && truth.shape.length === 2 && truth.data.length === sig.data.length;      // a frame's flat output scored against items × classes
+      if (!flatOk && (truth.data.length !== sig.data.length || truth.shape.join() !== sig.shape.join())) return { pred: sig, truth, err: `Prediction is ${typeStr(sig)} but ground truth is ${typeStr(truth)}.` };
+      const kind = LOSSES[b.loss] ? b.loss : 'se', rowsN = truth.shape.length === 2 ? truth.shape[0] : 1, V = truth.data.length / rowsN;
+      let loss, grad, probs = null, hit, rowNote = '';
+      if (kind === 'ce' && rowsN > 1) {     // one prediction per row: softmax and cross-entropy along each row, averaged over the rows that have a label
+        const pd = sig.data, td = truth.data; let sum = 0, used = 0, right = 0; grad = new Array(pd.length).fill(0); probs = new Array(pd.length);
+        for (let r0 = 0; r0 < rowsN; r0++) {
+          const pr = pd.slice(r0 * V, r0 * V + V), tr = td.slice(r0 * V, r0 * V + V), q = softmax(pr); for (let k = 0; k < V; k++) probs[r0 * V + k] = q[k];
+          if (!tr.some(v => +v)) continue;
+          used++; sum += lossOf.ce(pr, tr); const g = lossGrad.ce(pr, tr); for (let k = 0; k < V; k++) grad[r0 * V + k] = g[k];
+          if (argmax(pr) === argmax(tr)) right++;
+        }
+        loss = used ? sum / used : 0; if (used) for (let k = 0; k < grad.length; k++) grad[k] /= used;
+        rowNote = ` · ${nf(right)} of ${nf(used)} rows right`; probs = arr('float', truth.shape.slice(), probs);
+      } else { loss = lossOf[kind](sig.data, truth.data); grad = lossGrad[kind](sig.data, truth.data); if (kind === 'ce') probs = softmax(sig.data); }
+      const out = arr('float', [], [loss]); out.grad = grad;    // d loss / d prediction, used by a frame's backward pass
+      const oneHot = rowsN === 1 && (truth.dtype === 'bool' || (truth.data.every(v => +v === 0 || +v === 1) && truth.data.reduce((p, q) => p + +q, 0) === 1));   // a class label, as opposed to numbers to match
+      hit = oneHot && sig.shape.length === 1 && sig.data.length > 1 ? argmax(sig.data) === argmax(truth.data) : undefined;
+      const shown = rowsN > 1 ? (probs || arr(sig.dtype, truth.shape.slice(), sig.data)) : sig;
+      return { out, pred: shown, truth, loss, hit, probs: rowsN > 1 ? null : probs, note: `${typeStr(out)} · ${LOSSES[kind].toLowerCase()} of ${typeStr(sig)} against ${typeStr(truth)}` + rowNote };
     }
     if (sig.shape.length !== 1) return { err: `Needs a 1-D array but is getting ${typeStr(sig)}. Put a Linearize block before it.` };
     // evaluation frame: each neuron outputs f(weight · (its input value + Σ connection · source output)).
@@ -817,7 +837,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     } else if (b.type === 'text') {
       h = '<textarea data-f="text" aria-label="Text buffer" spellcheck="false"></textarea>';
     } else if (b.type === 'tok') {
-      h = `<div class="brow"><select data-f="mode" aria-label="Tokenizer mode"><option value="char">Characters</option><option value="word">Words</option></select>${stepper('Context', 'tn', b.n)}</div><div class="chips"></div>`;
+      h = `<div class="brow"><select data-f="mode" aria-label="Tokenizer mode"><option value="char">Characters</option><option value="word">Words</option></select><select data-f="tfmt" aria-label="Output format"><option value="ids">as numbers</option><option value="onehot">one-hot</option></select>${stepper('Context', 'tn', b.n)}</div><div class="chips"></div><div class="hint">labels: the next token for each</div><div class="chips labs"></div>`;
     } else if (b.type === 'wave') {
       h = `<canvas class="wave" width="560" height="192" aria-label="Waveform, drag to draw"></canvas>` +
         `<div class="brow"><select data-f="preset" aria-label="Waveform preset"><option value="">Preset…</option><option value="sine">Sine</option><option value="square">Square</option><option value="saw">Saw</option><option value="noise">Noise</option></select><label class="filebtn">Load audio<input type="file" accept="audio/*" data-f="file" hidden></label>${stepper('Window', 'wn', b.n)}</div>` +
@@ -845,7 +865,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else h = '<div class="loss"></div><canvas hidden></canvas><div class="bars"></div>';
     body.innerHTML = h;
     if (b.type === 'text') body.querySelector('textarea').value = b.text;
-    if (b.type === 'tok') body.querySelector('select').value = b.mode;
+    if (b.type === 'tok') { body.querySelector('select').value = b.mode; body.querySelector('[data-f=tfmt]').value = b.fmt === 'onehot' ? 'onehot' : 'ids'; }
     if (b.type === 'attn') { body.querySelector('[data-f=causal]').checked = !!b.causal; body.querySelector('[data-f=atrain]').checked = !!b.train; body.querySelector('[data-f=apos]').checked = !!b.pos; }
     if (b.type === 'data') body.querySelector('select').value = b.as;
   }
@@ -854,7 +874,10 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     st.className = 'bstatus ' + (r.err ? (r.idle ? '' : 'bad') : 'ok');
     st.innerHTML = esc(r.err || r.note) + (b.type === 'attn' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` : '') + (b.type === 'perc' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` + (b.avg != null ? `, average loss ${sfmt(b.avg)}` : '') : '') + (b.type === 'perc' && b.train && trainHint(b, r) ? `<br><span class="hintw">${esc(trainHint(b, r))}</span>` : '') + (r.backSig ? ' · backprop in: ' + (r.backErr ? esc(typeStr(r.backSig)) + ' (' + esc(r.backErr) + ')' : r.backGrad ? 'gradient ' + esc(typeStr(r.backGrad)) : r.backSig.grad && r.backSig.data.length !== 1 ? 'gradient ' + esc(typeStr(r.backSig)) : r.backSig.t === 'arr' && r.backSig.data.length === 1 ? sfmt(+r.backSig.data[0]) : esc(typeStr(r.backSig)) + ' (needs a single number)') : '') + (r.fit ? `<button data-act="fit" data-arg="${r.fit}">Resize the input vector to ${r.fit}</button>` : '') + (b.msg ? ' · ' + esc(b.msg) : '');
     el.classList.toggle('active', b.id === activeP);
-    if (b.type === 'tok') el.querySelector('.chips').innerHTML = (r.toks || []).slice(0, 48).map(t => `<span class="chip${t.pad ? ' pad' : ''}">${esc(t.s)}<i>${t.id}</i></span>`).join('') + (r.toks && r.toks.length > 48 ? `<span class="chip pad">…<i>+${nf(r.toks.length - 48)}</i></span>` : '');
+    if (b.type === 'tok') {
+      const chips = list => (list || []).slice(0, 48).map(t => `<span class="chip${t.pad ? ' pad' : ''}">${esc(t.s)}<i>${b.fmt === 'onehot' && !t.pad ? t.k : t.id}</i></span>`).join('') + (list && list.length > 48 ? `<span class="chip pad">…<i>+${nf(list.length - 48)}</i></span>` : '');
+      el.querySelector('.chips').innerHTML = chips(r.toks); el.querySelector('.chips.labs').innerHTML = chips(r.labs);
+    }
     else if (b.type === 'dist') { el.querySelector('select[data-f=dkind]').value = b.kind === 'normal' ? 'normal' : 'uniform'; drawDist(r.out, null, el.querySelector('canvas')); }
     else if (b.type === 'samp') { el.querySelector('[data-act=splay]').textContent = b.playing ? 'Pause' : 'Play'; drawDist(r.dist, r.out ? r.out.data : null, el.querySelector('canvas')); }
     else if (b.type === 'wave') {
@@ -1828,6 +1851,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (f === 'mode') b.mode = t.value;
     else if (f === 'n') return;
     else if (f === 'as') b.as = t.value;
+    else if (f === 'tfmt') b.fmt = t.value;
     else if (f === 'dkind') { const was = b.kind; b.kind = t.value; if (was !== b.kind) { b.a = 0; b.b = 1; buildBody(b); } }
     else if (f === 'da') { if (t.value === '' || !isFinite(+t.value)) return; b.a = +t.value; }
     else if (f === 'db') { if (t.value === '' || !isFinite(+t.value)) return; b.b = +t.value; }
