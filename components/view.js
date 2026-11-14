@@ -68,6 +68,7 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
   const pts = new Map(); let press = null, drag = null;      /* press: where a possible click began; drag: who took the drag, if not panning */
   el.addEventListener('pointerdown', e => {
     if (e.button === 2 || (e.button === 0 && e.ctrlKey)) return;        /* right click belongs to the menu, or cancels a tool */
+    if (e.button > 2) return;                                            /* the mouse's back and forward buttons are the page's */
     if (e.target.isContentEditable) return;                              /* text being edited keeps its own clicks */
     if (tool){ if (e.button === 0){ el.setPointerCapture(e.pointerId); tool.down?.(at(e)); } return; }
     el.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); el.classList.add('panning');

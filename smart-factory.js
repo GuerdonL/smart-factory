@@ -40,7 +40,20 @@ function go(to){
   view.look(space.camera);
   crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Top'));
 }
-const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); go(spaceOf.get(b)); };
+const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); deeper.length = 0; go(spaceOf.get(b)); };
+/* out and back in again, like a browser's back and forward: stepping out remembers the space left, so stepping in can return to it */
+const deeper = [];
+function out(){ if (!space.parent) return; deeper.push(space); go(space.parent); }
+function backIn(){
+  const to = deeper.pop();
+  if (to && to.parent === space && space.blocks.includes(to.owner)) go(to); else deeper.length = 0;      /* its block may have been deleted since */
+}
+/* the mouse's back and forward buttons do that, and never the browser's own back and forward */
+for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, e => {
+  if (e.button !== 3 && e.button !== 4) return;
+  e.preventDefault(); e.stopPropagation();
+  if (type === 'mouseup') e.button === 3 ? out() : backIn();
+}, true);
 
 const blockAt = el => space.blocks.find(b => b.el.contains(el));
 /* a new block is "Shape n", with the lowest n no block in this space is using */
@@ -89,7 +102,7 @@ function select(list, { toggle = false } = {}){
 let boxing = null;                             /* the box selection in progress, if any */
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === 'Escape') return selected.size || !space.parent || boxing ? select([]) : go(space.parent);      /* with nothing selected, Escape steps out of a definition space */
+  if (e.key === 'Escape') return selected.size || !space.parent || boxing ? select([]) : out();      /* with nothing selected, Escape steps out of a definition space */
   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
   if (e.key === 's' || e.key === 'S'){
     if (boxing) return boxing.cancel();
@@ -165,7 +178,7 @@ const draw = {
 
 const menu = createMenu([{ label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) }]);
 const hud = createHud({ onHome: () => view.home() });
-const crumbs = createCrumbs({ onGo: i => go(trail()[i]) });
+const crumbs = createCrumbs({ onGo: i => { deeper.length = 0; go(trail()[i]); } });
 const view = createView({
   onChange: cam => { hud.show(cam); menu.close(); shown(); },
   onMenu: (x, y) => menu.openAt(x, y),
