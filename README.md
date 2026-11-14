@@ -146,3 +146,11 @@ cannot open those; it only imports weights into a frame it already has.
 - `tests/` checks the trainer against hand-computed and cross-checked results.
 
 Needs Python 3.11+, `torch`, `numpy`, `pillow`; Kaggle needs the `kaggle` CLI; renting also needs `bb` set up (`bb doctor`).
+
+## Tinworld agents
+
+`tinworld/` holds what an agent trained on Tinworld is given to read.
+
+- `sim.js` is Tinworld's engine, copied unchanged from the published artifact.
+- `feed.js` turns one actor's knowledge and the events it witnessed into a stream of updates: a line appears only when something changes (a new square and its exits, a thing coming into view with its direction and distance, a thing leaving, an event, a change in health, hunger passing another ten). Nothing is repeated.
+- `node tinworld/demo.js [seed] [seconds]` prints one robot's feed. `node tests/test_feed.js` checks it.
