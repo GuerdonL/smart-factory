@@ -10,7 +10,8 @@
 import { html, style } from './dom.js';
 
 style('measure', `
-.measure { position: absolute; pointer-events: none; --px: calc(1px / var(--zoom, 1)); --gap: calc(14 * var(--px));
+.measure { position: absolute; z-index: 2; pointer-events: none;      /* above every block */
+  --px: calc(1px / var(--zoom, 1)); --gap: calc(14 * var(--px));
   color: var(--measure); font-size: calc(11 * var(--px)); line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .measure > div { position: absolute; display: flex; align-items: center; }
 .measure-w { left: 0; right: 0; top: calc(100% + var(--gap)); height: calc(11 * var(--px)); }
