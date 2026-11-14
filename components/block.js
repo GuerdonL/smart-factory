@@ -7,10 +7,13 @@
 import { html, style } from './dom.js';
 
 style('block', `
-.block { position: absolute; box-sizing: border-box; border-radius: 8px;
-  /* lit from above: a soft highlight fading down the face, a bright top lip, a dark bottom lip, and a shadow underneath */
+.block { position: absolute; box-sizing: border-box; --px: calc(1px / var(--zoom, 1));   /* one screen pixel, whatever the zoom */
+  border-radius: calc(8 * var(--px));
+  /* lit from above: a soft highlight fading down the face, a bright top lip, a dark bottom lip, and a shadow underneath.
+     These are sized in screen pixels, so a block looks the same zoomed in or out. */
   background: linear-gradient(var(--raise-light), transparent 55%) var(--block);
-  box-shadow: inset 0 1.5px 0 var(--raise-light), inset 0 -4px 0 var(--raise-dark), 0 2px 3px var(--shadow), 0 8px 14px -4px var(--shadow); }
+  box-shadow: inset 0 calc(1.5 * var(--px)) 0 var(--raise-light), inset 0 calc(-4 * var(--px)) 0 var(--raise-dark),
+    0 calc(2 * var(--px)) calc(3 * var(--px)) var(--shadow), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--shadow); }
 `);
 
 export function createBlock(shape, rect){

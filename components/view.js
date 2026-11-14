@@ -2,7 +2,8 @@
 
    createView({ onChange(camera), onMenu(x, y) }) -> { el, world, grid, camera(), home(), toWorld(x, y), tool(t) }
      el        the element to put on the page
-     world     put things here to place them on the canvas, in world coordinates
+     world     put things here to place them on the canvas, in world coordinates. It carries the CSS variable
+               --zoom, so a thing can keep a detail the same size on screen: calc(8px / var(--zoom))
      grid()    the spacing of the dots now on screen, in world units; there is a dot at every multiple of it.
                Zoomed far out, the dots thin to every 2nd, 4th… so they stay apart, and grid() follows.
      camera()  { x, y, zoom }: the world point at the centre of the screen, and the zoom
@@ -40,6 +41,7 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
   let saveT = 0;
   function draw(){
     world.style.transform = `translate(${cam.tx}px,${cam.ty}px) scale(${cam.z})`;
+    world.style.setProperty('--zoom', cam.z);
     /* the grid is a background, so it never runs out. One kind of dot: every dot on screen is a place things snap to. */
     const g = grid() * cam.z;
     el.style.backgroundSize = `${g}px ${g}px`;
@@ -80,7 +82,7 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
 
   /* wheel and trackpad: scroll pans; pinch, or ctrl/cmd + wheel, zooms about the pointer */
   el.addEventListener('wheel', e => { e.preventDefault();
-    if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.01)));
+    if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-Math.max(-25, Math.min(25, e.deltaY * (e.deltaMode ? 16 : 1))) * 0.01));   /* a wheel notch is about a quarter step */
     else { const m = e.deltaMode ? 16 : 1, side = e.shiftKey && !e.deltaX; cam.tx -= (side ? e.deltaY : e.deltaX) * m; cam.ty -= (side ? 0 : e.deltaY) * m; }
     moved();
   }, { passive: false });
