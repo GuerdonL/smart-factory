@@ -8,7 +8,7 @@
    releasing works too. Escape or a right click cancels. */
 export function drawRectangle(view, make){
   return new Promise(resolve => {
-    const g = view.grid, snap = p => ({ x: Math.round(p.x / g) * g, y: Math.round(p.y / g) * g });
+    const g = view.grid(), snap = p => ({ x: Math.round(p.x / g) * g, y: Math.round(p.y / g) * g });
     let anchor = null, made = null, dragged = false;
     /* from the anchor to the cursor, never smaller than one square of the grid */
     const rect = p => { const c = snap(p), w = Math.max(g, Math.abs(c.x - anchor.x)), h = Math.max(g, Math.abs(c.y - anchor.y));

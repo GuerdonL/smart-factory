@@ -7,8 +7,10 @@
 import { html, style } from './dom.js';
 
 style('block', `
-.block { position: absolute; box-sizing: border-box; border-radius: 5px; background: var(--block);
-  box-shadow: inset 0 1px 0 var(--raise-light), inset 0 -2px 0 var(--raise-dark), 0 1px 2px var(--shadow), 0 3px 6px -2px var(--shadow); }
+.block { position: absolute; box-sizing: border-box; border-radius: 8px;
+  /* lit from above: a soft highlight fading down the face, a bright top lip, a dark bottom lip, and a shadow underneath */
+  background: linear-gradient(var(--raise-light), transparent 55%) var(--block);
+  box-shadow: inset 0 1.5px 0 var(--raise-light), inset 0 -4px 0 var(--raise-dark), 0 2px 3px var(--shadow), 0 8px 14px -4px var(--shadow); }
 `);
 
 export function createBlock(shape, rect){

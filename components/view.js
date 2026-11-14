@@ -3,7 +3,8 @@
    createView({ onChange(camera), onMenu(x, y) }) -> { el, world, grid, camera(), home(), toWorld(x, y), tool(t) }
      el        the element to put on the page
      world     put things here to place them on the canvas, in world coordinates
-     grid      the spacing of the dots, in world units; there is a dot at every multiple of it
+     grid()    the spacing of the dots now on screen, in world units; there is a dot at every multiple of it.
+               Zoomed far out, the dots thin to every 2nd, 4th… so they stay apart, and grid() follows.
      camera()  { x, y, zoom }: the world point at the centre of the screen, and the zoom
      home()    back to 0, 0 at 100%
      toWorld   screen coordinates -> world coordinates
@@ -19,7 +20,7 @@ const ZMIN = 0.1, ZMAX = 4, GRID = 24, STORE = 'sf-cam';
 
 style('view', `
 .view { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
-  background-image: radial-gradient(circle, var(--dot-strong) 1.2px, transparent 1.6px), radial-gradient(circle, var(--dot) 1px, transparent 1.4px); }
+  background-image: radial-gradient(circle, var(--dot) 1.3px, transparent 1.7px); }
 .view.panning { cursor: grabbing; }
 .view-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 .view-origin { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border: 1px solid var(--muted); border-radius: 50%; }
@@ -33,13 +34,16 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
   try { const s = JSON.parse(localStorage.getItem(STORE)); if (s && isFinite(s.tx + s.ty + s.z)) Object.assign(cam, s); } catch (e) {}
   const camera = () => ({ x: (innerWidth / 2 - cam.tx) / cam.z, y: (innerHeight / 2 - cam.ty) / cam.z, zoom: cam.z });
 
+  /* dots are GRID apart, doubling when zoomed out so they never crowd closer than 14px on screen */
+  const grid = () => GRID * 2 ** Math.max(0, Math.ceil(Math.log2(14 / (GRID * cam.z))));
+
   let saveT = 0;
   function draw(){
     world.style.transform = `translate(${cam.tx}px,${cam.ty}px) scale(${cam.z})`;
-    /* the grid is a background, so it never runs out; minor dots drop away when zoomed far out */
-    const g = GRID * cam.z, major = g * 5;
-    el.style.backgroundSize = `${major}px ${major}px, ${g >= 9 ? `${g}px ${g}px` : '0 0'}`;
-    el.style.backgroundPosition = `${cam.tx - major / 2}px ${cam.ty - major / 2}px, ${cam.tx - g / 2}px ${cam.ty - g / 2}px`;
+    /* the grid is a background, so it never runs out. One kind of dot: every dot on screen is a place things snap to. */
+    const g = grid() * cam.z;
+    el.style.backgroundSize = `${g}px ${g}px`;
+    el.style.backgroundPosition = `${cam.tx - g / 2}px ${cam.ty - g / 2}px`;
     clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(cam)); } catch (e) {} }, 300);
   }
   function moved(){ draw(); onChange(camera()); }
@@ -85,7 +89,7 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
   addEventListener('resize', moved);
   draw();
 
-  return { el, world, grid: GRID, camera, toWorld,
+  return { el, world, grid, camera, toWorld,
     home(){ cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; moved(); },
     tool(t){ tool = t; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';
       return () => { if (tool === t){ tool = null; el.style.cursor = ''; } }; } };
