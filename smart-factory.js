@@ -38,7 +38,7 @@ function go(to){
   space = to;
   view.world.append(...space.blocks.map(b => b.el));
   write();
-  view.origin.hidden = !!space.owner;          /* an empty definition space has its equals sign at the origin */
+  view.origin.hidden = !!space.owner;          /* a definition space has its equals sign at the origin */
   view.look(space.camera);
   crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Top'));
 }
@@ -190,8 +190,7 @@ function shown(){                              /* brings what is on screen in li
   /* a definition space sets what is here beside its block's promised size. The top space has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const all = pieces(rects);
-  space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {},
-    space.blocks.length ? boxOf(space.blocks) : null);
+  space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {});
   const ps = space.owner ? [] : all;
   /* a result goes to the right of its piece; if something else is there (another block, or a result already placed),
      it goes below instead, as far down as it takes to be clear */
@@ -226,9 +225,9 @@ function fold({ blocks: inside, type, box }, name){
   const made = createBlock({ label: 'Named', draw: 'rectangle', color: someColour() },
     { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
   made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
-  /* its definition space: the folded blocks, level with the origin and a little to its left */
+  /* its definition space: the folded blocks, level with the equation at the centre and clear of it on the left */
   const def = newSpace(made, space); spaceOf.set(made, def);
-  const dx = -u * (4 + squares(type.cols)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;      /* placed so that the equation that follows them puts its sign at the origin */
+  const dx = -u * (3 + squares(type.cols)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
   for (const b of inside){
     b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b);
     b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); def.blocks.push(b);

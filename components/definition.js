@@ -1,18 +1,18 @@
 /* What a definition space shows: an equation, with what its contents come to on the left and what the block
    promises on the right.
 
-       [the shapes]  =  ⎡ a₁·b₁ a₁·b₂ a₁·b₃ ⎤     ⎡ k₁₁ k₂₁ k₃₁ ⎤
-                        ⎣ a₂·b₁ a₂·b₂ a₂·b₃ ⎦  =  ⎣ k₁₂ k₂₂ k₃₂ ⎦
+       ⎡ a₁·b₁ a₁·b₂ a₁·b₃ ⎤     ⎡ k₁₁ k₂₁ k₃₁ ⎤
+       ⎣ a₂·b₁ a₂·b₂ a₂·b₃ ⎦  =  ⎣ k₁₂ k₂₂ k₃₂ ⎦
 
    On the right, the block as a variable in matrix notation, at its promised size. On the left, the matrix that the
    shapes in the space currently come to, so the two can be compared entry for entry; its entries are coloured by
    the shapes they come from. The sign between them is "=" when the sizes agree and "≠" when they do not.
-   The whole equation sits just to the right of the shapes and follows them as they move or change, so it never
-   lands on top of them. Before anything is in the space, it sits at the origin and its left side is a dashed outline
-   of the promised size, waiting.
+   The equation stays put at the centre of the space, its sign at the origin, as part of the background: the shapes
+   are not tied to it and can be anywhere, over it included. Before anything is in the space, its left side is a
+   dashed outline of the promised size, waiting.
    (What the contents come to is worked out elsewhere and handed to check.)
 
-   createDefinition({ cols, rows, unit, letter, values, editable, colsName, rowsName }) -> { el, check(type, look, box) }
+   createDefinition({ cols, rows, unit, letter, values, editable, colsName, rowsName }) -> { el, check(type, look) }
      cols, rows   the block's promised shape, in units
      letter       the block's initials, for the right-hand matrix's entries
      values       the entries that have been given a number (see matrix.js)
@@ -23,7 +23,6 @@
                   for a size (where both a promised side and the contents' side are named, the names must agree
                   too); or { error } for contents that have no size, which is written out in words.
                   look is how to write the left-hand matrix: createMatrix's letter, color, values and product.
-                  box is the rectangle round the contents ({ x, y, w, h }, world coordinates), to sit beside.
    Where the entries can be pressed, the canvas hands the click to the page, which decides what it means. */
 import { html, style } from './dom.js';
 import { createMatrix } from './matrix.js';
@@ -35,7 +34,6 @@ style('definition', `
 .definition-slot { position: absolute; box-sizing: border-box; display: grid; place-items: center; border: 1.2px dashed var(--muted); border-radius: 4px;
   color: var(--muted); font-family: var(--font-name); font-size: 11px; white-space: nowrap; }
 .definition-sign { position: absolute; transform: translate(-50%, -50%); text-align: center; color: var(--fg); font-family: var(--font-math); font-size: 22px; line-height: 1; }
-.definition-first { position: absolute; transform: translate(-50%, -50%); color: var(--fg); font-family: var(--font-math); font-size: 22px; line-height: 1; }
 .definition-error { position: absolute; transform: translate(-100%, -50%); color: var(--warn); font-family: var(--font-name); font-size: 13px; white-space: nowrap; }
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
@@ -53,21 +51,16 @@ export function createDefinition({ cols, rows, unit, letter = 'x', values, edita
   Object.assign(sign.style, { left: '0px', top: level + 'px' });
   Object.assign(matrix.el.style, { left: unit + 'px', top: on(top + (rows * unit - matrix.height) / 2) + 'px' });
   el.append(matrix.el);
-  const first = html`<div class="definition-first" hidden>=</div>`; el.append(first);      /* the "=" between the shapes and what they come to */
-  let left = null, width = 0, showing = '';
-  return { el, check(type, look = {}, box = null){
+  let left = null, showing = '';
+  return { el, check(type, look = {}){
     const named = (a, b) => !a || !b || a === b;
     const wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows || !named(type.colsName, colsName) || !named(type.rowsName, rowsName));
-    el.classList.toggle('wrong', wrong); sign.textContent = wrong ? '≠' : '='; slot.hidden = !!type; first.hidden = !type;
+    el.classList.toggle('wrong', wrong); sign.textContent = wrong ? '≠' : '='; slot.hidden = !!type;
     /* the left side, rewritten only when it would read differently; it ends one unit before the sign */
     const key = !type ? '' : type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + JSON.stringify({ ...look, values: look.values ? [...look.values] : [] });
-    if (key !== showing){ showing = key; left?.remove(); left = null; width = 0;
-      if (type && type.error){ left = html`<div class="definition-error"></div>`; left.textContent = type.error; width = 4 * unit; Object.assign(left.style, { left: -unit + 'px', top: level + 'px' }); }
-      else if (type){ const m = createMatrix({ cols: type.cols, rows: type.rows, cell: unit, ...look }); left = m.el; width = m.width;
+    if (key !== showing){ showing = key; left?.remove(); left = null;
+      if (type && type.error){ left = html`<div class="definition-error"></div>`; left.textContent = type.error; Object.assign(left.style, { left: -unit + 'px', top: level + 'px' }); }
+      else if (type){ const m = createMatrix({ cols: type.cols, rows: type.rows, cell: unit, ...look }); left = m.el;
         Object.assign(left.style, { left: -unit - m.width + 'px', top: on(level - m.height / 2) + 'px' }); }
-      if (left) el.append(left); }
-    /* with contents: shapes, a unit and a half, "=", a unit and a half, the left side, a unit, the sign. Without: at the origin. */
-    Object.assign(first.style, { left: -unit - width - 1.5 * unit + 'px', top: level + 'px' });
-    const at = type && box ? { x: on(box.x + box.w) + 3 * unit + width + unit, y: on(box.y + box.h / 2 - level) } : { x: 0, y: 0 };
-    Object.assign(el.style, { left: at.x + 'px', top: at.y + 'px' }); } };
+      if (left) el.append(left); } } };
 }
