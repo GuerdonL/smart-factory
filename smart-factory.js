@@ -376,6 +376,9 @@ function clicked(el, e){
     if (selected.size === 1 && selected.has(b)) return open(b);             /* on a block selected alone: open its definition space */
     return select([b]);                                                     /* on one of several: select just that block */
   }
+  /* a click on the block that is already selected alone leaves it so, even inside a group: otherwise the first half
+     of a double click would hand the selection back to the group, and the second half could never open the block */
+  if (b && !e.shiftKey && selected.size === 1 && selected.has(b)) return;
   select(b ? members(b) : [], { toggle: !!b && e.shiftKey });
 }
 
