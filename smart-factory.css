@@ -1,6 +1,11 @@
-/* The theme. Every colour in the project is defined here and nowhere else;
+/* The theme. Every colour and typeface in the project is defined here and nowhere else;
    components only ever refer to these variables. */
 :root {
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;      /* menus, readouts */
+  /* names on the canvas: technical and cramped. The real 3270 is used where it is installed;
+     otherwise Share Tech Mono, loaded by the page, stands in. */
+  --font-name: "3270 Nerd Font", "3270 Nerd Font Mono", "3270NF", "IBM 3270", "Share Tech Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
   --bg: #f6f7f9;            /* the canvas ground */
   --fg: #1c2230;            /* text */
   --muted: #6b7385;         /* secondary text, quiet marks */
@@ -29,4 +34,4 @@
 
 html, body { height: 100%; }
 ::selection { background: var(--select-halo); }
-body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+body { background: var(--bg); color: var(--fg); font: 13px/1.4 var(--font-ui); overflow: hidden; }

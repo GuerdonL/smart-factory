@@ -22,7 +22,8 @@ style('block', `
 .block.selected { outline: calc(2 * var(--px)) solid var(--select); outline-offset: calc(2 * var(--px));
   --halo: 0 0 0 calc(7 * var(--px)) var(--select-halo); cursor: move; }
 .block-name { position: absolute; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
-  font-size: calc(12 * var(--px)); line-height: 1.3; white-space: nowrap; color: var(--fg); border-radius: calc(3 * var(--px)); cursor: default; }
+  font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--fg); border-radius: calc(3 * var(--px)); cursor: default; }
+.block.selected .block-name { color: var(--select); }
 .block-name[contenteditable="true"] { cursor: text; user-select: text; -webkit-user-select: text; min-width: calc(12 * var(--px));
   background: var(--panel); outline: calc(1.5 * var(--px)) solid var(--select); }
 `);
