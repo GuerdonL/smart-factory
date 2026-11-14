@@ -138,6 +138,11 @@ button.danger { color: var(--neg) }
 .fold .s { fill: var(--grid) } .fold .e { fill: var(--surface); stroke: var(--grid); stroke-width: 1.5; vector-effect: non-scaling-stroke }
 .t-data { width: 270px }
 .t-attn { width: 240px }
+.fly { position: absolute; left: 0; top: calc(100% + 12px); z-index: 2; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 22px var(--shadow); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; width: max-content; max-width: 720px }
+.flyrow { display: flex; gap: 14px; align-items: flex-start } .fly figure { margin: 0; display: flex; flex-direction: column; gap: 5px }
+.fly figcaption { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap }
+.fly .hint { font-size: 11.5px; width: 0; min-width: 100% }
+.t-attn button[aria-expanded=true] { border-color: var(--sel); color: var(--sel) }
 .t-attn canvas { display: block; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); image-rendering: pixelated }
 .t-attn .hint { font-size: 11.5px; width: 0; min-width: 100% }
 .dsprev { display: block; flex: none; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); image-rendering: pixelated }
@@ -311,7 +316,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <span>thicker stroke = larger weight</span>
         <span>Drag the background to pan, scroll to zoom, right-click for the menu, hold the right button and drag across connections to cut them</span>
       </div>
-        <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block, which receives it but does not learn from it yet.</p>
+        <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block. With Train ticked, that block then adjusts its query, key and value weights on every sample the frames train on; its Weights button shows all three.</p>
         <p>A Distribution block describes random numbers (uniform between a low and a high, or normal with a mean and a standard deviation). Wire it into a Random sampler to get that many draws as a float vector. The draws stay the same until you press Resample or Play.</p>
         <p>To train a model too large for the browser, select its frame and choose Export model, then run the file through the trainer project (<code>python run.py models/&lt;file&gt;.json</code>). It trains on your machine when that takes under five minutes and otherwise rents a GPU through box-boy. Import weights loads the result back into the frame.</p>
       </div>
@@ -599,6 +604,29 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const mk = len => Array.from({ length: len }, () => Math.round((rnd() * 2 - 1) / Math.sqrt(d) * 1000) / 1000);
     b.wq = mk(d * dk); b.wk = mk(d * dk); b.wv = mk(d * d); b.wd = d; b.wdk = dk;
   }
+  // Backward pass through an Attention block, given G = d loss / d output (items × features).
+  // Forward was Q = X·Wq, K = X·Wk, V = X·Wv, scores S = Q·Kᵀ / √(key size), P = softmax of each row of S, output = P·V.
+  //   d loss / dV = Pᵀ·G        d loss / dP = G·Vᵀ        d loss / dS = P ∘ (dP − row sums of P ∘ dP)
+  //   d loss / dQ = dS·K / √k   d loss / dK = dSᵀ·Q / √k  and each weight matrix gets Xᵀ times the gradient of what it produced.
+  function attnBackward(r, G) {
+    const { n, d, dk, X, Q, K, V, att: P } = r, sc = 1 / Math.sqrt(dk), dV = new Float64Array(n * d), dQ = new Float64Array(n * dk), dK = new Float64Array(n * dk), dP = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      let mean = 0;
+      for (let j = 0; j < n; j++) { let t = 0; const pij = P[i * n + j]; for (let c = 0; c < d; c++) { t += G[i * d + c] * V[j * d + c]; dV[j * d + c] += pij * G[i * d + c]; } dP[j] = t; mean += pij * t; }
+      for (let j = 0; j < n; j++) { const ds = P[i * n + j] * (dP[j] - mean) * sc; if (!ds) continue; for (let c = 0; c < dk; c++) { dQ[i * dk + c] += ds * K[j * dk + c]; dK[j * dk + c] += ds * Q[i * dk + c]; } }
+    }
+    const back = (D, cols) => { const g = new Float64Array(d * cols); for (let i = 0; i < n; i++) for (let k = 0; k < d; k++) { const x = +X[i * d + k]; if (x) for (let c = 0; c < cols; c++) g[k * cols + c] += x * D[i * cols + c]; } return g; };
+    return { gq: back(dQ, dk), gk: back(dK, dk), gv: back(dV, d) };
+  }
+  function attnStep(b) {                     // one gradient step on the query, key and value weights
+    const r = last[b.id]; if (!r || !r.backGrad || !b.wq) return false;
+    const g = attnBackward(r, r.backGrad.data), lr = +b.lr || 0.01, next = {};
+    for (const [w, gr] of [['wq', g.gq], ['wk', g.gk], ['wv', g.gv]]) {
+      next[w] = b[w].map((v, i) => v - lr * gr[i]);
+      if (!next[w].every(isFinite)) { b.train = false; toast(`${b.name} stopped training because a weight grew without limit: lower its rate, then Randomize.`); return false; }
+    }
+    Object.assign(b, next); b.steps = (b.steps || 0) + 1; dirty = true; return true;
+  }
   function compute(b, ins) {
     const sig = ins[0];
     if (b.type === 'pixels') { const out = arr('bool', [b.h, b.w], b.px.map(Boolean)); return { out, note: typeStr(out) }; }
@@ -673,7 +701,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         for (let j = 0; j < n; j++) { A[i * n + j] = pr[j]; if (pr[j]) for (let c = 0; c < d; c++) Y[i * d + c] += pr[j] * V[j * d + c]; }
       }
       const out = arr('float', sh.slice(), Y), att = arr('float', [n, n], A);
-      return { out, outs: [out, att], att: A, n, note: `${typeStr(sig)} → ${typeStr(out)} · key size ${dk}` + (b.causal ? ' · causal' : '') };
+      return { out, outs: [out, att], att: A, n, d, dk, X, Q, K, V, note: `${typeStr(sig)} → ${typeStr(out)} · key size ${dk}` + (b.causal ? ' · causal' : '') };
     }
     if (b.type === 'read') {                 // cost function: prediction and ground truth in, one number out
       const truth = ins[1];
@@ -733,6 +761,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     el.style.left = b.x + 'px'; el.style.top = b.y + 'px'; el.style.zIndex = ++zTop;
     el.innerHTML = `<div class="bhead">${leftPorts}<span class="btitle">${esc(b.name)}</span>${b.type === 'lin' ? `<select data-f="mode" aria-label="Folding pattern">${Object.keys(FOLDS).map(k => `<option value="${k}">${FOLDS[k]}</option>`).join('')}</select>` : ''}${b.type === 'read' ? `<select data-f="loss" aria-label="Loss">${Object.keys(LOSSES).map(k => `<option value="${k}">${LOSSES[k]}</option>`).join('')}</select>` : ''}<button class="x" data-act="del" aria-label="Delete ${esc(b.name)}">×</button>${rightPorts}</div><div class="bbody"></div><div class="bstatus"></div>`;
     if (lowPorts) el.insertAdjacentHTML('beforeend', lowPorts);
+    if (b.type === 'attn') el.insertAdjacentHTML('beforeend', '<div class="fly" hidden><div class="flyrow"><figure><figcaption></figcaption><canvas></canvas></figure><figure><figcaption></figcaption><canvas></canvas></figure><figure><figcaption></figcaption><canvas></canvas></figure></div><div class="hint">Row = a feature of the input, column = what it is turned into. Blue is positive, orange negative; each grid is scaled to its own largest weight.</div></div>');
     if (b.type === 'pixels') el.insertAdjacentHTML('beforeend', '<span class="rsz" title="Drag to add or remove pixels"></span>');
     if (b.type === 'perc') el.insertAdjacentHTML('beforeend', '<button class="tvbar" data-act="tvtoggle"></button><div class="tv"></div><div class="tvgrip" title="Drag to change the height of the text view" hidden></div><button class="tvbar bpbar" data-act="bptoggle"></button><div class="tv2"></div>');
     if (b.type === 'lin') el.querySelector('.bhead select').value = b.mode;
@@ -770,19 +799,19 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         `<div class="brow"><select data-f="as" aria-label="Output type"><option value="int">int (raw values)</option><option value="float">float (0 to 1)</option><option value="bool">bool (half or brighter)</option></select></div>` +
         `<div class="brow"><label class="filebtn">Load folder<input type="file" webkitdirectory multiple data-f="dir" hidden></label><button data-act="dbuiltin">Built-in digits</button>${API ? '<button data-act="dkaggle">Kaggle</button>' : ''}</div>`;
     } else if (b.type === 'attn') {
-      h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><button data-act="arand">Randomize</button></div><canvas width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
+      h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><button data-act="arand">Randomize</button></div><div class="brow"><label class="chk"><input type="checkbox" data-f="atrain"> Train</label><label class="stp">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="alr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label><button data-act="afly" aria-expanded="${!!b.fly}">Weights</button></div><canvas class="attg" width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
     } else if (b.type === 'lin') h = '<div class="brow linax"></div><div class="fold"></div>';
     else h = '<div class="loss"></div><canvas hidden></canvas><div class="bars"></div>';
     body.innerHTML = h;
     if (b.type === 'text') body.querySelector('textarea').value = b.text;
     if (b.type === 'tok') body.querySelector('select').value = b.mode;
-    if (b.type === 'attn') body.querySelector('[data-f=causal]').checked = !!b.causal;
+    if (b.type === 'attn') { body.querySelector('[data-f=causal]').checked = !!b.causal; body.querySelector('[data-f=atrain]').checked = !!b.train; }
     if (b.type === 'data') body.querySelector('select').value = b.as;
   }
   function refresh(b, r) {
     const el = els[b.id], st = el.querySelector('.bstatus');
     st.className = 'bstatus ' + (r.err ? (r.idle ? '' : 'bad') : 'ok');
-    st.innerHTML = esc(r.err || r.note) + (b.type === 'perc' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` + (b.avg != null ? `, average loss ${sfmt(b.avg)}` : '') : '') + (b.type === 'perc' && b.train && trainHint(b, r) ? `<br><span class="hintw">${esc(trainHint(b, r))}</span>` : '') + (r.backSig ? ' · backprop in: ' + (r.backErr ? esc(typeStr(r.backSig)) + ' (' + esc(r.backErr) + ')' : r.backGrad ? 'gradient ' + esc(typeStr(r.backGrad)) : r.backSig.grad && r.backSig.data.length !== 1 ? 'gradient ' + esc(typeStr(r.backSig)) : r.backSig.t === 'arr' && r.backSig.data.length === 1 ? sfmt(+r.backSig.data[0]) : esc(typeStr(r.backSig)) + ' (needs a single number)') : '') + (r.fit ? `<button data-act="fit" data-arg="${r.fit}">Resize the input vector to ${r.fit}</button>` : '') + (b.msg ? ' · ' + esc(b.msg) : '');
+    st.innerHTML = esc(r.err || r.note) + (b.type === 'attn' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` : '') + (b.type === 'perc' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` + (b.avg != null ? `, average loss ${sfmt(b.avg)}` : '') : '') + (b.type === 'perc' && b.train && trainHint(b, r) ? `<br><span class="hintw">${esc(trainHint(b, r))}</span>` : '') + (r.backSig ? ' · backprop in: ' + (r.backErr ? esc(typeStr(r.backSig)) + ' (' + esc(r.backErr) + ')' : r.backGrad ? 'gradient ' + esc(typeStr(r.backGrad)) : r.backSig.grad && r.backSig.data.length !== 1 ? 'gradient ' + esc(typeStr(r.backSig)) : r.backSig.t === 'arr' && r.backSig.data.length === 1 ? sfmt(+r.backSig.data[0]) : esc(typeStr(r.backSig)) + ' (needs a single number)') : '') + (r.fit ? `<button data-act="fit" data-arg="${r.fit}">Resize the input vector to ${r.fit}</button>` : '') + (b.msg ? ' · ' + esc(b.msg) : '');
     el.classList.toggle('active', b.id === activeP);
     if (b.type === 'tok') el.querySelector('.chips').innerHTML = (r.toks || []).slice(0, 48).map(t => `<span class="chip${t.pad ? ' pad' : ''}">${esc(t.s)}<i>${t.id}</i></span>`).join('') + (r.toks && r.toks.length > 48 ? `<span class="chip pad">…<i>+${nf(r.toks.length - 48)}</i></span>` : '');
     else if (b.type === 'dist') { el.querySelector('select[data-f=dkind]').value = b.kind === 'normal' ? 'normal' : 'uniform'; drawDist(r.out, null, el.querySelector('canvas')); }
@@ -803,7 +832,20 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       el.querySelector('.dsof').textContent = 'of ' + nf(ds.n);
     }
     else if (b.type === 'attn') {
-      const cv = el.querySelector('canvas'), n = r.n || 0; if (!n) return;
+      const fly = el.querySelector('.fly'); fly.hidden = !b.fly || !b.wq;
+      if (!fly.hidden) [['Query', b.wq, b.wdk], ['Key', b.wk, b.wdk], ['Value', b.wv, b.wd]].forEach(([name, W, cols], q) => {
+        const fig = fly.querySelectorAll('figure')[q], fc = fig.querySelector('canvas'), rows = b.wd, cell = clamp(Math.floor(Math.min(400 / cols, 400 / rows)), 6, 76), ctx = fc.getContext('2d');
+        let top = 0; for (const v of W) top = Math.max(top, Math.abs(v));
+        fig.querySelector('figcaption').textContent = `${name} · ${rows} × ${cols} · largest ${sfmt(top)}`;
+        fc.width = cols * cell; fc.height = rows * cell; fc.style.width = cols * cell / 2 + 'px'; fc.style.height = rows * cell / 2 + 'px';
+        const st = getComputedStyle(document.documentElement), pos = st.getPropertyValue('--pos'), neg = st.getPropertyValue('--neg'), ink = st.getPropertyValue('--fg');
+        for (let i = 0; i < W.length; i++) {
+          const x = (i % cols) * cell, y = Math.floor(i / cols) * cell, v = W[i];
+          ctx.globalAlpha = top ? Math.abs(v) / top : 0; ctx.fillStyle = v < 0 ? neg : pos; ctx.fillRect(x, y, cell, cell); ctx.globalAlpha = 1;
+          if (cell >= 56) { ctx.fillStyle = ink; ctx.font = '500 17px ' + st.getPropertyValue('--mono'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(Math.abs(v) < 0.005 ? '0' : v.toFixed(2), x + cell / 2, y + cell / 2); }
+        }
+      });
+      const cv = el.querySelector('canvas.attg'), n = r.n || 0; if (!n) return;
       const k = clamp(Math.floor(168 / n), 1, 26), c = cv.getContext('2d'), cs = getComputedStyle(document.documentElement);
       cv.width = n * k; cv.height = n * k; c.fillStyle = cs.getPropertyValue('--grid');
       for (let i = 0; i < n * n; i++) { if (!r.att[i]) continue; c.globalAlpha = r.att[i]; c.fillRect((i % n) * k, Math.floor(i / n) * k, k, k); }
@@ -1449,7 +1491,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (name === 'sdraw') b.seed = (b.seed || 0) + 1;
     else if (name === 'lrev') { b.rev = b.rev || []; b.rev[arg] = !b.rev[arg]; for (let k = 0; k < b.rev.length; k++) b.rev[k] = !!b.rev[k]; }
     else if (name === 'splay') b.playing = !b.playing;
-    else if (name === 'arand') { b.seed = (b.seed || 0) + 1; b.wq = null; }
+    else if (name === 'arand') { b.seed = (b.seed || 0) + 1; b.wq = null; b.steps = 0; }
+    else if (name === 'afly') b.fly = !b.fly;
     else if (name === 'wplay' || name === 'dplay') b.playing = !b.playing;
     else if (name === 'dstep') { const ds = dataset(b); if (ds && ds.n) { b.idx = (((b.idx + arg) % ds.n) + ds.n) % ds.n; sampleMoved = true; } }
     else if (name === 'creset') STATS.delete(b.id);
@@ -1738,6 +1781,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (f === 'da') { if (t.value === '' || !isFinite(+t.value)) return; b.a = +t.value; }
     else if (f === 'db') { if (t.value === '' || !isFinite(+t.value)) return; b.b = +t.value; }
     else if (f === 'causal') b.causal = t.checked;
+    else if (f === 'atrain') { b.train = t.checked; if (b.train && !(last[b.id] && last[b.id].backGrad)) toast(last[b.id] && last[b.id].backErr ? `${b.name} cannot train: ${last[b.id].backErr}.` : `${b.name} has no gradient yet. Wire the bottom-left port of the evaluation frame it feeds into the port at its bottom right, and give that frame a loss.`); }
+    else if (f === 'alr') { if (t.value === '' || !(+t.value >= 0)) return; b.lr = +t.value; save(); return; }
     else if (f === 'loss') b.loss = t.value;
     else if (f === 'act') { b.act = t.value; renderMath(); }
     else if (f === 'preset') { if (!t.value) return; preset(b, t.value); t.value = ''; }
@@ -1852,6 +1897,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   }
   function afterSample() {                   // the sample just changed and update() has run: every training frame takes a step on it
     let stepped = false;
+    G.blocks.forEach(b => { if (b.type === 'attn' && b.train) stepped = attnStep(b) || stepped; });   // from the same forward pass the frames are about to use
     G.blocks.forEach(b => { if (b.type === 'perc' && b.train) stepped = beginStep(b) || stepped; });
     if (stepped) update(false);
   }
@@ -2000,14 +2046,14 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       const b = byId(id), r = b && last[id]; if (!r || !r.back) return ANIM.delete(id);
       if ((performance.now() - an.t0) / BPSTEP >= r.back.maxD + 2) { ANIM.delete(id); trainStep(b); any = true; } else renderPerc(b, r);
     });
-    const trainers = G.blocks.filter(b => b.type === 'perc' && b.train), fast = trainers.length && trainers.every(b => b.showBack === false);
+    const trainers = G.blocks.filter(b => (b.type === 'perc' || b.type === 'attn') && b.train), fast = trainers.length && trainers.every(b => b.type === 'attn' || b.showBack === false);
     G.blocks.forEach(b => {
       if (b.type !== 'data' || !b.playing) return;
       if (!trainers.length) { if (tick % 3 === 0) { b.idx = (b.idx || 0) + 1; sampleMoved = any = true; } return; }   // not training: about four images a second
       if (ANIM.size) return;                                          // training: wait for the sweep, then feed the next sample
       if (fast) {                                                     // no sweep to show: as many samples as fit in 50 ms, drawing once at the end
         const t0 = performance.now(); let n = 0;
-        do { b.idx = (b.idx || 0) + 1; last = evalAll(); tally(); trainers.forEach(tr => trainStep(tr)); } while (++n < 400 && performance.now() - t0 < 50 && trainers.some(tr => tr.train));
+        do { b.idx = (b.idx || 0) + 1; last = evalAll(); tally(); trainers.forEach(tr => tr.type === 'attn' ? attnStep(tr) : trainStep(tr)); } while (++n < 400 && performance.now() - t0 < 50 && trainers.some(tr => tr.train));
       } else { b.idx = (b.idx || 0) + 1; sampleMoved = true; update(false); afterSample(); }
       any = true;
     });
