@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, set(rect), select(on), dim(on), grips(on), rename() }
+   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, set(rect), select(on), dim(on), grips(on), stripes(way, unit), rename() }
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
      rect     { x, y, w, h } in world coordinates
      name     the text shown above it
@@ -10,6 +10,9 @@
      set      moves and resizes it
      select   shows or hides the selection halo, and brings the block in front of the others
      grips    turns the resize grips on or off
+     stripes  bands the block's face, one band to each `unit` of world length, paler and deeper by turns in the
+              block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or
+              null for a plain face
      dim      fades the block and its name most of the way to the theme's --fade-to, or brings them back
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
@@ -24,13 +27,18 @@ style('block', `
      These are sized in screen pixels, so a block looks the same zoomed in or out. */
   /* the block's own colours: the theme's, until dim() fades them */
   --face: var(--block); --rim: var(--edge); --lit: var(--raise-light); --shade: var(--raise-dark); --cast: var(--shadow); --ink: var(--fg);
-  background: var(--face); transition: background-color .15s;
+  background: var(--bands, none) var(--face); transition: background-color .15s;
   /* a thin dark rim all round, so two blocks that touch still show where one ends and the next begins */
   box-shadow: var(--halo, 0 0), inset 0 0 0 var(--px) var(--rim),
     inset 0 calc(2.5 * var(--px)) 0 var(--lit), inset 0 calc(-4 * var(--px)) 0 var(--shade); }
 /* the shadow underneath is drawn on a layer below every block (z-index -1), so it falls on the canvas and never on another block */
 .block::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
   box-shadow: 0 calc(2 * var(--px)) calc(3 * var(--px)) var(--cast), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--cast); }
+/* bands start at the block's top and left edge, so each one is exactly a row or a column */
+.block.rows { --bands: repeating-linear-gradient(to bottom, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
+.block.cols { --bands: repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
+.block.rows.cols { --bands: repeating-linear-gradient(to bottom, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))),
+  repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
 .block.selected { outline: calc(2 * var(--px)) solid var(--select); outline-offset: calc(2 * var(--px));
   --halo: 0 0 0 calc(7 * var(--px)) var(--select-halo); cursor: move; z-index: 1; }
 /* faded: every colour mixed most of the way to --fade-to (or to nothing, for the see-through ones), not made transparent,
@@ -67,6 +75,8 @@ export function createBlock(shape, rect, name = ''){
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
     grips(on){ el.classList.toggle('no-grips', !on); },
+    stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');
+      if (way) el.style.setProperty('--u', unit + 'px'); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },
     rename(){ editText(nameEl, text => { if (text) block.name = text; nameEl.textContent = block.name; }); } };
   block.set(rect);

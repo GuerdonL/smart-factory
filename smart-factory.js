@@ -140,7 +140,12 @@ function shown(){                              /* brings what is on screen in li
   /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
   const u = view.unit, rects = space.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   for (const j of marks) j.el.remove();
-  marks = joins(rects).map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: j.note }));
+  const js = joins(rects);
+  marks = js.map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: j.note }));
+  /* in a product the left block gives its rows and the right block its columns, so the left one is banded across
+     and the right one down; a block in the middle of a chain does both */
+  space.blocks.forEach((b, i) => { const rows = js.some(j => j.ok && j.left === i), cols = js.some(j => j.ok && j.right === i);
+    b.stripes(rows && cols ? 'both' : rows ? 'rows' : cols ? 'cols' : null, u); });
   view.world.append(...marks.map(j => j.el));
   /* a definition space checks what is here against its block's promised size. The top space has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
