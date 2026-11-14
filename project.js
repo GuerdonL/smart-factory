@@ -38,12 +38,14 @@
 
    A group's config:
        { "format": "smart-factory/group", "version": 1, "name": "Pair", "named": true,
-         "shapes": [ { a shape's config }, … ] }
+         "shapes": [ { a shape's config }, … ],            the shapes directly in the group
+         "groups": [ { "name", "named", "shapes", "groups" }, … ] }      the groups inside it, written the same way
 
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
    project: { top: space, settings: space, saved: an ISO date }
-   space:   { shapes: [shape], groups: [{ name, members: [index into shapes] }] }
+   space:   { shapes: [shape], groups: [group] }
+   group:   { name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
               variable: a number shared by shapes that are one variable, or null } */
 
@@ -72,16 +74,17 @@ function valueOf(shape){
 export function write(project){
   const files = [];
   const space = (s, dir) => {
-    const taken = new Set(), grouped = new Set(s.groups.flatMap(g => g.members));
+    const every = g => [...g.members, ...(g.groups || []).flatMap(every)];
+    const taken = new Set(), grouped = new Set(s.groups.flatMap(every));
     const config = (shape, order) => { const name = stem(shape.name, taken);
       if (shape.inside) space(shape.inside, dir + name + '/');
       return [name, { format: 'smart-factory/shape', version: FORMAT, type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
-    s.groups.forEach((g, n) => { const shapes = g.members.map(i => config(s.shapes[i], i)[1]);
-      const name = stem(g.name || 'group ' + (n + 1), taken);
-      files.push({ path: dir + name + '.group.json', text: JSON.stringify({ format: 'smart-factory/group', version: FORMAT, name: g.name || null, named: !!g.name, shapes }, null, 2) + '\n' }); });
+    const inner = g => ({ name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
+    s.groups.forEach((g, n) => { const body = inner(g), name = stem(g.name || 'group ' + (n + 1), taken);
+      files.push({ path: dir + name + '.group.json', text: JSON.stringify({ format: 'smart-factory/group', version: FORMAT, ...body }, null, 2) + '\n' }); });
   };
   files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null }, null, 2) + '\n' });
   space(project.top, '');
@@ -101,20 +104,22 @@ export function read(files){
   if (meta.version > FORMAT) throw new Error('this project was saved by a newer version (format ' + meta.version + ')');
 
   const space = dir => {
-    const found = [], groups = [];                       /* found: [config, group index or null] */
+    const found = [], groups = [];                       /* found: [config, the group it is directly in, or null] */
+    const take = c => { const g = { name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take) };
+      for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
       if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !path.endsWith('.json') || path === 'project.json') continue;
       let c; try { c = JSON.parse(text); } catch (e) { throw new Error(path + ' is not valid JSON'); }
       if (c.format === 'smart-factory/shape') found.push([c, null]);
-      else if (c.format === 'smart-factory/group'){ groups.push({ name: c.named ? c.name : null, members: [] }); for (const s of c.shapes || []) found.push([s, groups.length - 1]); }
+      else if (c.format === 'smart-factory/group') groups.push(take(c));
     }
     found.sort((a, b) => (a[0].order ?? 0) - (b[0].order ?? 0));
-    const shapes = found.map(([c, g], i) => { if (g !== null) groups[g].members.push(i);
+    const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i);
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
       return { type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
         entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null }; });
-    return { shapes, groups: groups.filter(g => g.members.length > 1) };
+    return { shapes, groups };
   };
   return { top: space(''), settings: [...at.keys()].some(p => p.startsWith('_settings/')) ? space('_settings/') : { shapes: [], groups: [] }, saved: meta.saved || null };
 }

@@ -1,0 +1,100 @@
+{
+  "format": "smart-factory/group",
+  "version": 1,
+  "name": "Outer",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 1,
+      "type": "tensor",
+      "name": "Mask",
+      "named": true,
+      "commented": false,
+      "color": "lazuli",
+      "position": {
+        "x": 2,
+        "y": -4
+      },
+      "size": {
+        "cols": 2,
+        "rows": 2
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 0,
+          "2,1": "-inf",
+          "1,2": 0,
+          "2,2": 0
+        }
+      },
+      "order": 1
+    }
+  ],
+  "groups": [
+    {
+      "name": "Pair",
+      "named": true,
+      "shapes": [
+        {
+          "format": "smart-factory/shape",
+          "version": 1,
+          "type": "tensor",
+          "name": "Shape 1",
+          "named": false,
+          "commented": false,
+          "color": null,
+          "position": {
+            "x": 6,
+            "y": 3
+          },
+          "size": {
+            "cols": 3,
+            "rows": 2
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {}
+          },
+          "order": 2
+        },
+        {
+          "format": "smart-factory/shape",
+          "version": 1,
+          "type": "tensor",
+          "name": "Shape 2",
+          "named": false,
+          "commented": false,
+          "color": null,
+          "position": {
+            "x": 10,
+            "y": 3
+          },
+          "size": {
+            "cols": 3,
+            "rows": 2
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {}
+          },
+          "order": 3
+        }
+      ],
+      "groups": []
+    }
+  ]
+}

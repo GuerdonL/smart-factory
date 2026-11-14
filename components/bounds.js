@@ -11,6 +11,8 @@
               tools     shows the name field and the buttons: on for whatever is selected
               grouped   the blocks are one group, so the group button reads "ungroup"
               fold      shows the fold button: move the blocks into a new block of the same name
+              grow      how many levels of named groups are framed inside this one; the frame stands that much
+                        further off, so frames nest without touching
      nameEl, groupButton, foldButton   the elements. The canvas hands clicks to the page, so the page watches for
             clicks on them; this component does not act on them itself.
    Put el in the view's world; remove it when there is nothing to surround. */
@@ -23,7 +25,8 @@ const ICON = {
 };
 
 style('bounds', `
-.bounds { position: absolute; z-index: 2; pointer-events: none; --px: calc(1px / var(--zoom, 1)); --pad: calc(12 * var(--px)); --top: calc(32 * var(--px)); --ink: var(--muted); }
+.bounds { position: absolute; z-index: 2; pointer-events: none; --px: calc(1px / var(--zoom, 1)); --grow: 0;
+  --pad: calc((12 + 14 * var(--grow)) * var(--px)); --top: calc((32 + 34 * var(--grow)) * var(--px)); --ink: var(--muted); }
 .bounds.selected { --ink: var(--select); }
 .bounds::before { content: ""; position: absolute; inset: calc(-1 * var(--top)) calc(-1 * var(--pad)) calc(-1 * var(--pad));
   border: calc(1.5 * var(--px)) dashed var(--ink); border-radius: calc(10 * var(--px)); }
@@ -44,7 +47,8 @@ export function createBounds(){
     <button type="button"><svg viewBox="0 0 16 16"></svg></button><button type="button" title="Move into a new block" aria-label="Move into a new block"><svg viewBox="0 0 16 16">${ICON.fold}</svg></button></div></div>`;
   const nameEl = el.firstElementChild, tools = el.lastElementChild, [groupButton, foldButton] = tools.children;
   return { el, nameEl, groupButton, foldButton,
-    set(r, { name = '', solid = false, selected = false, tools: on = false, grouped = false, fold = false } = {}){
+    set(r, { name = '', solid = false, selected = false, tools: on = false, grouped = false, fold = false, grow = 0 } = {}){
+      el.style.setProperty('--grow', grow);
       Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
       el.classList.toggle('solid', solid); el.classList.toggle('selected', selected);
       if (!nameEl.isContentEditable) nameEl.textContent = name;             /* a name being typed is left alone */

@@ -31,7 +31,7 @@ fetch('shapes/index.json').then(r => r.json())
    own, made the first time it is opened (the top space instead shows "=" and what each piece of touching shapes comes to): a canvas showing an equation, with the block as a variable in matrix
    notation on the right and, on the left, the place for what defines it. What is put in the space must come to the
    block's promised size (w units across, h units down). Only the current space's blocks are on the canvas. */
-const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), groupNames: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
+const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), groupUp: new Map(), groupNames: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
 const top = newSpace(null, null);
 /* the settings: a space of its own, opened from the gear in the corner and reached from anywhere. Nothing is in it yet. */
 const settings = Object.assign(newSpace(null, top), { label: 'Settings' });
@@ -239,18 +239,57 @@ function typedNow(b, dim, text){
   agree(b);
 }
 
-/* ---- groups: blocks that are selected together. A block is in at most one group, within its space. ----
+/* ---- groups: blocks that are selected together ----
+   A group holds blocks and other groups. A block sits directly in at most one group, and that group may sit in
+   another, and so on outwards. Clicking a block selects the outermost group it is in; each double click steps one
+   group inwards, down to the block itself.
    A group can be given a name. A named group keeps a solid frame and its name on the canvas whether or not it is
    selected. It behaves as one named thing, but its blocks stay where they are, in this space, and can still be
    worked on directly; folding it is what moves them into a block of their own. */
 let nextGroup = 1;
-const members = b => { const g = space.groupOf; return g.has(b) ? space.blocks.filter(o => g.get(o) === g.get(b)) : [b]; };
-const isOneGroup = list => { const g = space.groupOf; return list.length > 1 && g.has(list[0]) && list.every(b => g.get(b) === g.get(list[0])) && members(list[0]).length === list.length; };
-function ungroup(list){
-  for (const b of list) space.groupOf.delete(b);
-  for (const b of space.blocks) if (space.groupOf.has(b) && members(b).length < 2) space.groupOf.delete(b);      /* a group of one is no group */
-  const live = new Set(space.groupOf.values());
-  for (const id of [...space.groupNames.keys()]) if (!live.has(id)) space.groupNames.delete(id);                /* nor does a group that is gone keep its name */
+/* the groups b is in, innermost first */
+const chain = (b, s = space) => { const out = []; for (let g = s.groupOf.get(b); g !== undefined; g = s.groupUp.get(g)) out.push(g); return out; };
+const inGroup = (g, s = space) => s.blocks.filter(b => chain(b, s).includes(g));
+const members = b => { const c = chain(b); return c.length ? inGroup(c[c.length - 1]) : [b]; };      /* everything in b's outermost group */
+/* the group whose blocks are exactly these, or null */
+const groupIs = list => { if (list.length < 2) return null;
+  for (const g of chain(list[0])){ const m = inGroup(g); if (m.length === list.length && m.every(b => list.includes(b))) return g; }
+  return null; };
+/* makes these blocks one group. Groups lying wholly among them go in as they are, as groups within the new one;
+   the new group itself sits in whatever group already held all of them. */
+function group(list){
+  const g = nextGroup++, done = new Set();
+  const holder = chain(list[0]).find(c => list.every(b => chain(b).includes(c)));      /* the innermost group holding them all, if any */
+  for (const b of list){ if (done.has(b)) continue;
+    let unit = null; for (const c of chain(b)){ if (c === holder) break; if (inGroup(c).every(x => list.includes(x))) unit = c; }      /* the largest group, with b in it, wholly inside the list */
+    if (unit === null){ space.groupOf.set(b, g); done.add(b); }
+    else { for (const x of inGroup(unit)) done.add(x); space.groupUp.set(unit, g); } }
+  if (holder !== undefined) space.groupUp.set(g, holder);
+  tidy();
+}
+/* takes one group apart: what was directly in it is now directly in the group that held it, or in none */
+function ungroup(g, s = space){
+  const up = s.groupUp.get(g);
+  for (const [b, at] of s.groupOf) if (at === g) up === undefined ? s.groupOf.delete(b) : s.groupOf.set(b, up);
+  for (const [c, at] of s.groupUp) if (at === g) up === undefined ? s.groupUp.delete(c) : s.groupUp.set(c, up);
+  s.groupUp.delete(g); s.groupNames.delete(g);
+}
+/* after blocks have left: a group with fewer than two things in it is no group, and a group that is gone keeps no name */
+function tidy(s = space){
+  for (const b of [...s.groupOf.keys()]) if (!s.blocks.includes(b)) s.groupOf.delete(b);
+  for (let again = true; again;){ again = false;
+    const ids = new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()]);
+    for (const g of ids){ const holds = [...s.groupOf.values()].filter(at => at === g).length + [...s.groupUp.values()].filter(at => at === g).length;
+      if (holds < 2){ ungroup(g, s); again = true; break; } } }
+  const live = new Set([...s.groupOf.values(), ...s.groupUp.values()]);
+  for (const id of [...s.groupNames.keys()]) if (!live.has(id)) s.groupNames.delete(id);
+}
+/* how many levels of named groups sit strictly inside these blocks' frame: 0 if none */
+function namedWithin(list, not = null){
+  let most = 0;
+  for (const [id] of space.groupNames){ if (id === not) continue; const m = inGroup(id);
+    if (m.length && m.every(b => list.includes(b))) most = Math.max(most, 1 + namedWithin(m, id)); }
+  return most;
 }
 const boxOf = list => { const x = Math.min(...list.map(b => b.rect.x)), y = Math.min(...list.map(b => b.rect.y));
   return { x, y, w: Math.max(...list.map(b => b.rect.x + b.rect.w)) - x, h: Math.max(...list.map(b => b.rect.y + b.rect.h)) - y }; };
@@ -273,17 +312,17 @@ function shown(){                              /* brings what is on screen in li
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h }); }
   else measure?.el.remove();
   /* named groups keep their frames; the one that is the whole selection also carries the tools */
-  const oneGroup = isOneGroup(list) ? space.groupOf.get(list[0]) : null, live = new Set();
+  const oneGroup = groupIs(list), live = new Set();
   for (const [id, name] of space.groupNames){
-    const ms = space.blocks.filter(b => space.groupOf.get(b) === id); if (ms.length < 2) continue;
+    const ms = inGroup(id); if (ms.length < 2) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
     const f = space.frames.get(id), on = id === oneGroup;
-    f.set(boxOf(ms), { name, solid: true, selected: on, tools: on, grouped: true, fold: true }); view.world.append(f.el);
+    f.set(boxOf(ms), { name, solid: true, selected: on, tools: on, grouped: true, fold: true, grow: namedWithin(ms, id) }); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
   /* any other selection of several gets the dashed box, with a name to fill in */
   if (list.length > 1 && !live.has(oneGroup)){
-    bounds.set(boxOf(list), { selected: true, tools: true, grouped: oneGroup !== null });
+    bounds.set(boxOf(list), { selected: true, tools: true, grouped: oneGroup !== null, grow: namedWithin(list) });
     view.world.append(bounds.el);
   } else bounds.el.remove();
   /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
@@ -348,13 +387,18 @@ function fold({ blocks: inside, type, box }, name){
   made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
   /* its definition space: the folded blocks, level with the equation at the centre and clear of it on the left */
   const def = newSpace(made, space); spaceOf.set(made, def);
+  /* groups lying wholly among the folded blocks go with them; the group being folded itself, if it is one, does not */
+  const whole = groupIs(inside), going = new Set(inside.flatMap(b => chain(b)).filter(g => g !== whole && inGroup(g).every(b => inside.includes(b))));
+  for (const b of inside) if (going.has(space.groupOf.get(b))) def.groupOf.set(b, space.groupOf.get(b));
+  for (const g of going){ if (going.has(space.groupUp.get(g))) def.groupUp.set(g, space.groupUp.get(g)); if (space.groupNames.has(g)) def.groupNames.set(g, space.groupNames.get(g)); }
+  for (const g of going){ space.groupUp.delete(g); space.groupNames.delete(g); }
   const dx = -u * (3 + squares(type.cols)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
   for (const b of inside){
     b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b);
     b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); def.blocks.push(b);
     if (spaceOf.has(b)) spaceOf.get(b).parent = def;                                                 /* its own definition now hangs under the new one */
   }
-  ungroup([]);                                 /* a group left with one member is no group */
+  tidy();                                      /* a group left with one thing in it is no group */
   space.blocks.push(made); view.world.append(made.el);
   select([made]);
 }
@@ -365,7 +409,8 @@ function fold({ blocks: inside, type, box }, name){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: new Map(b.values), group: s.groupOf.get(b) ?? null, groupName: s.groupNames.get(s.groupOf.get(b)) ?? null,
+const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: new Map(b.values), groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
+ 
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null });
 function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
 /* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
@@ -377,10 +422,11 @@ function develop(pictures, s, dx, dy){
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
     const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
     s.blocks.push(b); made.push(b);
-    if (pic.group !== null){ if (!groups.has(pic.group)) groups.set(pic.group, nextGroup++); s.groupOf.set(b, groups.get(pic.group));
-      if (pic.groupName) s.groupNames.set(groups.get(pic.group), pic.groupName); }
+    pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, nextGroup++); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
+      if (i === 0) s.groupOf.set(b, groups.get(g.id)); else s.groupUp.set(groups.get(pic.groups[i - 1].id), groups.get(g.id)); });
     if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   }
+  tidy(s);                                     /* a group of which only part was copied may not be a group here */
   return made;
 }
 function paste(at){                             /* at: a world point; the pasted blocks are centred on it, on the dots */
@@ -400,7 +446,7 @@ function remove(){
   const gone = [...selected]; select([]);
   for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b);
     const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); } }      /* one use fewer of its variable */
-  ungroup(gone); shown();
+  tidy(); shown();
 }
 
 /* ---- saving and opening a project ----
@@ -415,14 +461,17 @@ function gather(){
   const plain = s => ({
     shapes: s.blocks.map(b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
       colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b) })),
-    groups: [...new Set(s.groupOf.values())].map(id => ({ name: s.groupNames.get(id) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === id ? i : -1).filter(i => i >= 0) })) });
+    groups: tree(s, undefined) });
+  /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
+  const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
+    .map(g => ({ name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
   return { top: plain(top), settings: plain(settings), saved: new Date().toISOString() };
 }
 /* the reverse: everything on the page is replaced by what the data describes */
 function rebuild(data){
   go(top); select([]);
   for (const s of [top, settings]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
-    s.blocks.length = 0; s.groupOf.clear(); s.groupNames.clear(); s.frames.clear(); }
+    s.blocks.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.frames.clear(); }
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
   const u = view.unit;
@@ -434,7 +483,10 @@ function rebuild(data){
       if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
       if (first){ b.values = first.values; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); continue; }      /* a later use: the first one's entries and definition */
       if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); } }
-    for (const g of plain.groups){ const id = nextGroup++; for (const i of g.members) s.groupOf.set(s.blocks[i], id); if (g.name) s.groupNames.set(id, g.name); }
+    const regroup = (g, up) => { const id = nextGroup++; if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name);
+      for (const i of g.members) s.groupOf.set(s.blocks[i], id); for (const inner of g.groups || []) regroup(inner, id); };
+    for (const g of plain.groups) regroup(g, undefined);
+    tidy(s);
   };
   fill(data.top, top); fill(data.settings, settings);
   for (const list of uses.values()) if (list.length > 1){ const set = new Set(list); for (const b of list) kin.set(b, set); }
@@ -528,21 +580,21 @@ function clicked(el, e){
   /* the frame round the selection (dashed), or round a named group (solid): its buttons and its name */
   for (const [id, f] of [[null, bounds], ...space.frames]){
     if (!f.el.isConnected || !f.el.contains(el)) continue;
-    const list = id === null ? [...selected] : space.blocks.filter(b => space.groupOf.get(b) === id);
+    const list = id === null ? [...selected] : inGroup(id);
     /* the group button: make the selection one group, or take it apart again */
     if (f.groupButton.contains(el)){
-      if (isOneGroup(list)) ungroup(list); else { ungroup(list); const g = nextGroup++; for (const b of list) space.groupOf.set(b, g); }
+      if (groupIs(list) !== null){ ungroup(groupIs(list)); tidy(); } else group(list);
       return shown();
     }
     /* the fold button: the group's blocks move into a new block with the group's name */
     if (f.foldButton.contains(el)) return fold(foldable(list), space.groupNames.get(id));
     if (el === f.nameEl){
       /* a named group's name: the first click selects the group, a click once it is selected renames it */
-      if (id !== null && !(isOneGroup([...selected]) && space.groupOf.get([...selected][0]) === id)) return select(list);
+      if (id !== null && groupIs([...selected]) !== id) return select(list);
       f.nameEl.textContent = '';
       return editText(f.nameEl, name => {
         if (name && id !== null) space.groupNames.set(id, name);                                      /* rename a named group */
-        else if (name && isOneGroup(list)) space.groupNames.set(space.groupOf.get(list[0]), name);    /* name a group: it stays here, framed */
+        else if (name && groupIs(list) !== null) space.groupNames.set(groupIs(list), name);          /* name a group: it stays here, framed */
         else if (name && list.every(b => space.blocks.includes(b))) return fold(foldable(list), name); /* name a plain selection: it folds into a new block */
         shown(); });
     }
@@ -570,11 +622,14 @@ function clicked(el, e){
   if (b && twice){                              /* double click */
     if (el === b.nameEl){ select([b]); return b.rename((changed, was) => renamed(b, changed, was)); }      /* on a name: rename it */
     if (selected.size === 1 && selected.has(b)) return open(b);             /* on a block selected alone: open its definition space */
-    return select([b]);                                                     /* on one of several: select just that block */
+    /* on a block in a selected group: step one group inwards, or to the block itself from the innermost */
+    const outwards = chain(b).reverse(), at = outwards.indexOf(groupIs([...selected]));
+    return select(at + 1 < outwards.length && outwards.length > 1 ? inGroup(outwards[Math.max(at, 0) + 1]) : [b]);
   }
-  /* a click on the block that is already selected alone leaves it so, even inside a group: otherwise the first half
-     of a double click would hand the selection back to the group, and the second half could never open the block */
-  if (b && !e.shiftKey && selected.size === 1 && selected.has(b)) return;
+  /* a click on a block inside what is already selected, itself or one of its groups, leaves the selection as it is:
+     otherwise the first half of a double click would hand the selection back to the outermost group, and the second
+     half could never step inwards or open the block */
+  if (b && !e.shiftKey && selected.has(b) && (selected.size === 1 || chain(b).includes(groupIs([...selected])))) return;
   select(b ? members(b) : [], { toggle: !!b && e.shiftKey });
 }
 
