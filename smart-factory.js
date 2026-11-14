@@ -104,9 +104,9 @@ function renamed(b, changed, was){                /* adding or taking off the //
 /* ---- variables ----
    A named shape is a variable. Dragged in from the list at the screen's right edge, it is the same variable used in
    another place: every use has the one name, colour, size, set of entries and definition, and changing any of them
-   through one use changes them all. (A named side length is a variable too: see "named sides" below.)
+   through one use changes them all. A named side length is a variable too: see "named sides" below.
    A variable is in reach in the space where its highest use sits and in every space beneath that one: at the top
-   level it is in reach everywhere. The list shows what is in reach of the current space. */
+   level it is in reach everywhere. The list shows what is in reach of the current space, along the way you came. */
 const kin = new Map();                         /* block -> the set of blocks that are uses of its variable (itself included), once it has more than one */
 const kinOf = b => kin.get(b) || [b];
 function inReach(){
@@ -115,7 +115,7 @@ function inReach(){
     if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
       for (const k of kinOf(b)) seen.add(k);
       items.push({ kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b }); }
-    for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); items.push({ kind: 'length', name: b.sides[dim], units: lengths.get(b.sides[dim]) }); }
+    for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); items.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
   }
   return [...items.filter(i => i.kind === 'shape'), ...items.filter(i => i.kind === 'length')];
 }
@@ -155,7 +155,7 @@ const variables = createVariables({
     if (item.kind === 'shape') return useShape(item.block, view.toWorld(x, y));
     const target = reach(x, y), u = view.unit;
     if (target) typed(target.b, target.dim, item.name);                                     /* onto a side: that side takes the name, and its length */
-    else { const at = view.toWorld(x, y), on = v => Math.round(v / u) * u, h = lengths.get(item.name) * u;      /* onto the canvas: a vector that long */
+    else { const at = view.toWorld(x, y), on = v => Math.round(v / u) * u, h = item.units * u;      /* onto the canvas: a vector that long */
       const b = createBlock({ ...typeNamed('tensor') }, { x: on(at.x - u / 2), y: on(at.y - h / 2), w: u, h }, freeName());
       b.sides = { w: null, h: item.name }; space.blocks.push(b); view.world.append(b.el); select([b]); }
     shown(); },
@@ -170,20 +170,47 @@ function freeName(){
 }
 
 /* ---- named sides ----
-   A side of a block (its width or its height) can be given a name, such as "context". Every side with the same name,
-   on any block in any space, is the same length: change one and they all change. Two named sides multiply only if
-   they carry the same name. */
-const lengths = new Map();                     /* a name -> how many units long its sides are */
+   A side of a block (its width or its height) can be given a name, such as "context". A name belongs to a space: the
+   highest space, above a side or the side's own, that has a side of that name. Every side of that name in that space
+   and in the spaces beneath it is the same length: change one and they all change. So a name used at the top level
+   is one length everywhere, while the same name used in two spaces that are not above one another is two separate
+   lengths. Two named sides multiply only if they carry the same name. */
 const everySpace = () => [...new Set([top, settings, ...spaceOf.values()])];
 const everyBlock = () => everySpace().flatMap(s => s.blocks);
-/* after b's size has changed: its named sides give their new length to every side of the same name */
+const spaceWith = b => everySpace().find(s => s.blocks.includes(b));
+const uses = (s, name) => s.blocks.some(b => b.sides.w === name || b.sides.h === name);
+/* s and every space above it: the spaces holding a block whose definition s is, and so on up */
+function above(s){
+  const seen = new Set([s]), todo = [s];
+  while (todo.length){ const t = todo.pop(); for (const p of everySpace()) if (!seen.has(p) && p.blocks.some(b => spaceOf.get(b) === t)){ seen.add(p); todo.push(p); } }
+  return seen;
+}
+/* the space a name belongs to, as seen from s: the highest space at or above s with a side of that name; s itself if there is none yet */
+function homeOf(name, s){
+  const having = [...above(s)].filter(t => uses(t, name));
+  return having.find(t => ![...above(t)].some(a => a !== t && having.includes(a))) || s;
+}
+/* every side that is the same length as a side called name in s: [block, 'w' or 'h', the block's space] */
+function sidesCalled(name, s){
+  const home = homeOf(name, s), out = [];
+  for (const t of everySpace()) if (uses(t, name) && homeOf(name, t) === home) for (const b of t.blocks) for (const dim of ['w', 'h']) if (b.sides[dim] === name) out.push([b, dim, t]);
+  return out;
+}
+/* the length a side called name has in s already, if one at or above s carries it; otherwise undefined */
+function lengthCalled(name, s, not = null){
+  const here = above(s), from = sidesCalled(name, s).find(([o, , t]) => o !== not && here.has(t));
+  return from && from[0].rect[from[1]];
+}
+/* after b's size has changed: every other use of its variable takes its size, and every side that shares a name
+   with one of its sides takes that side's length; then the same for whatever those changed, until nothing moves */
 function agree(b){
-  const u = view.unit;
-  for (const k of kinOf(b)) if (k !== b){ k.sides = { ...b.sides }; if (k.rect.w !== b.rect.w || k.rect.h !== b.rect.h) k.set({ ...k.rect, w: b.rect.w, h: b.rect.h }); }      /* one variable, one size */
-  for (const dim of ['w', 'h']) if (b.sides[dim]) lengths.set(b.sides[dim], Math.max(1, Math.round(b.rect[dim] / u)));
-  for (const o of everyBlock()){ let r = o.rect;
-    for (const dim of ['w', 'h']) if (o.sides[dim] && r[dim] !== lengths.get(o.sides[dim]) * u) r = { ...r, [dim]: lengths.get(o.sides[dim]) * u };
-    if (r !== o.rect) o.set(r); }
+  const todo = [b], done = new Set();
+  while (todo.length){
+    const c = todo.pop(); if (done.has(c)) continue; done.add(c);
+    for (const k of kinOf(c)) if (k !== c){ k.sides = { ...c.sides }; if (k.rect.w !== c.rect.w || k.rect.h !== c.rect.h){ k.set({ ...k.rect, w: c.rect.w, h: c.rect.h }); todo.push(k); } }      /* one variable, one size */
+    const s = spaceWith(c); if (!s) continue;
+    for (const dim of ['w', 'h']) if (c.sides[dim]) for (const [o, d] of sidesCalled(c.sides[dim], s)) if (o.rect[d] !== c.rect[dim]){ o.set({ ...o.rect, [d]: c.rect[dim] }); done.delete(o); todo.push(o); }
+  }
 }
 /* Runs change(), then puts back together whatever it pulled apart: blocks that were touching side by side, in any
    space, still touch afterwards, the right-hand one moving to stay against the left-hand one. A length that changes
@@ -199,13 +226,15 @@ function keepTouching(change, except = () => false){
   for (const [left, right] of pairs) if (right.rect.x !== left.rect.x + left.rect.w) right.set({ ...right.rect, x: left.rect.x + left.rect.w });
 }
 
-/* what was typed into a measurement:  "8" a length;  "context" a name (the side takes that name's length, or gives it
-   its own if the name is new);  "context 8" both;  "-" takes the name off. */
+/* what was typed into a measurement:  "8" a length;  "context" a name (the side takes the length that name has here or
+   above; if the name is new here, the side gives it its own length, and any sides of that name below follow);
+   "context 8" both;  "-" takes the name off. */
 function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
 function typedNow(b, dim, text){
   const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(), n = m[2] ? Math.round(parseFloat(m[2])) : null;
   if (name === '-'){ b.sides[dim] = null; if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); return; }
-  if (name){ b.sides[dim] = name; if (n === null && lengths.has(name)) b.set({ ...b.rect, [dim]: lengths.get(name) * view.unit }); }
+  if (name){ b.sides[dim] = null; const has = lengthCalled(name, space, null);      /* the length the name already has here or above, looked up before this side joins it */
+    b.sides[dim] = name; if (n === null && has !== undefined) b.set({ ...b.rect, [dim]: has }); }
   if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit });
   agree(b);
 }
@@ -344,7 +373,7 @@ function develop(pictures, s, dx, dy){
   const u = view.unit, groups = new Map(), made = [];
   for (const pic of pictures){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
-    for (const dim of ['w', 'h']) if (pic.sides[dim] && lengths.has(pic.sides[dim])) r[dim] = lengths.get(pic.sides[dim]) * u;      /* a named side is whatever length that name is now */
+    for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
     const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
     s.blocks.push(b); made.push(b);
@@ -387,16 +416,15 @@ function gather(){
     shapes: s.blocks.map(b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
       colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b) })),
     groups: [...new Set(s.groupOf.values())].map(id => ({ name: s.groupNames.get(id) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === id ? i : -1).filter(i => i >= 0) })) });
-  return { top: plain(top), settings: plain(settings), lengths: Object.fromEntries(lengths), saved: new Date().toISOString() };
+  return { top: plain(top), settings: plain(settings), saved: new Date().toISOString() };
 }
 /* the reverse: everything on the page is replaced by what the data describes */
 function rebuild(data){
   go(top); select([]);
   for (const s of [top, settings]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
     s.blocks.length = 0; s.groupOf.clear(); s.groupNames.clear(); s.frames.clear(); }
-  spaceOf.clear(); kin.clear(); lengths.clear(); deeper.length = 0; clipboard = null;
+  spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
-  for (const [name, n] of Object.entries(data.lengths)) lengths.set(name, n);
   const u = view.unit;
   const fill = (plain, s) => {
     for (const d of plain.shapes){ const type = typeNamed(d.type);

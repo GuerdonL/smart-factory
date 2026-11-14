@@ -6,7 +6,7 @@
    A group is one combined file holding all of its shapes.
 
        my-project/
-         project.json              what this is, when it was saved, and the lengths of the named sides
+         project.json              what this is, and when it was saved
          Embedding.json            a shape
          Keys.json                 a shape with a definition ...
          Keys/                     ... which is this directory
@@ -34,13 +34,15 @@
    value.as is "computation" when its definition space has shapes that work it out, "resolved" when every entry has
    been given a number, and "variable" otherwise. Infinity is written "inf" and "-inf".
 
+   A named side's length is not stored anywhere else: it is the size of the sides that carry the name.
+
    A group's config:
        { "format": "smart-factory/group", "version": 1, "name": "Pair", "named": true,
          "shapes": [ { a shape's config }, … ] }
 
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
-   project: { top: space, settings: space, lengths: { name: units }, saved: an ISO date }
+   project: { top: space, settings: space, saved: an ISO date }
    space:   { shapes: [shape], groups: [{ name, members: [index into shapes] }] }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
               variable: a number shared by shapes that are one variable, or null } */
@@ -81,7 +83,7 @@ export function write(project){
       const name = stem(g.name || 'group ' + (n + 1), taken);
       files.push({ path: dir + name + '.group.json', text: JSON.stringify({ format: 'smart-factory/group', version: FORMAT, name: g.name || null, named: !!g.name, shapes }, null, 2) + '\n' }); });
   };
-  files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, lengths: project.lengths || {} }, null, 2) + '\n' });
+  files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null }, null, 2) + '\n' });
   space(project.top, '');
   if (project.settings && project.settings.shapes.length) space(project.settings, '_settings/');
   return files;
@@ -114,5 +116,5 @@ export function read(files){
         entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null }; });
     return { shapes, groups: groups.filter(g => g.members.length > 1) };
   };
-  return { top: space(''), settings: [...at.keys()].some(p => p.startsWith('_settings/')) ? space('_settings/') : { shapes: [], groups: [] }, lengths: meta.lengths || {}, saved: meta.saved || null };
+  return { top: space(''), settings: [...at.keys()].some(p => p.startsWith('_settings/')) ? space('_settings/') : { shapes: [], groups: [] }, saved: meta.saved || null };
 }

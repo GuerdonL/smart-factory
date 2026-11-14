@@ -7,7 +7,7 @@ A saved project is a directory in here. Shapes and files are the same tree:
 - a shape with a definition space has a directory of the same name beside its file, holding that space the same way;
 - a group is one combined `.group.json` file holding all of its shapes.
 
-`project.json` at the top marks the directory as a project and records the lengths of the named sides.
+`project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
 ## Saving and opening
