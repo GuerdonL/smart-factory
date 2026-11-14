@@ -14,9 +14,9 @@ import { html, style } from './dom.js';
 style('block', `
 .block { position: absolute; box-sizing: border-box; --px: calc(1px / var(--zoom, 1));   /* one screen pixel, whatever the zoom */
   border-radius: calc(8 * var(--px));
-  /* lit from above: a soft highlight fading down the face, a bright top lip, a dark bottom lip, and a shadow underneath.
+  /* lit from above: a flat face with a bright top lip, a dark bottom lip, and a shadow underneath.
      These are sized in screen pixels, so a block looks the same zoomed in or out. */
-  background: linear-gradient(var(--raise-light), transparent 55%) var(--block);
+  background: var(--block);
   box-shadow: var(--halo, 0 0), inset 0 calc(1.5 * var(--px)) 0 var(--raise-light), inset 0 calc(-4 * var(--px)) 0 var(--raise-dark); }
 /* the shadow underneath is drawn on a layer below every block (z-index -1), so it falls on the canvas and never on another block */
 .block::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
