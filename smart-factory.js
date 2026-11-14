@@ -9,6 +9,8 @@ import { createMeasure, sides } from './components/measure.js';
 import { createBounds } from './components/bounds.js';
 import { drawRectangle } from './components/draw.js';
 import { boxSelect } from './components/marquee.js';
+import { createMatrix } from './components/matrix.js';
+import { createCrumbs } from './components/crumbs.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
 let shapes = [];
@@ -16,26 +18,49 @@ fetch('shapes/index.json').then(r => r.json())
   .then(names => Promise.all(names.map(name => fetch(`shapes/${name}.json`).then(r => r.json()).then(shape => ({ name, ...shape })))))
   .then(list => { shapes = list; }).catch(() => {});
 
-const blocks = [];
-const blockAt = el => blocks.find(b => b.el.contains(el));
-/* a new block is "Shape n", with the lowest n no block is using */
+/* ---- spaces ----
+   A space is one canvas-full of blocks. The page opens on the top space. Every block has a definition space of its
+   own, made the first time it is opened: a blank canvas showing the block as a variable, written out in matrix
+   notation at the block's size (w units across, h units down). Only the current space's blocks are on the canvas. */
+const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), camera: { x: 0, y: 0, zoom: 1 }, matrix: null });
+const top = newSpace(null, null);
+const spaceOf = new Map();                     /* block -> its definition space */
+let space = top;
+const trail = () => { const t = []; for (let s = space; s; s = s.parent) t.unshift(s); return t; };
+function go(to){
+  select([]); space.camera = view.camera();
+  for (const b of space.blocks) b.el.remove(); space.matrix?.el.remove();
+  space = to;
+  view.world.append(...space.blocks.map(b => b.el));
+  if (space.owner){                            /* written afresh each time, so it follows the block's current size */
+    const r = space.owner.rect, cell = 2 * view.unit, m = space.matrix = createMatrix({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), cell });
+    const on = v => Math.round(v / view.unit) * view.unit;                 /* centred on the origin, on the dots */
+    Object.assign(m.el.style, { left: on(-m.width / 2) + 'px', top: on(-m.height / 2) + 'px' }); view.world.append(m.el);
+  }
+  view.look(space.camera);
+  crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Top'));
+}
+const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); go(spaceOf.get(b)); };
+
+const blockAt = el => space.blocks.find(b => b.el.contains(el));
+/* a new block is "Shape n", with the lowest n no block in this space is using */
 function freeName(){
-  const used = new Set(blocks.map(b => b.name));
+  const used = new Set(space.blocks.map(b => b.name));
   for (let n = 1; ; n++) if (!used.has('Shape ' + n)) return 'Shape ' + n;
 }
 
-/* ---- groups: blocks that are selected together. A block is in at most one group. ---- */
-const groupOf = new Map();                     /* block -> its group's number */
+/* ---- groups: blocks that are selected together. A block is in at most one group, within its space. ---- */
 let nextGroup = 1;
-const members = b => groupOf.has(b) ? blocks.filter(o => groupOf.get(o) === groupOf.get(b)) : [b];
-const isOneGroup = list => list.length > 1 && groupOf.has(list[0]) && list.every(b => groupOf.get(b) === groupOf.get(list[0])) && members(list[0]).length === list.length;
+const members = b => { const g = space.groupOf; return g.has(b) ? space.blocks.filter(o => g.get(o) === g.get(b)) : [b]; };
+const isOneGroup = list => { const g = space.groupOf; return list.length > 1 && g.has(list[0]) && list.every(b => g.get(b) === g.get(list[0])) && members(list[0]).length === list.length; };
 function ungroup(list){
-  for (const b of list) groupOf.delete(b);
-  for (const b of blocks) if (groupOf.has(b) && members(b).length < 2) groupOf.delete(b);      /* a group of one is no group */
+  for (const b of list) space.groupOf.delete(b);
+  for (const b of space.blocks) if (space.groupOf.has(b) && members(b).length < 2) space.groupOf.delete(b);      /* a group of one is no group */
 }
 
 /* ---- selection ----
-   Click a block to select it (with its group, if it has one); double-click to select just that block.
+   Click a block to select it (with its group, if it has one); double-click one inside a selected group to select
+   just that block. Double-click a block that is selected on its own to open its definition space.
    Shift-click adds or removes. Click empty canvas or press Escape to clear. Press s to drag a box round several.
    One block selected: it shows its dimension lines and can be resized. Several: a box is drawn round them with a
    group button, and they move together but do not resize. Whatever is not selected fades back. */
@@ -44,7 +69,7 @@ let measure = null;                            /* the dimension lines of the one
 const bounds = createBounds();
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   const list = [...selected], one = list.length === 1 ? list[0] : null;
-  for (const b of blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
+  for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, sides(view, one.rect)); }
   else measure?.el.remove();
   if (list.length > 1){
@@ -64,19 +89,19 @@ function select(list, { toggle = false } = {}){
 let boxing = null;                             /* the box selection in progress, if any */
 addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === 'Escape') return select([]);
+  if (e.key === 'Escape') return selected.size || !space.parent || boxing ? select([]) : go(space.parent);      /* with nothing selected, Escape steps out of a definition space */
   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
   if (e.key === 's' || e.key === 'S'){
     if (boxing) return boxing.cancel();
     const box = boxing = boxSelect(view);
     return box.done.then(r => { boxing = null; if (!r) return;
-      const hit = blocks.filter(b => b.rect.x < r.x + r.w && b.rect.x + b.rect.w > r.x && b.rect.y < r.y + r.h && b.rect.y + b.rect.h > r.y);
+      const hit = space.blocks.filter(b => b.rect.x < r.x + r.w && b.rect.x + b.rect.w > r.x && b.rect.y < r.y + r.h && b.rect.y + b.rect.h > r.y);
       select([...new Set(hit.flatMap(members))]); });
   }
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
   if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){
     e.preventDefault(); const gone = [...selected]; select([]);
-    for (const b of gone){ b.el.remove(); blocks.splice(blocks.indexOf(b), 1); }
+    for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b); }
     ungroup(gone);
   }
 });
@@ -114,7 +139,7 @@ function clicked(el, e){
   /* the group button: make the selection one group, or take it apart again */
   if (bounds.button.contains(el)){
     const list = [...selected];
-    if (isOneGroup(list)) ungroup(list); else { ungroup(list); const id = nextGroup++; for (const b of list) groupOf.set(b, id); }
+    if (isOneGroup(list)) ungroup(list); else { ungroup(list); const id = nextGroup++; for (const b of list) space.groupOf.set(b, id); }
     return shown();
   }
   /* a measurement: double-click to type a size in whole units; the block keeps its top-left corner */
@@ -124,23 +149,28 @@ function clicked(el, e){
     return;                                     /* a click on a measurement never changes the selection */
   }
   const b = blockAt(el);
-  if (b && twice){ select([b]); if (el === b.nameEl) b.rename(); return; }      /* double click: just this block; on its name, rename it */
+  if (b && twice){                              /* double click */
+    if (el === b.nameEl){ select([b]); return b.rename(); }                 /* on a name: rename it */
+    if (selected.size === 1 && selected.has(b)) return open(b);             /* on a block selected alone: open its definition space */
+    return select([b]);                                                     /* on one of several: select just that block */
+  }
   select(b ? members(b) : [], { toggle: !!b && e.shiftKey });
 }
 
 /* what choosing a shape from "New" does, by the shape's "draw" */
 const draw = {
   rectangle: shape => { select([]); const name = freeName();
-    return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block) blocks.push(block); }); },
+    return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block) space.blocks.push(block); }); },
 };
 
 const menu = createMenu([{ label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) }]);
 const hud = createHud({ onHome: () => view.home() });
+const crumbs = createCrumbs({ onGo: i => go(trail()[i]) });
 const view = createView({
   onChange: cam => { hud.show(cam); menu.close(); shown(); },
   onMenu: (x, y) => menu.openAt(x, y),
   onClick: clicked,
   onDrag: dragged,
 });
-document.body.append(view.el, menu.el, hud.el);
+document.body.append(view.el, menu.el, hud.el, crumbs.el);
 hud.show(view.camera());
