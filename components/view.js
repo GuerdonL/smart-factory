@@ -1,6 +1,6 @@
 /* The canvas: an endless dot grid that pans and zooms.
 
-   createView({ onChange(camera), onMenu(x, y), onClick(element, event) }) -> { el, world, unit, grid(), camera(), home(), toWorld(x, y), toScreen(x, y), tool(t) }
+   createView({ onChange(camera), onMenu(x, y), onClick(element, event), onDrag(element, point) }) -> { el, world, unit, grid(), camera(), home(), toWorld(x, y), toScreen(x, y), tool(t) }
      el        the element to put on the page
      world     put things here to place them on the canvas, in world coordinates. It carries the CSS variable
                --zoom, so a thing can keep a detail the same size on screen: calc(8px / var(--zoom))
@@ -17,7 +17,9 @@
      onChange  called whenever the camera moves
      onMenu    called with screen coordinates on right click (the browser's own menu is suppressed)
      onClick   called with (element, event) for a press and release without dragging: the element is whatever
-               was under the pointer, the view's own el for empty canvas. A drag pans and is not a click. */
+               was under the pointer, the view's own el for empty canvas. A drag is not a click.
+     onDrag    called when a drag begins, with the element it began on and that point in world coordinates.
+               Return { move(point), end() } to take the drag; return nothing and the drag pans the canvas. */
 import { html, style } from './dom.js';
 
 const ZMIN = 0.1, ZMAX = 4, GRID = 24, STORE = 'sf-cam';
@@ -30,7 +32,7 @@ style('view', `
 .view-origin { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border: 1px solid var(--muted); border-radius: 50%; }
 `);
 
-export function createView({ onChange = () => {}, onMenu = () => {}, onClick = () => {} } = {}){
+export function createView({ onChange = () => {}, onMenu = () => {}, onClick = () => {}, onDrag = () => {} } = {}){
   const el = html`<div class="view"><div class="view-world"><div class="view-origin" title="0, 0"></div></div></div>`;
   const world = el.firstElementChild;
   /* world point (x, y) appears at screen (x * z + tx, y * z + ty) */
@@ -62,7 +64,7 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
   const at = e => toWorld(e.clientX, e.clientY);
 
   /* drag to pan; two fingers pan and pinch */
-  const pts = new Map(); let press = null;      /* press: where a possible click began */
+  const pts = new Map(); let press = null, drag = null;      /* press: where a possible click began; drag: who took the drag, if not panning */
   el.addEventListener('pointerdown', e => {
     if (e.button === 2 || (e.button === 0 && e.ctrlKey)) return;        /* right click belongs to the menu, or cancels a tool */
     if (e.target.isContentEditable) return;                              /* text being edited keeps its own clicks */
@@ -73,8 +75,10 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
   el.addEventListener('pointermove', e => {
     if (tool) return tool.move?.(at(e));
     const p = pts.get(e.pointerId); if (!p) return;
-    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) press = null;      /* moved: a drag, not a click */
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4){      /* moved: a drag, not a click */
+      drag = onDrag(press.target, toWorld(press.x, press.y)) || null; press = null; }
     if (press) return;
+    if (drag) return drag.move(at(e));
     if (pts.size === 1){ cam.tx += e.clientX - p.x; cam.ty += e.clientY - p.y; p.x = e.clientX; p.y = e.clientY; return moved(); }
     const [a0, b0] = [...pts.values()].map(q => ({ ...q })); p.x = e.clientX; p.y = e.clientY;
     const [a, b] = [...pts.values()];
@@ -85,8 +89,8 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
   });
   const up = e => { pts.delete(e.pointerId); if (!pts.size) el.classList.remove('panning'); };
   el.addEventListener('pointerup', e => { if (tool && e.button === 0) return tool.up?.(at(e));
-    const p = press; press = null; up(e); if (p) onClick(p.target, e); });
-  el.addEventListener('pointercancel', up);
+    const p = press, d = drag; press = drag = null; up(e); if (d) d.end?.(); if (p) onClick(p.target, e); });
+  el.addEventListener('pointercancel', e => { const d = drag; press = drag = null; up(e); if (d) d.end?.(); });
 
   /* the wheel zooms about the pointer (so does a trackpad pinch); a wheel notch is about a quarter step. Panning is by dragging. */
   el.addEventListener('wheel', e => { e.preventDefault();
@@ -100,6 +104,6 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
 
   return { el, world, unit: GRID, grid, camera, toWorld, toScreen: (x, y) => ({ x: x * cam.z + cam.tx, y: y * cam.z + cam.ty }),
     home(){ cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; moved(); },
-    tool(t){ tool = t; press = null; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';
+    tool(t){ tool = t; press = drag = null; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';
       return () => { if (tool === t){ tool = null; el.style.cursor = ''; } }; } };
 }

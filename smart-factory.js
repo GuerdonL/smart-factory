@@ -33,6 +33,15 @@ function select(list, { toggle = false } = {}){
 }
 addEventListener('keydown', e => { if (e.key === 'Escape') select([]); });
 
+/* dragging a selected block moves every selected block, in steps of the dots on screen */
+function dragged(el, from){
+  const b = blocks.find(b => b.el.contains(el));
+  if (!b || !selected.has(b) || el.isContentEditable) return;
+  const g = view.grid(), start = [...selected.keys()].map(b => [b, b.rect]);
+  return { move(p){ const dx = Math.round((p.x - from.x) / g) * g, dy = Math.round((p.y - from.y) / g) * g;
+    for (const [b, r] of start){ b.set({ ...r, x: r.x + dx, y: r.y + dy }); selected.get(b).set(b.rect, sides(view, b.rect)); } } };
+}
+
 /* a second click on a name soon after the first is a double click: edit the name */
 let lastName = null, lastAt = 0;
 function clicked(el, e){
@@ -54,6 +63,7 @@ const view = createView({
   onChange: cam => { hud.show(cam); menu.close(); for (const [b, m] of selected) m.set(b.rect, sides(view, b.rect)); },
   onMenu: (x, y) => menu.openAt(x, y),
   onClick: clicked,
+  onDrag: dragged,
 });
 document.body.append(view.el, menu.el, hud.el);
 hud.show(view.camera());

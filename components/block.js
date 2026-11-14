@@ -20,7 +20,7 @@ style('block', `
   box-shadow: var(--halo, 0 0), inset 0 calc(1.5 * var(--px)) 0 var(--raise-light), inset 0 calc(-4 * var(--px)) 0 var(--raise-dark),
     0 calc(2 * var(--px)) calc(3 * var(--px)) var(--shadow), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--shadow); }
 .block.selected { outline: calc(2 * var(--px)) solid var(--select); outline-offset: calc(2 * var(--px));
-  --halo: 0 0 0 calc(7 * var(--px)) var(--select-halo); }
+  --halo: 0 0 0 calc(7 * var(--px)) var(--select-halo); cursor: move; }
 .block-name { position: absolute; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-size: calc(12 * var(--px)); line-height: 1.3; white-space: nowrap; color: var(--fg); border-radius: calc(3 * var(--px)); cursor: default; }
 .block-name[contenteditable="true"] { cursor: text; user-select: text; -webkit-user-select: text; min-width: calc(12 * var(--px));
