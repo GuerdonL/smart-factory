@@ -1,10 +1,16 @@
 /* The canvas: an endless dot grid that pans and zooms.
 
-   createView({ onChange(camera), onMenu(x, y) }) -> { el, world, camera(), home() }
+   createView({ onChange(camera), onMenu(x, y) }) -> { el, world, grid, camera(), home(), toWorld(x, y), tool(t) }
      el        the element to put on the page
      world     put things here to place them on the canvas, in world coordinates
+     grid      the spacing of the dots, in world units; there is a dot at every multiple of it
      camera()  { x, y, zoom }: the world point at the centre of the screen, and the zoom
      home()    back to 0, 0 at 100%
+     toWorld   screen coordinates -> world coordinates
+     tool(t)   hands the pointer to a tool: while one is set, a left press, moves and release go to
+               t.down(point), t.move(point), t.up(point) (world coordinates) instead of panning, a right click
+               goes to t.cancel(), and the cursor is t.cursor. Scrolling and zooming still work.
+               Returns a function that takes the tool away again.
      onChange  called whenever the camera moves
      onMenu    called with screen coordinates on right click (the browser's own menu is suppressed) */
 import { html, style } from './dom.js';
@@ -42,13 +48,19 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
     cam.tx = sx - (sx - cam.tx) * k; cam.ty = sy - (sy - cam.ty) * k; cam.z = z;
   }
 
+  const toWorld = (sx, sy) => ({ x: (sx - cam.tx) / cam.z, y: (sy - cam.ty) / cam.z });
+  let tool = null;
+  const at = e => toWorld(e.clientX, e.clientY);
+
   /* drag to pan; two fingers pan and pinch */
   const pts = new Map();
   el.addEventListener('pointerdown', e => {
-    if (e.button === 2 || (e.button === 0 && e.ctrlKey)) return;        /* right click belongs to the menu */
+    if (e.button === 2 || (e.button === 0 && e.ctrlKey)) return;        /* right click belongs to the menu, or cancels a tool */
+    if (tool){ if (e.button === 0){ el.setPointerCapture(e.pointerId); tool.down?.(at(e)); } return; }
     el.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); el.classList.add('panning');
   });
   el.addEventListener('pointermove', e => {
+    if (tool) return tool.move?.(at(e));
     const p = pts.get(e.pointerId); if (!p) return;
     if (pts.size === 1){ cam.tx += e.clientX - p.x; cam.ty += e.clientY - p.y; p.x = e.clientX; p.y = e.clientY; return moved(); }
     const [a0, b0] = [...pts.values()].map(q => ({ ...q })); p.x = e.clientX; p.y = e.clientY;
@@ -59,7 +71,8 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
     zoomAt(mx, my, d0 > 0 ? d / d0 : 1); moved();
   });
   const up = e => { pts.delete(e.pointerId); if (!pts.size) el.classList.remove('panning'); };
-  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  el.addEventListener('pointerup', e => { if (tool && e.button === 0) return tool.up?.(at(e)); up(e); });
+  el.addEventListener('pointercancel', up);
 
   /* wheel and trackpad: scroll pans; pinch, or ctrl/cmd + wheel, zooms about the pointer */
   el.addEventListener('wheel', e => { e.preventDefault();
@@ -68,9 +81,12 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
     moved();
   }, { passive: false });
 
-  el.addEventListener('contextmenu', e => { e.preventDefault(); onMenu(e.clientX, e.clientY); });
+  el.addEventListener('contextmenu', e => { e.preventDefault(); if (tool) return tool.cancel?.(); onMenu(e.clientX, e.clientY); });
   addEventListener('resize', moved);
   draw();
 
-  return { el, world, camera, home(){ cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; moved(); } };
+  return { el, world, grid: GRID, camera, toWorld,
+    home(){ cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; moved(); },
+    tool(t){ tool = t; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';
+      return () => { if (tool === t){ tool = null; el.style.cursor = ''; } }; } };
 }

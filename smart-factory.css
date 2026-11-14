@@ -11,13 +11,19 @@
   --dot-strong: #aab1c2;    /* major grid dots */
   --shadow: rgba(20, 26, 40, .18);
   --focus: #1c2230;         /* keyboard focus ring */
+  /* blocks: one colour per shape, named by the shape's config ("color": "tensor" -> --tensor) */
+  --tensor: #e5534b;        /* a friendly red */
+  --raise-light: rgba(255, 255, 255, .35);   /* the lit top edge of a raised block */
+  --raise-dark: rgba(0, 0, 0, .22);          /* its shaded bottom edge */
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #2b3142; --dot-strong: #3d455a; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; color-scheme: dark } }
+  --dot: #2b3142; --dot-strong: #3d455a; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0;
+  --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #2b3142; --dot-strong: #3d455a; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; color-scheme: dark }
+  --dot: #2b3142; --dot-strong: #3d455a; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0;
+  --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); color-scheme: dark }
 
 html, body { height: 100%; }
 body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
