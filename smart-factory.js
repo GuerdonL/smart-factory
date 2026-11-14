@@ -12,6 +12,7 @@ import { boxSelect } from './components/marquee.js';
 import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
 import { createSettingsButton } from './components/settings.js';
+import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { joins, pieces, typeOf, initials, readEntry } from './algebra.js';
@@ -59,7 +60,14 @@ function write(){
     colsName: o.sides.w, rowsName: o.sides.h });
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
-const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); deeper.length = 0; go(spaceOf.get(b)); };
+/* opening a block: its definition space is made the first time (one space for every place the variable is used),
+   and is entered from here, by this block */
+function open(b){
+  if (!spaceOf.has(b)){ const def = newSpace(b, space); for (const k of kinOf(b)) spaceOf.set(k, def); }
+  const def = spaceOf.get(b);
+  if (trail().includes(def)) return;           /* already inside it */
+  def.owner = b; def.parent = space; deeper.length = 0; go(def);
+}
 /* out and back in again, like a browser's back and forward: stepping out remembers the space left, so stepping in can return to it */
 const deeper = [];
 function out(){ if (!space.parent) return; if (space === settings) return go(before);      /* leaving the settings goes back to where they were opened from */
@@ -90,7 +98,69 @@ function someColour(not){                        /* one this space is not using,
 }
 function renamed(b, changed, was){                /* adding or taking off the // is not a new name, so it brings no new colour */
   if (changed && isNamed(b) && bare(b.name) !== bare(was)) b.paint(someColour(b.shape.color));
+  for (const k of kinOf(b)) if (k !== b){ k.call(b.name); k.paint(b.shape.color); }      /* one variable, one name and colour, wherever it is used */
   shown(); }
+
+/* ---- variables ----
+   A named shape is a variable. Dragged in from the list at the screen's right edge, it is the same variable used in
+   another place: every use has the one name, colour, size, set of entries and definition, and changing any of them
+   through one use changes them all. (A named side length is a variable too: see "named sides" below.)
+   A variable is in reach in the space where its highest use sits and in every space beneath that one: at the top
+   level it is in reach everywhere. The list shows what is in reach of the current space. */
+const kin = new Map();                         /* block -> the set of blocks that are uses of its variable (itself included), once it has more than one */
+const kinOf = b => kin.get(b) || [b];
+function inReach(){
+  const spaces = trail(), items = [], seen = new Set(), names = new Set();
+  for (const s of spaces) for (const b of s.blocks){
+    if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
+      for (const k of kinOf(b)) seen.add(k);
+      items.push({ kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b }); }
+    for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); items.push({ kind: 'length', name: b.sides[dim], units: lengths.get(b.sides[dim]) }); }
+  }
+  return [...items.filter(i => i.kind === 'shape'), ...items.filter(i => i.kind === 'length')];
+}
+/* another use of a shape variable, centred on a world point */
+function useShape(of, at){
+  const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
+  const b = createBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
+  b.sides = { ...of.sides }; b.values = of.values;                                         /* the same entries, not a copy */
+  if (!spaceOf.has(of)){ const def = newSpace(of, space); for (const k of kinOf(of)) spaceOf.set(k, def); }
+  spaceOf.set(b, spaceOf.get(of));                                                          /* the same definition */
+  const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
+  space.blocks.push(b); view.world.append(b.el); select([b]);
+}
+/* a side-length variable dragged over the canvas: the blocks near the pointer show their measurements, and the line
+   nearest the pointer, if it is close, is where the length will land */
+const near = new Map();                        /* block -> the measurements shown for it while a length is dragged */
+function reach(x, y){
+  let best = null;
+  const within = space.blocks.filter(b => { const a = view.toScreen(b.rect.x, b.rect.y), z = view.toScreen(b.rect.x + b.rect.w, b.rect.y + b.rect.h);
+    return x > a.x - 110 && x < z.x + 110 && y > a.y - 110 && y < z.y + 110; });
+  for (const [b, m] of near) if (!within.includes(b)){ m.el.remove(); near.delete(b); }
+  for (const b of within){
+    if (!near.has(b)){ near.set(b, createMeasure(view.unit)); view.world.append(near.get(b).el); }
+    const s = sides(view, b.rect), a = view.toScreen(b.rect.x, b.rect.y), z = view.toScreen(b.rect.x + b.rect.w, b.rect.y + b.rect.h);
+    near.get(b).set(b.rect, { ...s, wName: b.sides.w, hName: b.sides.h }); near.get(b).mark(null);
+    /* where the two lines are drawn on screen (measure.js: a 14px gap, then an 11px line) */
+    const wy = s.top ? a.y - 2.4 * 14 - 5.5 : z.y + 14 + 5.5, hx = s.right ? z.x + 14 + 5.5 : a.x - 14 - 5.5;
+    const dw = Math.hypot(Math.max(a.x - x, 0, x - z.x), y - wy), dh = Math.hypot(x - hx, Math.max(a.y - y, 0, y - z.y));
+    for (const [dim, d] of [['w', dw], ['h', dh]]) if (d < 24 && (!best || d < best.d)) best = { b, dim, d };
+  }
+  if (best) near.get(best.b).mark(best.dim);
+  return best;
+}
+const variables = createVariables({
+  onDrag: (item, x, y) => { if (selected.size) select([]); if (item.kind === 'length') reach(x, y); },
+  onDrop: (item, x, y) => {
+    if (item.kind === 'shape') return useShape(item.block, view.toWorld(x, y));
+    const target = reach(x, y), u = view.unit;
+    if (target) typed(target.b, target.dim, item.name);                                     /* onto a side: that side takes the name, and its length */
+    else { const at = view.toWorld(x, y), on = v => Math.round(v / u) * u, h = lengths.get(item.name) * u;      /* onto the canvas: a vector that long */
+      const b = createBlock({ ...typeNamed('tensor') }, { x: on(at.x - u / 2), y: on(at.y - h / 2), w: u, h }, freeName());
+      b.sides = { w: null, h: item.name }; space.blocks.push(b); view.world.append(b.el); select([b]); }
+    shown(); },
+  onEnd: () => { for (const m of near.values()) m.el.remove(); near.clear(); },
+});
 
 const blockAt = el => space.blocks.find(b => b.el.contains(el));
 /* a new block is "Shape n", with the lowest n no block in this space is using */
@@ -104,10 +174,12 @@ function freeName(){
    on any block in any space, is the same length: change one and they all change. Two named sides multiply only if
    they carry the same name. */
 const lengths = new Map();                     /* a name -> how many units long its sides are */
-const everyBlock = () => [...top.blocks, ...settings.blocks, ...[...spaceOf.values()].flatMap(s => s.blocks)];
+const everySpace = () => [...new Set([top, settings, ...spaceOf.values()])];
+const everyBlock = () => everySpace().flatMap(s => s.blocks);
 /* after b's size has changed: its named sides give their new length to every side of the same name */
 function agree(b){
   const u = view.unit;
+  for (const k of kinOf(b)) if (k !== b){ k.sides = { ...b.sides }; if (k.rect.w !== b.rect.w || k.rect.h !== b.rect.h) k.set({ ...k.rect, w: b.rect.w, h: b.rect.h }); }      /* one variable, one size */
   for (const dim of ['w', 'h']) if (b.sides[dim]) lengths.set(b.sides[dim], Math.max(1, Math.round(b.rect[dim] / u)));
   for (const o of everyBlock()){ let r = o.rect;
     for (const dim of ['w', 'h']) if (o.sides[dim] && r[dim] !== lengths.get(o.sides[dim]) * u) r = { ...r, [dim]: lengths.get(o.sides[dim]) * u };
@@ -118,7 +190,7 @@ function agree(b){
    would otherwise leave products overlapping or gapped. except(left, right) can name pairs to leave alone. */
 function keepTouching(change, except = () => false){
   const u = view.unit, pairs = [];
-  for (const s of [top, settings, ...spaceOf.values()]){
+  for (const s of everySpace()){
     const live = s.blocks.filter(b => !isOff(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
     for (const j of joins(rects)) if (!except(live[j.left], live[j.right])) pairs.push([live[j.left], live[j.right]]);
   }
@@ -221,6 +293,7 @@ function shown(){                              /* brings what is on screen in li
     for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, { side: 'below', drop, look, nameable });
     taken.push(at); });
   for (const r of results.slice(ps.length)) r.el.remove();
+  variables.show(inReach());
 }
 function select(list, { toggle = false } = {}){
   if (!toggle) selected.clear();
@@ -296,7 +369,8 @@ function paste(at){                             /* at: a world point; the pasted
 /* removes the selected blocks, and with each its definition space */
 function remove(){
   const gone = [...selected]; select([]);
-  for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b); }
+  for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b);
+    const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); } }      /* one use fewer of its variable */
   ungroup(gone); shown();
 }
 
@@ -308,10 +382,10 @@ function remove(){
 const typeNamed = name => shapes.find(s => s.name === name) || { name, label: name, draw: 'rectangle', color: 'tensor' };
 /* the page's spaces as plain data, lengths in units */
 function gather(){
-  const u = view.unit;
+  const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const plain = s => ({
     shapes: s.blocks.map(b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-      colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null })),
+      colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b) })),
     groups: [...new Set(s.groupOf.values())].map(id => ({ name: s.groupNames.get(id) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === id ? i : -1).filter(i => i >= 0) })) });
   return { top: plain(top), settings: plain(settings), lengths: Object.fromEntries(lengths), saved: new Date().toISOString() };
 }
@@ -320,17 +394,22 @@ function rebuild(data){
   go(top); select([]);
   for (const s of [top, settings]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
     s.blocks.length = 0; s.groupOf.clear(); s.groupNames.clear(); s.frames.clear(); }
-  spaceOf.clear(); lengths.clear(); deeper.length = 0; clipboard = null;
+  spaceOf.clear(); kin.clear(); lengths.clear(); deeper.length = 0; clipboard = null;
+  const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
   for (const [name, n] of Object.entries(data.lengths)) lengths.set(name, n);
   const u = view.unit;
   const fill = (plain, s) => {
     for (const d of plain.shapes){ const type = typeNamed(d.type);
       const b = createBlock({ ...type, color: d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
       b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); s.blocks.push(b);
+      const first = d.variable != null && uses.get(d.variable)?.[0];
+      if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
+      if (first){ b.values = first.values; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); continue; }      /* a later use: the first one's entries and definition */
       if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); } }
     for (const g of plain.groups){ const id = nextGroup++; for (const i of g.members) s.groupOf.set(s.blocks[i], id); if (g.name) s.groupNames.set(id, g.name); }
   };
   fill(data.top, top); fill(data.settings, settings);
+  for (const list of uses.values()) if (list.length > 1){ const set = new Set(list); for (const b of list) kin.set(b, set); }
   view.world.append(...top.blocks.map(b => b.el)); shown();
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top) + n(data.settings); };
@@ -502,5 +581,5 @@ const view = createView({
   onClick: clicked,
   onDrag: dragged,
 });
-document.body.append(view.el, menu.el, hud.el, crumbs.el, gear.el);
+document.body.append(view.el, menu.el, hud.el, crumbs.el, gear.el, variables.el);
 hud.show(view.camera());

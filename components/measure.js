@@ -1,11 +1,13 @@
 /* Dimension lines for a rectangle on the canvas:  |-------- 6u --------|
 
-   createMeasure(unit) -> { el, labels: { w, h }, set(rect, { top, right, wName, hName }) }
+   createMeasure(unit) -> { el, labels: { w, h }, set(rect, { top, right, wName, hName }), mark(side) }
      labels  the two elements showing the numbers, for whoever wants to make them editable
      unit    how many world units make one "u"
      set     fits the lines to rect ({ x, y, w, h } in world coordinates). The width is shown along the bottom
              and the height down the left side, its label turned to run along the side; pass top / right as true to move them to the other side.
              wName / hName are the names of those sides, if they have them: "context 6u" in place of "6u".
+     mark    picks out one line, 'w' or 'h', in the selection colour, as the one something is about to land on;
+             null picks out neither
    Put el in the view's world. The lines and text keep their size on screen at any zoom.
 
    sides(view, rect) -> { top, right }   which fallbacks are needed for the lines to stay on screen */
@@ -24,6 +26,7 @@ style('measure', `
 .measure i.line { flex: 1; min-width: 0; min-height: 0; }
 .measure-w i { height: var(--px); } .measure-w i.cap { width: var(--px); height: 100%; }
 .measure-h i { width: var(--px); } .measure-h i.cap { height: var(--px); width: 100%; }
+.measure > div.marked { color: var(--select); font-weight: 600; }
 .measure-w span { margin: 0 calc(5 * var(--px)); } .measure-h span { margin: calc(4 * var(--px)) 0; }
 .measure span { pointer-events: auto; cursor: default; padding: 0 calc(2 * var(--px)); }
 /* the height's label runs along its line: reading upwards on the left of the block, downwards on the right */
@@ -47,5 +50,6 @@ export function createMeasure(unit){
     Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
     if (!labels.w.isContentEditable) labels.w.textContent = (wName ? wName + ' ' : '') + u(r.w);        /* a number being typed is left alone */
     if (!labels.h.isContentEditable) labels.h.textContent = (hName ? hName + ' ' : '') + u(r.h);
-    w.classList.toggle('top', top); h.classList.toggle('right', right); } };
+    w.classList.toggle('top', top); h.classList.toggle('right', right); },
+    mark(side){ w.classList.toggle('marked', side === 'w'); h.classList.toggle('marked', side === 'h'); } };
 }

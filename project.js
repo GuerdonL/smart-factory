@@ -27,7 +27,10 @@
          "value": { "as": "computation",         how its value stands (see below)
                     "entries": { "2,1": 0, "3,1": "-inf" } },   entries given a number, by "column,row"
          "definition": "Keys/",                  the directory holding its definition space, if it has one
-         "order": 3 }                            its place among the shapes of its space, back to front
+         "order": 3,                             its place among the shapes of its space, back to front
+         "variable": 2 }                         shapes carrying the same number are one variable used in several
+                                                 places: one name, size, colour, set of entries and definition
+                                                 (each has the definition directory; they hold the same thing)
    value.as is "computation" when its definition space has shapes that work it out, "resolved" when every entry has
    been given a number, and "variable" otherwise. Infinity is written "inf" and "-inf".
 
@@ -39,7 +42,8 @@
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
    project: { top: space, settings: space, lengths: { name: units }, saved: an ISO date }
    space:   { shapes: [shape], groups: [{ name, members: [index into shapes] }] }
-   shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null } */
+   shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
+              variable: a number shared by shapes that are one variable, or null } */
 
 export const FORMAT = 1;
 const isCommented = name => /^\s*\/\//.test(name);
@@ -71,7 +75,7 @@ export function write(project){
       if (shape.inside) space(shape.inside, dir + name + '/');
       return [name, { format: 'smart-factory/shape', version: FORMAT, type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order }]; };
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     s.groups.forEach((g, n) => { const shapes = g.members.map(i => config(s.shapes[i], i)[1]);
       const name = stem(g.name || 'group ' + (n + 1), taken);
@@ -107,7 +111,7 @@ export function read(files){
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
       return { type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
-        entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside }; });
+        entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null }; });
     return { shapes, groups: groups.filter(g => g.members.length > 1) };
   };
   return { top: space(''), settings: [...at.keys()].some(p => p.startsWith('_settings/')) ? space('_settings/') : { shapes: [], groups: [] }, lengths: meta.lengths || {}, saved: meta.saved || null };

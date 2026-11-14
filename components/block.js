@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), rename(after) }
+   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), call(name), rename(after) }
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
      rect     { x, y, w, h } in world coordinates
      name     the text shown above it
@@ -20,6 +20,7 @@
    wants to resize by it.
      off      shows it as commented out: washed out, with a dashed edge
      paint    changes its colour to another theme variable's ("lazuli" -> --lazuli)
+     call     gives it a name outright
      rename   lets the user type a new name in place: Enter or clicking away keeps it, Escape puts the old one back,
               and an empty name is not kept. after(changed, was) is called when they finish, saying whether the
               name is now a different one and what it was. */
@@ -88,6 +89,7 @@ export function createBlock(shape, rect, name = ''){
       if (way) el.style.setProperty('--u', unit + 'px'); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },
     paint(color){ block.shape = { ...block.shape, color }; el.style.setProperty('--block', `var(--${color})`); },
+    call(name){ block.name = name; if (!nameEl.isContentEditable) nameEl.textContent = name; },
     rename(after = () => {}){ editText(nameEl, text => { const was = block.name; if (text) block.name = text; nameEl.textContent = block.name; after(block.name !== was, was); }); } };
   block.set(rect);
   return block;
