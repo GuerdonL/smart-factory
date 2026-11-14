@@ -4,7 +4,7 @@
      labels  the two elements showing the numbers, for whoever wants to make them editable
      unit    how many world units make one "u"
      set     fits the lines to rect ({ x, y, w, h } in world coordinates). The width is shown along the bottom
-             and the height down the left side; pass top / right as true to move them to the other side.
+             and the height down the left side, its label turned to run along the side; pass top / right as true to move them to the other side.
              wName / hName are the names of those sides, if they have them: "context 6u" in place of "6u".
    Put el in the view's world. The lines and text keep their size on screen at any zoom.
 
@@ -26,6 +26,9 @@ style('measure', `
 .measure-h i { width: var(--px); } .measure-h i.cap { height: var(--px); width: 100%; }
 .measure-w span { margin: 0 calc(5 * var(--px)); } .measure-h span { margin: calc(4 * var(--px)) 0; }
 .measure span { pointer-events: auto; cursor: default; padding: 0 calc(2 * var(--px)); }
+/* the height's label runs along its line: reading upwards on the left of the block, downwards on the right */
+.measure-h span { writing-mode: vertical-rl; transform: rotate(180deg); padding: calc(2 * var(--px)) 0; }
+.measure-h.right span { transform: none; }
 `);
 
 const ROOM = 34, ROOM_TOP = 54;      /* screen pixels a line needs beside the rectangle; more on top, to clear the name */
