@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), rename(after) }
+   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), rename(after) }
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
      rect     { x, y, w, h } in world coordinates
      name     the text shown above it
@@ -18,10 +18,11 @@
      dim      fades the block and its name most of the way to the theme's --fade-to, or brings them back
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
+     off      shows it as commented out: washed out, with a dashed edge
      paint    changes its colour to another theme variable's ("lazuli" -> --lazuli)
      rename   lets the user type a new name in place: Enter or clicking away keeps it, Escape puts the old one back,
-              and an empty name is not kept. after(changed) is called when they finish, saying whether the name is
-              now a different one. */
+              and an empty name is not kept. after(changed, was) is called when they finish, saying whether the
+              name is now a different one and what it was. */
 import { html, style, editText } from './dom.js';
 
 style('block', `
@@ -43,6 +44,9 @@ style('block', `
 .block.cols { --bands: repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
 .block.rows.cols { --bands: repeating-linear-gradient(to bottom, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))),
   repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
+/* commented out: there, but taking no part. (Before .selected, so a selected one still shows its ring.) */
+.block.off { --face: color-mix(in srgb, var(--block) 16%, var(--fade-to)); --ink: var(--muted); --rim: transparent; --lit: transparent; --shade: transparent; --cast: transparent;
+  outline: calc(1.5 * var(--px)) dashed var(--muted); outline-offset: calc(-1.5 * var(--px)); }
 .block.selected { outline: calc(2 * var(--px)) solid var(--select); outline-offset: calc(2 * var(--px));
   --halo: 0 0 0 calc(7 * var(--px)) var(--select-halo); cursor: move; z-index: 1; }
 /* faded: every colour mixed most of the way to --fade-to (or to nothing, for the see-through ones), not made transparent,
@@ -78,12 +82,13 @@ export function createBlock(shape, rect, name = ''){
   const block = { el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(),
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
+    off(on){ el.classList.toggle('off', on); },
     grips(on){ el.classList.toggle('no-grips', !on); },
     stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');
       if (way) el.style.setProperty('--u', unit + 'px'); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },
     paint(color){ block.shape = { ...block.shape, color }; el.style.setProperty('--block', `var(--${color})`); },
-    rename(after = () => {}){ editText(nameEl, text => { const was = block.name; if (text) block.name = text; nameEl.textContent = block.name; after(block.name !== was); }); } };
+    rename(after = () => {}){ editText(nameEl, text => { const was = block.name; if (text) block.name = text; nameEl.textContent = block.name; after(block.name !== was, was); }); } };
   block.set(rect);
   return block;
 }

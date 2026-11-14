@@ -75,14 +75,20 @@ for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, 
 
 /* a block is named once it has been given a name of its own, in place of the "Shape n" it was drawn with.
    Naming a block gives it a colour (never the red of an unnamed one), and only a named block's entries can be given numbers. */
-const isNamed = b => !/^Shape \d+$/.test(b.name);
+/* A block whose name begins with // is commented out: it stays on the canvas, and can be moved, resized and opened,
+   but it takes no part in anything. It does not multiply, has no result, and does not count towards a definition. */
+const isOff = b => /^\s*\/\//.test(b.name);
+const bare = name => name.replace(/^\s*\/\/\s*/, '');                  /* a name without its comment mark */
+const isNamed = b => !/^Shape \d+$/.test(bare(b.name));
 const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'];      /* colours in the theme */
 function someColour(not){                        /* one this space is not using, while there is one; never the one it has */
   const used = new Set(space.blocks.map(b => b.shape.color)), free = PALETTE.filter(c => !used.has(c) && c !== not);
   const from = free.length ? free : PALETTE.filter(c => c !== not);
   return from[Math.floor(Math.random() * from.length)];
 }
-function renamed(b, changed){ if (changed && isNamed(b)) b.paint(someColour(b.shape.color)); shown(); }
+function renamed(b, changed, was){                /* adding or taking off the // is not a new name, so it brings no new colour */
+  if (changed && isNamed(b) && bare(b.name) !== bare(was)) b.paint(someColour(b.shape.color));
+  shown(); }
 
 const blockAt = el => space.blocks.find(b => b.el.contains(el));
 /* a new block is "Shape n", with the lowest n no block in this space is using */
@@ -111,8 +117,8 @@ function agree(b){
 function keepTouching(change, except = () => false){
   const u = view.unit, pairs = [];
   for (const s of [top, settings, ...spaceOf.values()]){
-    const rects = s.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
-    for (const j of joins(rects)) if (!except(s.blocks[j.left], s.blocks[j.right])) pairs.push([s.blocks[j.left], s.blocks[j.right]]);
+    const live = s.blocks.filter(b => !isOff(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
+    for (const j of joins(rects)) if (!except(live[j.left], live[j.right])) pairs.push([live[j.left], live[j.right]]);
   }
   change();
   pairs.sort((a, b) => a[0].rect.x - b[0].rect.x);                       /* left to right, so a row shuffles along in order */
@@ -178,19 +184,21 @@ function shown(){                              /* brings what is on screen in li
     view.world.append(bounds.el);
   } else bounds.el.remove();
   /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
-  const u = view.unit, rects = space.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
+  for (const b of space.blocks) b.off(isOff(b));
+  const u = view.unit, active = space.blocks.filter(b => !isOff(b));           /* commented-out blocks take no part */
+  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   for (const j of marks) j.el.remove();
   const js = joins(rects);
   marks = js.map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: j.note }));
   /* in a product the left block gives its rows and the right block its columns, so the left one is banded across
      and the right one down; a block in the middle of a chain does both */
-  space.blocks.forEach((b, i) => { const rows = js.some(j => j.ok && j.left === i), cols = js.some(j => j.ok && j.right === i);
-    b.stripes(rows && cols ? 'both' : rows ? 'rows' : cols ? 'cols' : null, u); });
+  for (const b of space.blocks){ const i = active.indexOf(b), rows = i >= 0 && js.some(j => j.ok && j.left === i), cols = i >= 0 && js.some(j => j.ok && j.right === i);
+    b.stripes(rows && cols ? 'both' : rows ? 'rows' : cols ? 'cols' : null, u); }
   view.world.append(...marks.map(j => j.el));
   /* how a piece's matrix is written. One block: its own initials, colour and numbers. A product: each entry as the
      row it takes from the first block against the column it takes from the last, each in its block's colour.
      (A product is not worked out in numbers yet.) */
-  const lookOf = piece => { const bs = piece.members.map(m => space.blocks[m]), first = bs[0], last = bs[bs.length - 1];
+  const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
     return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: first.values }
       : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The top space has no promise, so it
@@ -200,10 +208,11 @@ function shown(){                              /* brings what is on screen in li
   const ps = space.owner ? [] : all;
   /* a result goes to the right of its piece; if something else is there (another block, or a result already placed),
      it goes below instead, as far down as it takes to be clear */
-  const taken = space.blocks.map(b => b.rect), hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
+  const taken = space.blocks.map(b => b.rect),      /* commented-out blocks are still in the way */
+     hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   ps.forEach((piece, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u }, look = lookOf(piece);
-    r.piece = { blocks: piece.members.map(m => space.blocks[m]), type: piece.type, box };       /* what this result is the result of */
+    r.piece = { blocks: piece.members.map(m => active[m]), type: piece.type, box };       /* what this result is the result of */
     /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
     const nameable = piece.members.length > 1;
     let at = r.set(box, piece.type, { look, nameable });
@@ -385,7 +394,7 @@ function clicked(el, e){
   }
   const b = blockAt(el);
   if (b && twice){                              /* double click */
-    if (el === b.nameEl){ select([b]); return b.rename(changed => renamed(b, changed)); }      /* on a name: rename it */
+    if (el === b.nameEl){ select([b]); return b.rename((changed, was) => renamed(b, changed, was)); }      /* on a name: rename it */
     if (selected.size === 1 && selected.has(b)) return open(b);             /* on a block selected alone: open its definition space */
     return select([b]);                                                     /* on one of several: select just that block */
   }
