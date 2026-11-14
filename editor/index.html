@@ -158,6 +158,10 @@ button.danger { color: var(--neg) }
 .t-attn .hint { font-size: 11.5px; width: 0; min-width: 100% }
 .dsprev { display: block; flex: none; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); image-rendering: pixelated }
 .dsinfo { min-width: 0; flex: 1; font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; line-height: 1.5 }
+.t-mlp { min-width: 250px }
+.mrow { display: flex; align-items: center; gap: 8px; margin-bottom: 5px } .mlab { width: 4.6em; font-family: var(--mono); font-size: 11px; color: var(--muted) }
+.mrow .nin { width: 5.4em } .mbar { flex: 1; height: 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; min-width: 50px } .mbar i { display: block; height: 100%; background: var(--vec) }
+.mrow .mx { width: 22px; padding: 0; text-align: center }
 .dstext { margin: 0; width: 0; min-width: 100%; box-sizing: border-box; max-height: 150px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.45 var(--mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px }
 .dswinv { font-family: var(--mono); font-weight: 600; min-width: 3.2em; text-align: center }
 .dsinfo b { color: var(--fg); font-size: 20px; font-weight: 600 }
@@ -288,7 +292,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     <button class="ib" data-add="samp" data-tip="Add a random sampler" aria-label="Add a random sampler"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3"/><circle class="f" cx="7" cy="7" r="1.200"/><circle class="f" cx="13" cy="7" r="1.200"/><circle class="f" cx="10" cy="10" r="1.200"/><circle class="f" cx="7" cy="13" r="1.200"/><circle class="f" cx="13" cy="13" r="1.200"/></svg></button>
     <button class="ib" data-add="data" data-tip="Add a dataset" aria-label="Add a dataset"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.500" y="6.500" width="11" height="11" rx="1.5"/><path d="M4.500 13.500v-8a1.500 1.500 0 0 1 1.500-1.500h8"/><path d="M2.500 11V3.500A1.500 1.500 0 0 1 4 2h7.500"/><path d="M9 14.500l2.200-2.800 1.800 2 1.200-1.300 1.800 2.100"/></svg></button>
     <button class="ib" data-add="lin" data-tip="Add a linearize block" aria-label="Add a linearize block"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4h12l-12 6h12l-12 6h9"/><path d="M11.500 13.500L14 16l-2.500 2.500"/></svg></button>
-    <button class="ib" data-add="perc" data-tip="Add an evaluation frame" aria-label="Add an evaluation frame"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3H3v14h2M15 3h2v14h-2"/><circle cx="7.5" cy="6.5" r="1.6"/><circle cx="7.5" cy="13.5" r="1.6"/><circle cx="12.8" cy="10" r="1.6"/><path d="M9 7.3l2.4 1.800M9 12.700l2.4-1.800"/></svg></button>
+    <button class="ib" data-add="mlp" data-tip="Add an evaluation frame" aria-label="Add an evaluation frame"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3H3v14h2M15 3h2v14h-2"/><circle cx="7.5" cy="6.5" r="1.6"/><circle cx="7.5" cy="13.5" r="1.6"/><circle cx="12.8" cy="10" r="1.6"/><path d="M9 7.3l2.4 1.800M9 12.700l2.4-1.800"/></svg></button>
     <button class="ib" data-add="attn" data-tip="Add an attention block" aria-label="Add an attention block"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4.500" r="1.800"/><circle cx="4" cy="15.500" r="1.800"/><circle cx="10" cy="15.500" r="1.800"/><circle cx="16" cy="15.500" r="1.800"/><path d="M9.200 6.200L4.800 13.800M10 6.300v7.400M10.800 6.200l4.400 7.600"/></svg></button>
     <button class="ib" data-add="read" data-tip="Add a cost function" aria-label="Add a cost function"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4c1 8.500 3.500 12 7 12s6-3.500 7-12"/><circle class="f" cx="10" cy="16" r="1.5"/><path d="M10 3v6" stroke-dasharray="1.500 2"/></svg></button>
     <span class="spacer"></span>
@@ -375,7 +379,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     wave:   { title: 'Waveform', out: 'array' },
     dist:   { title: 'Distribution', out: 'dist' },
     samp:   { title: 'Random sampler', in: 'dist', out: 'array', ins: [{ kind: 'dist', name: 'distribution' }], outs: [{ kind: 'array', name: 'samples' }] },
-    perc:   { title: 'Evaluation frame', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'backprop', low: true }] },
+    mlp:    { title: 'Evaluation frame', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'backprop', low: true }] },
+    perc:   { title: 'Hand-built frame', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'backprop', low: true }] },
     data:   { title: 'Dataset', out: 'array', outs: [{ kind: 'array', name: 'image' }, { kind: 'array', name: 'label' }, { kind: 'text', name: 'text' }] },
     lin:    { title: 'Linearize', in: 'array', out: 'array' },
     attn:   { title: 'Attention', in: 'array', out: 'array', ins: [{ kind: 'array', name: 'input' }, { kind: 'array', name: 'backprop', back: true, low: true }], outs: [{ kind: 'array', name: 'output' }, { kind: 'array', name: 'attention' }, { kind: 'array', name: 'backprop', low: true }] },
@@ -436,16 +441,12 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const face = '00111100 01000010 10100101 10000001 10100101 10011001 01000010 00111100'.replace(/ /g, '').split('').map(Number);
     const l1 = {}, l2 = {};
     for (let r = 0; r < 8; r++) { for (let c = 0; c < 8; c++) l1[(r * 8 + c) + ',' + r] = 1; l2[r + ',0'] = 1; l2[r + ',1'] = r < 4 ? 1 : -1; }
-    // Above it, a net that learns the built-in digits as wired: Dataset (0 to 1) → Linearize → 64 → 16 → 10 with small random connection weights → cross-entropy.
-    const d1 = {}, d2 = {}, rw = fan => Math.round((Math.random() * 2 - 1) / Math.sqrt(fan) * 1000) / 1000;
-    for (let i = 0; i < 64; i++) for (let j = 0; j < 16; j++) d1[i + ',' + j] = rw(64);
-    for (let i = 0; i < 16; i++) for (let j = 0; j < 10; j++) d2[i + ',' + j] = rw(16);
-    return { next: 12, count: { pixels: 1, text: 1, tok: 1, wave: 1, perc: 2, read: 2, lin: 2, data: 1 },
+    // Above it, a net that learns the built-in digits as wired: Dataset (0 to 1) → Linearize → rows of 64, 16 and 10 → cross-entropy.
+    return { next: 12, count: { pixels: 1, text: 1, tok: 1, wave: 1, perc: 1, mlp: 2, read: 2, lin: 2, data: 1 },
       blocks: [
         { id: 8, type: 'data', name: 'Dataset 1', x: 0, y: -640, idx: 0, as: 'float' },
         { id: 9, type: 'lin', name: 'Linearize 2', x: 310, y: -640, mode: 'rows' },
-        { id: 10, type: 'perc', name: 'Evaluation frame 2', x: 620, y: -640, act: 'tanh', linOut: true, lr: 0.01, showBack: false,
-          rows: [{ w: new Array(64).fill(1) }, { w: new Array(16).fill(1) }, { w: new Array(10).fill(1) }], links: [{}, d1, d2] },
+        { id: 10, type: 'mlp', name: 'Evaluation frame 2', x: 620, y: -640, sizes: [64, 16, 10], act: 'tanh', linOut: true, lr: 0.01, seed: 0 },
         { id: 11, type: 'read', name: 'Cost function 2', x: 1740, y: -640, loss: 'ce' },
         { id: 1, type: 'pixels', name: 'Pixel array 1', x: 0, y: 0, w: 8, h: 8, px: face },
         { id: 7, type: 'lin', name: 'Linearize 1', x: 310, y: 0, mode: 'rows' },
@@ -468,7 +469,8 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   function save() {
     let count = 0; G.blocks.forEach(b => { if (b.vecs) b.vecs.forEach(v => { count += v.n.length; }); });
     if (count > 150000) { if (!warned) { warned = true; toast('This graph is too large to keep in browser storage, so it will not survive a reload.'); } return; }
-    try { localStorage.setItem(KEY, JSON.stringify(G)); } catch (e) {}
+    G.blocks.forEach(b => { if (b.type === 'mlp') mlpFlush(b); });
+    try { localStorage.setItem(KEY, JSON.stringify(G)); } catch (e) { if (!warned) { warned = true; toast('This graph is too large to keep in browser storage, so it will not survive a reload. Export model keeps a copy.'); } }
   }
 
   // Frame model: ns = {neuronId: weight}; vecs = [{id, x, y, o, n: [neuronIds]}] where a single neuron is a vector of one;
@@ -584,6 +586,13 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         bo.grad = gin; bo.loss = sigLoss(r.backSig);
         r.outs = [r.out, bo]; moved = true;
       });
+      G.blocks.forEach(b => {
+        const r = memo[b.id], g = r && r.backSig && r.backSig.grad;
+        if (b.type !== 'mlp' || r.dback || !r.acts || !g || g.length !== r.out.data.length) return;
+        r.dback = mlpBackward(b, r, g);
+        const bo = arr('float', [r.dback.gin.length], r.dback.gin); bo.grad = r.dback.gin; bo.loss = sigLoss(r.backSig);
+        r.outs = [r.out, bo]; moved = true;
+      });
       // An Attention block's gradient arrives in the order the next block read its output, so undo any Linearize block between them.
       // It then offers the gradient for its own input on its bottom-left port, for whatever feeds it.
       backWires.forEach(w => {
@@ -672,6 +681,45 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     const doc = [], off = [];
     for (let d = 0; d < ds.docs.length; d++) for (let o = 0; o + win <= ds.docs[d].length; o += win) { doc.push(d); off.push(o); }
     ds.n = doc.length; return ds.tw = { win, n: doc.length, doc: Int32Array.from(doc), off: Int32Array.from(off) };
+  }
+  // Evaluation frame (type 'mlp'): rows of neurons, every neuron of a row connected to every neuron of the next. All it stores is
+  // the row sizes; layer l's weights are one sizes[l] × sizes[l+1] array (row-major), kept here and saved as base64 32-bit floats.
+  const WT = {}, MLP_MAX = 5e6;
+  const mlpCount = b => b.sizes.slice(1).reduce((p, q, l) => p + q * b.sizes[l], 0);
+  const f32b64 = a => { const u = new Uint8Array(new Float32Array(a).buffer); let o = ''; for (let i = 0; i < u.length; i += 32768) o += String.fromCharCode.apply(null, u.subarray(i, i + 32768)); return btoa(o); };
+  const b64f64 = str => { const bin = atob(str), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return Float64Array.from(new Float32Array(u.buffer)); };
+  function mlpW(b) {
+    const key = b.sizes.join(',') + '|' + (b.seed || 0), c = WT[b.id]; if (c && c.key === key) return c.W;
+    let W = null;
+    if (b.wts && b.wkey === key) { try { W = b.wts.map(b64f64); if (W.some((w, l) => w.length !== b.sizes[l] * b.sizes[l + 1])) W = null; } catch (e) { W = null; } }
+    if (!W) W = b.sizes.slice(1).map((out, l) => {                  // small random weights, scaled by how many feed each neuron; the seed makes them repeatable
+      const inn = b.sizes[l], w = new Float64Array(inn * out), sc = 1 / Math.sqrt(inn); let t = (b.id * 7919 + (b.seed || 0) * 104729 + l * 1299721 + 1) >>> 0;
+      for (let i = 0; i < w.length; i++) { t = (t + 0x6D2B79F5) >>> 0; let x = Math.imul(t ^ (t >>> 15), 1 | t); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; w[i] = Math.fround((((x ^ (x >>> 14)) >>> 0) / 2147483648 - 1) * sc); }
+      return w; });
+    WT[b.id] = { key, W, dirty: false }; return W;
+  }
+  function mlpFlush(b) {                     // put changed weights back on the block so they are saved and copied with it
+    const c = WT[b.id]; if (!c || !c.dirty) return; c.dirty = false;
+    if (mlpCount(b) > 1.2e6) { delete b.wts; delete b.wkey; return; }  // too large for browser storage: they live until the page reloads
+    b.wts = c.W.map(f32b64); b.wkey = c.key;
+  }
+  const mlpD = (act, a) => act === 'relu' ? (a > 0 ? 1 : 0) : act === 'sigmoid' ? a * (1 - a) : act === 'tanh' ? 1 - a * a : 1;
+  function mlpBackward(b, r, g) {            // deltas[l] = d loss / d (input sum of row l + 1); gin = d loss / d input
+    const W = mlpW(b), L = W.length, deltas = new Array(L); let d = Float64Array.from(g);
+    if (!b.linOut) { const a = r.acts[L]; for (let j = 0; j < d.length; j++) d[j] *= mlpD(b.act, a[j]); }
+    for (let l = L - 1; ; l--) {
+      deltas[l] = d; const inn = b.sizes[l], out = b.sizes[l + 1], w = W[l], back = new Float64Array(inn), a = r.acts[l];
+      for (let i = 0; i < inn; i++) { let t = 0; const o = i * out; for (let j = 0; j < out; j++) t += w[o + j] * d[j]; back[i] = l ? t * mlpD(b.act, a[i]) : t; }
+      if (!l) return { deltas, gin: Array.from(back) };
+      d = back;
+    }
+  }
+  function mlpStep(b) {                      // one gradient step (only used when the page has no server and trains in the browser)
+    const r = last[b.id]; if (!r || !r.dback) return false;
+    const W = mlpW(b), lr = +b.lr || 0.01;
+    for (let l = 0; l < W.length; l++) { const out = b.sizes[l + 1], a = r.acts[l], d = r.dback.deltas[l], w = W[l]; for (let i = 0; i < a.length; i++) { const ai = +a[i]; if (!ai) continue; const o = i * out, k = lr * ai; for (let j = 0; j < out; j++) w[o + j] -= k * d[j]; } }
+    if (!W.every(w => isFinite(w[0]) && isFinite(w[w.length - 1]))) { b.train = false; b.seed = (b.seed || 0) + 1; delete b.wts; toast(`${b.name} stopped training because a weight grew without limit. Its weights were reset; lower its rate.`); return false; }
+    WT[b.id].dirty = true; b.steps = (b.steps || 0) + 1; dirty = true; return true;
   }
   const TOKV = 97;                           // the Tokenizer's one-hot alphabet
   function compute(b, ins) {
@@ -789,6 +837,19 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       return { out, pred: shown, truth, loss, hit, probs: rowsN > 1 ? null : probs, note: `${typeStr(out)} · ${LOSSES[kind].toLowerCase()} of ${typeStr(sig)} against ${typeStr(truth)}` + rowNote };
     }
     if (sig.shape.length !== 1) return { err: `Needs a 1-D array but is getting ${typeStr(sig)}. Put a Linearize block before it.` };
+    if (b.type === 'mlp') {                  // every neuron outputs f(Σ weight · output of the row before); the input row passes its values straight through
+      if (b.sizes[0] !== sig.data.length) b.sizes[0] = sig.data.length;      // the first row is always as long as what comes in
+      if (mlpCount(b) > MLP_MAX) return { err: `${nf(mlpCount(b))} connections is more than the browser can hold (${nf(MLP_MAX)}). Make the rows smaller.` };
+      const W = mlpW(b), L = W.length, acts = [sig.dtype === 'float' ? sig.data : sig.data.map(Number)], f = F[b.act] || F.tanh;
+      for (let l = 0; l < L; l++) {
+        const inn = b.sizes[l], out = b.sizes[l + 1], w = W[l], a = acts[l], z = new Float64Array(out), lin = l === L - 1 && b.linOut;
+        for (let i = 0; i < inn; i++) { const ai = +a[i]; if (!ai) continue; const o = i * out; for (let j = 0; j < out; j++) z[j] += ai * w[o + j]; }
+        if (!lin) for (let j = 0; j < out; j++) z[j] = f(z[j]);
+        acts.push(z);
+      }
+      const y = Array.from(acts[L]), out = arr('float', [y.length], y);
+      return { out, acts, note: `${typeStr(sig)} → ${typeStr(out)} · ${b.sizes.map(nf).join(' → ')} · ${nf(mlpCount(b))} connections · y = [${y.slice(0, 6).map(sfmt).join(', ')}${y.length > 6 ? ', …' : ''}]` };
+    }
     // evaluation frame: each neuron outputs f(weight · (its input value + Σ connection · source output)).
     // Only the neurons the output depends on, plus the ones drawn, are computed, so very long vectors stay cheap.
     const x = sig.dtype === 'float' ? sig.data : sig.data.map(Number), vin = b.vecs.find(v => v.id === b.inV), vout = b.vecs.find(v => v.id === b.outV);
@@ -877,10 +938,19 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         `<div class="brow"><label class="filebtn">Load folder<input type="file" webkitdirectory multiple data-f="dir" hidden></label><button data-act="dbuiltin">Built-in digits</button>${API ? '<button data-act="dkaggle">Kaggle</button><button data-act="dhf">Hugging Face</button>' : ''}</div>`;
     } else if (b.type === 'attn') {
       h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><label class="chk" title="Let queries and keys see where each item sits. Needed for anything that depends on order, such as reversing."><input type="checkbox" data-f="apos"> Positions</label></div><div class="brow"><button data-act="arand">Randomize</button><label class="stp">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="alr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label><button data-act="afly" aria-expanded="${!!b.fly}">Weights</button></div><canvas class="attg" width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
+    } else if (b.type === 'mlp') {
+      const top = Math.max(...b.sizes), wired = G.wires.some(w => w.to === b.id && (w.tp || 0) === 0), L = b.sizes.length;
+      h = b.sizes.map((n, l) => `<div class="mrow"><span class="mlab">${l === 0 ? 'input' : l === L - 1 ? 'output' : 'hidden ' + l}</span>` +
+        `<input class="nin" type="number" min="1" max="65536" step="1" data-f="msize" data-l="${l}" value="${n}"${l === 0 && wired ? ' disabled title="Follows the length of what is wired in"' : ''} aria-label="Neurons in the ${l === 0 ? 'input' : l === L - 1 ? 'output' : 'hidden'} row">` +
+        `<span class="mbar"><i style="width:${Math.max(3, Math.round(Math.log2(n + 1) / Math.log2(top + 1) * 100))}%"></i></span>` +
+        (l > 0 && l < L - 1 ? `<button class="mx" data-act="mdel" data-arg="${l}" aria-label="Remove this row">×</button>` : '<span class="mx"></span>') + '</div>').join('') +
+        `<div class="brow"><button data-act="madd">Add row</button><select data-f="mact" aria-label="Activation"><option value="tanh">Tanh</option><option value="relu">ReLU</option><option value="sigmoid">Sigmoid</option><option value="linear">Linear</option></select><label class="chk"><input type="checkbox" data-f="mlin"> Linear output</label></div>` +
+        `<div class="brow"><button data-act="mrand" title="New small random weights">Randomize</button><label class="stp" title="How far each training step moves the weights">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="mlr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label></div>`;
     } else if (b.type === 'lin') h = '<div class="brow linax"></div><div class="fold"></div>';
     else h = '<div class="loss"></div><canvas hidden></canvas><div class="bars"></div>';
     body.innerHTML = h;
     if (b.type === 'text') body.querySelector('textarea').value = b.text;
+    if (b.type === 'mlp') { body.querySelector('[data-f=mact]').value = F[b.act] && b.act !== 'step' ? b.act : 'tanh'; body.querySelector('[data-f=mlin]').checked = !!b.linOut; }
     if (b.type === 'tok') { body.querySelector('select').value = b.mode; body.querySelector('[data-f=tfmt]').value = b.fmt === 'onehot' ? 'onehot' : 'ids'; }
     if (b.type === 'attn') { body.querySelector('[data-f=causal]').checked = !!b.causal; body.querySelector('[data-f=apos]').checked = !!b.pos; }
     if (b.type === 'data') body.querySelector('select').value = b.as;
@@ -888,7 +958,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   function refresh(b, r) {
     const el = els[b.id], st = el.querySelector('.bstatus');
     st.className = 'bstatus ' + (r.err ? (r.idle ? '' : 'bad') : 'ok');
-    st.innerHTML = esc(r.err || r.note) + (b.type === 'attn' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` : '') + (b.type === 'perc' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` + (b.avg != null ? `, average loss ${sfmt(b.avg)}` : '') : '') + (b.type === 'perc' && b.train && trainHint(b, r) ? `<br><span class="hintw">${esc(trainHint(b, r))}</span>` : '') + (r.backSig ? ' · backprop in: ' + (r.backErr ? esc(typeStr(r.backSig)) + ' (' + esc(r.backErr) + ')' : r.backGrad ? 'gradient ' + esc(typeStr(r.backGrad)) : r.backSig.grad && r.backSig.data.length !== 1 ? 'gradient ' + esc(typeStr(r.backSig)) : r.backSig.t === 'arr' && r.backSig.data.length === 1 ? sfmt(+r.backSig.data[0]) : esc(typeStr(r.backSig)) + ' (needs a single number)') : '') + (r.fit ? `<button data-act="fit" data-arg="${r.fit}">Resize the input vector to ${r.fit}</button>` : '') + (b.msg ? ' · ' + esc(b.msg) : '');
+    st.innerHTML = esc(r.err || r.note) + (b.type === 'attn' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` : '') + (b.type === 'mlp' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` : '') + (b.type === 'perc' && (b.train || b.steps) ? ` · ${b.train ? 'training, ' : ''}step ${nf(b.steps || 0)}` + (b.avg != null ? `, average loss ${sfmt(b.avg)}` : '') : '') + (b.type === 'perc' && b.train && trainHint(b, r) ? `<br><span class="hintw">${esc(trainHint(b, r))}</span>` : '') + (r.backSig ? ' · backprop in: ' + (r.backErr ? esc(typeStr(r.backSig)) + ' (' + esc(r.backErr) + ')' : r.backGrad ? 'gradient ' + esc(typeStr(r.backGrad)) : r.backSig.grad && r.backSig.data.length !== 1 ? 'gradient ' + esc(typeStr(r.backSig)) : r.backSig.t === 'arr' && r.backSig.data.length === 1 ? sfmt(+r.backSig.data[0]) : esc(typeStr(r.backSig)) + ' (needs a single number)') : '') + (r.fit ? `<button data-act="fit" data-arg="${r.fit}">Resize the input vector to ${r.fit}</button>` : '') + (b.msg ? ' · ' + esc(b.msg) : '');
     el.classList.toggle('active', b.id === activeP);
     if (b.type === 'tok') {
       const chips = list => (list || []).slice(0, 48).map(t => `<span class="chip${t.pad ? ' pad' : ''}">${esc(t.s)}<i>${b.fmt === 'onehot' && !t.pad ? t.k : t.id}</i></span>`).join('') + (list && list.length > 48 ? `<span class="chip pad">…<i>+${nf(list.length - 48)}</i></span>` : '');
@@ -1375,6 +1445,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (type === 'wave') Object.assign(b, { samples: sine(), n: 4, pos: 0 });
     if (type === 'dist') Object.assign(b, { kind: 'uniform', a: 0, b: 1 });
     if (type === 'samp') Object.assign(b, { n: 8, seed: 0 });
+    if (type === 'mlp') Object.assign(b, { sizes: [4, 16, 4], act: 'tanh', linOut: true, lr: 0.01, seed: 0 });
     if (type === 'perc') { Object.assign(b, { act: 'linear', rows: [{ w: [1, 1, 1] }, { w: [1, 1] }], links: [{}, {}] }); norm(b); activeP = id; }
     G.blocks.push(b); buildBlock(b); renderSide(); update(true);
   }
@@ -1382,7 +1453,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   let clip = null, curB = null, lastPtr = null, menuItems = [];
   const menu = $('menu');
   function setCur(id) { curB = id; G.blocks.forEach(q => els[q.id].classList.toggle('cur', q.id === curB)); }
-  function copyBlock(b) { clip = JSON.parse(JSON.stringify(b)); clipKind = 'block'; toast('Copied ' + b.name + '.'); }
+  function copyBlock(b) { if (b.type === 'mlp') { if (WT[b.id]) WT[b.id].dirty = true; mlpFlush(b); } clip = JSON.parse(JSON.stringify(b)); clipKind = 'block'; toast('Copied ' + b.name + '.'); }
   let nclip = null, clipKind = null, lastClient = null;
   function copySel(b) {                      // selected neurons; those in a vector whose bracket is selected stay grouped as a vector
     const ns = selNs(b), st = new Set(ns), vsel = selVs(b), at = locator(b), groups = [];
@@ -1555,7 +1626,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if (out.low && !inn.back) return toast(`${a.name}'s backprop output is a gradient. Drop it on a backprop input.`);
     if (inn.low && !out.low) return toast(`${c.name}'s backprop input takes the gradient from the bottom-left port of the block it feeds, and ${a.name} sends ${sig ? typeStr(sig) : KIND[out.kind]}.`);
     if (inn.back && sig && !scalar && !out.low) return toast(`${c.name}'s backprop input takes a single number, such as a loss, and ${a.name} sends ${typeStr(sig)}.`);
-    if (c.type === 'perc' && !inn.back && sig && sig.shape.length !== 1) return toast(`${a.name} sends ${typeStr(sig)} and ${c.name} takes a 1-D array. Put a Linearize block between them.`);
+    if ((c.type === 'perc' || c.type === 'mlp') && !inn.back && sig && sig.shape.length !== 1) return toast(`${a.name} sends ${typeStr(sig)} and ${c.name} takes a 1-D array. Put a Linearize block between them.`);
     G.wires = G.wires.filter(w => !sameWire(w, { to: c.id, tp })); G.wires.push({ from: a.id, to: c.id, fp: fp || 0, tp });
     select({ t: 'w', from: a.id, to: c.id, tp });
   }
@@ -1578,6 +1649,9 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (name === 'pclear') b.px.fill(0);
     else if (name === 'tn' || name === 'wn' || name === 'ak' || name === 'sn') b.n = Math.max(1, b.n + arg);
     else if (name === 'sdraw') b.seed = (b.seed || 0) + 1;
+    else if (name === 'mrand') { b.seed = (b.seed || 0) + 1; delete b.wts; delete b.wkey; b.steps = 0; }
+    else if (name === 'madd') { if (b.sizes.length >= 12) return toast('Twelve rows is the limit.'); b.sizes.splice(b.sizes.length - 1, 0, b.sizes[b.sizes.length - 2] || 16); delete b.wts; b.steps = 0; }
+    else if (name === 'mdel') { if (b.sizes.length > 2 && arg > 0 && arg < b.sizes.length - 1) { b.sizes.splice(arg, 1); delete b.wts; b.steps = 0; } }
     else if (name === 'lrev') { b.rev = b.rev || []; b.rev[arg] = !b.rev[arg]; for (let k = 0; k < b.rev.length; k++) b.rev[k] = !!b.rev[k]; }
     else if (name === 'splay') b.playing = !b.playing;
     else if (name === 'arand') { b.seed = (b.seed || 0) + 1; b.wq = null; b.steps = 0; }
@@ -1861,13 +1935,16 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role=button]')) { e.preventDefault(); e.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
   });
   vp.addEventListener('input', e => {
-    const t = e.target, be = t.closest('.block'), f = t.dataset.f; if (!be || !f || f === 'file' || f === 'dir' || f === 'idx') return;
+    const t = e.target, be = t.closest('.block'), f = t.dataset.f; if (!be || !f || f === 'file' || f === 'dir' || f === 'idx' || f === 'msize') return;
     const b = byId(+be.dataset.id);
     if (f === 'text') b.text = t.value;
     else if (f === 'pos') b.pos = +t.value;
     else if (f === 'mode') b.mode = t.value;
     else if (f === 'n') return;
     else if (f === 'as') b.as = t.value;
+    else if (f === 'mact') b.act = t.value;
+    else if (f === 'mlin') b.linOut = t.checked;
+    else if (f === 'mlr') { if (t.value === '' || !(+t.value >= 0)) return; b.lr = +t.value; save(); return; }
     else if (f === 'tfmt') b.fmt = t.value;
     else if (f === 'dkind') { const was = b.kind; b.kind = t.value; if (was !== b.kind) { b.a = 0; b.b = 1; buildBody(b); } }
     else if (f === 'da') { if (t.value === '' || !isFinite(+t.value)) return; b.a = +t.value; }
@@ -1882,6 +1959,12 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   });
   vp.addEventListener('change', e => { const t = e.target, be = t.closest('.block');
     if (t.dataset.f === 'dir' && be) { const b = byId(+be.dataset.id), files = t.files; b.msg = 'Reading the folder…'; update(false); loadFolder(b, files); t.value = ''; return; }
+    if (t.dataset.f === 'msize' && be) {                              // a row's size: applied when the number is committed, not on every keystroke
+      const b = byId(+be.dataset.id), l = +t.dataset.l, n = clamp(Math.floor(+t.value) || 1, 1, 65536), was = b.sizes[l]; b.sizes[l] = n;
+      if (mlpCount(b) > MLP_MAX) { b.sizes[l] = was; toast(`That would be ${nf(mlpCount({ sizes: b.sizes.map((q, k) => k === l ? n : q) }))} connections; the browser's limit is ${nf(MLP_MAX)}.`); }
+      else if (n !== was) { delete b.wts; delete b.wkey; b.steps = 0; }
+      buildBody(b); return update(true);
+    }
     if (t.dataset.f === 'idx' && be) { const b = byId(+be.dataset.id), ds = dataset(b); if (ds && ds.n) b.idx = clamp((Math.floor(+t.value) || 1) - 1, 0, ds.n - 1); sampleMoved = true; update(true); return afterSample(); } if (t.dataset.f === 'n' && be) { const b = byId(+be.dataset.id); b.n = clamp(Math.floor(+t.value) || 1, 1, MAXLEN); t.value = b.n; return update(true); } if (t.dataset.f === 'file') loadAudio(byId(+t.closest('.block').dataset.id), t.files[0]); });
   vp.addEventListener('wheel', e => {
     if (sizeMode) { e.preventDefault(); return sizeWheel(e); }
@@ -1989,7 +2072,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   }
   function afterSample() {                   // the sample just changed and update() has run: every training frame takes a step on it
     let stepped = false;
-    G.blocks.forEach(b => { if (b.type === 'attn' && b.train) stepped = attnStep(b) || stepped; });   // from the same forward pass the frames are about to use
+    G.blocks.forEach(b => { if (b.type === 'attn' && b.train) stepped = attnStep(b) || stepped; if (b.type === 'mlp' && b.train) stepped = mlpStep(b) || stepped; });   // from the same forward pass the hand-built frames are about to use
     G.blocks.forEach(b => { if (b.type === 'perc' && b.train) stepped = beginStep(b) || stepped; });
     if (stepped) update(false);
   }
@@ -2251,6 +2334,10 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         if (!b.wq || !r.out) return err = `${b.name} has no input yet.`;
         Object.assign(o, { dk: b.wdk, d: b.wd, dq: b.wdq || b.wd, n: r.n, causal: !!b.causal, pos: !!b.pos, lr: +b.lr || 0.01, wq: b.wq, wk: b.wk, wv: b.wv });
         work += r.n * b.wd * (2 * b.wdk + b.wd) + r.n * r.n * (b.wdk + b.wd); levels += 2; if (r.backGrad) can.push(b.id);
+      } else if (b.type === 'mlp') {
+        if (!r.acts) return err = `${b.name} has no input yet.`;
+        Object.assign(o, { sizes: b.sizes.slice(), act: b.act, linOut: !!b.linOut, lr: +b.lr || 0.01, w: mlpW(b).map(f32b64) });
+        work += mlpCount(b); levels += b.sizes.length; if (r.dback) can.push(b.id);
       } else if (b.type === 'perc') {
         const vin = b.vecs.find(v => v.id === b.inV), vout = b.vecs.find(v => v.id === b.outV); if (!vin || !vout) return err = `${b.name} needs an input vector and an output vector.`;
         const id = [], w = [], es = [], ed = [], ew = [];
@@ -2290,6 +2377,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       for (const id in j.blocks) {
         const t = byId(+id), wts = j.blocks[id]; if (!t) continue; let k = 0;
         if (t.type === 'perc' && wts.ns) { wts.ns.id.forEach((q, i) => { if (q in t.ns && isFinite(wts.ns.w[i])) { t.ns[q] = +wts.ns.w[i]; k++; } }); wts.edges.w.forEach((w, i) => { const key = wts.edges.s[i] + '>' + wts.edges.d[i]; if (key in t.edges && isFinite(w)) { t.edges[key] = +w; k++; } }); }
+        else if (t.type === 'mlp' && Array.isArray(wts.w) && wts.w.length === t.sizes.length - 1) { const W = wts.w.map(b64f64); if (W.every((w, l) => w.length === t.sizes[l] * t.sizes[l + 1])) { mlpW(t); WT[t.id].W = W; WT[t.id].dirty = true; k = mlpCount(t); } }
         else if (t.type === 'attn' && wts.wq && t.wq && wts.wq.length === t.wq.length && wts.wk.length === t.wk.length && wts.wv.length === t.wv.length) { t.wq = wts.wq.map(Number); t.wk = wts.wk.map(Number); t.wv = wts.wv.map(Number); k = t.wq.length + t.wk.length + t.wv.length; }
         if (k) { n += k; names.push(t.name); t.train = false; t.avg = null; if (j.steps) t.steps = j.steps; }
       }
@@ -2321,7 +2409,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       const b = byId(id), r = b && last[id]; if (!r || !r.back) return ANIM.delete(id);
       if ((performance.now() - an.t0) / BPSTEP >= r.back.maxD + 2) { ANIM.delete(id); trainStep(b); any = true; } else renderPerc(b, r);
     });
-    const trainers = G.blocks.filter(b => (b.type === 'perc' || b.type === 'attn') && b.train), fast = trainers.length && trainers.every(b => b.type === 'attn' || b.showBack === false);
+    const trainers = G.blocks.filter(b => (b.type === 'perc' || b.type === 'attn' || b.type === 'mlp') && b.train), fast = trainers.length && trainers.every(b => b.type !== 'perc' || b.showBack === false);
     G.blocks.forEach(b => {                                          // a playing Dataset or Random sampler supplies the samples: each new image or draw is one
       if ((b.type !== 'data' && b.type !== 'samp') || !b.playing) return;
       const next = () => { if (b.type === 'samp') b.seed = (b.seed || 0) + 1; else b.idx = (b.idx || 0) + 1; };
@@ -2329,7 +2417,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       if (ANIM.size) return;                                          // training: wait for the sweep, then feed the next sample
       if (fast) {                                                     // no sweep to show: as many samples as fit in 50 ms, drawing once at the end
         const t0 = performance.now(); let n = 0;
-        do { next(); last = evalAll(); tally(); trainers.forEach(tr => tr.type === 'attn' ? attnStep(tr) : trainStep(tr)); } while (++n < 400 && performance.now() - t0 < 50 && trainers.some(tr => tr.train));
+        do { next(); last = evalAll(); tally(); trainers.forEach(tr => tr.type === 'attn' ? attnStep(tr) : tr.type === 'mlp' ? mlpStep(tr) : trainStep(tr)); } while (++n < 400 && performance.now() - t0 < 50 && trainers.some(tr => tr.train));
       } else { next(); sampleMoved = true; update(false); afterSample(); }
       any = true;
     });

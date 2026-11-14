@@ -7,6 +7,7 @@ Tokenizer (characters), Linearize, Attention, Evaluation frame, Cost function.
 
 trainer.py calls train() when it is handed such a file; the options are trainer.py's.
 """
+import base64
 import csv
 import json
 import math
@@ -58,6 +59,10 @@ class Graph(torch.nn.Module):
             elif b["type"] == "attn":
                 for k, rows, cols in (("wq", b["dq"], b["dk"]), ("wk", b["dq"], b["dk"]), ("wv", b["d"], b["d"])):
                     self.attn[f"{i}_{k}"] = torch.nn.Parameter(torch.as_tensor(b[k], dtype=dtype).view(rows, cols))
+            elif b["type"] == "mlp":                    # rows of neurons, each fully connected to the next: one sizes[l] x sizes[l+1] matrix a layer
+                for l, w in enumerate(b["w"]):
+                    m = np.frombuffer(base64.b64decode(w), dtype="<f4").astype(np.float64).reshape(b["sizes"][l], b["sizes"][l + 1])
+                    self.attn[f"{i}_m{l}"] = torch.nn.Parameter(torch.as_tensor(m, dtype=dtype))
             elif b["type"] not in ("data", "text", "pixels", "dist", "samp", "tok", "lin", "read"):
                 sys.exit(f"{b.get('name', i)}: {b['type']} blocks cannot be trained outside the browser yet")
         self.train_ids = [i for i in g["train"] if i in self.by]
@@ -68,7 +73,8 @@ class Graph(torch.nn.Module):
         out = []
         for i in self.train_ids:
             b = self.by[i]
-            ps = [p for p in self.frames[str(i)].parameters() if p.requires_grad] if b["type"] == "perc" else [self.attn[f"{i}_{k}"] for k in ("wq", "wk", "wv")]
+            ps = ([p for p in self.frames[str(i)].parameters() if p.requires_grad] if b["type"] == "perc" else
+                  [self.attn[f"{i}_m{l}"] for l in range(len(b["w"]))] if b["type"] == "mlp" else [self.attn[f"{i}_{k}"] for k in ("wq", "wk", "wv")])
             out.append({"params": ps, "lr": lr if lr is not None else float(b.get("lr") or 0.01) * lr_scale})
         return out
 
@@ -146,6 +152,16 @@ class Graph(torch.nn.Module):
                 P = torch.softmax(S, -1)
                 Y = P @ (X @ wv)
                 out[i] = [Y.reshape(x.shape), P]
+            elif t == "mlp":
+                x = get(i)
+                if x.dim() != 2 or x.shape[1] != b["sizes"][0]:
+                    sys.exit(f"{b.get('name', i)} takes a 1-D input of {b['sizes'][0]} values but is getting {tuple(x.shape[1:])}")
+                a, last = x.to(dt), len(b["w"]) - 1
+                for l in range(last + 1):
+                    a = a @ self.attn[f"{i}_m{l}"]
+                    if not (l == last and b["linOut"]):
+                        a = torch.relu(a) if b["act"] == "relu" else torch.sigmoid(a) if b["act"] == "sigmoid" else torch.tanh(a) if b["act"] == "tanh" else a
+                out[i] = [a]
             elif t == "perc":
                 x = get(i)
                 if x.dim() != 2:
@@ -173,7 +189,9 @@ class Graph(torch.nn.Module):
         res = {}
         for i in self.train_ids:
             b = self.by[i]
-            if b["type"] == "perc":
+            if b["type"] == "mlp":
+                res[str(i)] = {"w": [base64.b64encode(self.attn[f"{i}_m{l}"].detach().cpu().numpy().astype("<f4").tobytes()).decode() for l in range(len(b["w"]))]}
+            elif b["type"] == "perc":
                 nw, ew = self.frames[str(i)].weights()
                 res[str(i)] = {"ns": {"id": b["ns"]["id"], "w": [float(v) for v in nw]}, "edges": {"s": b["edges"]["s"], "d": b["edges"]["d"], "w": [float(v) for v in ew]}}
             else:

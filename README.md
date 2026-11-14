@@ -118,6 +118,10 @@ Two known differences: a block whose output feeds two blocks gets the gradient f
 wired to its backprop port in the editor, and a character outside the Basic Multilingual Plane (an emoji, say) counts
 as two tokens here and one in the editor.
 
+The toolbar's Evaluation frame is defined by its row sizes alone (input, any number of hidden rows, output), every row
+fully connected to the next; its weights are one matrix per pair of rows. The older hand-built frame, with draggable
+neurons and individual connections, is still in the right-click menu as "Hand-built frame".
+
 Older single-frame files still work, and this is what they compute:
 
 
