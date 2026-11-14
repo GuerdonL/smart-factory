@@ -316,7 +316,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <span>thicker stroke = larger weight</span>
         <span>Drag the background to pan, scroll to zoom, right-click for the menu, hold the right button and drag across connections to cut them</span>
       </div>
-        <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block. With Train ticked, that block then adjusts its query, key and value weights on every sample the frames train on; its Weights button shows all three.</p>
+        <p>An evaluation frame that receives a loss sends the gradient for its own input out of the port at its bottom left. Wire that into the backprop input of another frame to train both together, or into the port at the bottom right of an Attention block. With Train ticked, that block then adjusts its query, key and value weights on every sample the frames train on; its Weights button shows all three. Tick Positions when the task depends on order: without it, attention sees which values are present but not where they sit. A Random sampler on Play supplies training samples the same way a playing Dataset does.</p>
         <p>A Distribution block describes random numbers (uniform between a low and a high, or normal with a mean and a standard deviation). Wire it into a Random sampler to get that many draws as a float vector. The draws stay the same until you press Resample or Play.</p>
         <p>To train a model too large for the browser, select its frame and choose Export model, then run the file through the trainer project (<code>python run.py models/&lt;file&gt;.json</code>). It trains on your machine when that takes under five minutes and otherwise rents a GPU through box-boy. Import weights loads the result back into the frame.</p>
       </div>
@@ -597,26 +597,26 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     r.xin.forEach((_, id) => visit(id));                            // so the gradient for every input is known, connected onward or not
     return { A, S, D: Dn, gE, gN, maxD };
   }
-  function attnInit(b, d, dk) {              // query, key and value weights: d × dk, d × dk and d × d, small random values that stay put until re-randomized
-    if (b.wq && b.wd === d && b.wdk === dk) return;
+  function attnInit(b, d, dk, dq) {              // query, key and value weights: d × dk, d × dk and d × d, small random values that stay put until re-randomized
+    if (b.wq && b.wd === d && b.wdk === dk && (b.wdq || b.wd) === dq) return;      // dq = rows of the query and key weights: the features, plus one per position when Positions is on
     let t = (b.id * 7919 + (b.seed || 0) * 104729 + 1) >>> 0;
     const rnd = () => { t = (t + 0x6D2B79F5) >>> 0; let x = Math.imul(t ^ (t >>> 15), 1 | t); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
-    const mk = len => Array.from({ length: len }, () => Math.round((rnd() * 2 - 1) / Math.sqrt(d) * 1000) / 1000);
-    b.wq = mk(d * dk); b.wk = mk(d * dk); b.wv = mk(d * d); b.wd = d; b.wdk = dk;
+    const mk = (len, fan) => Array.from({ length: len }, () => Math.round((rnd() * 2 - 1) / Math.sqrt(fan) * 1000) / 1000);
+    b.wq = mk(dq * dk, d); b.wk = mk(dq * dk, d); b.wv = mk(d * d, d); b.wd = d; b.wdk = dk; b.wdq = dq;
   }
   // Backward pass through an Attention block, given G = d loss / d output (items × features).
   // Forward was Q = X·Wq, K = X·Wk, V = X·Wv, scores S = Q·Kᵀ / √(key size), P = softmax of each row of S, output = P·V.
   //   d loss / dV = Pᵀ·G        d loss / dP = G·Vᵀ        d loss / dS = P ∘ (dP − row sums of P ∘ dP)
   //   d loss / dQ = dS·K / √k   d loss / dK = dSᵀ·Q / √k  and each weight matrix gets Xᵀ times the gradient of what it produced.
   function attnBackward(r, G) {
-    const { n, d, dk, X, Q, K, V, att: P } = r, sc = 1 / Math.sqrt(dk), dV = new Float64Array(n * d), dQ = new Float64Array(n * dk), dK = new Float64Array(n * dk), dP = new Float64Array(n);
+    const { n, d, dk, pos, X, Q, K, V, att: P } = r, sc = 1 / Math.sqrt(dk), dV = new Float64Array(n * d), dQ = new Float64Array(n * dk), dK = new Float64Array(n * dk), dP = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       let mean = 0;
       for (let j = 0; j < n; j++) { let t = 0; const pij = P[i * n + j]; for (let c = 0; c < d; c++) { t += G[i * d + c] * V[j * d + c]; dV[j * d + c] += pij * G[i * d + c]; } dP[j] = t; mean += pij * t; }
       for (let j = 0; j < n; j++) { const ds = P[i * n + j] * (dP[j] - mean) * sc; if (!ds) continue; for (let c = 0; c < dk; c++) { dQ[i * dk + c] += ds * K[j * dk + c]; dK[j * dk + c] += ds * Q[i * dk + c]; } }
     }
-    const back = (D, cols) => { const g = new Float64Array(d * cols); for (let i = 0; i < n; i++) for (let k = 0; k < d; k++) { const x = +X[i * d + k]; if (x) for (let c = 0; c < cols; c++) g[k * cols + c] += x * D[i * cols + c]; } return g; };
-    return { gq: back(dQ, dk), gk: back(dK, dk), gv: back(dV, d) };
+    const back = (D, cols, withPos) => { const g = new Float64Array((d + (withPos ? n : 0)) * cols); for (let i = 0; i < n; i++) { for (let k = 0; k < d; k++) { const x = +X[i * d + k]; if (x) for (let c = 0; c < cols; c++) g[k * cols + c] += x * D[i * cols + c]; } if (withPos) for (let c = 0; c < cols; c++) g[(d + i) * cols + c] += D[i * cols + c]; } return g; };
+    return { gq: back(dQ, dk, pos), gk: back(dK, dk, pos), gv: back(dV, d, false) };
   }
   function attnStep(b) {                     // one gradient step on the query, key and value weights
     const r = last[b.id]; if (!r || !r.backGrad || !b.wq) return false;
@@ -691,9 +691,12 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       const sh = sig.shape; if (sh.length > 2) return { err: `Takes a 1-D or 2-D array (items × features) but is getting ${typeStr(sig)}.` };
       const n = sh[0], d = sh.length === 2 ? sh[1] : 1, dk = clamp(b.n || 4, 1, 64);
       if (n > 256) return { err: `Attention over ${nf(n)} items needs ${nf(n * n)} weights; the limit here is 256 items.` };
-      attnInit(b, d, dk);
-      const X = sig.data, mul = (W, cols) => { const o = new Float64Array(n * cols); for (let i = 0; i < n; i++) for (let k = 0; k < d; k++) { const x = +X[i * d + k]; if (x) for (let c = 0; c < cols; c++) o[i * cols + c] += x * W[k * cols + c]; } return o; };
-      const Q = mul(b.wq, dk), K = mul(b.wk, dk), V = mul(b.wv, d), A = new Array(n * n), Y = new Array(n * d).fill(0), sc = 1 / Math.sqrt(dk);
+      // Positions: item i's query and key also get row (d + i) of their weights, as if a one-hot position were appended to it.
+      // Values are left alone, so the output keeps the input's shape. Without this, attention cannot tell where an item sits.
+      const pos = !!b.pos, dq = d + (pos ? n : 0);
+      attnInit(b, d, dk, dq);
+      const X = sig.data, mul = (W, cols, withPos) => { const o = new Float64Array(n * cols); for (let i = 0; i < n; i++) { for (let k = 0; k < d; k++) { const x = +X[i * d + k]; if (x) for (let c = 0; c < cols; c++) o[i * cols + c] += x * W[k * cols + c]; } if (withPos) for (let c = 0; c < cols; c++) o[i * cols + c] += W[(d + i) * cols + c]; } return o; };
+      const Q = mul(b.wq, dk, pos), K = mul(b.wk, dk, pos), V = mul(b.wv, d, false), A = new Array(n * n), Y = new Array(n * d).fill(0), sc = 1 / Math.sqrt(dk);
       for (let i = 0; i < n; i++) {
         const row = new Array(n);                                   // score of item i against every item j, then softmax along the row
         for (let j = 0; j < n; j++) { let t = 0; for (let c = 0; c < dk; c++) t += Q[i * dk + c] * K[j * dk + c]; row[j] = b.causal && j > i ? -Infinity : t * sc; }
@@ -701,14 +704,15 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         for (let j = 0; j < n; j++) { A[i * n + j] = pr[j]; if (pr[j]) for (let c = 0; c < d; c++) Y[i * d + c] += pr[j] * V[j * d + c]; }
       }
       const out = arr('float', sh.slice(), Y), att = arr('float', [n, n], A);
-      return { out, outs: [out, att], att: A, n, d, dk, X, Q, K, V, note: `${typeStr(sig)} → ${typeStr(out)} · key size ${dk}` + (b.causal ? ' · causal' : '') };
+      return { out, outs: [out, att], att: A, n, d, dk, pos, X, Q, K, V, note: `${typeStr(sig)} → ${typeStr(out)} · ${nf(n)} item${n === 1 ? '' : 's'} of ${nf(d)} feature${d === 1 ? '' : 's'} · key size ${dk}` + (b.causal ? ' · causal' : '') + (pos ? ' · positions' : '') };
     }
     if (b.type === 'read') {                 // cost function: prediction and ground truth in, one number out
       const truth = ins[1];
       if (!truth) return { pred: sig, note: typeStr(sig) + ' · connect a ground truth to get a loss' };
       if (truth.data.length !== sig.data.length || truth.shape.join() !== sig.shape.join()) return { pred: sig, truth, err: `Prediction is ${typeStr(sig)} but ground truth is ${typeStr(truth)}.` };
       const kind = LOSSES[b.loss] ? b.loss : 'se', loss = lossOf[kind](sig.data, truth.data), out = arr('float', [], [loss]);
-      const hit = sig.shape.length === 1 && sig.data.length > 1 ? argmax(sig.data) === argmax(truth.data) : undefined;   // is the largest prediction where the truth is?
+      const oneHot = truth.dtype === 'bool' || (truth.data.every(v => +v === 0 || +v === 1) && truth.data.reduce((p, q) => p + +q, 0) === 1);   // a class label, as opposed to numbers to match
+      const hit = oneHot && sig.shape.length === 1 && sig.data.length > 1 ? argmax(sig.data) === argmax(truth.data) : undefined;   // is the largest prediction where the truth is?
       out.grad = lossGrad[kind](sig.data, truth.data);    // d loss / d prediction, used by a frame's backward pass
       return { out, pred: sig, truth, loss, hit, probs: kind === 'ce' ? softmax(sig.data) : null, note: `${typeStr(out)} · ${LOSSES[kind].toLowerCase()} of ${typeStr(sig)} against ${typeStr(truth)}` };
     }
@@ -799,13 +803,13 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         `<div class="brow"><select data-f="as" aria-label="Output type"><option value="int">int (raw values)</option><option value="float">float (0 to 1)</option><option value="bool">bool (half or brighter)</option></select></div>` +
         `<div class="brow"><label class="filebtn">Load folder<input type="file" webkitdirectory multiple data-f="dir" hidden></label><button data-act="dbuiltin">Built-in digits</button>${API ? '<button data-act="dkaggle">Kaggle</button>' : ''}</div>`;
     } else if (b.type === 'attn') {
-      h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><button data-act="arand">Randomize</button></div><div class="brow"><label class="chk"><input type="checkbox" data-f="atrain"> Train</label><label class="stp">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="alr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label><button data-act="afly" aria-expanded="${!!b.fly}">Weights</button></div><canvas class="attg" width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
+      h = `<div class="brow">${stepper('Key size', 'ak', b.n)}<label class="chk"><input type="checkbox" data-f="causal"> Causal</label><label class="chk" title="Let queries and keys see where each item sits. Needed for anything that depends on order, such as reversing."><input type="checkbox" data-f="apos"> Positions</label></div><div class="brow"><button data-act="arand">Randomize</button><label class="chk"><input type="checkbox" data-f="atrain"> Train</label><label class="stp">rate <input class="nin" style="width:4.6em" type="number" step="0.001" min="0" data-f="alr" value="${+b.lr || 0.01}" aria-label="Learning rate"></label><button data-act="afly" aria-expanded="${!!b.fly}">Weights</button></div><canvas class="attg" width="8" height="8" aria-label="Attention weights"></canvas><div class="hint">Row = an item, column = the item it attends to. Brighter is more.</div>`;
     } else if (b.type === 'lin') h = '<div class="brow linax"></div><div class="fold"></div>';
     else h = '<div class="loss"></div><canvas hidden></canvas><div class="bars"></div>';
     body.innerHTML = h;
     if (b.type === 'text') body.querySelector('textarea').value = b.text;
     if (b.type === 'tok') body.querySelector('select').value = b.mode;
-    if (b.type === 'attn') { body.querySelector('[data-f=causal]').checked = !!b.causal; body.querySelector('[data-f=atrain]').checked = !!b.train; }
+    if (b.type === 'attn') { body.querySelector('[data-f=causal]').checked = !!b.causal; body.querySelector('[data-f=atrain]').checked = !!b.train; body.querySelector('[data-f=apos]').checked = !!b.pos; }
     if (b.type === 'data') body.querySelector('select').value = b.as;
   }
   function refresh(b, r) {
@@ -834,9 +838,9 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (b.type === 'attn') {
       const fly = el.querySelector('.fly'); fly.hidden = !b.fly || !b.wq;
       if (!fly.hidden) [['Query', b.wq, b.wdk], ['Key', b.wk, b.wdk], ['Value', b.wv, b.wd]].forEach(([name, W, cols], q) => {
-        const fig = fly.querySelectorAll('figure')[q], fc = fig.querySelector('canvas'), rows = b.wd, cell = clamp(Math.floor(Math.min(400 / cols, 400 / rows)), 6, 76), ctx = fc.getContext('2d');
+        const fig = fly.querySelectorAll('figure')[q], fc = fig.querySelector('canvas'), rows = W.length / cols, cell = clamp(Math.floor(Math.min(400 / cols, 400 / rows)), 6, 76), ctx = fc.getContext('2d');
         let top = 0; for (const v of W) top = Math.max(top, Math.abs(v));
-        fig.querySelector('figcaption').textContent = `${name} · ${rows} × ${cols} · largest ${sfmt(top)}`;
+        fig.querySelector('figcaption').textContent = `${name} · ${rows} × ${cols}` + (rows > b.wd ? ` (last ${rows - b.wd} rows: positions)` : '') + ` · largest ${sfmt(top)}`;
         fc.width = cols * cell; fc.height = rows * cell; fc.style.width = cols * cell / 2 + 'px'; fc.style.height = rows * cell / 2 + 'px';
         const st = getComputedStyle(document.documentElement), pos = st.getPropertyValue('--pos'), neg = st.getPropertyValue('--neg'), ink = st.getPropertyValue('--fg');
         for (let i = 0; i < W.length; i++) {
@@ -1781,6 +1785,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     else if (f === 'da') { if (t.value === '' || !isFinite(+t.value)) return; b.a = +t.value; }
     else if (f === 'db') { if (t.value === '' || !isFinite(+t.value)) return; b.b = +t.value; }
     else if (f === 'causal') b.causal = t.checked;
+    else if (f === 'apos') { b.pos = t.checked; b.steps = 0; }
     else if (f === 'atrain') { b.train = t.checked; if (b.train && !(last[b.id] && last[b.id].backGrad)) toast(last[b.id] && last[b.id].backErr ? `${b.name} cannot train: ${last[b.id].backErr}.` : `${b.name} has no gradient yet. Wire the bottom-left port of the evaluation frame it feeds into the port at its bottom right, and give that frame a loss.`); }
     else if (f === 'alr') { if (t.value === '' || !(+t.value >= 0)) return; b.lr = +t.value; save(); return; }
     else if (f === 'loss') b.loss = t.value;
@@ -2047,18 +2052,18 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       if ((performance.now() - an.t0) / BPSTEP >= r.back.maxD + 2) { ANIM.delete(id); trainStep(b); any = true; } else renderPerc(b, r);
     });
     const trainers = G.blocks.filter(b => (b.type === 'perc' || b.type === 'attn') && b.train), fast = trainers.length && trainers.every(b => b.type === 'attn' || b.showBack === false);
-    G.blocks.forEach(b => {
-      if (b.type !== 'data' || !b.playing) return;
-      if (!trainers.length) { if (tick % 3 === 0) { b.idx = (b.idx || 0) + 1; sampleMoved = any = true; } return; }   // not training: about four images a second
+    G.blocks.forEach(b => {                                          // a playing Dataset or Random sampler supplies the samples: each new image or draw is one
+      if ((b.type !== 'data' && b.type !== 'samp') || !b.playing) return;
+      const next = () => { if (b.type === 'samp') b.seed = (b.seed || 0) + 1; else b.idx = (b.idx || 0) + 1; };
+      if (!trainers.length) { if (b.type === 'samp' || tick % 3 === 0) { next(); sampleMoved = any = true; } return; }   // not training: about four images a second
       if (ANIM.size) return;                                          // training: wait for the sweep, then feed the next sample
       if (fast) {                                                     // no sweep to show: as many samples as fit in 50 ms, drawing once at the end
         const t0 = performance.now(); let n = 0;
-        do { b.idx = (b.idx || 0) + 1; last = evalAll(); tally(); trainers.forEach(tr => tr.type === 'attn' ? attnStep(tr) : trainStep(tr)); } while (++n < 400 && performance.now() - t0 < 50 && trainers.some(tr => tr.train));
-      } else { b.idx = (b.idx || 0) + 1; sampleMoved = true; update(false); afterSample(); }
+        do { next(); last = evalAll(); tally(); trainers.forEach(tr => tr.type === 'attn' ? attnStep(tr) : trainStep(tr)); } while (++n < 400 && performance.now() - t0 < 50 && trainers.some(tr => tr.train));
+      } else { next(); sampleMoved = true; update(false); afterSample(); }
       any = true;
     });
     if (dirty && tick % 12 === 0) { dirty = false; renderMath(); save(); }
-    G.blocks.forEach(b => { if (b.type === 'samp' && b.playing) { b.seed = (b.seed || 0) + 1; any = true; } });
     G.blocks.forEach(b => { if (b.type === 'wave' && b.playing) { const L = b.samples.length; b.pos = (b.pos + Math.max(1, Math.round(L / 256))) % L; any = true; } });
     if (any) update(false);
   }, 90);
