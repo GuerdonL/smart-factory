@@ -29,6 +29,8 @@ ROOT = os.path.join(HERE, "data", "hfds")
 TEXT_NAMES = ("text", "content", "document", "story", "sentence", "body", "article")
 LABEL_NAMES = ("label", "labels", "class", "target", "category")
 MAX_CHARS = 200_000_000
+MAX_SCAN = 150_000            # rows read while looking for matches before giving up; a rare value can need a lot of reading
+MAX_VALUES = 400              # a column with at most this many different values is offered as a set of parts to choose from
 
 
 class HFError(Exception):
@@ -116,7 +118,7 @@ def add(ref, rows=2000, where=None, config=None, split=None, size=None, column=N
     except ImportError:
         raise HFError("this needs two packages on the server: pip install huggingface_hub pyarrow")
     rows = max(1, min(int(rows), 200_000))
-    where = {k: str(v).lower() for k, v in (where or {}).items()}
+    where = {k: [str(x).lower() for x in (v if isinstance(v, (list, tuple)) else [v])] for k, v in (where or {}).items() if v not in ([], None, "")}
     files, config, split = _files(good_ref(ref), config, split)
     fs = HfFileSystem()
     try:
@@ -162,7 +164,7 @@ def add(ref, rows=2000, where=None, config=None, split=None, size=None, column=N
             for batch in f.iter_batches(batch_size=128, columns=cols):
                 for r in batch.to_pylist():
                     seen += 1
-                    if any(str(r.get(k)).lower() != v for k, v in where.items()):
+                    if any(str(r.get(k)).lower() not in v for k, v in where.items()):
                         continue
                     if kind == "text":
                         s = r[cols[0]]
@@ -182,20 +184,20 @@ def add(ref, rows=2000, where=None, config=None, split=None, size=None, column=N
                     taken += 1
                     if taken >= rows or chars >= MAX_CHARS:
                         break
-                if taken >= rows or chars >= MAX_CHARS or (not taken and seen >= 50_000):
+                if taken >= rows or chars >= MAX_CHARS or seen >= MAX_SCAN:
                     break
-            if taken >= rows or chars >= MAX_CHARS or (not taken and seen >= 50_000):
+            if taken >= rows or chars >= MAX_CHARS or seen >= MAX_SCAN:
                 break
     finally:
         if out:
             out.close()
     if not taken:
-        raise HFError(f"none of the first {seen:,} rows of {ref} matched" + (f" {where}" if where else "") + ". Check the filter's spelling against the dataset's viewer.")
+        raise HFError(f"none of the first {seen:,} rows of {ref} matched" + (" " + ", ".join(f"{k}={'|'.join(v)}" for k, v in where.items()) if where else "") + ". Check the spelling, or pick from the parts the editor lists.")
     info = {"ref": ref, "src": "hf", "name": ref.split("/")[1], "kind": kind, "config": config, "split": split, "n": taken, "read": seen,
             "where": where or None, "column": cols[0]}
     if kind == "text":
         os.replace(os.path.join(d, "text.jsonl.tmp"), os.path.join(d, "text.jsonl"))
-        info.update(chars=chars, note=f"{taken:,} documents, {chars:,} characters from column {cols[0]}")
+        info.update(chars=chars, note=f"{taken:,} documents, {chars:,} characters from column {cols[0]}" + (f" (only {taken:,} of the first {seen:,} rows matched)" if taken < rows and seen >= MAX_SCAN else ""))
     else:
         names_ = (feats.get(cols[1]) or {}).get("names")
         labels = [names_[v] if names_ and isinstance(v, int) and 0 <= v < len(names_) else str(v) for v in labels]
@@ -205,6 +207,48 @@ def add(ref, rows=2000, where=None, config=None, split=None, size=None, column=N
         info.update(w=target, h=target, max=255, classes=classes, note=f"{taken:,} images, {target}x{target} greyscale")
     json.dump(info, open(os.path.join(d, "info.json"), "w"), indent=1)
     return info
+
+
+def parts(ref, config=None, split=None):
+    """What a dataset can be narrowed by: its subsets and splits, and every text column with few enough different values
+    (language, collection, licence...) with how often each value occurs in the first file."""
+    try:
+        import pyarrow.compute as pc
+        import pyarrow.parquet as pq
+        from huggingface_hub import HfFileSystem
+    except ImportError:
+        raise HFError("this needs two packages on the server: pip install huggingface_hub pyarrow")
+    good_ref(ref)
+    try:
+        listed = _get("https://datasets-server.huggingface.co/parquet?dataset=" + urllib.parse.quote(ref)).get("parquet_files", [])
+    except HFError:
+        listed = []
+    subsets = {}
+    for f in listed:
+        subsets.setdefault(f["config"], [])
+        if f["split"] not in subsets[f["config"]]:
+            subsets[f["config"]].append(f["split"])
+    files, config, split = _files(ref, config, split)
+    try:
+        f = pq.ParquetFile(HfFileSystem().open(files[0], block_size=1 << 20))
+    except Exception as e:
+        raise HFError(f"could not open {ref}: {type(e).__name__}: {str(e)[:160]}")
+    schema, md = f.schema_arrow, f.metadata
+    sizes = {}
+    for g in range(md.num_row_groups):
+        for i in range(md.row_group(g).num_columns):
+            c = md.row_group(g).column(i)
+            sizes[c.path_in_schema] = sizes.get(c.path_in_schema, 0) + c.total_compressed_size
+    cols = []
+    for n in schema.names:
+        if str(schema.field(n).type) not in ("string", "large_string") or sizes.get(n, 1 << 40) > 3_000_000:
+            continue                                         # skip the text itself and anything else too big to be a category
+        counts = pc.value_counts(f.read(columns=[n]).column(0)).to_pylist()
+        vals = sorted(((c["values"], c["counts"]) for c in counts if c["values"] not in (None, "")), key=lambda t: -t[1])
+        if 1 < len(vals) <= MAX_VALUES:
+            cols.append({"name": n, "values": [[v, int(k)] for v, k in vals]})
+    return {"ref": ref, "subsets": subsets or {config: [split]}, "config": config, "split": split, "sampled": md.num_rows,
+            "files": len(files), "columns": cols}
 
 
 def info(ref):
@@ -246,13 +290,15 @@ def load_images(ref):
 
 
 def parse_where(text):
+    if isinstance(text, dict):                               # from the editor: {column: [values]}
+        return {str(k): [str(x) for x in (v if isinstance(v, list) else [v])] for k, v in text.items()}
     out = {}
     for part in (text or "").split(","):
         if part.strip():
             if "=" not in part:
                 raise HFError(f"a filter is written column=value, such as language=English; got {part.strip()!r}")
             k, v = part.split("=", 1)
-            out[k.strip()] = v.strip().strip("'\"")
+            out[k.strip()] = [x.strip().strip("'\"") for x in v.split("|")]
     return out
 
 
@@ -261,10 +307,11 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("search"); s.add_argument("query")
     a = sub.add_parser("add"); a.add_argument("ref"); a.add_argument("--rows", type=int, default=2000)
-    a.add_argument("--where", default="", help="keep only rows where column=value, e.g. language=English")
+    a.add_argument("--where", default="", help="keep only rows where column=value, e.g. language=English or language=English|French,collection=Wikipedia")
     a.add_argument("--config", default=None); a.add_argument("--split", default=None); a.add_argument("--column", default=None, help="the text column, if the guess is wrong")
     a.add_argument("--size", type=int, default=None, help="scale every image to this many pixels square")
     sub.add_parser("list")
+    pp = sub.add_parser("parts", help="show the subsets, splits and column values a dataset can be narrowed by"); pp.add_argument("ref")
     args = ap.parse_args()
     try:
         if args.cmd == "search":
@@ -273,6 +320,11 @@ def main():
         elif args.cmd == "add":
             i = add(args.ref, args.rows, parse_where(args.where), args.config, args.split, args.size, args.column)
             print(f"{i['ref']} ({i['config']}/{i['split']}): {i['note']}; read {i['read']:,} rows to get them")
+        elif args.cmd == "parts":
+            p = parts(args.ref)
+            print("subsets:", "; ".join(f"{c} ({', '.join(sp)})" for c, sp in p["subsets"].items()))
+            for c in p["columns"]:
+                print(f"{c['name']} (counts in the first {p['sampled']:,} rows): " + ", ".join(f"{v} {k:,}" for v, k in c["values"][:12]) + (" ..." if len(c["values"]) > 12 else ""))
         else:
             for i in added():
                 print(f"{i['ref']:<52} {i['kind']:<7} {i['note']}")

@@ -37,7 +37,10 @@ Graphs are kept in each browser's storage.
 
 The Dataset block's **Hugging Face** button does the same from the editor (it needs `serve.py`, as Kaggle does).
 Rows are read straight from the dataset's Parquet files and reading stops once enough are taken, so a slice of a
-multi-terabyte dataset costs a few megabytes and a few seconds. `--where column=value` keeps only matching rows.
+multi-terabyte dataset costs a few megabytes and a few seconds. `python hf_data.py parts <name>` lists what a dataset
+can be narrowed by (subsets, splits, and columns with a short list of values such as language); the editor shows the
+same as tick boxes after Add. `--where language=English|French,collection=Wikipedia` keeps only matching rows, and
+`--config` and `--split` pick a subset and split.
 Text datasets are saved one document per line and come out of the Dataset block's text port a window of characters
 at a time; image datasets need an image column and a label column and become greyscale. Needs
 `pip install huggingface_hub pyarrow`; `HF_TOKEN` is only needed for gated or private datasets. The trainer can

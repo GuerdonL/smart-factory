@@ -54,6 +54,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send(200, {"results": kaggle_data.search(q.get("q", ""))})
             if u.path == "/api/hf/search" and method == "GET":
                 return self.send(200, {"results": hf_data.search(q.get("q", ""))})
+            if u.path == "/api/hf/parts" and method == "GET":
+                return self.send(200, hf_data.parts(q.get("ref", ""), q.get("config") or None, q.get("split") or None))
             if u.path == "/api/hf/add" and method == "POST":
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
                 if not BUSY.acquire(blocking=False):
@@ -61,7 +63,7 @@ class Handler(SimpleHTTPRequestHandler):
                 try:
                     size = body.get("size")
                     return self.send(200, {"info": hf_data.add(body.get("ref", ""), int(body.get("rows") or 2000), hf_data.parse_where(body.get("where")),
-                                                               size=int(size) if size else None)})
+                                                               body.get("config") or None, body.get("split") or None, int(size) if size else None)})
                 finally:
                     BUSY.release()
             if u.path == "/api/datasets" and method == "GET":

@@ -42,6 +42,13 @@ h2 { font-family: var(--display); font-size: 12px; font-weight: 600; text-transf
 #kg li b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 #kg li span, #kg .kgnote { color: var(--muted); font-size: 12px; overflow-wrap: anywhere }
 #kg .kgerr { color: var(--neg); font-size: 13px; font-weight: 600 }
+#kg-parts { display: flex; flex-direction: column; gap: 8px } #kg-parts[hidden] { display: none }
+#kg-parts details { border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px }
+#kg-parts summary { cursor: pointer; font-weight: 600 } #kg-parts summary span { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px }
+#kg-parts .kplist { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 12px; max-height: 190px; overflow: auto; margin-top: 6px }
+#kg-parts .kplist label { display: flex; gap: 6px; align-items: baseline; min-width: 0; font-size: 12.5px } #kg-parts .kplist label b { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 }
+#kg-parts .kplist label span { color: var(--muted); font: 11px var(--mono) } #kg-parts .kpfind { width: 100%; box-sizing: border-box; margin-top: 6px }
+#kg-parts select { font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px }
 #kg h3 { margin: 4px 0 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600 }
 @media (max-width: 980px) { .work { flex-direction: column } }
 .toolbar { position: relative; z-index: 10 }
@@ -301,8 +308,9 @@ svg.net text.lab:hover { fill: var(--sel) !important }
         <div class="kgrow"><h2 style="flex:1" id="kg-title">Kaggle datasets</h2><button id="kg-close" aria-label="Close">Close</button></div>
         <div class="kgrow" id="kg-tokrow" hidden><input type="password" id="kg-token" placeholder="Access token printed by serve.py" aria-label="Access token"><button id="kg-tokok">Unlock</button></div>
         <form class="kgrow" id="kg-form"><input type="search" id="kg-q" aria-label="Search for a dataset"><button>Search</button></form>
-        <div class="kgrow kgnote"><label class="kg-hf">take <input type="number" id="kg-rows" min="1" max="200000" step="1" value="2000" style="width:86px" aria-label="How many rows to take"> rows</label><label class="kg-hf">where <input type="text" id="kg-where" placeholder="language=English" style="width:150px" aria-label="Keep only rows where column equals value"></label><label>scale images to <input type="number" id="kg-size" min="4" max="128" step="1" placeholder="auto" style="width:70px" aria-label="Scale images to this many pixels square"> px</label></div>
+        <div class="kgrow kgnote"><label class="kg-hf">take <input type="number" id="kg-rows" min="1" max="200000" step="1" value="2000" style="width:86px" aria-label="How many rows to take"> rows</label><label>scale images to <input type="number" id="kg-size" min="4" max="128" step="1" placeholder="auto" style="width:70px" aria-label="Scale images to this many pixels square"> px</label></div>
         <div class="kgnote" id="kg-msg" aria-live="polite"></div>
+        <div id="kg-parts" hidden></div>
         <ul id="kg-results"></ul>
         <h3 id="kg-havehead" hidden>Already on the server</h3>
         <ul id="kg-have"></ul>
@@ -1977,11 +1985,11 @@ svg.net text.lab:hover { fill: var(--sel) !important }
       foot: 'Works with image datasets: image files in one folder per label, a CSV with a label column and pixel columns, or MNIST-style IDX files. Images become greyscale. The editor shows up to 5,000 of them; training outside the browser uses them all.',
       row: d => [d.title || d.ref, `${d.ref} · ${d.size} · ${nf(+d.downloads || 0)} downloads`] },
     hf: { title: 'Hugging Face datasets', ph: 'Search Hugging Face, e.g. common corpus', busy: 'Searching Hugging Face…', none: 'Nothing on Hugging Face matches that.', order: 'most downloaded first',
-      foot: 'Takes the first rows of a dataset without downloading the rest, so very large ones are fine. Text datasets come out of the Dataset block\'s text port a window of characters at a time; image datasets need an image column and a label column and become greyscale. "where" keeps only matching rows, such as language=English.',
+      foot: 'Takes the first matching rows of a dataset without downloading the rest, so very large ones are fine. Add shows what the dataset can be narrowed by (subsets, splits, and columns such as language) before anything is loaded. Text datasets come out of the Dataset block\'s text port a window of characters at a time; image datasets need an image column and a label column and become greyscale.',
       row: d => [d.ref, `${d.kinds} · ${nf(+d.downloads || 0)} downloads` + (d.gated ? ' · gated: needs HF_TOKEN on the server' : '')] } };
   let kgMode = 'kaggle';
   const kgItem = (title, sub, ref, verb) => `<li><div><b>${esc(title)}</b><span>${esc(sub)}</span></div><button data-ref="${esc(ref)}" data-verb="${verb}">${verb === 'use' ? 'Use' : 'Add'}</button></li>`;
-  const haveLine = d => d.kind === 'text' ? `text · ${nf(d.n)} documents · ${nf(d.chars)} characters` + (d.where ? ' · where ' + Object.entries(d.where).map(([k, v]) => k + '=' + v).join(', ') : '') : `${nf(d.n)} images · ${d.w} × ${d.h} · ${nf(d.classes.length)} labels`;
+  const haveLine = d => d.kind === 'text' ? `text · ${nf(d.n)} documents · ${nf(d.chars)} characters` + (d.where ? ' · where ' + Object.entries(d.where).map(([k, v]) => k + ' = ' + [].concat(v).join(' or ')).join(', ') : '') : `${nf(d.n)} images · ${d.w} × ${d.h} · ${nf(d.classes.length)} labels`;
   async function kgHave() {
     try {
       const j = await api('api/datasets?src=' + kgMode); $('kg-havehead').hidden = !j.datasets.length;
@@ -1990,10 +1998,48 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   }
   function openFind(b, mode) {
     const F = FIND[mode]; kgMode = mode; kgBlock = b.id; $('help').hidden = true; $('kg').hidden = false; $('kg-tokrow').hidden = !!API.token; kgMsg.className = 'kgnote'; kgMsg.textContent = '';
-    $('kg-title').textContent = F.title; $('kg-q').placeholder = F.ph; $('kg-foot').textContent = F.foot; $('kg-results').innerHTML = ''; $('kg-have').innerHTML = ''; $('kg-havehead').hidden = true;
+    $('kg-title').textContent = F.title; $('kg-q').placeholder = F.ph; $('kg-foot').textContent = F.foot; $('kg-results').innerHTML = ''; $('kg-have').innerHTML = ''; $('kg-havehead').hidden = true; kgBack();
     document.querySelectorAll('#kg .kg-hf').forEach(el => { el.hidden = mode !== 'hf'; });
     if (API.token) kgHave(); (API.token ? $('kg-q') : $('kg-token')).focus();
   }
+  // Hugging Face: before loading, show the parts a dataset has (subsets, splits, and columns with a short list of values) and let them be picked.
+  let kgPick = null;
+  const kgBack = () => { kgPick = null; $('kg-parts').hidden = true; $('kg-parts').innerHTML = ''; $('kg-results').hidden = false; $('kg-have').hidden = false; };
+  async function kgParts(ref, config, split) {
+    kgSay(`Looking at what ${ref} contains…`);
+    let pt; try { pt = await api('api/hf/parts?ref=' + encodeURIComponent(ref) + (config ? '&config=' + encodeURIComponent(config) : '') + (split ? '&split=' + encodeURIComponent(split) : '')); } catch (e) { return kgSay(e.message, true); }
+    kgPick = { ref, pt }; kgMsg.className = 'kgnote'; kgMsg.textContent = '';
+    const opts = (list, on) => list.map(v => `<option${v === on ? ' selected' : ''}>${esc(v)}</option>`).join(''), subs = Object.keys(pt.subsets), splits = pt.subsets[pt.config] || [pt.split];
+    const rank = c => /^lang(uage)?s?$/i.test(c.name) ? 0 : /lang/i.test(c.name) ? 1 : 2, cols = pt.columns.slice().sort((a, c) => rank(a) - rank(c) || a.values.length - c.values.length);
+    $('kg-parts').innerHTML = `<div class="kgrow"><b style="flex:1">${esc(ref)}</b>` +
+      (subs.length > 1 ? `<label class="kgnote">subset <select id="kp-config">${opts(subs, pt.config)}</select></label>` : '') +
+      (splits.length > 1 ? `<label class="kgnote">split <select id="kp-split">${opts(splits, pt.split)}</select></label>` : '') + '</div>' +
+      cols.map((c, k) => `<details${k === 0 ? ' open' : ''}><summary>${esc(c.name)}<span>· ${nf(c.values.length)} values</span><span class="kpsel" data-for="${esc(c.name)}"></span></summary>` +
+        (c.values.length > 12 ? `<input type="search" class="kpfind" placeholder="Find a value" aria-label="Find a value in ${esc(c.name)}">` : '') +
+        `<div class="kplist">${c.values.map(([v, k]) => `<label><input type="checkbox" data-col="${esc(c.name)}" value="${esc(v)}"><b title="${esc(v)}">${esc(v)}</b><span>${nf(k)}</span></label>`).join('')}</div></details>`).join('') +
+      `<div class="kgnote">${cols.length ? `Tick the values to keep; a column with nothing ticked is not filtered. Counts are from the first ${nf(pt.sampled)} rows` + (pt.files > 1 ? ` of ${nf(pt.files)} files` : '') + '. A rare value takes longer, because more rows have to be read to find enough.' : 'This part has no columns with a short list of values to choose from, so rows are taken as they come.'}</div>` +
+      `<div class="kgrow"><button id="kp-load">Load into the Dataset block</button><button id="kp-back">Back to results</button></div>`;
+    $('kg-parts').hidden = false; $('kg-results').hidden = true; $('kg-have').hidden = true;
+  }
+  $('kg-parts').addEventListener('change', e => {
+    if (!kgPick) return;
+    if (e.target.id === 'kp-config') return kgParts(kgPick.ref, e.target.value);
+    if (e.target.id === 'kp-split') return kgParts(kgPick.ref, kgPick.pt.config, e.target.value);
+    if (e.target.dataset.col) { const col = e.target.dataset.col, on = [...$('kg-parts').querySelectorAll('input[data-col]:checked')].filter(x => x.dataset.col === col).map(x => x.value); $('kg-parts').querySelector(`.kpsel[data-for="${CSS.escape(col)}"]`).textContent = on.length ? '· ' + (on.length > 3 ? nf(on.length) + ' ticked' : on.join(', ')) : ''; }
+  });
+  $('kg-parts').addEventListener('input', e => { if (!e.target.classList.contains('kpfind')) return; const q = e.target.value.trim().toLowerCase(); e.target.nextElementSibling.querySelectorAll('label').forEach(l => { l.hidden = !!q && !l.textContent.toLowerCase().includes(q); }); });
+  $('kg-parts').addEventListener('click', async e => {
+    if (e.target.id === 'kp-back') { kgBack(); kgMsg.textContent = ''; return; }
+    if (e.target.id !== 'kp-load' || !kgPick) return;
+    const b = byId(kgBlock), { ref, pt } = kgPick, where = {}; if (!b) return;
+    $('kg-parts').querySelectorAll('input[data-col]:checked').forEach(x => { (where[x.dataset.col] = where[x.dataset.col] || []).push(x.value); });
+    e.target.disabled = true; kgSay(`Reading rows of ${ref} from Hugging Face…`);
+    try { await api('api/hf/add', { ref, where, config: pt.config, split: pt.split, rows: +$('kg-rows').value || 2000, size: +$('kg-size').value || null }); }
+    catch (e2) { e.target.disabled = false; return kgSay(e2.message, true); }
+    const j = await loadServer(b, ref, 'hf'); if (!j) { e.target.disabled = false; return kgSay(b.msg, true); }
+    kgBack(); $('kg').hidden = true;
+    toast(j.kind === 'text' ? `${b.name} now reads ${ref}: ${nf(j.n)} documents. Wire its text port into a Tokenizer.` : `${b.name} now reads ${ref}: ${j.w} × ${j.h} images, ${nf(j.classes.length)} labels. A frame for it needs ${nf(j.w * j.h)} inputs and ${nf(j.classes.length)} outputs.`);
+  });
   $('kg-close').addEventListener('click', () => { $('kg').hidden = true; });
   $('kg-tokok').addEventListener('click', async () => {
     try { localStorage.setItem('sf-token', $('kg-token').value.trim()); } catch (e) {}
@@ -2001,7 +2047,7 @@ svg.net text.lab:hover { fill: var(--sel) !important }
     $('kg-tokrow').hidden = !!API.token; kgMsg.className = 'kgnote'; kgMsg.textContent = API.token ? '' : 'That token was not accepted.'; if (API.token) kgHave();
   });
   $('kg-form').addEventListener('submit', async e => {
-    e.preventDefault(); const q = $('kg-q').value.trim(), F = FIND[kgMode]; if (!q) return;
+    e.preventDefault(); const q = $('kg-q').value.trim(), F = FIND[kgMode]; if (!q) return; kgBack();
     kgMsg.className = 'kgnote'; kgMsg.textContent = F.busy; $('kg-results').innerHTML = '';
     try {
       const j = await api(`api/${kgMode}/search?q=` + encodeURIComponent(q));
@@ -2012,9 +2058,10 @@ svg.net text.lab:hover { fill: var(--sel) !important }
   $('kg').addEventListener('click', async e => {
     const t = e.target.closest('button[data-ref]'), b = byId(kgBlock); if (!t || !b) return;
     const ref = t.dataset.ref, mode = kgMode;
+    if (t.dataset.verb === 'add' && mode === 'hf') return kgParts(ref);
     if (t.dataset.verb === 'add') {
-      t.disabled = true; kgMsg.className = 'kgnote'; kgMsg.textContent = mode === 'hf' ? `Reading rows of ${ref} from Hugging Face…` : `Downloading ${ref} to the server and reading its images. Large ones take a few minutes…`;
-      try { const size = +$('kg-size').value || null; await api(`api/${mode}/add`, mode === 'hf' ? { ref, size, rows: +$('kg-rows').value || 2000, where: $('kg-where').value.trim() } : { ref, size }); }
+      t.disabled = true; kgMsg.className = 'kgnote'; kgMsg.textContent = `Downloading ${ref} to the server and reading its images. Large ones take a few minutes…`;
+      try { const size = +$('kg-size').value || null; await api(`api/${mode}/add`, { ref, size }); }
       catch (e2) { t.disabled = false; kgSay(e2.message, true); return; }
       t.disabled = false; kgHave();
     }

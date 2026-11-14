@@ -147,7 +147,8 @@ def test_kaggle_idx_files(tmp_path, monkeypatch):
 def test_hf_helpers(tmp_path, monkeypatch):
     import hf_data
     monkeypatch.setattr(hf_data, "ROOT", str(tmp_path))
-    assert hf_data.parse_where("language=English, open_type = 'Open Culture'") == {"language": "English", "open_type": "Open Culture"}
+    assert hf_data.parse_where("language=English|French, open_type = 'Open Culture'") == {"language": ["English", "French"], "open_type": ["Open Culture"]}
+    assert hf_data.parse_where({"language": ["English"], "x": "y"}) == {"language": ["English"], "x": ["y"]}
     assert hf_data.parse_where("") == {}
     for bad in ("../x", "a/b/c", "x"):
         try:
