@@ -11,13 +11,13 @@
 import { html, style } from './dom.js';
 
 style('matrix', `
-.matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; font-size: 17px; line-height: 1; }
+.matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; line-height: 1; }
 .matrix > span { text-align: center; line-height: var(--cell); white-space: nowrap; }      /* centred in its square */
 .matrix > span.dots { font-style: normal; color: var(--muted); }
 .matrix sub { font-style: normal; font-size: .68em; vertical-align: -0.35em; line-height: 0; margin-left: .04em; }
 /* the brackets: a tall stroke each side with short feet turned inwards */
-.matrix::before, .matrix::after { content: ""; position: absolute; top: -4px; bottom: -4px; width: 8px; border: 1.6px solid var(--fg); }
-.matrix::before { left: -6px; border-right: 0; } .matrix::after { right: -6px; border-left: 0; }
+.matrix::before, .matrix::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: 5px; border: 1.2px solid var(--fg); }
+.matrix::before { left: -5px; border-right: 0; } .matrix::after { right: -5px; border-left: 0; }
 `);
 
 const shown = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 3, null, n];      /* null: the elided middle */
@@ -25,6 +25,10 @@ const shown = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 
 export function createMatrix({ cols, rows, cell }){
   const cs = shown(cols), rs = shown(rows), vector = cols === 1 || rows === 1;
   const el = html`<div class="matrix"></div>`;
+  /* one size of type for the whole matrix, small enough that its widest entry fits its square:
+     a letter is about half an em wide and a subscript digit about a third */
+  const digits = n => String(n).length, widest = vector ? .5 + .34 * digits(Math.max(cols, rows)) : 1 + .34 * (digits(cols) + digits(rows));
+  el.style.fontSize = Math.min(cell * .6, cell * .8 / widest) + 'px';
   el.style.gridTemplateColumns = `repeat(${cs.length}, ${cell}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
   for (const r of rs) for (const c of cs){
     if (r === null || c === null){ el.append(html`<span class="dots">${r === null && c === null ? '⋱' : r === null ? '⋮' : '⋯'}</span>`); continue; }

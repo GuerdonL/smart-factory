@@ -33,7 +33,7 @@ function go(to){
   space = to;
   view.world.append(...space.blocks.map(b => b.el));
   if (space.owner){                            /* written afresh each time, so it follows the block's current size */
-    const r = space.owner.rect, cell = 2 * view.unit, m = space.matrix = createMatrix({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), cell });
+    const r = space.owner.rect, cell = view.unit, m = space.matrix = createMatrix({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), cell });
     const on = v => Math.round(v / view.unit) * view.unit;                 /* centred on the origin, on the dots */
     Object.assign(m.el.style, { left: on(-m.width / 2) + 'px', top: on(-m.height / 2) + 'px' }); view.world.append(m.el);
   }
