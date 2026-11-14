@@ -1,20 +1,23 @@
-/* One full-screen canvas that pans without end. Nothing else is decided yet. */
-:root { --bg: #f6f7f9; --fg: #1c2230; --muted: #6b7385; --dot: #c9cedb; --dot-strong: #aab1c2; --panel: #ffffff; --line: #d9dde6; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --dot: #2b3142; --dot-strong: #3d455a; --panel: #1a1e28; --line: #2a3040; color-scheme: dark } }
-:root[data-theme="dark"] { --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --dot: #2b3142; --dot-strong: #3d455a; --panel: #1a1e28; --line: #2a3040; color-scheme: dark }
+/* The theme. Every colour in the project is defined here and nowhere else;
+   components only ever refer to these variables. */
+:root {
+  --bg: #f6f7f9;            /* the canvas ground */
+  --fg: #1c2230;            /* text */
+  --muted: #6b7385;         /* secondary text, quiet marks */
+  --panel: #ffffff;         /* floating surfaces: menus, readouts */
+  --line: #d9dde6;          /* borders */
+  --hover: #e8ebf1;         /* a control under the pointer */
+  --dot: #c9cedb;           /* minor grid dots */
+  --dot-strong: #aab1c2;    /* major grid dots */
+  --shadow: rgba(20, 26, 40, .18);
+  --focus: #1c2230;         /* keyboard focus ring */
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
+  --dot: #2b3142; --dot-strong: #3d455a; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
+  --dot: #2b3142; --dot-strong: #3d455a; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; color-scheme: dark }
+
 html, body { height: 100%; }
 body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
-#view { position: fixed; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
-  background-image: radial-gradient(circle, var(--dot-strong) 1.2px, transparent 1.6px), radial-gradient(circle, var(--dot) 1px, transparent 1.4px); }
-#view.panning { cursor: grabbing; }
-#world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
-#origin { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border: 1px solid var(--muted); border-radius: 50%; }
-#hud { position: fixed; display: flex; gap: 8px; align-items: center; color: var(--muted); font-variant-numeric: tabular-nums;
-  left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px 4px 10px; }
-#hud button { font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
-#hud button:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
-#menu { position: fixed; z-index: 20; min-width: 140px; margin: 0; padding: 4px; list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
-#menu button { display: flex; justify-content: space-between; gap: 24px; width: 100%; font: inherit; color: var(--fg); background: none; border: 0; border-radius: 4px; padding: 5px 10px; text-align: left; cursor: default; }
-#menu button:hover, #menu button:focus-visible { background: var(--line); outline: none; }
-#menu .more { color: var(--muted); }
