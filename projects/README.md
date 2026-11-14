@@ -10,22 +10,15 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project and records the lengths of the named sides.
 The full format is described at the top of [`../project.js`](../project.js).
 
-## Saving
+## Saving and opening
 
-Right-click the canvas and choose **Save project**.
+Run `python3 server.py` in the repository and open the page it serves. Right-click the canvas:
 
-- Opened from your own copy of this repository in Chrome or Edge, it asks for a folder. Make and choose
-  `projects/<name>/`, and the files are written straight into it.
-- Anywhere else, including the published artifact, it hands you `smart-factory-project.zip`. Unpack it here and
-  rename the `project` folder inside.
+- **Save project** asks for a name and writes `projects/<name>/`, replacing whatever that directory held.
+- **Open project** lists the projects here; choosing one replaces everything on the canvas.
 
-Saving into a folder that already holds a project overwrites files of the same name but does not remove files for
-shapes that no longer exist. Save into an empty folder if shapes have been deleted or renamed.
-
-## Opening
-
-Right-click and choose **Open project**, then **From a folder** or **From a zip**. Opening replaces everything on
-the canvas.
+Opened anywhere without that server (the published artifact, say), Save hands over a zip of the same tree and
+Open takes one back.
 
 ## example/
 

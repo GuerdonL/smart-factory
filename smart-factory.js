@@ -301,10 +301,10 @@ function remove(){
 }
 
 /* ---- saving and opening a project ----
-   The whole tree of shapes is written as a tree of files, a directory for every space (project.js has the format),
-   and read back from one. Where the browser can write to a folder directly, Save asks for the project's folder, say
-   projects/attention in a copy of this repository, and writes the files into it. Elsewhere it hands over one zip of
-   the same tree, to unpack there. Open takes either: a folder, or a zip. */
+   The whole tree of shapes is written as a tree of files, a directory for every space (project.js has the format).
+   Served by server.py, the page saves to and opens from the server's projects/ directory, by name.
+   Anywhere else (the published artifact, say) there is no server to keep them, so Save hands over one zip of the
+   same tree and Open takes one back. */
 const typeNamed = name => shapes.find(s => s.name === name) || { name, label: name, draw: 'rectangle', color: 'tensor' };
 /* the page's spaces as plain data, lengths in units */
 function gather(){
@@ -334,38 +334,36 @@ function rebuild(data){
   view.world.append(...top.blocks.map(b => b.el)); shown();
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top) + n(data.settings); };
-const canPickFolders = () => typeof showDirectoryPicker === 'function' && self === parent;      /* not offered inside another page's frame */
+/* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
+let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
+const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
+ask();
 
 async function save(){
   const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
   try {
-    if (canPickFolders()){                       /* straight into a folder */
-      const root = await showDirectoryPicker({ mode: 'readwrite' });
-      for (const f of files){ const parts = f.path.split('/'); let dir = root;
-        for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
-        const w = await (await dir.getFileHandle(parts[parts.length - 1], { create: true })).createWritable(); await w.write(f.text); await w.close(); }
-      return hud.say(`Saved ${what} to ${root.name}/`);
+    if (kept){                                   /* on the server, under a name */
+      const name = (window.prompt('Save this project as', current || 'untitled') || '').trim();
+      if (!name) return hud.say('Not saved');
+      const r = await fetch('api/projects/' + encodeURIComponent(name), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(files) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'the server answered ' + r.status);
+      current = name; ask(); return hud.say(`Saved ${what} to projects/${name}/`);
     }
     const bytes = zip(files.map(f => ({ path: 'project/' + f.path, text: f.text }))), downloads = await window.claude?.use?.('downloads');
     if (downloads){ await downloads.save({ filename: 'smart-factory-project.zip', data: new Blob([bytes]) }); return hud.say(`Saved ${what} as a zip`); }
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' })); a.download = 'smart-factory-project.zip'; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000); hud.say(`Saved ${what} as a zip`);
-  } catch (e) { hud.say(e.name === 'AbortError' || e.code === 'declined' ? 'Not saved' : 'Could not save: ' + (e.message || e.code || e)); }
+  } catch (e) { hud.say(e.code === 'declined' ? 'Not saved' : 'Could not save: ' + (e.message || e.code || e)); }
 }
 
-/* files chosen to open: one zip, or the files of a folder */
-async function openFiles(list){
-  try {
-    const chosen = [...list], one = chosen.length === 1 && /\.zip$/i.test(chosen[0].name) ? chosen[0] : null;
-    const files = one ? await unzip(new Uint8Array(await one.arrayBuffer()))
-      : await Promise.all(chosen.filter(f => /\.json$/i.test(f.name)).map(async f => ({ path: f.webkitRelativePath || f.name, text: await f.text() })));
-    const data = project.read(files);
-    rebuild(data); hud.say(`Opened ${count(data)} shapes`);
-  } catch (e) { hud.say('Could not open: ' + (e.message || e)); }
-}
-const pickers = { zip: Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true }),
-  folder: Object.assign(document.createElement('input'), { type: 'file', webkitdirectory: true, multiple: true, hidden: true }) };
-for (const input of Object.values(pickers)){ document.body.append(input); input.addEventListener('change', () => { if (input.files.length) openFiles(input.files); input.value = ''; }); }
+/* opening replaces everything on the page */
+function openFrom(files, name = null){ const data = project.read(files); rebuild(data); current = name; hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes`); }
+const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
+  .then(files => openFrom(files, name)).catch(e => hud.say('Could not open: ' + (e.message || e)));
+const zipPicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true });
+document.body.append(zipPicker);
+zipPicker.addEventListener('change', async () => { const file = zipPicker.files[0]; zipPicker.value = ''; if (!file) return;
+  try { openFrom(await unzip(new Uint8Array(await file.arrayBuffer()))); } catch (e) { hud.say('Could not open: ' + (e.message || e)); } });
 
 /* ---- keys ---- */
 let boxing = null;                             /* the box selection in progress, if any */
@@ -489,7 +487,7 @@ const menu = createMenu([
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
   { label: 'Save project', run: save },
-  { label: 'Open project', items: [{ label: 'From a folder', run: () => pickers.folder.click() }, { label: 'From a zip', run: () => pickers.zip.click() }] },
+  { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => openKept(name) })) : [{ label: 'From a zip', run: () => zipPicker.click() }] },
 ]);
 const hud = createHud({ onHome: () => view.home() });
 /* the gear opens the settings from wherever you are; pressed again, or with Escape or Back, it returns to where you were */
