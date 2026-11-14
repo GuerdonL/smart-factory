@@ -12,10 +12,11 @@
    dashed outline of the promised size, waiting.
    (What the contents come to is worked out elsewhere and handed to check.)
 
-   createDefinition({ cols, rows, unit, letter, color, values, editable, colsName, rowsName }) -> { el, check(type, look) }
+   createDefinition({ cols, rows, unit, name, letter, color, values, editable, colsName, rowsName }) -> { el, check(type, look) }
      cols, rows   the block's promised shape, in units
+     name         the block's name, written above the right-hand matrix
      letter       the block's initials, for the right-hand matrix's entries
-     color        the theme colour to write the right-hand matrix in; left out, the ordinary text colour
+     color        the theme colour to write the right-hand matrix and the name in; left out, the ordinary text colour
      values       the entries that have been given a number (see matrix.js)
      editable     whether the right-hand matrix's entries can be pressed, to give them numbers
      colsName, rowsName   the names of the block's sides, where it has them
@@ -35,11 +36,12 @@ style('definition', `
 .definition-slot { position: absolute; box-sizing: border-box; display: grid; place-items: center; border: 1.2px dashed var(--muted); border-radius: 4px;
   color: var(--muted); font-family: var(--font-name); font-size: 11px; white-space: nowrap; }
 .definition-sign { position: absolute; transform: translate(-50%, -50%); text-align: center; color: var(--fg); font-family: var(--font-math); font-size: 22px; line-height: 1; }
+.definition-name { position: absolute; transform: translateY(-100%); margin-top: -9px; font-family: var(--font-name); font-size: 14px; line-height: 1.2; white-space: nowrap; color: var(--fg); }
 .definition-error { position: absolute; transform: translate(-100%, -50%); color: var(--warn); font-family: var(--font-name); font-size: 13px; white-space: nowrap; }
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
 
-export function createDefinition({ cols, rows, unit, letter = 'x', color = null, values, editable = false, colsName = null, rowsName = null }){
+export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, editable = false, colsName = null, rowsName = null }){
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign">=</div></div>`;
   el.classList.toggle('editable', editable);
@@ -52,6 +54,8 @@ export function createDefinition({ cols, rows, unit, letter = 'x', color = null,
   Object.assign(sign.style, { left: '0px', top: level + 'px' });
   Object.assign(matrix.el.style, { left: unit + 'px', top: on(top + (rows * unit - matrix.height) / 2) + 'px' });
   el.append(matrix.el);
+  const title = html`<div class="definition-name"></div>`; title.textContent = name; if (color) title.style.color = `var(--${color})`;
+  Object.assign(title.style, { left: matrix.el.style.left, top: matrix.el.style.top }); el.append(title);      /* above the matrix's top-left corner, as a block's name is above the block */
   let left = null, showing = '';
   return { el, check(type, look = {}){
     const named = (a, b) => !a || !b || a === b;
