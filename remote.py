@@ -30,6 +30,7 @@ STARTUP_S = 8 * 60        # renting, pulling the image, cloning and checking, be
 KNOWN_SIZES = {"digits": 1797, "mnist": 70000}
 LOCAL_MINUTES = float(os.environ.get("SF_LOCAL_MINUTES", 10))   # a run on this machine is stopped after this long
 LOCAL_MARGIN = 1.3        # a real run is slower than the timed steps
+PYTHON = os.environ.get("SF_PYTHON") or sys.executable          # the Python that runs training here; it needs PyTorch
 PROCS = {}                # local runs started by this server process
 
 
@@ -193,7 +194,7 @@ def local_plan(model, epochs=5, batch=32, val=0.1):
         json.dump(model, f, separators=(",", ":"))
     meta = {"name": name, "kind": "local", "frame": model.get("name"), "path": path, "epochs": epochs, "batch": batch, "val": val, "state": "planned",
             "problems": [], "limit_min": LOCAL_MINUTES, "est_s": None, "steps": None, "samples": None}
-    code, out = _run([sys.executable, "graph.py", "bench", path, "--batch", str(batch)], timeout=180)
+    code, out = _run([PYTHON, "graph.py", "bench", path, "--batch", str(batch)], timeout=180)
     try:
         b = json.loads(out.strip().splitlines()[-1])
         held = b["held"]
@@ -204,8 +205,9 @@ def local_plan(model, epochs=5, batch=32, val=0.1):
             meta["val"] = 0
     except (ValueError, IndexError, KeyError):
         last = out.strip().splitlines()[-1] if out.strip() else "no output"
-        meta["problems"].append("PyTorch is not installed on the server: pip install torch --index-url https://download.pytorch.org/whl/cpu"
-                                if "No module named 'torch'" in out else "the server could not run this graph: " + last[:300])
+        ver = _run([PYTHON, "-c", "import sys; print(sys.version.split()[0])"], timeout=30)[1].strip()
+        meta["problems"].append(f"PyTorch is not installed for the server's Python ({PYTHON}, version {ver}): {PYTHON} -m pip install torch --index-url https://download.pytorch.org/whl/cpu"
+                                if "No module named 'torch'" in out else f"the server could not run this graph with Python {ver} ({PYTHON}): " + last[:300])
     if any(m.get("kind") == "local" and m["state"] == "running" and _local_alive(m) for m in _all()):
         meta["problems"].append("another run is already going on the server; it does one at a time")
     _save(meta)
@@ -222,7 +224,7 @@ def local_start(name):
         raise RemoteError("another run is already going on the server; it does one at a time")
     out_dir = os.path.join(HERE, "runs", name)
     os.makedirs(out_dir, exist_ok=True)
-    cmd = [sys.executable, "trainer.py", meta["path"], "--out", f"runs/{name}", "--epochs", f"{meta['epochs']:g}", "--batch", str(meta["batch"]),
+    cmd = [PYTHON, "trainer.py", meta["path"], "--out", f"runs/{name}", "--epochs", f"{meta['epochs']:g}", "--batch", str(meta["batch"]),
            "--val", f"{meta['val']:g}", "--threads", "1", "--device", "cpu", "--log-s", "4", "--max-minutes", f"{meta['limit_min']:g}"]
     if _which("nice"):
         cmd = ["nice", "-n", "15"] + cmd                 # the page and everything else on this machine come first

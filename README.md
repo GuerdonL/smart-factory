@@ -36,8 +36,9 @@ Train switch. With `serve.py` behind the page, right-clicking any block of a gra
 
 - **Run locally**: on the machine running `serve.py`, not in the browser. It times a few steps first and shows how long
   the run would take. One run at a time, one processor core, low priority, stopped after 10 minutes (`SF_LOCAL_MINUTES`)
-  with whatever it has learned. Needs PyTorch on that machine
-  (`pip install torch --index-url https://download.pytorch.org/whl/cpu`).
+  with whatever it has learned. Needs PyTorch for the Python that runs `serve.py`
+  (`python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu`); set `SF_PYTHON` to train with a
+  different Python, such as a virtualenv's.
 - **Run on GPU**: through box-boy (`bb doctor` must pass on that machine, as the user `serve.py` runs as, and `git push`
   must work from this clone). `bb` is looked for on the PATH and in `~/.local/bin`, where box-boy's setup puts it; set
   `SF_BB=/full/path/to/bb` if it lives elsewhere. The

@@ -26,7 +26,14 @@ import time
 import urllib.request
 
 import numpy as np
-import torch
+
+# Python before 3.10.7 (3.9.0-3.9.13, 3.10.0-3.10.6) lacks these two functions, and some PyTorch builds call them as they load.
+# Stand-ins that change nothing, so the trainer runs on an older system Python too.
+if not hasattr(sys, "get_int_max_str_digits"):
+    sys.get_int_max_str_digits = lambda: 0
+    sys.set_int_max_str_digits = lambda maxdigits: None
+
+import torch  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MNIST_URL = "https://ossci-datasets.s3.amazonaws.com/mnist/"
