@@ -1,6 +1,6 @@
 /* The canvas: an endless dot grid that pans and zooms.
 
-   createView({ onChange(camera), onMenu(x, y), onClick(element, event), onDrag(element, point) }) -> { el, world, unit, grid(), camera(), look(camera), home(), toWorld(x, y), toScreen(x, y), tool(t) }
+   createView({ onChange(camera), onMenu(x, y), onClick(element, event), onDrag(element, point) }) -> { el, world, origin, unit, grid(), camera(), look(camera), home(), toWorld(x, y), toScreen(x, y), tool(t) }
      el        the element to put on the page
      world     put things here to place them on the canvas, in world coordinates. It carries the CSS variable
                --zoom, so a thing can keep a detail the same size on screen: calc(8px / var(--zoom))
@@ -9,6 +9,7 @@
      camera()  { x, y, zoom }: the world point at the centre of the screen, and the zoom
      look      puts the camera where an earlier camera() said it was
      home()    back to 0, 0 at 100%
+     origin    the small ring marking 0, 0; hide it (origin.hidden = true) where something else sits there
      unit      the spacing of the dots at 100%, in world units: the size of one "u"
      toWorld   screen coordinates -> world coordinates; toScreen goes the other way
      tool(t)   hands the pointer to a tool: while one is set, a left press, moves and release go to
@@ -104,7 +105,7 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
   addEventListener('resize', moved);
   draw();
 
-  return { el, world, unit: GRID, grid, camera, toWorld, toScreen: (x, y) => ({ x: x * cam.z + cam.tx, y: y * cam.z + cam.ty }),
+  return { el, world, origin: world.firstElementChild, unit: GRID, grid, camera, toWorld, toScreen: (x, y) => ({ x: x * cam.z + cam.tx, y: y * cam.z + cam.ty }),
     home(){ cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; moved(); },
     look({ x, y, zoom }){ cam.z = Math.min(ZMAX, Math.max(ZMIN, zoom)); cam.tx = innerWidth / 2 - x * cam.z; cam.ty = innerHeight / 2 - y * cam.z; moved(); },
     tool(t){ tool = t; press = drag = null; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';

@@ -17,6 +17,7 @@
   --shadow: rgba(20, 26, 40, .28);
   --focus: #1c2230;         /* keyboard focus ring */
   --fade-to: #ffffff;       /* what everything else fades towards while something is selected */
+  --warn: #c2410c;          /* something that does not hold, such as a definition of the wrong size */
   --select: #2f7bf0;        /* the ring round a selected block */
   --select-halo: rgba(47, 123, 240, .28);    /* its soft glow */
   --measure: #4a5266;       /* dimension lines and their numbers */
@@ -28,11 +29,11 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
+  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --warn: #fb923c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
   --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
+  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --warn: #fb923c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
   --tensor: #e0615a; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); color-scheme: dark }
 
 html, body { height: 100%; }

@@ -9,7 +9,7 @@ import { createMeasure, sides } from './components/measure.js';
 import { createBounds } from './components/bounds.js';
 import { drawRectangle } from './components/draw.js';
 import { boxSelect } from './components/marquee.js';
-import { createMatrix } from './components/matrix.js';
+import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
@@ -20,23 +20,25 @@ fetch('shapes/index.json').then(r => r.json())
 
 /* ---- spaces ----
    A space is one canvas-full of blocks. The page opens on the top space. Every block has a definition space of its
-   own, made the first time it is opened: a blank canvas showing the block as a variable, written out in matrix
-   notation at the block's size (w units across, h units down). Only the current space's blocks are on the canvas. */
-const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), camera: { x: 0, y: 0, zoom: 1 }, matrix: null });
+   own, made the first time it is opened: a canvas showing an equation, with the block as a variable in matrix
+   notation on the right and, on the left, the place for what defines it. What is put in the space must come to the
+   block's promised size (w units across, h units down). Only the current space's blocks are on the canvas. */
+const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
 const top = newSpace(null, null);
 const spaceOf = new Map();                     /* block -> its definition space */
 let space = top;
 const trail = () => { const t = []; for (let s = space; s; s = s.parent) t.unshift(s); return t; };
 function go(to){
   select([]); space.camera = view.camera();
-  for (const b of space.blocks) b.el.remove(); space.matrix?.el.remove();
+  for (const b of space.blocks) b.el.remove(); space.definition?.el.remove();
   space = to;
   view.world.append(...space.blocks.map(b => b.el));
   if (space.owner){                            /* written afresh each time, so it follows the block's current size */
-    const r = space.owner.rect, cell = view.unit, m = space.matrix = createMatrix({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), cell });
-    const on = v => Math.round(v / view.unit) * view.unit;                 /* centred on the origin, on the dots */
-    Object.assign(m.el.style, { left: on(-m.width / 2) + 'px', top: on(-m.height / 2) + 'px' }); view.world.append(m.el);
+    const r = space.owner.rect;
+    space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit });
+    view.world.prepend(space.definition.el);   /* beneath the blocks */
   }
+  view.origin.hidden = !!space.owner;          /* the equals sign sits at the origin of a definition space */
   view.look(space.camera);
   crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Top'));
 }
@@ -90,6 +92,7 @@ function shown(){                              /* brings what is on screen in li
     bounds.set({ x, y, w: Math.max(...list.map(b => b.rect.x + b.rect.w)) - x, h: Math.max(...list.map(b => b.rect.y + b.rect.h)) - y }, { grouped: isOneGroup(list) });
     view.world.append(bounds.el);
   } else bounds.el.remove();
+  space.definition?.check(space.blocks.map(b => b.rect));       /* does what is here come to the promised size? */
 }
 function select(list, { toggle = false } = {}){
   if (!toggle) selected.clear();
@@ -115,7 +118,7 @@ addEventListener('keydown', e => {
   if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){
     e.preventDefault(); const gone = [...selected]; select([]);
     for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b); }
-    ungroup(gone);
+    ungroup(gone); shown();
   }
 });
 
@@ -173,7 +176,7 @@ function clicked(el, e){
 /* what choosing a shape from "New" does, by the shape's "draw" */
 const draw = {
   rectangle: shape => { select([]); const name = freeName();
-    return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block) space.blocks.push(block); }); },
+    return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block){ space.blocks.push(block); shown(); } }); },
 };
 
 const menu = createMenu([{ label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) }]);
