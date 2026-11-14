@@ -1,12 +1,13 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, set(rect), select(on), dim(on), rename() }
+   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, set(rect), select(on), dim(on), grips(on), rename() }
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
      rect     { x, y, w, h } in world coordinates
      name     the text shown above it
      nameEl   the element showing the name
      set      moves and resizes it
      select   shows or hides the selection halo, and brings the block in front of the others
+     grips    turns the resize grips on or off
      dim      fades the block and its name most of the way to the theme's --fade-to, or brings them back
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
@@ -40,6 +41,7 @@ style('block', `
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--ink); transition: color .15s; border-radius: calc(3 * var(--px)); cursor: default; }
 .block.selected .block-name { color: var(--select); }
 /* grips: a strip along each side and a square on each corner, half in and half out, showing which way it stretches */
+.block.no-grips .block-grip { display: none; }
 .block-grip { position: absolute; z-index: 1; --t: calc(10 * var(--px)); --c: calc(14 * var(--px)); }
 .block-grip[data-grip="n"], .block-grip[data-grip="s"] { left: 0; right: 0; height: var(--t); cursor: ns-resize; }
 .block-grip[data-grip="e"], .block-grip[data-grip="w"] { top: 0; bottom: 0; width: var(--t); cursor: ew-resize; }
@@ -61,6 +63,7 @@ export function createBlock(shape, rect, name = ''){
   const block = { el, nameEl, shape, rect, name,
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
+    grips(on){ el.classList.toggle('no-grips', !on); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },
     rename(){ editText(nameEl, text => { if (text) block.name = text; nameEl.textContent = block.name; }); } };
   block.set(rect);
