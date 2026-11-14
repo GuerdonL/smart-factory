@@ -28,7 +28,8 @@ export function createResult({ unit }){
       if (type.error){ body = html`<div class="result-error"></div>`; body.textContent = type.error; height = 0; }
       else { const m = createMatrix({ cols: type.cols, rows: type.rows, cell: unit }); body = m.el; height = m.height; }
       el.append(body); }
-    const right = on(box.x + box.w), middle = box.y + box.h / 2;
-    Object.assign(sign.style, { left: right + 1.5 * unit + 'px', top: middle + 'px' });
-    Object.assign(body.style, { left: right + 3 * unit + 'px', top: (height ? on(middle - height / 2) : middle) + 'px' }); } };
+    /* the matrix sits on the dots, as near level with the shapes' middle as the dots allow; the sign is level with the matrix */
+    const right = on(box.x + box.w), middle = box.y + box.h / 2, top = height ? on(middle - height / 2) : middle;
+    Object.assign(sign.style, { left: right + 1.5 * unit + 'px', top: top + height / 2 + 'px' });
+    Object.assign(body.style, { left: right + 3 * unit + 'px', top: top + 'px' }); } };
 }
