@@ -12,9 +12,10 @@
    dashed outline of the promised size, waiting.
    (What the contents come to is worked out elsewhere and handed to check.)
 
-   createDefinition({ cols, rows, unit, letter, values, editable, colsName, rowsName }) -> { el, check(type, look) }
+   createDefinition({ cols, rows, unit, letter, color, values, editable, colsName, rowsName }) -> { el, check(type, look) }
      cols, rows   the block's promised shape, in units
      letter       the block's initials, for the right-hand matrix's entries
+     color        the theme colour to write the right-hand matrix in; left out, the ordinary text colour
      values       the entries that have been given a number (see matrix.js)
      editable     whether the right-hand matrix's entries can be pressed, to give them numbers
      colsName, rowsName   the names of the block's sides, where it has them
@@ -38,11 +39,11 @@ style('definition', `
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
 
-export function createDefinition({ cols, rows, unit, letter = 'x', values, editable = false, colsName = null, rowsName = null }){
+export function createDefinition({ cols, rows, unit, letter = 'x', color = null, values, editable = false, colsName = null, rowsName = null }){
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign">=</div></div>`;
   el.classList.toggle('editable', editable);
-  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit, letter, values });
+  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit, letter, color, values });
   matrix.el.classList.add('promised');
   /* the sign is at the origin, with one unit of air each side; both sides are level with it */
   const top = on(-rows * unit / 2), level = top + rows * unit / 2;

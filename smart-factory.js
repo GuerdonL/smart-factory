@@ -49,7 +49,8 @@ function write(){
   if (!space.owner) return;
   const o = space.owner, r = o.rect;
   space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
-    letter: initials(o.name), values: o.values, editable: isNamed(o), colsName: o.sides.w, rowsName: o.sides.h });
+    letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: o.values, editable: isNamed(o),      /* a named block's matrix is written in its colour */
+    colsName: o.sides.w, rowsName: o.sides.h });
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
 const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); deeper.length = 0; go(spaceOf.get(b)); };

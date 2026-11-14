@@ -4,8 +4,8 @@
      cols, rows   the variable's promised shape
      cell         the size of one entry's square, in world units
      letter       what the entries are called: the variable's initials, say "k" for Keys (default "x")
-     color        a theme colour to write the entries in ("lazuli" -> --lazuli): the colour of the block they come
-                  from. Left out, they are written in the ordinary text colour.
+     color        a theme colour to write the entries in ("lazuli" -> --lazuli), numbers included: the colour of
+                  the block they come from. Left out, they are written in the ordinary text colour.
      product      for a matrix that is a product: { rows: { letter, color }, cols: { letter, color } }, the block
                   its rows come from (the first of the chain) and the block its columns come from (the last).
                   Each entry is then written as the pair it is made from, each half in its block's colour:
@@ -56,8 +56,9 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     const entry = html`<span data-c="${c}" data-r="${r}"></span>`, key = c + ',' + r;
     const half = (from, n) => { const h = html`<i><sub></sub></i>`; h.prepend(from.letter); h.lastChild.textContent = n; if (from.color) h.style.color = `var(--${from.color})`; return h; };
     if (product) entry.append(half(product.rows, r), html`<b>·</b>`, half(product.cols, c));
-    else if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
-    else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? r : c) : c + comma + r; if (color) entry.style.color = `var(--${color})`; }
+    else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
+      if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
+      else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? r : c) : c + comma + r; } }
     el.append(entry);
   }
   return { el, width: cs.length * cell, height: rs.length * cell };
