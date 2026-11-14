@@ -31,7 +31,14 @@ function select(list, { toggle = false } = {}){
     const m = createMeasure(view.unit); selected.set(b, m); view.world.append(m.el); b.select(true); m.set(b.rect, sides(view, b.rect));
   }
 }
-addEventListener('keydown', e => { if (e.key === 'Escape') select([]); });
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') return select([]);
+  /* x, Backspace or Delete removes the selected blocks. (Typing in a name never reaches here.) */
+  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.metaKey && !e.altKey && selected.size){
+    e.preventDefault(); const gone = [...selected.keys()]; select([]);
+    for (const b of gone){ b.el.remove(); blocks.splice(blocks.indexOf(b), 1); }
+  }
+});
 
 /* dragging a selected block moves every selected block, in steps of the dots on screen */
 function dragged(el, from){
