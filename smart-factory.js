@@ -11,6 +11,7 @@ import { drawRectangle } from './components/draw.js';
 import { boxSelect } from './components/marquee.js';
 import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
+import { createSettingsButton } from './components/settings.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { joins, pieces, typeOf, initials, readEntry } from './algebra.js';
@@ -29,6 +30,8 @@ fetch('shapes/index.json').then(r => r.json())
    block's promised size (w units across, h units down). Only the current space's blocks are on the canvas. */
 const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), groupNames: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
 const top = newSpace(null, null);
+/* the settings: a space of its own, opened from the gear in the corner and reached from anywhere. Nothing is in it yet. */
+const settings = Object.assign(newSpace(null, top), { label: 'Settings' });
 const spaceOf = new Map();                     /* block -> its definition space */
 let space = top;
 const trail = () => { const t = []; for (let s = space; s; s = s.parent) t.unshift(s); return t; };
@@ -40,7 +43,8 @@ function go(to){
   write();
   view.origin.hidden = !!space.owner;          /* a definition space has its equals sign at the origin */
   view.look(space.camera);
-  crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Top'));
+  crumbs.show(trail().map(s => s.owner ? s.owner.name : s.label || 'Top'));
+  gear.active(space === settings);
 }
 /* writes out the current space's equation: afresh each time it is opened, so it follows its block's size, and again
    whenever one of the block's entries is given a number */
@@ -56,7 +60,8 @@ function write(){
 const open = b => { if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, space)); deeper.length = 0; go(spaceOf.get(b)); };
 /* out and back in again, like a browser's back and forward: stepping out remembers the space left, so stepping in can return to it */
 const deeper = [];
-function out(){ if (!space.parent) return; deeper.push(space); go(space.parent); }
+function out(){ if (!space.parent) return; if (space === settings) return go(before);      /* leaving the settings goes back to where they were opened from */
+  deeper.push(space); go(space.parent); }
 function backIn(){
   const to = deeper.pop();
   if (to && to.parent === space && space.blocks.includes(to.owner)) go(to); else deeper.length = 0;      /* its block may have been deleted since */
@@ -91,7 +96,7 @@ function freeName(){
    on any block in any space, is the same length: change one and they all change. Two named sides multiply only if
    they carry the same name. */
 const lengths = new Map();                     /* a name -> how many units long its sides are */
-const everyBlock = () => [...top.blocks, ...[...spaceOf.values()].flatMap(s => s.blocks)];
+const everyBlock = () => [...top.blocks, ...settings.blocks, ...[...spaceOf.values()].flatMap(s => s.blocks)];
 /* after b's size has changed: its named sides give their new length to every side of the same name */
 function agree(b){
   const u = view.unit;
@@ -105,7 +110,7 @@ function agree(b){
    would otherwise leave products overlapping or gapped. except(left, right) can name pairs to leave alone. */
 function keepTouching(change, except = () => false){
   const u = view.unit, pairs = [];
-  for (const s of [top, ...spaceOf.values()]){
+  for (const s of [top, settings, ...spaceOf.values()]){
     const rects = s.blocks.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
     for (const j of joins(rects)) if (!except(s.blocks[j.left], s.blocks[j.right])) pairs.push([s.blocks[j.left], s.blocks[j.right]]);
   }
@@ -407,6 +412,10 @@ const menu = createMenu([
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
 ]);
 const hud = createHud({ onHome: () => view.home() });
+/* the gear opens the settings from wherever you are; pressed again, or with Escape or Back, it returns to where you were */
+let before = top;
+const gear = createSettingsButton({ onPress: () => { if (trail().includes(settings)) return go(before);
+  before = space; deeper.length = 0; go(settings); } });
 const crumbs = createCrumbs({ onGo: i => { deeper.length = 0; go(trail()[i]); } });
 const view = createView({
   onChange: cam => { hud.show(cam); menu.close(); shown(); },
@@ -415,5 +424,5 @@ const view = createView({
   onClick: clicked,
   onDrag: dragged,
 });
-document.body.append(view.el, menu.el, hud.el, crumbs.el);
+document.body.append(view.el, menu.el, hud.el, crumbs.el, gear.el);
 hud.show(view.camera());
