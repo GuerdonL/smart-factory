@@ -1,6 +1,6 @@
 /* The canvas: an endless dot grid that pans and zooms.
 
-   createView({ onChange(camera), onMenu(x, y) }) -> { el, world, unit, grid(), camera(), home(), toWorld(x, y), toScreen(x, y), tool(t) }
+   createView({ onChange(camera), onMenu(x, y), onClick(element, event) }) -> { el, world, unit, grid(), camera(), home(), toWorld(x, y), toScreen(x, y), tool(t) }
      el        the element to put on the page
      world     put things here to place them on the canvas, in world coordinates. It carries the CSS variable
                --zoom, so a thing can keep a detail the same size on screen: calc(8px / var(--zoom))
@@ -15,7 +15,9 @@
                goes to t.cancel(), and the cursor is t.cursor. Scrolling and zooming still work.
                Returns a function that takes the tool away again.
      onChange  called whenever the camera moves
-     onMenu    called with screen coordinates on right click (the browser's own menu is suppressed) */
+     onMenu    called with screen coordinates on right click (the browser's own menu is suppressed)
+     onClick   called with (element, event) for a press and release without dragging: the element is whatever
+               was under the pointer, the view's own el for empty canvas. A drag pans and is not a click. */
 import { html, style } from './dom.js';
 
 const ZMIN = 0.1, ZMAX = 4, GRID = 24, STORE = 'sf-cam';
@@ -28,7 +30,7 @@ style('view', `
 .view-origin { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border: 1px solid var(--muted); border-radius: 50%; }
 `);
 
-export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
+export function createView({ onChange = () => {}, onMenu = () => {}, onClick = () => {} } = {}){
   const el = html`<div class="view"><div class="view-world"><div class="view-origin" title="0, 0"></div></div></div>`;
   const world = el.firstElementChild;
   /* world point (x, y) appears at screen (x * z + tx, y * z + ty) */
@@ -60,15 +62,18 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
   const at = e => toWorld(e.clientX, e.clientY);
 
   /* drag to pan; two fingers pan and pinch */
-  const pts = new Map();
+  const pts = new Map(); let press = null;      /* press: where a possible click began */
   el.addEventListener('pointerdown', e => {
     if (e.button === 2 || (e.button === 0 && e.ctrlKey)) return;        /* right click belongs to the menu, or cancels a tool */
     if (tool){ if (e.button === 0){ el.setPointerCapture(e.pointerId); tool.down?.(at(e)); } return; }
     el.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); el.classList.add('panning');
+    press = pts.size === 1 ? { target: e.target, x: e.clientX, y: e.clientY } : null;
   });
   el.addEventListener('pointermove', e => {
     if (tool) return tool.move?.(at(e));
     const p = pts.get(e.pointerId); if (!p) return;
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) press = null;      /* moved: a drag, not a click */
+    if (press) return;
     if (pts.size === 1){ cam.tx += e.clientX - p.x; cam.ty += e.clientY - p.y; p.x = e.clientX; p.y = e.clientY; return moved(); }
     const [a0, b0] = [...pts.values()].map(q => ({ ...q })); p.x = e.clientX; p.y = e.clientY;
     const [a, b] = [...pts.values()];
@@ -78,7 +83,8 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
     zoomAt(mx, my, d0 > 0 ? d / d0 : 1); moved();
   });
   const up = e => { pts.delete(e.pointerId); if (!pts.size) el.classList.remove('panning'); };
-  el.addEventListener('pointerup', e => { if (tool && e.button === 0) return tool.up?.(at(e)); up(e); });
+  el.addEventListener('pointerup', e => { if (tool && e.button === 0) return tool.up?.(at(e));
+    const p = press; press = null; up(e); if (p) onClick(p.target, e); });
   el.addEventListener('pointercancel', up);
 
   /* wheel and trackpad: scroll pans; pinch, or ctrl/cmd + wheel, zooms about the pointer */
@@ -94,6 +100,6 @@ export function createView({ onChange = () => {}, onMenu = () => {} } = {}){
 
   return { el, world, unit: GRID, grid, camera, toWorld, toScreen: (x, y) => ({ x: x * cam.z + cam.tx, y: y * cam.z + cam.ty }),
     home(){ cam.tx = innerWidth / 2; cam.ty = innerHeight / 2; cam.z = 1; moved(); },
-    tool(t){ tool = t; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';
+    tool(t){ tool = t; press = null; pts.clear(); el.classList.remove('panning'); el.style.cursor = t.cursor || '';
       return () => { if (tool === t){ tool = null; el.style.cursor = ''; } }; } };
 }
