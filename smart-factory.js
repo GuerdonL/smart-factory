@@ -111,6 +111,7 @@ function shown(){                              /* brings what is on screen in li
   const taken = space.blocks.map(b => b.rect), hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   ps.forEach((piece, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u };
+    r.piece = { blocks: piece.members.map(m => space.blocks[m]), type: piece.type, box };       /* what this result is the result of */
     let at = r.set(box, piece.type, 'right');
     for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, 'below', drop);
     taken.push(at); });
@@ -121,6 +122,29 @@ function select(list, { toggle = false } = {}){
   const off = toggle && list.length && list.every(b => selected.has(b));
   for (const b of list) off ? selected.delete(b) : selected.add(b);
   shown();
+}
+
+/* ---- naming a result ----
+   Click a result's matrix and give it a name: the blocks that came to it fold away into a new block of that name,
+   the size of the result, in a bold colour picked at random. They become its definition: open it to find them on
+   the left of its "=". */
+const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'flamingo', 'marigold', 'lagoon'];      /* colours in the theme */
+function fold({ blocks: inside, type, box }, name){
+  const u = view.unit, used = new Set(space.blocks.map(b => b.shape.color));
+  const free = PALETTE.filter(c => !used.has(c)), from = free.length ? free : PALETTE;                /* one this space is not using, while there is one */
+  const made = createBlock({ label: 'Named', draw: 'rectangle', color: from[Math.floor(Math.random() * from.length)] },
+    { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
+  /* its definition space: the folded blocks, moved so they end one unit left of the "=" and sit level with it */
+  const def = newSpace(made, space); spaceOf.set(made, def);
+  const dx = -u - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
+  for (const b of inside){
+    b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b);
+    b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); def.blocks.push(b);
+    if (spaceOf.has(b)) spaceOf.get(b).parent = def;                                                 /* its own definition now hangs under the new one */
+  }
+  ungroup([]);                                 /* a group left with one member is no group */
+  space.blocks.push(made); view.world.append(made.el);
+  select([made]);
 }
 
 /* ---- keys ---- */
@@ -180,6 +204,9 @@ function clicked(el, e){
     if (isOneGroup(list)) ungroup(list); else { ungroup(list); const id = nextGroup++; for (const b of list) space.groupOf.set(b, id); }
     return shown();
   }
+  /* a result's matrix: name it, and the blocks that came to it fold into a new block */
+  const r = results.find(r => r.el.isConnected && r.el.contains(el));
+  if (r){ const piece = r.piece; select([]); return r.name(name => { if (name && !piece.type.error && piece.blocks.every(b => space.blocks.includes(b))) fold(piece, name); }); }
   /* a measurement: double-click to type a size in whole units; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
     const b = [...selected][0];
