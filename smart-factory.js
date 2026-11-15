@@ -122,23 +122,35 @@ function renamed(b, color){                        /* color: the new colour that
    level it is in reach everywhere. The list shows what is in reach of the current space, along the way you came. */
 const kin = new Map();                         /* block -> the set of blocks that are uses of its variable (itself included), once it has more than one */
 const kinOf = b => kin.get(b) || [b];
+/* What is in reach, for the list at the right edge: { main, hidden }, each a list of items.
+   A named frame is a variable: dragged from the list, all of it is made again where it is dropped. What is named
+   inside a named frame is listed under that frame, out of sight until the frame is opened, and nowhere else: it is an
+   attribute of the frame. (A frame is no scope: its shapes share the space's variables with everything else there.)
+   A dotted name is a hidden variable, kept behind the plus, along with everything under a dotted frame.
+   Of several definitions of one name in different spaces, the lowest is the one in reach: it shadows the others. */
 function inReach(){
-  const spaces = trail(), items = [], seen = new Set(), names = new Set();
-  for (const s of spaces) for (const b of s.blocks){
-    if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
-      for (const k of kinOf(b)) seen.add(k);
-      items.push({ kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, config: inConfig(b, s) }); }
-    for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); items.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
-  }
-  /* of several definitions of one name, the lowest is the one in reach: it shadows the others. Dotted names are kept out. */
-  const lowest = new Map(); for (const i of items) if (i.kind === 'shape') lowest.set(bare(i.name).trim(), i);
-  const shapes = items.filter(i => i.kind === 'shape' && lowest.get(bare(i.name).trim()) === i);
-  dotted = shapes.filter(i => isHidden(i.name) && !i.config);      /* these go behind the plus, after the program's own */
-  return [...shapes.filter(i => !isHidden(i.name)), ...items.filter(i => i.kind === 'length')];
+  const spaces = trail(), main = [], hidden = [], seen = new Set(), names = new Set(), lengths = [], shapes = [];
+  spaces.forEach((s, depth) => { const nodes = new Map();
+    const named = g => { for (; g !== undefined; g = s.groupUp.get(g)) if (s.groupNames.has(g)) return g; };      /* the nearest named frame, from g outwards */
+    const node = g => { if (!nodes.has(g)){ const up = named(s.groupUp.get(g)), name = s.groupNames.get(g);
+        const n = { kind: 'frame', name, id: g, key: depth + ':' + g, color: 'muted', cols: 3, rows: 2, children: [] }; nodes.set(g, n);
+        (up === undefined ? (isHidden(name) ? hidden : main) : node(up).children).push(n); }
+      return nodes.get(g); };
+    for (const g of s.groupNames.keys()) node(g);
+    for (const b of s.blocks){
+      if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
+        for (const k of kinOf(b)) seen.add(k);
+        const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth };
+        shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
+      for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); lengths.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
+    } });
+  const lowest = new Map(); for (const [i] of shapes) lowest.set(bare(i.name).trim(), Math.max(i.depth, lowest.get(bare(i.name).trim()) ?? 0));
+  for (const [i, into] of shapes) if (lowest.get(bare(i.name).trim()) === i.depth) into.push(i);
+  const told = new Set(), tell = list => { for (const i of list){ told.add(i.name); if (i.children) tell(i.children); } }; tell(hidden);
+  return { main: [...main, ...lengths], hidden: [...systemItems().filter(i => !told.has(i.name)), ...hidden] };      /* the program's own, where the project has none of that name */
 }
-let dotted = [];
 const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 }, { kind: 'system', name: DARK, group: true, color: 'muted', cols: 3, rows: 2 },
-  ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 })), ...dotted];
+  ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 }))];
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at){
   const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
@@ -274,6 +286,7 @@ const variables = createVariables({
       const r = onto.el.getBoundingClientRect(), u = view.unit, cols = Math.round(onto.block.rect.w / u), rows = Math.round(onto.block.rect.h / u), whole = cols <= 8 && rows <= 8;      /* a longer matrix is written with its middle left out, so the pointer cannot say where */
       return bus.send('slot', { into: onto.block.id, id: item.block.id, cx: whole ? (x - r.left) / (r.width / cols) : 0, cy: whole ? (y - r.top) / (r.height / rows) : 0 }); }
     if (item.kind === 'system') return bus.send('summon', { name: item.name, key: item.key || null, group: !!item.group, at });
+    if (item.kind === 'frame') return bus.send('replicate', { frame: item.id, at });
     const target = reach(x, y);
     return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : bus.send('length.add', { name: item.name, units: item.units, at }); },
   onEnd: () => bus.send('variable.end'),
@@ -569,8 +582,19 @@ function summon(item, at){
   select(made);
 }
 
+/* Everything in a dotted frame is a hidden variable, and says so: its name is lower case and begins with a dot. That is
+   seen to here, each time the screen is brought up to date, for whatever has gone into such a frame or been named
+   there. (A shape still called "Shape 3", and a frame with no name, are not variables and are left alone.) */
+function hush(){
+  const s = space, dotted = [...s.groupNames].filter(([, n]) => bare(n).trim().startsWith('.')).map(([id]) => id); if (!dotted.length) return;
+  const low = n => { const core = bare(n).trim(), want = (core.startsWith('.') ? core : '.' + core).toLowerCase(); return !core || want === core ? n : (/^\s*\/\//.test(n) ? '//' : '') + want; };
+  const under = (g, id) => { for (let p = s.groupUp.get(g); p !== undefined; p = s.groupUp.get(p)) if (p === id) return true; return false; };
+  for (const id of dotted){
+    for (const b of inGroup(id, s)) if (isNamed(b) && low(b.name) !== b.name){ const want = low(b.name); for (const k of kinOf(b)) k.call(want); }
+    for (const [g, n] of [...s.groupNames]) if (under(g, id) && low(n) !== n) s.groupNames.set(g, low(n)); }
+}
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
-  configure();
+  hush(); configure();
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
@@ -648,7 +672,7 @@ function shown(){                              /* brings what is on screen in li
     f.box = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
     if (x1 - x0 !== box.w || y1 - y0 !== box.h) f.set(f.box, options); }
   dress();
-  variables.show(inReach(), systemItems());
+  const reach = inReach(); variables.show(reach.main, reach.hidden);
 }
 function select(list, { toggle = false } = {}){
   if (!toggle) selected.clear();
@@ -927,6 +951,9 @@ addEventListener('keydown', e => {
   if (e.key === 's' || e.key === 'S') return bus.send('select.box');
   /* F2 or Enter: rename the one selected block (the way to rename a block in a stack, whose name is written on it) */
   if ((e.key === 'F2' || e.key === 'Enter') && selected.size === 1){ e.preventDefault(); return renaming([...selected][0]); }
+  /* f frames the selection; on a selection that is one frame already, it takes the frame off */
+  if ((e.key === 'f' || e.key === 'F') && selected.size){ e.preventDefault(); const list = [...selected], g = groupIs(list);
+    return g !== null ? bus.send('unframe', { frame: g }) : list.length > 1 ? bus.send('frame', { ids: idsOf(list) }) : undefined; }
   if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose', { ids: idsOf(selected) }); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
   if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); bus.send('delete', { ids: idsOf(selected) }); }
@@ -975,8 +1002,8 @@ function dragged(el, from, e){
     end(){ const host = room.host; room.host = null; room.loose = null;
       end();
       if (pulled && host === null){ const stays = pulled.find(([, r]) => within(last, r));      /* innermost first */
-        return bus.send('group.leave', { id: b.id, group: stays ? stays[0] : null }); }
-      if (host !== null) bus.send('group.enter', { ids: idsOf(held), group: host }); },
+        return bus.send('frame.leave', { id: b.id, frame: stays ? stays[0] : null }); }
+      if (host !== null) bus.send('frame.enter', { ids: idsOf(held), frame: host }); },
     move(p){ const dx = snap(p.x - from.x), dy = snap(p.y - from.y); last = p;
       for (const [b, r] of start) b.set({ ...r, x: r.x + dx, y: r.y + dy });
       const over = others.filter(([, r]) => within(p, r));
@@ -1003,14 +1030,14 @@ function clicked(el, e){
     if (!f.el.isConnected || !f.el.contains(el)) continue;
     const list = id === null ? [...selected] : inGroup(id);
     /* the group button: make the selection one group, or take it apart again */
-    if (f.groupButton.contains(el)) return groupIs(list) !== null ? bus.send('ungroup', { group: groupIs(list) }) : bus.send('group', { ids: idsOf(list) });
+    if (f.groupButton.contains(el)) return groupIs(list) !== null ? bus.send('unframe', { frame: groupIs(list) }) : bus.send('frame', { ids: idsOf(list) });
     /* the fold button: the group's blocks move into a new block with the group's name */
     if (f.foldButton.contains(el)) return bus.send('fold', { ids: idsOf(list), name: space.groupNames.get(id), color: someColour() });
     if (el === f.nameEl){
       /* a named group's name: the first click selects the group, a click once it is selected renames it */
       if (id !== null && groupIs([...selected]) !== id) return pick(list);
       f.nameEl.textContent = '';
-      return editText(f.nameEl, name => bus.send('name', { group: id, ids: idsOf(list), name: name || null, color: someColour() }));
+      return editText(f.nameEl, name => bus.send('name', { frame: id, ids: idsOf(list), name: name || null, color: someColour() }));
     }
     return;
   }
@@ -1130,15 +1157,21 @@ bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text ===
   if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v); }
   write(); shown(); }, changes);
 bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(b, dim, text); shown(); }, changes);
-bus.on('group', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown(); }, changes);
-bus.on('ungroup', ({ group: g }) => { ungroup(g); tidy(); shown(); }, changes);
-bus.on('group.enter', ({ ids, group: host }) => { const held = new Set(ids.map(blockOf).filter(Boolean));
+/* a frame is several shapes held together (in the code, and in projects saved before, a group) */
+bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown(); }, changes);
+bus.on('unframe', ({ frame: g }) => { ungroup(g); tidy(); shown(); }, changes);
+bus.on('frame.enter', ({ ids, frame: host }) => { const held = new Set(ids.map(blockOf).filter(Boolean));
   for (const b of held){ const outer = chain(b).at(-1);
     if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group */
   tidy(); shown(); }, changes);
-bus.on('group.leave', ({ id, group: g }) => { const b = blockOf(id); if (b){ if (g === null) space.groupOf.delete(b); else space.groupOf.set(b, g); } tidy(); shown(); }, changes);      /* pulled free of its group, as far out as g: null is out of them all */
+/* a whole frame set down again from the list: everything in it, made anew, centred where it was dropped */
+bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupNames.has(frame)); if (!s) return;
+  const pictures = inGroup(frame, s).map(b => picture(b, s));
+  for (const p of pictures) p.groups = p.groups.slice(0, p.groups.findIndex(g => g.id === frame) + 1);      /* the frame and what is inside it, not the frames it is in */
+  paste(at, pictures); }, changes);
+bus.on('frame.leave', ({ id, frame: g }) => { const b = blockOf(id); if (b){ if (g === null) space.groupOf.delete(b); else space.groupOf.set(b, g); } tidy(); shown(); }, changes);      /* pulled free of its group, as far out as g: null is out of them all */
 /* a name given to a frame: a named group is renamed; a group without one is named, and stays, framed; a plain selection folds into a new block of that name */
-bus.on('name', ({ group: id, ids, name, color }) => { const list = ids.map(blockOf).filter(Boolean);
+bus.on('name', ({ frame: id, ids, name, color }) => { const list = ids.map(blockOf).filter(Boolean);
   if (name && id !== null) space.groupNames.set(id, name);
   else if (name && groupIs(list) !== null) space.groupNames.set(groupIs(list), name);
   else if (name && list.length && list.every(b => space.blocks.includes(b))) return fold(foldable(list), name, color);

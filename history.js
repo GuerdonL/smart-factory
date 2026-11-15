@@ -11,7 +11,7 @@
 
    Before the first message that can change the project in any one turn of events, the project is kept; when the turn
    is over it is looked at again, and if it now stands differently the pair is one step. So everything one action
-   sends (a drag's 'place' and the 'group.enter' that follows it, say) is undone together, and a message that turned
+   sends (a drag's 'place' and the 'frame.enter' that follows it, say) is undone together, and a message that turned
    out to change nothing is no step at all. Undoing and redoing are not themselves steps. A new step ends what could
    have been redone. */
 export function createHistory(bus, { snap, same, restore, limit = 200 }){

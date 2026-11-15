@@ -3,7 +3,7 @@
 
    Shapes and files are the same tree. A space is a directory. Each shape in it is one config file, and a shape that
    has a definition space has a directory of the same name beside its file, holding that space in the same way.
-   A group is one combined file holding all of its shapes.
+   A frame (several shapes framed together; once called a group) is one combined file holding all of its shapes.
 
        my-project/
          project.json              what this is, and when it was saved
@@ -12,8 +12,8 @@
          Keys/                     ... which is this directory
            Embedding.json
            Key Weights.json
-         Pair.group.json           a group: several shapes in one file
-         .config                   the group called .config, under exactly that name (see below)
+         Pair.frame.json           a frame: several shapes in one file
+         .config                   the frame called .config, under exactly that name (see below)
 
    The project's own directory is the top space, the Menu.
 
@@ -45,12 +45,12 @@
 
    A named side's length is not stored anywhere else: it is the size of the sides that carry the name.
 
-   A group's config:
-       { "format": "smart-factory/group", "version": 1, "id": "g4k09zq", "name": "Pair", "named": true,
-         "shapes": [ { a shape's config }, … ],            the shapes directly in the group
-         "groups": [ { "name", "named", "shapes", "groups" }, … ] }      the groups inside it, written the same way
+   A frame's config:
+       { "format": "smart-factory/frame", "version": 1, "id": "g4k09zq", "name": "Pair", "named": true,
+         "shapes": [ { a shape's config }, … ],            the shapes directly in the frame
+         "groups": [ { "name", "named", "shapes", "groups" }, … ] }      the frames inside it, written the same way
 
-   A group named .config is written as the file .config in its space's directory, in the same form as any group.
+   A frame named .config is written as the file .config in its space's directory, in the same form as any frame.
    The page reads it for root variables: see configure in smart-factory.js. There may be one at every level.
 
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
@@ -102,9 +102,9 @@ export function write(project){
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
     let hasConfig = false;
-    s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'group ' + (n + 1), taken);
+    s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken);
       if (own) hasConfig = true;
-      files.push({ path: own ? dir + '.config' : dir + name + '.group.json', text: JSON.stringify({ format: 'smart-factory/group', version: FORMAT, ...body }, null, 2) + '\n' }); });
+      files.push({ path: own ? dir + '.config' : dir + name + '.frame.json', text: JSON.stringify({ format: 'smart-factory/frame', version: FORMAT, ...body }, null, 2) + '\n' }); });
   };
   files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, ...(project.ids ? { ids: project.ids } : {}) }, null, 2) + '\n' });
   space(project.top, '');
@@ -130,7 +130,7 @@ export function read(files){
       if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !(path.endsWith('.json') || path.slice(dir.length) === '.config') || path === 'project.json') continue;
       let c; try { c = JSON.parse(text); } catch (e) { throw new Error(path + ' is not valid JSON'); }
       if (c.format === 'smart-factory/shape') found.push([c, null]);
-      else if (c.format === 'smart-factory/group') groups.push(take(c));
+      else if (c.format === 'smart-factory/frame' || c.format === 'smart-factory/group') groups.push(take(c));      /* 'group' is what a frame was called in projects saved before */
     }
     found.sort((a, b) => (a[0].order ?? 0) - (b[0].order ?? 0));
     const make = c => {

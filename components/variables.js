@@ -4,7 +4,11 @@
      show     takes what to list, top to bottom:
                 { kind: 'shape',  name, color, cols, rows }   drawn as a miniature of the shape, with its name
                 { kind: 'length', name, units }               drawn as a ruler, with its name and its length
-              Anything else on an item is kept and handed back untouched, for the caller's own use.
+                { kind: 'frame',  name, children }            drawn as an outline, with its name. Its children are items
+                                                              of any kind, kept out of sight under it until it is
+                                                              clicked, when it opens to show them (and shuts again).
+              Anything else on an item is kept and handed back untouched, for the caller's own use. An item's `key`,
+              if it has one, is what its being open is remembered by; otherwise its name is.
               hidden is a second list, of the same kind of items (kind 'system' is drawn as a shape; with group: true,
               as an outline). It is kept out of sight below a divider and a plus button; the button opens and shuts it.
      Each sits small and washed out until the pointer is over it, when it grows and takes its full colour.
@@ -31,6 +35,8 @@ style('variables', `
 /* the copy that follows the pointer hangs below and to the right of it, so it never covers what it is about to land on */
 .variable-ghost { position: fixed; z-index: 30; pointer-events: none; margin: 0; transform: translate(14px, 14px) scale(1.12); transform-origin: left top; }
 .variable-mini.group { background: none; box-shadow: none; border: 1.5px dashed var(--muted); box-sizing: border-box; }
+.variable.child { margin-right: calc(14px * var(--depth)); }      /* what is in a frame hangs under it, stepped in from the edge */
+.variable b { font: 11px/1 var(--font-ui); color: var(--muted); width: 8px; text-align: center; }      /* the mark that a frame opens */
 .variables-more { flex: none; pointer-events: auto; display: flex; align-items: center; gap: 6px; margin: 4px 6px 2px 0; }
 .variables-more::before { content: ""; width: 44px; height: 1px; background: var(--line); }
 .variables-more button { all: unset; box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--muted);
@@ -44,12 +50,15 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
   const el = html`<div class="variables" aria-label="Variables" hidden></div>`;
   el.addEventListener('contextmenu', e => e.preventDefault());
   let showing = '';
-  const draw = item => {
+  const opened = new Set(), keyOf = item => item.key || item.kind + ':' + item.name;
+  const draw = (item, depth = 0) => {
     const v = html`<div class="variable"></div>`;
+    if (depth){ v.classList.add('child'); v.style.setProperty('--depth', depth); }
+    if (item.children?.length){ v.append(html`<b></b>`); v.firstChild.textContent = opened.has(keyOf(item)) ? '\u25be' : '\u25b8'; }
     if (item.kind !== 'length'){ const k = 22 / Math.max(item.cols, item.rows), mini = html`<i class="variable-mini"></i>`;      /* the shape's proportions, 22px on its longer side */
-      Object.assign(mini.style, { width: Math.max(5, item.cols * k) + 'px', height: Math.max(5, item.rows * k) + 'px' }); mini.style.setProperty('--mini', `var(--${item.color})`); mini.classList.toggle('group', !!item.group);
+      Object.assign(mini.style, { width: Math.max(5, item.cols * k) + 'px', height: Math.max(5, item.rows * k) + 'px' }); mini.style.setProperty('--mini', `var(--${item.color})`); mini.classList.toggle('group', !!item.group || item.kind === 'frame');
       v.append(mini, html`<span></span>`); v.lastChild.textContent = item.name; }
-    else { v.innerHTML = RULER; v.append(html`<span></span>`, html`<small></small>`); v.children[1].textContent = item.name; v.lastChild.textContent = item.units + 'u'; }
+    else { v.insertAdjacentHTML('beforeend', RULER); v.append(html`<span></span>`, html`<small></small>`); v.lastChild.previousSibling.textContent = item.name; v.lastChild.textContent = item.units + 'u'; }
     return v;
   };
   function hold(v, item, down){
@@ -61,7 +70,9 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
       Object.assign(ghost.style, { left: e.clientX + 'px', top: e.clientY + 'px' }); onDrag(item, e.clientX, e.clientY);
     };
     const up = e => { v.removeEventListener('pointermove', move); v.removeEventListener('pointerup', up); v.removeEventListener('pointercancel', up);
-      v.classList.remove('held'); if (!ghost) return; ghost.remove();
+      v.classList.remove('held');
+      if (!ghost){ if (e.type === 'pointerup' && item.children?.length){ const k = keyOf(item); opened.has(k) ? opened.delete(k) : opened.add(k); self.show(...last); } return; }      /* a click, not a drag: a frame opens or shuts */
+      ghost.remove();
       const r = el.getBoundingClientRect(), off = e.clientX < r.left || e.clientY < r.top || e.clientY > r.bottom;
       if (e.type === 'pointerup' && off) onDrop(item, e.clientX, e.clientY);
       onEnd(); };
@@ -71,12 +82,14 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
   const more = html`<div class="variables-more"><button type="button" aria-expanded="false" aria-label="System variables" title="System variables">+</button></div>`;
   const self = { el, show(items, hidden = []){
     last = [items, hidden];
-    const key = JSON.stringify([open, ...[...items, ...hidden].map(i => [i.kind, i.name, i.color, i.cols, i.rows, i.units])]);
+    const told = i => [i.kind, i.name, i.color, i.cols, i.rows, i.units, (i.children || []).map(told)];
+    const key = JSON.stringify([open, [...opened], ...[...items, ...hidden].map(told)]);
     if (key === showing && !items.some(i => i.fresh)) return;      /* nothing to redraw: leave whatever is being hovered or dragged alone */
     showing = key; el.hidden = !items.length && !hidden.length; el.replaceChildren();
-    const put = item => { const v = draw(item); v.addEventListener('pointerdown', e => { if (e.button === 0) hold(v, item, e); }); el.append(v); };
-    items.forEach(put);
-    if (hidden.length){ more.firstChild.textContent = open ? '\u2212' : '+'; more.firstChild.setAttribute('aria-expanded', open); el.append(more); if (open) hidden.forEach(put); } } };
+    const put = (item, depth = 0) => { const v = draw(item, depth); v.addEventListener('pointerdown', e => { if (e.button === 0) hold(v, item, e); }); el.append(v);
+      if (item.children?.length && opened.has(keyOf(item))) for (const c of item.children) put(c, depth + 1); };
+    items.forEach(i => put(i));
+    if (hidden.length){ more.firstChild.textContent = open ? '\u2212' : '+'; more.firstChild.setAttribute('aria-expanded', open); el.append(more); if (open) hidden.forEach(i => put(i)); } } };
   more.firstChild.addEventListener('pointerdown', e => e.stopPropagation());
   more.firstChild.addEventListener('click', () => { open = !open; self.show(...last); });
   return self;

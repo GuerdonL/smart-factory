@@ -9,7 +9,7 @@
               solid     a solid line in place of the dashed one: a named group
               selected  drawn in the selection colour
               tools     shows the name field and the buttons: on for whatever is selected
-              grouped   the blocks are one group, so the group button reads "ungroup"
+              grouped   the blocks are one group, so the frame button reads "unframe"
               fold      shows the fold button: move the blocks into a new block of the same name
               grow      how many levels of named groups are framed inside this one; the frame stands that much
                         further off, so frames nest without touching
@@ -63,5 +63,5 @@ export function createBounds(){
       if (!nameEl.isContentEditable) nameEl.textContent = name;             /* a name being typed is left alone */
       nameEl.hidden = !name && !on; tools.hidden = !on; foldButton.hidden = !fold;
       groupButton.firstElementChild.innerHTML = grouped ? ICON.ungroup : ICON.group;
-      groupButton.title = grouped ? 'Ungroup' : 'Group'; groupButton.setAttribute('aria-label', groupButton.title); } };
+      groupButton.title = grouped ? 'Unframe (F)' : 'Frame (F)'; groupButton.setAttribute('aria-label', groupButton.title); } };
 }

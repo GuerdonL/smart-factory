@@ -26,6 +26,14 @@ The page has one space at the top, the Menu, and a project is what is in it. On 
 called `menu` if you have saved one, and otherwise `default-menu`, which comes with the repository. Save offers the
 name `menu`, so your first save makes the Menu your own without touching `default-menu`.
 
+## Frames
+
+Shapes framed together (press F on a selection) are a frame; projects saved before call it a group, and are still
+read. A frame is one file, `Name.frame.json`, holding its shapes and the frames inside it. A named frame is a variable:
+it is in the list at the right edge, and dragged from there all of it is made again. What is named inside a named frame
+is listed under it, not beside it. A frame is no scope of its own. Everything in a frame whose name begins with a dot
+is a hidden variable, and its name is made lower case with a dot in front.
+
 ## .config and shadowing
 
 The program's own variables exist from the start, above the Menu. The tree is in `system.js`: `.config` holds

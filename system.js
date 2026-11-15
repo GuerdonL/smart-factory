@@ -4,10 +4,10 @@
          .integer_precision            a whole number; nothing reads it yet
          .dark_mode                    0 for the light colours, 1 for the dark ones; left blank, whatever the computer asks for
          .colors
-           Shapes                      the colours shapes are drawn in
+           .shapes                     the colours shapes are drawn in
              .tensor_default  .data-in
              .variable_colors          the colours a newly named shape takes one of at random: six rows, a colour each
-           UI                          the colours of the canvas and what is written on it
+           .ui                         the colours of the canvas and what is written on it
              .bg .panel .hover .focus  .fg .line .fade-to .dot  .muted .measure_bar .warn .select
          .dark_colors                  the same two groups again: the colours used while .dark_mode is 1
 
@@ -27,12 +27,12 @@ export const OLD = { lavender: SLOTS[0], watermelon: SLOTS[1], lazuli: SLOTS[2],
 export const SYSTEM = [
   { name: '.integer_precision', key: 'integer-precision', value: [32], branch: null, at: [2, 1], cols: 1, color: SLOTS[1] },
   { name: '.dark_mode', key: 'dark-mode', value: [0], branch: null, at: [12, 1], cols: 1, color: SLOTS[2] },      /* its starting value is really the computer's own setting: see programDefaults */
-  colour('.tensor_default', 'tensor', 'Shapes', [2, 6]), colour('.data-in', 'data-in', 'Shapes', [2, 8]),
+  colour('.tensor_default', 'tensor', '.shapes', [2, 6]), colour('.data-in', 'data-in', '.shapes', [2, 8]),
   { name: '.variable_colors', key: 'variable-colors', cssRows: SLOTS,
-    branch: 'Shapes', at: [14, 6], cols: 3, rows: 6, color: SLOTS[0] },
-  colour('.bg', 'bg', 'UI', [2, 16]), colour('.panel', 'panel', 'UI', [12, 16]), colour('.hover', 'hover', 'UI', [22, 16]), colour('.focus', 'focus', 'UI', [32, 16]),
-  colour('.fg', 'fg', 'UI', [2, 18]), colour('.line', 'line', 'UI', [12, 18]), colour('.fade-to', 'fade-to', 'UI', [22, 18]), colour('.dot', 'dot', 'UI', [32, 18]),
-  colour('.muted', 'muted', 'UI', [2, 20]), colour('.measure_bar', 'measure', 'UI', [12, 20]), colour('.warn', 'warn', 'UI', [22, 20]), colour('.select', 'select', 'UI', [32, 20]),
+    branch: '.shapes', at: [14, 6], cols: 3, rows: 6, color: SLOTS[0] },
+  colour('.bg', 'bg', '.ui', [2, 16]), colour('.panel', 'panel', '.ui', [12, 16]), colour('.hover', 'hover', '.ui', [22, 16]), colour('.focus', 'focus', '.ui', [32, 16]),
+  colour('.fg', 'fg', '.ui', [2, 18]), colour('.line', 'line', '.ui', [12, 18]), colour('.fade-to', 'fade-to', '.ui', [22, 18]), colour('.dot', 'dot', '.ui', [32, 18]),
+  colour('.muted', 'muted', '.ui', [2, 20]), colour('.measure_bar', 'measure', '.ui', [12, 20]), colour('.warn', 'warn', '.ui', [22, 20]), colour('.select', 'select', '.ui', [32, 20]),
 ];
 export const CONFIG = '.config', COLORS = '.colors', DARK = '.dark_colors';
 export const DARK_DOWN = 24;                    /* how far below .colors the same shapes sit in .dark_colors, in the default layout */
