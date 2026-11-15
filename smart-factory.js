@@ -388,7 +388,7 @@ function shown(){                              /* brings what is on screen in li
     const ms = inGroup(id); if (!ms.length) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
     const f = space.frames.get(id), on = id === oneGroup || id === room.host;      /* lit while a selection is held over it */
-    f.set(boxOf(ms), { name, solid: true, selected: on, tools: id === oneGroup, grouped: true, fold: true, grow: namedBelow(id) }); view.world.append(f.el);
+    f.set(room.loose?.get(id) || boxOf(ms), { name, solid: true, selected: on, tools: id === oneGroup, grouped: true, fold: true, grow: namedBelow(id) }); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
   if (room.host !== null && !space.groupNames.has(room.host)){ roomFrame.set(boxOf(inGroup(room.host)), { selected: true, grouped: true, grow: namedBelow(room.host) }); view.world.append(roomFrame.el); }
@@ -629,7 +629,7 @@ addEventListener('keydown', e => {
 /* ---- drags that begin on a block ----
    By a side or corner: resize it. On a selected block: move every selected block. Both go in steps of the dots on
    screen. Anything else is left to the view, which pans. */
-function dragged(el, from){
+function dragged(el, from, e){
   const b = blockAt(el);
   if (!b || el.isContentEditable) return;
   const g = view.grid(), snap = v => Math.round(v / g) * g, cursor = c => { view.el.style.cursor = c; }, end = () => cursor('');
@@ -645,8 +645,13 @@ function dragged(el, from){
       keepTouching(() => { b.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }); agree(b); }, (left, right) => right === b || (left === b && !grip.includes('e') && !b.sides.w));
       shown(); } };
   }
+  /* shift, on a block in a group: that one block is pulled free. Its groups' frames stay where they are while it is
+     carried; let go outside them, it has left. (Let go still inside one, it is in that one.) */
+  const pulled = e?.shiftKey && chain(b).length ? chain(b).map(id => [id, boxOf(inGroup(id))]) : null;
+  if (pulled){ select([b]); room.loose = new Map(pulled); }
   if (!selected.has(b)) return;
   const start = [...selected].map(b => [b, b.rect]);
+  let last = from;
   cursor('move');
   /* held over a group, that group lights up; let go there and the selection joins it */
   const held = new Set(selected), u = view.unit;
@@ -654,18 +659,21 @@ function dragged(el, from){
     .map(id => [id, boxOf(inGroup(id))]);      /* they do not move during the drag, so their boxes are worked out once */
   const within = (p, r) => p.x >= r.x - u / 2 && p.x <= r.x + r.w + u / 2 && p.y >= r.y - 1.25 * u && p.y <= r.y + r.h + u / 2;      /* the frame stands a little off its blocks, more above */
   return {
-    end(){ cursor(''); const host = room.host; room.host = null;
+    end(){ cursor(''); const host = room.host; room.host = null; room.loose = null;
+      if (pulled && host === null){ const stays = pulled.find(([, r]) => within(last, r));      /* innermost first */
+        if (stays) space.groupOf.set(b, stays[0]); else space.groupOf.delete(b);
+        tidy(); return shown(); }
       if (host === null) return;
       for (const b of held){ const outer = chain(b).at(-1);
         if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group */
       tidy(); shown(); },
-    move(p){ const dx = snap(p.x - from.x), dy = snap(p.y - from.y);
+    move(p){ const dx = snap(p.x - from.x), dy = snap(p.y - from.y); last = p;
       for (const [b, r] of start) b.set({ ...r, x: r.x + dx, y: r.y + dy });
       const over = others.filter(([, r]) => within(p, r));
       room.host = over.length ? over.reduce((a, c) => c[1].w * c[1].h < a[1].w * a[1].h ? c : a)[0] : null;      /* the innermost of those the pointer is in */
       shown(); } };
 }
-const room = { host: null };                   /* the group the dragged selection is held over */
+const room = { host: null, loose: null };      /* the group the dragged selection is held over; while a block is pulled out of its groups, group -> the frame it keeps */
 
 /* ---- clicks ----
    A second click on the same thing soon after the first is a double click. */

@@ -21,7 +21,8 @@
                own menu is suppressed)
      onClick   called with (element, event) for a press and release without dragging: the element is whatever
                was under the pointer, the view's own el for empty canvas. A drag is not a click.
-     onDrag    called when a drag begins, with the element it began on and that point in world coordinates.
+     onDrag    called when a drag begins, with the element it began on, that point in world coordinates, and the
+               pointer event (for its modifier keys).
                Return { move(point), end() } to take the drag; return nothing and the drag pans the canvas. */
 import { html, style } from './dom.js';
 
@@ -80,7 +81,7 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
     if (tool) return tool.move?.(at(e));
     const p = pts.get(e.pointerId); if (!p) return;
     if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4){      /* moved: a drag, not a click */
-      drag = onDrag(press.target, toWorld(press.x, press.y)) || null; press = null; }
+      drag = onDrag(press.target, toWorld(press.x, press.y), e) || null; press = null; }
     if (press) return;
     if (drag) return drag.move(at(e));
     if (pts.size === 1){ cam.tx += e.clientX - p.x; cam.ty += e.clientY - p.y; p.x = e.clientX; p.y = e.clientY; return moved(); }
