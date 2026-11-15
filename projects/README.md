@@ -35,9 +35,9 @@ blank, whatever the computer asks for), `.dark_colors` (the colours used while `
 three entries, red, green, blue: `Shapes` (`.tensor_default`, `.data-in`) and `UI` (`.bg`, `.fg`, `.select`, ...).
 `Shapes` also holds `.variable_colors`, an array of six colours, a row each: the ones a newly named shape takes at
 random. The stylesheet has no colours for these (they are `--variable-1` to `--variable-6`, set from the array), and
-the program has none of its own either. In the default Menu each `.variable_colors` (light and dark) is filled with six
-colour vectors standing in its matrix. Those are the only listing of them: double-click one where it stands to open
-it and change the colour.
+the program has none of its own either. In the default Menu each `.variable_colors` (light and dark) has six colour vectors stacked beside it: ordinary
+shapes, which the stack makes one matrix, and which `.variable_colors` is thereby asserted equal to. They are the only
+listing of the colours: open one to change it, drag them to reorder.
 
 A group named `.config` shadows the program's from its space downwards, and one further down shadows it again. It
 covers only what it gives: a colour shape with one entry filled changes that one entry. It is saved as a file called

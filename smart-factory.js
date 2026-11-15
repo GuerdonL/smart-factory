@@ -177,7 +177,7 @@ const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: 
    .config) with a piece to its right, level with it, of its own size, one to four units away with nothing between,
    is asserted equal to that piece: block -> { piece, blocks, x, y }, x and y being the middle of the gap. */
 function algebraIn(s){
-  const u = view.unit, active = s.owner && tilesOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b) && !inConfig(b, s));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part, nor what is in a .config */
+  const u = view.unit, active = s.owner && tilesOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part */
   const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   return { active, rects, all: stacks(rects, pieces(rects)) };
 }
@@ -610,17 +610,22 @@ function shown(){                              /* brings what is on screen in li
      (A product is not worked out in numbers yet.) */
   const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
     if (piece.stack) return { letter: initials(first.name), values: pieceValues({ piece, blocks: bs }, 0) };      /* a stack: its shapes' entries, row under row */
+    /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
+    if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), tiles: tileLook(first) };
     return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first) }
       : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   /* a shape with a piece of its own size beside it is asserted equal to it: a sign goes between them, and only the
      piece at the end of such a row has its value written out */
+  const stacked = new Set(all.filter(p => p.stack).flatMap(p => p.members.map(m => active[m])));
+  for (const b of space.blocks) b.inset(stacked.has(b));      /* in a stack, names go on the blocks */
   const pairs = pairsIn(space, { active, rects, all });
   for (const e of equalSigns) e.el.remove();
   equalSigns = [...pairs.values()].map(p => createEquals(p)); view.world.append(...equalSigns.map(e => e.el));
   if (space.definition && space.definition.tiled !== JSON.stringify(tileLook(space.owner))) write();      /* shapes have gone into, or come out of, its block's matrix */
-  space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {});
+  const mine = all.filter(p => !p.members.some(m => inConfig(active[m], space)));      /* what is in a .config is no part of what the space comes to */
+  space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? lookOf(mine[0]) : {});
   const ps = space.owner ? [] : all;
   /* a result stays by its piece: to the right; if something else is there (another block, or a result already placed),
      just below, to the left, or a little further below; and if every one of those is taken, to the right all the
@@ -630,11 +635,6 @@ function shown(){                              /* brings what is on screen in li
   /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
   const writ = ps.filter(piece => !(piece.members.length === 1 && pairs.has(active[piece.members[0]]))).map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1,
     box: { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u } }));
-  /* what is in a .config takes no part in the algebra, but each shape there still has its value written beside it:
-     the entries it gives, and faintly those it leaves to the definitions above. In the ordinary text colour, since
-     its own colour may be the canvas's. */
-  if (!space.owner) for (const b of space.blocks) if (!isOff(b) && inConfig(b, space) && !pairs.has(b)) writ.push({ blocks: [b], type: { cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u) }, nameable: false, box: b.rect,
-    look: { letter: initials(b.name), values: valuesOf(b), inherited: inheritedBy(b, space), tiles: tileLook(b) } });
   writ.forEach(({ blocks, type, look, nameable, box }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     r.piece = { blocks, type, box };            /* what this result is the result of */
     let at = null;
@@ -925,6 +925,8 @@ addEventListener('keydown', e => {
   if (e.key === 'Escape') return bus.send('escape');      /* with nothing selected, Escape steps out of a definition space */
   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
   if (e.key === 's' || e.key === 'S') return bus.send('select.box');
+  /* F2 or Enter: rename the one selected block (the way to rename a block in a stack, whose name is written on it) */
+  if ((e.key === 'F2' || e.key === 'Enter') && selected.size === 1){ e.preventDefault(); return renaming([...selected][0]); }
   if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose', { ids: idsOf(selected) }); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
   if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); bus.send('delete', { ids: idsOf(selected) }); }
@@ -987,6 +989,12 @@ const room = { host: null, loose: null };      /* the group the dragged selectio
    A second click on the same thing soon after the first is a double click. */
 const DOUBLE = 600;                            /* two clicks on the same thing within this many milliseconds are a double click */
 let lastEl = null, lastAt = 0, beforeShift = null;      /* beforeShift: what was selected before the last shift-click, in case it turns out to be the first of two */
+/* lets the user type a block a new name, where its name is. Adding or taking off the // is not a new name, so it brings
+   no new colour. The typing puts the name on the block already: it is taken off again, and the message names it. */
+function renaming(b){
+  return b.rename((changed, was) => { const name = b.name, color = changed && isNamed(b) && bare(name) !== bare(was) ? someColour(b.shape.color) : null;
+    b.call(was); bus.send('rename', { id: b.id, name, color }); });
+}
 function clicked(el, e){
   const twice = el === lastEl && e.timeStamp - lastAt < DOUBLE;
   lastEl = twice ? null : el; lastAt = e.timeStamp;
@@ -1033,9 +1041,7 @@ function clicked(el, e){
     return pick(next);
   }
   if (b && twice){                              /* double click */
-    if (el === b.nameEl){ pick([b]);          /* on a name: rename it. Adding or taking off the // is not a new name, so it brings no new colour */
-      return b.rename((changed, was) => { const name = b.name, color = changed && isNamed(b) && bare(name) !== bare(was) ? someColour(b.shape.color) : null;
-        b.call(was); bus.send('rename', { id: b.id, name, color }); }); }      /* the typing put the name on the block already: it is taken off again, and the message names it */
+    if (el === b.nameEl){ pick([b]); return renaming(b); }      /* on a name: rename it */
     if (selected.size === 1 && selected.has(b)) return bus.send('open', { id: b.id });             /* on a block selected alone: open its definition space */
     /* on a block in a selected group: step one group inwards, or to the block itself from the innermost */
     const outwards = chain(b).reverse(), at = outwards.indexOf(groupIs([...selected]));

@@ -1,17 +1,5 @@
 [
   "project.json",
   "Start.group.json",
-  "variable_colors/lavender.json",
-  "variable_colors/watermelon.json",
-  "variable_colors/lazuli.json",
-  "variable_colors/fanta.json",
-  "variable_colors/marigold.json",
-  "variable_colors/lagoon.json",
-  "variable_colors (2)/lavender.json",
-  "variable_colors (2)/watermelon.json",
-  "variable_colors (2)/lazuli.json",
-  "variable_colors (2)/fanta.json",
-  "variable_colors (2)/marigold.json",
-  "variable_colors (2)/lagoon.json",
   ".config"
 ]
