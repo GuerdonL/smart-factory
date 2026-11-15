@@ -388,7 +388,7 @@ const chain = (b, s = space) => { const out = []; for (let g = s.groupOf.get(b);
 const inGroup = (g, s = space) => s.blocks.filter(b => chain(b, s).includes(g));
 const members = b => { const c = chain(b); return c.length ? inGroup(c[c.length - 1]) : [b]; };      /* everything in b's outermost group */
 /* the group whose blocks are exactly these, or null */
-const groupIs = list => { if (list.length < 2) return null;
+const groupIs = list => { if (!list.length) return null;      /* a frame may hold one block: that block, selected, is that frame */
   for (const g of chain(list[0])){ const m = inGroup(g); if (m.length === list.length && m.every(b => list.includes(b))) return g; }
   return null; };
 /* makes these blocks one group. Groups lying wholly among them go in as they are, as groups within the new one;
@@ -606,8 +606,9 @@ function shown(){                              /* brings what is on screen in li
   for (const id of framesIn(space)){ const name = space.groupNames.get(id) || '';
     const ms = inGroup(id); if (!ms.length) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
-    const f = space.frames.get(id), on = id === oneGroup || id === room.host;      /* lit while a selection is held over it */
-    f.fit = [room.loose?.get(id) || boxOf(ms), { name, solid: true, selected: on, tools: id === oneGroup, grouped: true, fold: true, grow: namedBelow(id) }, room.loose?.has(id) ? [] : ms];
+    const whole = ms.length === list.length && ms.every(b => selected.has(b));      /* the selection is this frame (two frames, one round the other, can hold the very same blocks) */
+    const f = space.frames.get(id), on = whole || id === room.host;      /* lit while a selection is held over it */
+    f.fit = [room.loose?.get(id) || boxOf(ms), { name, solid: true, selected: on, tools: whole, grouped: true, fold: true, grow: namedBelow(id) }, room.loose?.has(id) ? [] : ms];
     f.set(f.fit[0], f.fit[1]); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
@@ -1031,12 +1032,12 @@ function clicked(el, e){
     if (!f.el.isConnected || !f.el.contains(el)) continue;
     const list = id === null ? [...selected] : inGroup(id);
     /* the group button: make the selection one group, or take it apart again */
-    if (f.groupButton.contains(el)) return groupIs(list) !== null ? bus.send('unframe', { frame: groupIs(list) }) : bus.send('frame', { ids: idsOf(list) });
+    if (f.groupButton.contains(el)) return id !== null ? bus.send('unframe', { frame: id }) : groupIs(list) !== null ? bus.send('unframe', { frame: groupIs(list) }) : bus.send('frame', { ids: idsOf(list) });
     /* the fold button: the group's blocks move into a new block with the group's name */
     if (f.foldButton.contains(el)) return bus.send('fold', { ids: idsOf(list), name: space.groupNames.get(id), color: someColour() });
     if (el === f.nameEl){
       /* a named group's name: the first click selects the group, a click once it is selected renames it */
-      if (id !== null && groupIs([...selected]) !== id) return pick(list);
+      if (id !== null && !(list.length === selected.size && list.every(b => selected.has(b)))) return pick(list);
       f.nameEl.textContent = '';
       return editText(f.nameEl, name => bus.send('name', { frame: id, ids: idsOf(list), name: name || null, color: someColour() }));
     }
