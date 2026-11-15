@@ -560,6 +560,23 @@ function paste(at){                             /* at: a world point; the pasted
 }
 
 /* removes the selected blocks, and with each its definition space */
+/* transposes the selection. A shape on its own turns about its top-left corner: its width and height change places,
+   with their names, and entry c,r becomes entry r,c. A product turns as a whole, (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ: each shape is
+   transposed and their order reversed, laid out again from the product's top-left corner. A shape is a variable, so
+   every other use of it is transposed with it. (What is inside its definition space is left as it is.) */
+function transpose(){
+  if (!selected.size) return;
+  const u = view.unit, list = [...selected], act = list.filter(b => !isOff(b)), done = new Set();
+  const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h })))
+    .map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x)).filter(c => c.length > 1)
+    .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
+  for (const b of list){ const variable = kin.get(b) || b; if (done.has(variable)) continue; done.add(variable);
+    const was = [...b.values]; b.values.clear(); for (const [k, v] of was){ const [c, r] = k.split(','); b.values.set(r + ',' + c, v); }
+    for (const k of kinOf(b)){ k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; } }
+  for (const c of chains){ let x = c.x; for (const b of c.blocks.reverse()){ b.set({ ...b.rect, x, y: c.y }); x += b.rect.w; } }
+  if (space.owner && kinOf(space.owner).some(k => done.has(kin.get(k) || k))) write();      /* the block whose space this is has turned too */
+  shown();
+}
 function remove(){
   const gone = [...selected]; select([]);
   for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b);
@@ -666,6 +683,7 @@ addEventListener('keydown', e => {
       const hit = space.blocks.filter(b => b.rect.x < r.x + r.w && b.rect.x + b.rect.w > r.x && b.rect.y < r.y + r.h && b.rect.y + b.rect.h > r.y);
       select([...new Set(hit.flatMap(members))]); });
   }
+  if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return transpose(); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
   if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); remove(); }
 });
@@ -806,6 +824,7 @@ const menu = createMenu([
   { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: cut },
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: copy },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
+  { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: transpose },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
   { label: 'Save project', run: save },
   { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => openKept(name) })) : [{ label: 'From a zip', run: () => zipPicker.click() }] },
