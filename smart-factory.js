@@ -492,12 +492,15 @@ function rebuild(data){
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top); };
 /* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
+const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Settings.group.json'];   /* the files of projects/default-menu */
 let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
    one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
 ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
-  if (first) openKept(first).then(() => { current = 'menu'; }); });
+  if (first) openKept(first).then(() => { current = 'menu'; });
+  else if (!kept) Promise.all(DEFAULT_MENU.map(path => fetch('projects/default-menu/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }))))
+    .then(files => openFrom(files, 'menu')).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(){
   const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
