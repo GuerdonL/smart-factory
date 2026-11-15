@@ -416,15 +416,16 @@ function tidy(s = space){
   for (let again = true; again;){ again = false;
     const ids = new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()]);
     for (const g of ids){ const holds = [...s.groupOf.values()].filter(at => at === g).length + [...s.groupUp.values()].filter(at => at === g).length;
-      if (holds < (s.groupNames.has(g) ? 1 : 2)){ ungroup(g, s); again = true; break; } } }      /* a named group may hold a single thing */
+      if (holds < 1){ ungroup(g, s); again = true; break; } } }      /* a frame may hold a single thing; an empty one is no frame */
   const live = new Set([...s.groupOf.values(), ...s.groupUp.values()]);
   for (const id of [...s.groupNames.keys()]) if (!live.has(id)) s.groupNames.delete(id);
 }
 /* how many levels of named groups sit strictly inside these blocks' frame: 0 if none */
-const namedBelow = id => Math.max(0, ...[...space.groupUp].filter(([, up]) => up === id).map(([c]) => (space.groupNames.has(c) ? 1 : 0) + namedBelow(c)));      /* the same, for a group: by what is grouped inside it */
+const framesIn = s => new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()]);      /* every frame of a space, by id */
+const namedBelow = id => Math.max(0, ...[...space.groupUp].filter(([, up]) => up === id).map(([c]) => 1 + namedBelow(c)));      /* the same, for a group: by what is grouped inside it */
 function namedWithin(list, not = []){             /* not: the groups already counted on the way in (two may hold exactly the same blocks) */
   let most = 0;
-  for (const [id] of space.groupNames){ if (not.includes(id)) continue; const m = inGroup(id);
+  for (const id of framesIn(space)){ if (not.includes(id)) continue; const m = inGroup(id);
     if (m.length && m.every(b => list.includes(b))) most = Math.max(most, 1 + namedWithin(m, [...not, id])); }
   return most;
 }
@@ -600,9 +601,9 @@ function shown(){                              /* brings what is on screen in li
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h }); }
   else measure?.el.remove();
-  /* named groups keep their frames; the one that is the whole selection also carries the tools */
+  /* every frame is drawn, named or not; the one that is the whole selection also carries the tools */
   const oneGroup = groupIs(list), live = new Set();
-  for (const [id, name] of space.groupNames){
+  for (const id of framesIn(space)){ const name = space.groupNames.get(id) || '';
     const ms = inGroup(id); if (!ms.length) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
     const f = space.frames.get(id), on = id === oneGroup || id === room.host;      /* lit while a selection is held over it */
@@ -610,7 +611,7 @@ function shown(){                              /* brings what is on screen in li
     f.set(f.fit[0], f.fit[1]); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
-  if (room.host !== null && !space.groupNames.has(room.host)){ roomFrame.set(boxOf(inGroup(room.host)), { selected: true, grouped: true, grow: namedBelow(room.host) }); view.world.append(roomFrame.el); }
+  if (room.host !== null && !space.frames.has(room.host)){ roomFrame.set(boxOf(inGroup(room.host)), { selected: true, grouped: true, grow: namedBelow(room.host) }); view.world.append(roomFrame.el); }
   else roomFrame.el.remove();                  /* a group with no name has no frame of its own: it is lent one while something is held over it */
   /* any other selection of several gets the dashed box, with a name to fill in */
   if (list.length > 1 && !live.has(oneGroup)){
@@ -953,7 +954,7 @@ addEventListener('keydown', e => {
   if ((e.key === 'F2' || e.key === 'Enter') && selected.size === 1){ e.preventDefault(); return renaming([...selected][0]); }
   /* f frames the selection; on a selection that is one frame already, it takes the frame off */
   if ((e.key === 'f' || e.key === 'F') && selected.size){ e.preventDefault(); const list = [...selected], g = groupIs(list);
-    return g !== null ? bus.send('unframe', { frame: g }) : list.length > 1 ? bus.send('frame', { ids: idsOf(list) }) : undefined; }
+    return g !== null ? bus.send('unframe', { frame: g }) : bus.send('frame', { ids: idsOf(list) }); }
   if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose', { ids: idsOf(selected) }); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
   if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); bus.send('delete', { ids: idsOf(selected) }); }
@@ -1158,8 +1159,8 @@ bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text ===
   write(); shown(); }, changes);
 bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(b, dim, text); shown(); }, changes);
 /* a frame is several shapes held together (in the code, and in projects saved before, a group) */
-bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown(); }, changes);
-bus.on('unframe', ({ frame: g }) => { ungroup(g); tidy(); shown(); }, changes);
+bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown(); hud.say('Framed: click its name to name it'); }, changes);
+bus.on('unframe', ({ frame: g }) => { ungroup(g); tidy(); shown(); hud.say('Frame taken off'); }, changes);
 bus.on('frame.enter', ({ ids, frame: host }) => { const held = new Set(ids.map(blockOf).filter(Boolean));
   for (const b of held){ const outer = chain(b).at(-1);
     if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group */
