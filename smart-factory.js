@@ -56,9 +56,9 @@ function write(){
   flow(space.owner);
   const o = space.owner, r = o.rect;
   space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
-    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: o.values, inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
-    colsName: o.sides.w, rowsName: o.sides.h, stands: standsIn(space) });
-  space.definition.stood = JSON.stringify(standsIn(space));
+    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: valuesOf(o), inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
+    colsName: o.sides.w, rowsName: o.sides.h, tiles: tileLook(o) });
+  space.definition.tiled = JSON.stringify(tileLook(o));
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
 /* opening a block: its definition space is made the first time (one space for every place the variable is used),
@@ -136,41 +136,68 @@ function useShape(of, at){
   const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
   space.blocks.push(b); view.world.append(b.el); select([b]);
 }
-/* ---- a shape that is a variable outright ----
+/* ---- shapes standing in a matrix ----
    A variable dragged from the list onto a shape's matrix (the "= [...]" beside it in the Menu, or the right-hand side
-   in its definition space) asserts that the shape is that variable, if the two promise the same size. The shape's
-   definition space then holds one use of the variable and nothing else, and wherever its matrix was written the
-   variable's shape is drawn in its place. Nothing more is stored: a shape whose definition holds exactly one named
-   shape of its own size is read this way. */
-const sameName = (a, b) => !a || !b || a === b;
-function standsIn(def, of = def.owner){
-  const act = def.blocks.filter(b => !isOff(b) && !inConfig(b, def)), v = act[0];
-  return of && act.length === 1 && isNamed(v) && v.rect.w === of.rect.w && v.rect.h === of.rect.h ? { name: v.name, color: v.shape.color } : null;
+   in its definition space) goes into the matrix, where it was dropped, in place of the entries it covers. It must be
+   as wide as the matrix or as tall, so vectors can be loaded in one at a time; the entries not yet covered stay as
+   they were. The first one put in replaces whatever was in the receiving shape's definition space. From then on that
+   space holds the shapes standing in the matrix, each marked as a tile and lying where it stands: the place where the
+   equation's left side is written is the matrix, entry for unit. Once the tiles cover every entry, the receiving
+   shape's entries are theirs, as if they had been joined. */
+const slotOf = b => ({ x: -view.unit - b.rect.w, y: Math.round(-b.rect.h / 2 / view.unit) * view.unit });      /* where the left side of b's equation is written, in b's definition space */
+/* the shapes standing in b's matrix: [{ block, x, y, w, h }] in entries, or null if its definition space is not just such shapes */
+function tilesOf(b){
+  const def = spaceOf.get(b), u = view.unit; if (!def) return null;
+  const act = def.blocks.filter(t => !isOff(t) && !inConfig(t, def)), slot = slotOf(b), cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), out = [];
+  if (!act.length) return null;
+  for (const t of act){ const x = (t.rect.x - slot.x) / u, y = (t.rect.y - slot.y) / u, w = t.rect.w / u, h = t.rect.h / u;
+    if (!t.tile || x % 1 || y % 1 || x < 0 || y < 0 || x + w > cols || y + h > rows || (w !== cols && h !== rows)) return null;
+    if (out.some(o => x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h)) return null;
+    out.push({ block: t, x, y, w, h }); }
+  return out;
+}
+const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: t.h, color: t.block.shape.color, name: t.block.name }));
+/* a block's entries: its own, or, once shapes standing in its matrix cover all of it, theirs */
+function valuesOf(b, depth = 0){
+  const tiles = depth < 8 && tilesOf(b), u = view.unit;
+  if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)) return b.values;
+  const all = new Map();
+  for (const t of tiles) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); }
+  return all;
 }
 function matrixAt(x, y){
   const hit = el => { const r = el?.getBoundingClientRect(); return r && x >= r.left - 6 && x <= r.right + 6 && y >= r.top - 6 && y <= r.bottom + 6; };
-  if (space.owner) return hit(space.definition?.el.querySelector('.promised, .likeness')) ? space.owner : null;
-  const r = results.find(r => r.el.isConnected && !r.el.hidden && r.piece?.blocks.length === 1 && hit(r.el.querySelector('.result-body')));
-  return r ? r.piece.blocks[0] : null;
+  if (space.owner){ const el = space.definition?.el.querySelector('.promised'); return hit(el) ? { block: space.owner, el } : null; }
+  const r = results.find(r => r.el.isConnected && !r.el.hidden && r.piece?.blocks.length === 1 && hit(r.el.querySelector('.result-body.matrix')));
+  return r ? { block: r.piece.blocks[0], el: r.el.querySelector('.result-body') } : null;
 }
-function assertIs(a, v){
-  const u = view.unit, home = a === space.owner ? space.parent : space;
-  if (kinOf(a).includes(v)) return hud.say('A shape cannot be set equal to itself');
-  if (a.rect.w !== v.rect.w || a.rect.h !== v.rect.h || !sameName(a.sides.w, v.sides.w) || !sameName(a.sides.h, v.sides.h)) return hud.say(`${bare(v.name)} is not the same shape as ${bare(a.name)}`);
+function slotIn(a, el, v, x, y){
+  const u = view.unit, home = a === space.owner ? space.parent : space, cols = Math.round(a.rect.w / u), rows = Math.round(a.rect.h / u), w = Math.round(v.rect.w / u), h = Math.round(v.rect.h / u);
+  if (kinOf(a).includes(v)) return hud.say('A shape cannot go into its own matrix');
+  if (w > cols || h > rows || (w !== cols && h !== rows)) return hud.say(`${bare(v.name)} is neither as wide nor as tall as ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
   const def = spaceOf.get(a);
-  if (def === spaceOf.get(v)) return hud.say('A shape cannot be set equal to itself');
-  for (const b of def.blocks){ if (b === v) continue; b.el.remove(); spaceOf.delete(b);      /* everything that was in its definition goes */
-    const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); } }
-  const kept = def.blocks.includes(v);
-  def.blocks.length = 0; def.groupOf.clear(); def.groupUp.clear(); def.groupNames.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear();
-  let use = v;
-  if (!kept){ use = createBlock({ ...v.shape }, { x: -u - v.rect.w, y: Math.ceil(v.rect.h / u / 2) * u + 2 * u, w: v.rect.w, h: v.rect.h }, v.name);      /* below the equation's left side */
-    use.sides = { ...v.sides }; use.values = v.values; spaceOf.set(use, spaceOf.get(v));
-    const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); }
+  if (def === spaceOf.get(v)) return hud.say('A shape cannot go into its own matrix');
+  const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
+  let tiles = tilesOf(a);
+  if (!tiles){ for (const b of [...def.blocks]) out(b); tiles = [];      /* the first shape in: whatever was in its definition goes */
+    def.groupUp.clear(); def.groupNames.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear(); }
+  /* where it was dropped; if that is taken, the nearest free place; if there is none, it takes the place of what is there */
+  const r = el.getBoundingClientRect(), whole = cols <= 8 && rows <= 8;      /* a longer matrix is written with its middle left out, so the pointer cannot say where */
+  const wantX = whole ? Math.max(0, Math.min(cols - w, Math.round((x - r.left) / (r.width / cols) - w / 2))) : 0, wantY = whole ? Math.max(0, Math.min(rows - h, Math.round((y - r.top) / (r.height / rows) - h / 2))) : 0;
+  const over = (X, Y) => tiles.filter(t => X < t.x + t.w && t.x < X + w && Y < t.y + t.h && t.y < Y + h);
+  let best = null;
+  for (let X = 0; X <= cols - w; X++) for (let Y = 0; Y <= rows - h; Y++) if (!over(X, Y).length){ const d = Math.abs(X - wantX) + Math.abs(Y - wantY); if (!best || d < best[2]) best = [X, Y, d]; }
+  const [X, Y] = best || [wantX, wantY];
+  for (const t of over(X, Y)) out(t.block);
+  const slot = slotOf(a), use = createBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
+  use.sides = { ...v.sides }; use.values = v.values; use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
+  const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set);
   def.blocks.push(use); if (def === space) view.world.append(use.el);
-  select([]); shown(); hud.say(`${bare(a.name)} = ${bare(v.name)}`);
+  select([]); shown();
+  const left = cols * rows - (tilesOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
+  hud.say(left ? `${bare(v.name)} is in ${bare(a.name)}: ${left} ${left === 1 ? 'entry' : 'entries'} still open` : `${bare(a.name)} is filled`);
 }
 /* a side-length variable dragged over the canvas: the blocks near the pointer show their measurements, and the line
    nearest the pointer, if it is close, is where the length will land */
@@ -195,7 +222,7 @@ function reach(x, y){
 const variables = createVariables({
   onDrag: (item, x, y) => { if (selected.size) select([]); if (item.kind === 'length') reach(x, y); },
   onDrop: (item, x, y) => {
-    if (item.kind === 'shape'){ const onto = matrixAt(x, y); return onto ? assertIs(onto, item.block) : useShape(item.block, view.toWorld(x, y)); }
+    if (item.kind === 'shape'){ const onto = matrixAt(x, y); return onto ? slotIn(onto.block, onto.el, item.block, x, y) : useShape(item.block, view.toWorld(x, y)); }
     if (item.kind === 'system'){ summon(item, view.toWorld(x, y)); return shown(); }
     const target = reach(x, y), u = view.unit;
     if (target) typed(target.b, target.dim, item.name);                                     /* onto a side: that side takes the name, and its length */
@@ -366,7 +393,8 @@ let marks = [];                                /* the product marks now on the c
 const rootStyle = document.documentElement.style;
 const isHidden = name => bare(name).trim().startsWith('.');
 const cells = b => { const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), v = [];      /* a block's entries, row by row */
-  for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(b.values.get(c + ',' + r)); return v; };
+  const from = valuesOf(b);
+  for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(from.get(c + ',' + r)); return v; };
 let defaults = null;                           /* the theme's own colours, read with nothing of ours laid over them */
 function programDefaults(){
   if (defaults) return defaults;
@@ -446,7 +474,8 @@ function shown(){                              /* brings what is on screen in li
   } else bounds.el.remove();
   /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
   for (const b of space.blocks) b.off(isOff(b));
-  const u = view.unit, active = space.blocks.filter(b => !isOff(b) && !inConfig(b, space));           /* commented-out blocks take no part, nor what is in a .config */
+  const u = view.unit, active = space.owner && tilesOf(space.owner) ? [] : space.blocks.filter(b => !isOff(b) && !inConfig(b, space));      /* shapes standing in the block's matrix are entries, not a product */
+  /* commented-out blocks take no part, nor what is in a .config */
   const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   for (const j of marks) j.el.remove();
   const js = joins(rects);
@@ -460,12 +489,12 @@ function shown(){                              /* brings what is on screen in li
      row it takes from the first block against the column it takes from the last, each in its block's colour.
      (A product is not worked out in numbers yet.) */
   const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
-    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: first.values, ...(!space.owner && spaceOf.has(first) && standsIn(spaceOf.get(first), first) ? { stands: standsIn(spaceOf.get(first), first) } : {}) }
+    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first) }
       : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const all = pieces(rects);
-  if (space.definition && space.definition.stood !== JSON.stringify(standsIn(space))) write();      /* its block has become, or stopped being, a variable outright */
+  if (space.definition && space.definition.tiled !== JSON.stringify(tileLook(space.owner))) write();      /* shapes have gone into, or come out of, its block's matrix */
   space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {});
   const ps = space.owner ? [] : all;
   /* a result goes to the right of its piece; if something else is there (another block, or a result already placed),
@@ -479,7 +508,7 @@ function shown(){                              /* brings what is on screen in li
      the entries it gives, and faintly those it leaves to the definitions above. In the ordinary text colour, since
      its own colour may be the canvas's. */
   if (!space.owner) for (const b of space.blocks) if (!isOff(b) && inConfig(b, space)) writ.push({ blocks: [b], type: { cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u) }, nameable: false, box: b.rect,
-    look: { letter: initials(b.name), values: b.values, inherited: inheritedBy(b, space) } });
+    look: { letter: initials(b.name), values: valuesOf(b), inherited: inheritedBy(b, space), tiles: tileLook(b) } });
   writ.forEach(({ blocks, type, look, nameable, box }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     r.piece = { blocks, type, box };            /* what this result is the result of */
     let at = r.set(box, type, { look, nameable });
@@ -539,7 +568,7 @@ function fold({ blocks: inside, type, box }, name){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: new Map(b.values), groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
+const picture = (b, s) => ({ tile: !!b.tile, shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: new Map(b.values), groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
   members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
@@ -552,7 +581,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
+    const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); if (pic.tile && s !== space) b.tile = true;
     if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
     s.blocks.push(b); made.push(b);
     pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, nextGroup++); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
@@ -676,6 +705,7 @@ function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    tile: !!b.tile,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   const plain = s => ({
     shapes: s.blocks.map(one),
@@ -696,7 +726,7 @@ function rebuild(data){
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries));
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true;
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);

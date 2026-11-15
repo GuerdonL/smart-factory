@@ -12,6 +12,8 @@
                   k₂·q₃ is the second row of k against the third column of q.
      inherited    a Map of the same kind: entries not given here but given by a definition this one shadows. They are
                   written faintly, and a value of the block's own covers them.
+     tiles        [{ x, y, w, h, color, name }]: shapes that stand in for the entries they cover, drawn in their
+                  places inside the brackets (x, y from 0, in entries). Left out where the matrix is elided.
      values       a Map from "column,row" (say "2,1") to a number, for entries that have been given one. Those are
                   written as the number, upright, in place of the symbol; infinity is +∞ or −∞.
      width, height  the size of what was made, in world units (for placing it)
@@ -24,11 +26,14 @@
 /* a number as it is written in a matrix */
 export const written = v => v === Infinity ? '+∞' : v === -Infinity ? '−∞' : String(v).replace('-', '−');
 import { html, style } from './dom.js';
+import { likeness } from './block.js';
 
 style('matrix', `
 .matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; line-height: 1; }
 .matrix > span { text-align: center; line-height: var(--cell); white-space: nowrap; }      /* centred in its square */
 .matrix > span.set { font-style: normal; font-family: var(--font-ui); font-weight: 600; font-size: .92em; font-variant-numeric: tabular-nums; }
+/* a shape standing in for some of the entries: its name would lie over the row above, so it is kept as a tooltip */
+.matrix > .likeness .block-name { display: none; }
 .matrix > span.set.inherited { opacity: .45; font-weight: 400; }
 .matrix i { font-style: inherit; }           /* half of a product's entry */
 .matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves */
@@ -43,9 +48,9 @@ const shown = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 
 /* how many squares a side of n takes once written (the elided middle is one) */
 export const squares = n => shown(n).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null }){
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, tiles = [] }){
   const cs = shown(cols), rs = shown(rows), vector = cols === 1 || rows === 1;
-  const el = html`<div class="matrix"></div>`;
+  const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
   /* one size of type for the whole matrix, small enough that its widest entry fits its square:
      a letter is about half an em wide and a subscript digit about a third */
   const comma = cols > 9 || rows > 9 ? ',' : '', digits = n => String(n).length;
@@ -63,7 +68,10 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
       if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
       else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); }      /* not given here: what a definition higher up gives */
       else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? r : c) : c + comma + r; } }
+    if (!elided && tiles.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
     el.append(entry);
   }
+  if (!elided) for (const t of tiles){ const b = likeness({ cols: t.w, rows: t.h, unit: cell, color: t.color, name: t.name }); b.el.title = t.name;
+    Object.assign(b.el.style, { left: t.x * cell + 'px', top: t.y * cell + 'px' }); el.append(b.el); }
   return { el, width: cs.length * cell, height: rs.length * cell };
 }
