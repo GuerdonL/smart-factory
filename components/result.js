@@ -8,7 +8,8 @@
             Either way they sit on the dots.
             type is what the piece comes to: { cols, rows } is written out in matrix notation; { error } is written
             as the error, in the warning colour. With no type nothing is shown.
-            look is how the matrix is written: any of createMatrix's letter, color, values and product.
+            look is how the matrix is written: any of createMatrix's letter, color, values and product. With
+            look.stands ({ name, color }) the shape of that name is drawn in the matrix's place: the piece is that variable.
             nameable says the matrix can be pressed, to name the result (default false).
             Returns the rectangle the "=" and the matrix now cover, so the caller can see what they would overlap.
      name   asks the user to name this result: the matrix is ringed and a field opens above it to type in.
@@ -18,6 +19,7 @@
    when the size it has to show is a different one. */
 import { html, style, editText } from './dom.js';
 import { createMatrix } from './matrix.js';
+import { likeness } from './block.js';
 
 style('result', `
 .result { position: absolute; left: 0; top: 0; pointer-events: none; }
@@ -43,7 +45,8 @@ export function createResult({ unit }){
     const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + JSON.stringify({ ...look, values: look.values ? [...look.values] : [] });
     if (key !== showing){ showing = key; body?.remove();
       if (type.error){ body = html`<div class="result-error"></div>`; body.textContent = type.error; width = 4 * unit; height = 0; }
-      else { const m = createMatrix({ cols: type.cols, rows: type.rows, cell: unit, ...look }); body = m.el; width = m.width; height = m.height; }
+      else { const m = look.stands ? likeness({ cols: type.cols, rows: type.rows, unit, ...look.stands }) : createMatrix({ cols: type.cols, rows: type.rows, cell: unit, ...look });
+        body = m.el; body.classList.add('result-body'); width = m.width; height = m.height; }
       el.append(body); }
     /* the matrix sits on the dots; the sign is level with the matrix, a unit and a half before it */
     const left = side === 'below' ? on(box.x) : on(box.x + box.w) + 1.5 * unit;

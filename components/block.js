@@ -75,6 +75,13 @@ style('block', `
 .block-grip[data-grip="sw"] { left: 0; bottom: 0; cursor: nesw-resize; }
 `);
 
+/* a picture of a block, for where a shape stands in an equation: it looks the part and does nothing.
+   likeness({ cols, rows, unit, color, name }) -> { el, width, height } */
+export function likeness({ cols, rows, unit, color, name = '' }){
+  const b = createBlock({ color }, { x: 0, y: 0, w: cols * unit, h: rows * unit }, name);
+  b.grips(false); b.el.classList.add('likeness'); b.el.style.pointerEvents = 'none';
+  return { el: b.el, width: cols * unit, height: rows * unit };
+}
 export function createBlock(shape, rect, name = ''){
   const el = html`<div class="block"><span class="block-name"></span></div>`, nameEl = el.firstElementChild;
   for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */

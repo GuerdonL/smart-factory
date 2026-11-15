@@ -18,6 +18,8 @@
      letter       the block's initials, for the right-hand matrix's entries
      color        the theme colour to write the right-hand matrix and the name in; left out, the ordinary text colour
      values       the entries that have been given a number (see matrix.js)
+     stands       { name, color }: the block is asserted to be that variable, whose shape is drawn on the right in the
+                  matrix's place
      editable     whether the right-hand matrix's entries can be pressed, to give them numbers
      colsName, rowsName   the names of the block's sides, where it has them
      unit         world units to one "u"
@@ -28,6 +30,7 @@
    Where the entries can be pressed, the canvas hands the click to the page, which decides what it means. */
 import { html, style } from './dom.js';
 import { createMatrix } from './matrix.js';
+import { likeness } from './block.js';
 
 style('definition', `
 .definition { position: absolute; left: 0; top: 0; pointer-events: none; }
@@ -41,11 +44,11 @@ style('definition', `
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
 
-export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, inherited, editable = false, colsName = null, rowsName = null }){
+export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, inherited, editable = false, colsName = null, rowsName = null, stands = null }){
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign">=</div></div>`;
   el.classList.toggle('editable', editable);
-  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit, letter, color, values, inherited });
+  const [slot, sign] = el.children, matrix = stands ? likeness({ cols, rows, unit, ...stands }) : createMatrix({ cols, rows, cell: unit, letter, color, values, inherited });
   matrix.el.classList.add('promised');
   /* the sign is at the origin, with one unit of air each side; both sides are level with it */
   const top = on(-rows * unit / 2), level = top + rows * unit / 2;
@@ -55,7 +58,8 @@ export function createDefinition({ cols, rows, unit, name = '', letter = 'x', co
   Object.assign(matrix.el.style, { left: unit + 'px', top: on(top + (rows * unit - matrix.height) / 2) + 'px' });
   el.append(matrix.el);
   const title = html`<div class="definition-name"></div>`; title.textContent = name; if (color) title.style.color = `var(--${color})`;
-  Object.assign(title.style, { left: matrix.el.style.left, top: matrix.el.style.top }); el.append(title);      /* above the matrix's top-left corner, as a block's name is above the block */
+  Object.assign(title.style, { left: matrix.el.style.left, top: matrix.el.style.top }); el.append(title);
+  if (stands) title.style.marginTop = '-30px';      /* clear of the variable's own name, which is above its shape */      /* above the matrix's top-left corner, as a block's name is above the block */
   let left = null, showing = '';
   return { el, check(type, look = {}){
     const named = (a, b) => !a || !b || a === b;

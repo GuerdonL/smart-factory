@@ -55,7 +55,8 @@ function write(){
   const o = space.owner, r = o.rect;
   space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
     name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: o.values, inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
-    colsName: o.sides.w, rowsName: o.sides.h });
+    colsName: o.sides.w, rowsName: o.sides.h, stands: standsIn(space) });
+  space.definition.stood = JSON.stringify(standsIn(space));
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
 /* opening a block: its definition space is made the first time (one space for every place the variable is used),
@@ -131,6 +132,42 @@ function useShape(of, at){
   const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
   space.blocks.push(b); view.world.append(b.el); select([b]);
 }
+/* ---- a shape that is a variable outright ----
+   A variable dragged from the list onto a shape's matrix (the "= [...]" beside it in the Menu, or the right-hand side
+   in its definition space) asserts that the shape is that variable, if the two promise the same size. The shape's
+   definition space then holds one use of the variable and nothing else, and wherever its matrix was written the
+   variable's shape is drawn in its place. Nothing more is stored: a shape whose definition holds exactly one named
+   shape of its own size is read this way. */
+const sameName = (a, b) => !a || !b || a === b;
+function standsIn(def, of = def.owner){
+  const act = def.blocks.filter(b => !isOff(b) && !inConfig(b, def)), v = act[0];
+  return of && act.length === 1 && isNamed(v) && v.rect.w === of.rect.w && v.rect.h === of.rect.h ? { name: v.name, color: v.shape.color } : null;
+}
+function matrixAt(x, y){
+  const hit = el => { const r = el?.getBoundingClientRect(); return r && x >= r.left - 6 && x <= r.right + 6 && y >= r.top - 6 && y <= r.bottom + 6; };
+  if (space.owner) return hit(space.definition?.el.querySelector('.promised, .likeness')) ? space.owner : null;
+  const r = results.find(r => r.el.isConnected && !r.el.hidden && r.piece?.blocks.length === 1 && hit(r.el.querySelector('.result-body')));
+  return r ? r.piece.blocks[0] : null;
+}
+function assertIs(a, v){
+  const u = view.unit, home = a === space.owner ? space.parent : space;
+  if (kinOf(a).includes(v)) return hud.say('A shape cannot be set equal to itself');
+  if (a.rect.w !== v.rect.w || a.rect.h !== v.rect.h || !sameName(a.sides.w, v.sides.w) || !sameName(a.sides.h, v.sides.h)) return hud.say(`${bare(v.name)} is not the same shape as ${bare(a.name)}`);
+  if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
+  if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
+  const def = spaceOf.get(a);
+  if (def === spaceOf.get(v)) return hud.say('A shape cannot be set equal to itself');
+  for (const b of def.blocks){ if (b === v) continue; b.el.remove(); spaceOf.delete(b);      /* everything that was in its definition goes */
+    const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); } }
+  const kept = def.blocks.includes(v);
+  def.blocks.length = 0; def.groupOf.clear(); def.groupUp.clear(); def.groupNames.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear();
+  let use = v;
+  if (!kept){ use = createBlock({ ...v.shape }, { x: -u - v.rect.w, y: Math.ceil(v.rect.h / u / 2) * u + 2 * u, w: v.rect.w, h: v.rect.h }, v.name);      /* below the equation's left side */
+    use.sides = { ...v.sides }; use.values = v.values; spaceOf.set(use, spaceOf.get(v));
+    const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); }
+  def.blocks.push(use); if (def === space) view.world.append(use.el);
+  select([]); shown(); hud.say(`${bare(a.name)} = ${bare(v.name)}`);
+}
 /* a side-length variable dragged over the canvas: the blocks near the pointer show their measurements, and the line
    nearest the pointer, if it is close, is where the length will land */
 const near = new Map();                        /* block -> the measurements shown for it while a length is dragged */
@@ -154,7 +191,7 @@ function reach(x, y){
 const variables = createVariables({
   onDrag: (item, x, y) => { if (selected.size) select([]); if (item.kind === 'length') reach(x, y); },
   onDrop: (item, x, y) => {
-    if (item.kind === 'shape') return useShape(item.block, view.toWorld(x, y));
+    if (item.kind === 'shape'){ const onto = matrixAt(x, y); return onto ? assertIs(onto, item.block) : useShape(item.block, view.toWorld(x, y)); }
     if (item.kind === 'system'){ summon(item, view.toWorld(x, y)); return shown(); }
     const target = reach(x, y), u = view.unit;
     if (target) typed(target.b, target.dim, item.name);                                     /* onto a side: that side takes the name, and its length */
@@ -414,11 +451,12 @@ function shown(){                              /* brings what is on screen in li
      row it takes from the first block against the column it takes from the last, each in its block's colour.
      (A product is not worked out in numbers yet.) */
   const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
-    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: first.values }
+    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: first.values, ...(!space.owner && spaceOf.has(first) && standsIn(spaceOf.get(first), first) ? { stands: standsIn(spaceOf.get(first), first) } : {}) }
       : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const all = pieces(rects);
+  if (space.definition && space.definition.stood !== JSON.stringify(standsIn(space))) write();      /* its block has become, or stopped being, a variable outright */
   space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {});
   const ps = space.owner ? [] : all;
   /* a result goes to the right of its piece; if something else is there (another block, or a result already placed),
