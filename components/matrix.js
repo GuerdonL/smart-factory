@@ -12,6 +12,8 @@
                   k₂·q₃ is the second row of k against the third column of q.
      inherited    a Map of the same kind: entries not given here but given by a definition this one shadows. They are
                   written faintly, and a value of the block's own covers them.
+     transposed   the matrix is a variable's transpose: each symbol carries the variable's own column and row, so the
+                  entry in column 1, row 2 reads k₂₁
      tiles        [{ x, y, w, h, color, name, id }]: shapes that stand in for the entries they cover, drawn in their
                   places inside the brackets (x, y from 0, in entries), each with its name on it. One given an id can
                   be pressed, and carries the id as data-tile for whoever handles the click. Left out where the matrix is elided.
@@ -50,7 +52,7 @@ const shown = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 
 /* how many squares a side of n takes once written (the elided middle is one) */
 export const squares = n => shown(n).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, tiles = [] }){
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, tiles = [], transposed = false }){
   const cs = shown(cols), rs = shown(rows), vector = cols === 1 || rows === 1;
   const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
   /* one size of type for the whole matrix, small enough that its widest entry fits its square:
@@ -69,7 +71,7 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
       if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
       else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); }      /* not given here: what a definition higher up gives */
-      else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? r : c) : c + comma + r; } }
+      else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? r : c) : transposed ? r + comma + c : c + comma + r; } }
     if (!elided && tiles.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
     el.append(entry);
   }

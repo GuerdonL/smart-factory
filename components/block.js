@@ -14,6 +14,8 @@
      set      moves and resizes it
      select   shows or hides the selection halo, and brings the block in front of the others
      grips    turns the resize grips on or off
+     turn     says whether this block is the transpose of its variable (kept on the block as t): a small raised T is
+              written after its name. The block itself is not resized; that is for whoever turns it.
      inset    writes the name on the block's face in place of above it (for a block with another directly above), or puts it back
      stripes  bands the block's face, one band to each `unit` of world length, paler and deeper by turns in the
               block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or
@@ -67,6 +69,8 @@ style('block', `
 .block-name { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--ink); transition: color .15s; border-radius: calc(3 * var(--px)); cursor: default; }
 .block.selected .block-name { color: var(--select); }
+/* a transpose: a small raised T after its name */
+.block.transposed .block-name::after { content: "T"; font-size: .68em; vertical-align: .55em; margin-left: calc(1 * var(--px)); letter-spacing: 0; }
 /* in a stack there is no room above a block for its name (the next block up is there), so it is written on the block */
 .block.name-inside .block-name, .block.name-inside.selected .block-name { bottom: auto; top: 50%; transform: translateY(-50%); left: calc(7 * var(--px)); margin: 0; padding: 0;
   max-width: calc(100% - 12 * var(--px)); overflow: hidden; text-overflow: ellipsis; font-size: calc(12 * var(--px)); color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); pointer-events: none; }      /* a press there is a press on the block */
@@ -106,12 +110,13 @@ export function createBlock(shape, rect, name = ''){
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
   let joinedAs = '';
-  const block = { id: null, el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(),
+  const block = { id: null, el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(), t: false,
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
     off(on){ el.classList.toggle('off', on); },
     grips(on){ el.classList.toggle('no-grips', !on); },
     inset(on){ el.classList.toggle('name-inside', on); },
+    turn(on){ block.t = !!on; el.classList.toggle('transposed', !!on); },
     stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');
       if (way) el.style.setProperty('--u', unit + 'px'); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },

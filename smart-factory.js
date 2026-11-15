@@ -67,10 +67,10 @@ function write(){
   space.definition?.el.remove(); space.definition = null;
   if (!space.owner) return;
   flow(space.owner);
-  const o = space.owner, r = o.rect;
-  space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
-    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: valuesOf(o), inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
-    colsName: o.sides.w, rowsName: o.sides.h, tiles: tileLook(o) });
+  const o = space.owner, r = o.rect, over = turned(o);      /* opened through a transpose, it is still the variable's own definition: the right way round */
+  space.definition = createDefinition({ cols: Math.round((over ? r.h : r.w) / view.unit), rows: Math.round((over ? r.w : r.h) / view.unit), unit: view.unit,
+    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: valuesOf(o, 0, true), inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
+    colsName: over ? o.sides.h : o.sides.w, rowsName: over ? o.sides.w : o.sides.h, tiles: tileLook(o) });
   space.definition.tiled = JSON.stringify(tileLook(o));
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
@@ -146,16 +146,20 @@ function inReach(){
     } });
   const lowest = new Map(); for (const [i] of shapes) lowest.set(bare(i.name).trim(), Math.max(i.depth, lowest.get(bare(i.name).trim()) ?? 0));
   for (const [i, into] of shapes) if (lowest.get(bare(i.name).trim()) === i.depth) into.push(i);
+  /* each shape is listed the variable's own way round; with shift held, as its transpose, which is then what is pulled out */
+  const face = list => { for (const i of list){ if (i.children) face(i.children);
+      if (i.kind === 'shape' && !i.block.members){ const over = !!i.block.t !== shiftHeld; if (over) [i.cols, i.rows] = [i.rows, i.cols]; if (shiftHeld){ i.name += '\u1d40'; i.transposed = true; } } } };
+  face(main); face(hidden);
   const told = new Set(), tell = list => { for (const i of list){ told.add(i.name); if (i.children) tell(i.children); } }; tell(hidden);
   return { main: [...main, ...lengths], hidden: [...systemItems().filter(i => !told.has(i.name)), ...hidden] };      /* the program's own, where the project has none of that name */
 }
 const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 }, { kind: 'system', name: DARK, group: true, color: 'muted', cols: 3, rows: 2 },
   ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 }))];
 /* another use of a shape variable, centred on a world point */
-function useShape(of, at){
-  const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
+function useShape(of, at, transposed = false){      /* transposed: whether the new use is to be the variable's transpose */
+  const u = view.unit, on = v => Math.round(v / u) * u, over = !of.members && !!of.t !== !!transposed, r = over ? { w: of.rect.h, h: of.rect.w } : of.rect;
   const b = makeBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
-  b.sides = { ...of.sides }; b.values = of.values; if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
+  b.sides = over ? { w: of.sides.h, h: of.sides.w } : { ...of.sides }; b.values = of.values; b.turn(of.members ? of.t : transposed); if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
   if (!spaceOf.has(of)){ const def = newSpace(of, space); for (const k of kinOf(of)) spaceOf.set(k, def); }
   spaceOf.set(b, spaceOf.get(of));                                                          /* the same definition */
   const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
@@ -215,11 +219,16 @@ function pieceValues({ piece, blocks }, depth){
 }
 /* a block's entries: its own; or, once shapes standing in its matrix cover all of it, theirs; or, where it is asserted
    equal to a piece beside it, that piece's, under any of its own */
-function valuesOf(b, depth = 0){
+/* A block can be the transpose of its variable (block.t). Its entries are kept the variable's way round, shared with
+   every other use; a transpose reads them turned. (A joined shape is turned bodily, with what it was joined from, so
+   its entries are already the way it stands.) */
+const turned = b => !!b.t && !b.members;
+const own = (b, plain = false) => turned(b) && !plain ? new Map([...b.values].map(([k, v]) => { const [c, r] = k.split(','); return [r + ',' + c, v]; })) : b.values;
+function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's own way round, whatever this use is */
   const tiles = depth < 8 && tilesOf(b), u = view.unit;
   if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
     const s = depth < 8 && spaceWith(b), pair = s && pairsIn(s).get(b), from = pair && pieceValues(pair, depth + 1);
-    return from ? new Map([...from, ...b.values]) : b.values; }
+    return from ? new Map([...from, ...own(b, plain)]) : own(b, plain); }
   const all = new Map();
   for (const t of tiles) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); }
   return all;
@@ -250,7 +259,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   const [X, Y] = best || [wantX, wantY];
   for (const t of over(X, Y)) out(t.block);
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
-  use.sides = { ...v.sides }; use.values = v.values; use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
+  use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
   const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set);
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
@@ -282,7 +291,7 @@ const variables = createVariables({
   /* what a drop amounts to: a shape into a matrix, or onto the canvas as another use; a system variable into this
      space's .config; a length onto a side, or onto the canvas as a vector that long */
   onDrop: (item, x, y) => { const at = view.toWorld(x, y);
-    if (item.kind === 'shape'){ const onto = matrixAt(x, y); if (!onto) return bus.send('use', { id: item.block.id, at });
+    if (item.kind === 'shape'){ const onto = matrixAt(x, y); if (!onto) return bus.send('use', { id: item.block.id, at, transposed: !!item.transposed });
       const r = onto.el.getBoundingClientRect(), u = view.unit, cols = Math.round(onto.block.rect.w / u), rows = Math.round(onto.block.rect.h / u), whole = cols <= 8 && rows <= 8;      /* a longer matrix is written with its middle left out, so the pointer cannot say where */
       return bus.send('slot', { into: onto.block.id, id: item.block.id, cx: whole ? (x - r.left) / (r.width / cols) : 0, cy: whole ? (y - r.top) / (r.height / rows) : 0 }); }
     if (item.kind === 'system') return bus.send('summon', { name: item.name, key: item.key || null, group: !!item.group, at });
@@ -337,7 +346,8 @@ function agree(b){
   const todo = [b], done = new Set();
   while (todo.length){
     const c = todo.pop(); if (done.has(c)) continue; done.add(c);
-    for (const k of kinOf(c)) if (k !== c){ k.sides = { ...c.sides }; if (k.rect.w !== c.rect.w || k.rect.h !== c.rect.h){ k.set({ ...k.rect, w: c.rect.w, h: c.rect.h }); todo.push(k); } }      /* one variable, one size */
+    for (const k of kinOf(c)) if (k !== c){ const over = !!k.t !== !!c.t, w = over ? c.rect.h : c.rect.w, h = over ? c.rect.w : c.rect.h;      /* a transpose of it is the other way round */
+      k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = spaceWith(c); if (!s) continue;
     for (const dim of ['w', 'h']) if (c.sides[dim]) for (const [o, d] of sidesCalled(c.sides[dim], s)) if (o.rect[d] !== c.rect[dim]){ o.set({ ...o.rect, [d]: c.rect[dim] }); done.delete(o); todo.push(o); }
   }
@@ -638,7 +648,7 @@ function shown(){                              /* brings what is on screen in li
     if (piece.stack) return { letter: initials(first.name), values: pieceValues({ piece, blocks: bs }, 0) };      /* a stack: its shapes' entries, row under row */
     /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
     if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), tiles: tileLook(first) };
-    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first) }
+    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first), transposed: turned(first) }
       : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
@@ -722,7 +732,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ tile: !!b.tile, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: [...b.values],      /* plain data throughout, so a paste can say what it pasted */
+const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: [...b.values],      /* plain data throughout, so a paste can say what it pasted */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -736,7 +746,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); if (pic.tile && s !== space) b.tile = true;
+    const b = makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); b.turn(pic.t); if (pic.tile && s !== space) b.tile = true;
     if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
     s.blocks.push(b); made.push(b);
     pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, newGroup()); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
@@ -748,7 +758,7 @@ function develop(pictures, s, dx, dy){
 }
 /* a block made from a picture but put in no space: one of those a joined shape was joined from */
 function hidden(pic, s){
-  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
+  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); b.turn(pic.t);
   if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
   if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   return b;
@@ -769,20 +779,22 @@ function paste(at, clipboard){                             /* at: a world point;
 /* transposes the selection. A shape on its own turns about its top-left corner: its width and height change places,
    with their names, and entry c,r becomes entry r,c. A product turns as a whole, (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ: each shape is
    transposed and their order reversed, laid out again from the product's top-left corner. A shape is a variable, so
-   every other use of it is transposed with it. (What is inside its definition space is left as it is.) */
+   it alone is turned: other uses of the variable stay as they are. (What is inside its definition space is left as it is.) */
 function transpose(){
   if (!selected.size) return;
   const u = view.unit, list = [...selected], act = list.filter(b => !isOff(b)), done = new Set();
   const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h })))
     .map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x)).filter(c => c.length > 1)
     .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
-  const flip = b => { const variable = kin.get(b) || b; if (done.has(variable)) return; done.add(variable);
-    const was = [...b.values]; b.values.clear(); for (const [k, v] of was){ const [c, r] = k.split(','); b.values.set(r + ',' + c, v); }
-    for (const k of kinOf(b)){ k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; }
-    for (const m of b.members || []){ [m.fx, m.fy, m.fw, m.fh] = [m.fy, m.fx, m.fh, m.fw]; flip(m.block); } };      /* a joined shape turns with everything it was joined from */
+  /* a shape becomes the transpose of what it was: this use alone, marked with a T. Its width and height change places,
+     with their names; its entries stay as the variable has them and are read turned. A joined shape is turned bodily,
+     with everything it was joined from, and so are all its uses. */
+  const flip = b => { if (done.has(b)) return;
+    for (const k of b.members ? kinOf(b) : [b]){ done.add(k); k.turn(!k.t); k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; }
+    for (const m of b.members || []){ [m.fx, m.fy, m.fw, m.fh] = [m.fy, m.fx, m.fh, m.fw]; flip(m.block); } };
   list.forEach(flip);
   for (const c of chains){ let x = c.x; for (const b of c.blocks.reverse()){ b.set({ ...b.rect, x, y: c.y }); x += b.rect.w; } }
-  if (space.owner && kinOf(space.owner).some(k => done.has(kin.get(k) || k))) write();      /* the block whose space this is has turned too */
+  if (space.owner && done.has(space.owner)) write();      /* the block whose space this is has turned too */
   shown();
 }
 /* ---- joined shapes ----
@@ -808,11 +820,11 @@ function flow(b){
   if (!b.members) return;
   const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u); b.values.clear();
   for (const m of b.members){ flow(m.block); const at = placeOf(m, cols, rows);
-    for (const [k, v] of m.block.values){ const [c, r] = k.split(',').map(Number); if (c <= at.w && r <= at.h) b.values.set((c + at.x) + ',' + (r + at.y), v); } }
+    for (const [k, v] of own(m.block)){ const [c, r] = k.split(',').map(Number); if (c <= at.w && r <= at.h) b.values.set((c + at.x) + ',' + (r + at.y), v); } }
 }
 /* the shape an entry of b really belongs to, and the entry's place in it */
 function entryHome(b, c, r){
-  if (!b.members) return [b, c + ',' + r];
+  if (!b.members) return [b, turned(b) ? r + ',' + c : c + ',' + r];      /* a transpose keeps its entries the variable's way round */
   const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u);
   for (const m of b.members){ const at = placeOf(m, cols, rows); if (c > at.x && c <= at.x + at.w && r > at.y && r <= at.y + at.h) return entryHome(m.block, c - at.x, r - at.y); }
   return [b, c + ',' + r];
@@ -860,7 +872,7 @@ function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    tile: !!b.tile,
+    tile: !!b.tile, transposed: !!b.t,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   const plain = s => ({
     shapes: s.blocks.map(one),
@@ -882,7 +894,7 @@ function rebuild(data){
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -1049,7 +1061,7 @@ function clicked(el, e){
   /* an entry of this space's own matrix, if its block has been named: type a whole number, or inf / -inf, over it. Nothing typed puts the symbol back. */
   const entry = el.closest?.('.definition.editable [data-c]');
   if (entry){
-    const [o, key] = entryHome(space.owner, +entry.dataset.c, +entry.dataset.r);      /* in a joined shape, the entry belongs to the shape it came from */
+    const [o, key] = space.owner.members ? entryHome(space.owner, +entry.dataset.c, +entry.dataset.r) : [space.owner, entry.dataset.c + ',' + entry.dataset.r];      /* the definition is written the variable's own way round */      /* in a joined shape, the entry belongs to the shape it came from */
     pick([]); entry.textContent = o.values.has(key) ? written(o.values.get(key)) : '';
     return editText(entry, text => bus.send('entry.set', { id: o.id, key, text }));
   }
@@ -1183,12 +1195,19 @@ bus.on('fold', ({ ids, name, color, product = false }) => { const list = ids.map
   const piece = product && results.find(r => r.el.isConnected && r.piece && r.piece.blocks.length === list.length && list.every(b => r.piece.blocks.includes(b)))?.piece;
   if (product && (!piece || piece.type.error)) return;
   fold(piece || foldable(list), name, color); }, changes);
-bus.on('use', ({ id, at }) => { const v = blockOf(id); if (v) useShape(v, at); }, changes);
+bus.on('use', ({ id, at, transposed = false }) => { const v = blockOf(id); if (v) useShape(v, at, transposed); }, changes);
 bus.on('slot', ({ into, id, cx, cy }) => { const a = blockOf(into), v = blockOf(id); if (a && v) slotIn(a, v, cx, cy); }, changes);
 bus.on('summon', ({ name, key, group: all, at }) => { summon({ name, key, group: all }, at); shown(); }, changes);
 bus.on('length.add', ({ name, units, at }) => { const u = view.unit, on = v => Math.round(v / u) * u, h = units * u;      /* a named length set down on the canvas: a vector that long */
   const b = makeBlock({ ...typeNamed('tensor') }, { x: on(at.x - u / 2), y: on(at.y - h / 2), w: u, h }, freeName());
   b.sides = { w: null, h: name }; space.blocks.push(b); view.world.append(b.el); select([b]); }, changes);
+
+/* shift, held, shows the list's shapes as their transposes */
+let shiftHeld = false;
+const relist = () => { const reach = inReach(); variables.show(reach.main, reach.hidden); };
+addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftHeld){ shiftHeld = true; relist(); } });
+addEventListener('keyup', e => { if (e.key === 'Shift' && shiftHeld){ shiftHeld = false; relist(); } });
+addEventListener('blur', () => { if (shiftHeld){ shiftHeld = false; relist(); } });
 
 let menuAt = { x: 0, y: 0 };
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
