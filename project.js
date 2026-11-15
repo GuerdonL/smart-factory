@@ -19,6 +19,7 @@
 
    A shape's config:
        { "format": "smart-factory/shape", "version": 1,
+         "id": "b12",                            the block's id, kept so that it is the same block when opened again
          "type": "tensor",                       which config in shapes/ it is an instance of
          "name": "Keys", "named": true,          named: it has been given a name of its own
          "commented": false,                     its name begins with //, so it takes no part
@@ -94,7 +95,7 @@ export function write(project){
     const taken = new Set(), grouped = new Set(s.groups.flatMap(every));
     const config = (shape, order) => { const name = stem(shape.name, taken);
       if (shape.inside) space(shape.inside, dir + name + '/');
-      return [name, { format: 'smart-factory/shape', version: FORMAT, type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
+      return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.tile ? { tile: true } : {}),
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
@@ -134,7 +135,7 @@ export function read(files){
     found.sort((a, b) => (a[0].order ?? 0) - (b[0].order ?? 0));
     const make = c => {
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
-      return { type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
+      return { id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
         entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };

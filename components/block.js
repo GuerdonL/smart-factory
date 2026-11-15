@@ -1,6 +1,7 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), call(name), rename(after) }
+   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), call(name), rename(after) }
+     id       a name for this block that nothing else has: how messages say which block they mean
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
      rect     { x, y, w, h } in world coordinates
      name     the text shown above it
@@ -93,13 +94,17 @@ export function likeness({ cols, rows, unit, color, name = '' }){
   b.grips(false); b.el.classList.add('likeness'); b.el.style.pointerEvents = 'none';
   return { el: b.el, width: cols * unit, height: rows * unit };
 }
+/* ids are 'b1', 'b2', … in the order blocks are made. A block brought back with an id it had before (from a saved
+   project) says so with claimId, so no new block is given the same one. */
+let count = 0;
+export const claimId = id => { const n = +String(id).slice(1); if (n > count) count = n; };
 export function createBlock(shape, rect, name = ''){
   const el = html`<div class="block"><span class="block-name"></span></div>`, nameEl = el.firstElementChild;
   for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
   let joinedAs = '';
-  const block = { el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(),
+  const block = { id: 'b' + (++count), el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(),
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
     off(on){ el.classList.toggle('off', on); },
