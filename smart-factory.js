@@ -572,10 +572,31 @@ function transpose(){
     .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
   for (const b of list){ const variable = kin.get(b) || b; if (done.has(variable)) continue; done.add(variable);
     const was = [...b.values]; b.values.clear(); for (const [k, v] of was){ const [c, r] = k.split(','); b.values.set(r + ',' + c, v); }
-    for (const k of kinOf(b)){ k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; } }
+    for (const k of kinOf(b)){ k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w };
+      if (k.shape.parts) k.join(k.shape.parts.map(p => ({ ...p, x: p.y, y: p.x, w: p.h, h: p.w }))); } }
   for (const c of chains){ let x = c.x; for (const b of c.blocks.reverse()){ b.set({ ...b.rect, x, y: c.y }); x += b.rect.w; } }
   if (space.owner && kinOf(space.owner).some(k => done.has(kin.get(k) || k))) write();      /* the block whose space this is has turned too */
   shown();
+}
+/* joins the selected shapes into one, if they fit together into a rectangle with nothing missing and nothing doubled.
+   The new shape is that rectangle. Each shape it was made from keeps its colour as a part of the new one's face, and
+   its entries keep their places. (Their definition spaces are not kept.) */
+function fitsTogether(list){
+  if (list.length < 2) return false;
+  const box = boxOf(list), area = list.reduce((sum, b) => sum + b.rect.w * b.rect.h, 0);
+  return Math.abs(area - box.w * box.h) < 1e-6 && !list.some((a, i) => list.some((b, j) => j > i && a.rect.x < b.rect.x + b.rect.w && b.rect.x < a.rect.x + a.rect.w && a.rect.y < b.rect.y + b.rect.h && b.rect.y < a.rect.y + a.rect.h));
+}
+function joinShapes(){
+  const list = [...selected].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x), u = view.unit;
+  if (!fitsTogether(list)) return hud.say('To join, the shapes must fit together into one rectangle');
+  const box = boxOf(list), values = new Map(), parts = [];
+  for (const b of list){ const dx = (b.rect.x - box.x) / u, dy = (b.rect.y - box.y) / u, cols = b.rect.w / u, rows = b.rect.h / u;
+    for (const [k, v] of b.values){ const [c, r] = k.split(',').map(Number); values.set((c + dx) + ',' + (r + dy), v); }
+    const own = b.shape.parts, W = own && Math.max(...own.map(p => p.x + p.w)), H = own && Math.max(...own.map(p => p.y + p.h));      /* one already joined brings its parts, at its present size */
+    for (const p of own || [{ x: 0, y: 0, w: cols, h: rows, color: b.shape.color }]) parts.push(own ? { x: dx + p.x * cols / W, y: dy + p.y * rows / H, w: p.w * cols / W, h: p.h * rows / H, color: p.color } : { ...p, x: dx, y: dy }); }
+  remove();
+  const made = createBlock({ ...typeNamed('tensor'), color: parts[0].color, parts }, box, freeName());
+  made.values = values; space.blocks.push(made); view.world.append(made.el); select([made]);
 }
 function remove(){
   const gone = [...selected]; select([]);
@@ -595,7 +616,7 @@ function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const plain = s => ({
     shapes: s.blocks.map(b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-      colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b) })),
+      colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b), parts: b.shape.parts || null })),
     groups: tree(s, undefined) });
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
@@ -612,7 +633,7 @@ function rebuild(data){
   const u = view.unit;
   const fill = (plain, s) => {
     for (const d of plain.shapes){ const type = typeNamed(d.type);
-      const b = createBlock({ ...type, color: d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
+      const b = createBlock({ ...type, color: d.color || type.color, ...(d.parts ? { parts: d.parts } : {}) }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
       b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); s.blocks.push(b);
       const first = d.variable != null && uses.get(d.variable)?.[0];
       if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -825,6 +846,7 @@ const menu = createMenu([
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: copy },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
   { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: transpose },
+  { label: 'Join', disabled: () => !fitsTogether([...selected]), run: joinShapes },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
   { label: 'Save project', run: save },
   { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => openKept(name) })) : [{ label: 'From a zip', run: () => zipPicker.click() }] },

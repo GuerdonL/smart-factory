@@ -21,6 +21,10 @@
      off      shows it as commented out: washed out, with a dashed edge
      paint    changes its colour to another theme variable's ("lazuli" -> --lazuli)
      call     gives it a name outright
+     join     makes it a block joined from several: parts is [{ x, y, w, h, color }], rectangles that together fill the
+              block, measured in any one unit, each with its theme colour. Each part keeps its colour on the block's
+              face, with a wavy line where two meet. The parts are kept on shape.parts (a shape made with parts is
+              drawn this way from the start); null goes back to one plain colour. They stretch with the block.
      rename   lets the user type a new name in place: Enter or clicking away keeps it, Escape puts the old one back,
               and an empty name is not kept. after(changed, was) is called when they finish, saying whether the
               name is now a different one and what it was. */
@@ -59,6 +63,12 @@ style('block', `
 .block-name { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--ink); transition: color .15s; border-radius: calc(3 * var(--px)); cursor: default; }
 .block.selected .block-name { color: var(--select); }
+/* a joined block: its parts' colours are drawn over the face, and the lips and rim are drawn again over those */
+.block-parts { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.block-parts path { stroke: var(--rim); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.block.joined::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: var(--bands, none);
+  box-shadow: inset 0 0 0 var(--px) var(--rim), inset 0 calc(2.5 * var(--px)) 0 var(--lit), inset 0 calc(-4 * var(--px)) 0 var(--shade); }
+.block.dim .block-parts, .block.off .block-parts { opacity: .25; }
 /* grips: a strip along each side and a square on each corner, half in and half out, showing which way it stretches */
 .block.no-grips .block-grip { display: none; }
 /* layer 0: over the blocks, but under a selected block (layer 1), so where two blocks share an edge the selected one's grip is the one you get */
@@ -95,9 +105,21 @@ export function createBlock(shape, rect, name = ''){
     stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');
       if (way) el.style.setProperty('--u', unit + 'px'); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },
+    join(parts){ block.shape = { ...block.shape, parts: parts || undefined }; el.querySelector('.block-parts')?.remove(); el.classList.toggle('joined', !!parts);
+      if (!parts) return;
+      const W = Math.max(...parts.map(p => p.x + p.w)), H = Math.max(...parts.map(p => p.y + p.h)), a = .13, n = v => +v.toFixed(3);
+      /* each part reaches a little under its neighbours above and to the left, and ends in a wave on the right and below
+         where another part follows. Drawn from the bottom right back to the top left, every wave lies over the part it borders. */
+      const path = p => { const X = p.x + p.w, Y = p.y + p.h; let d = `M${n(p.x - a)} ${n(p.y - a)}L${n(X)} ${n(p.y - a)}L${n(X)} ${n(p.y)}`;
+        if (X < W - 1e-6) for (let y = p.y, i = 0; y < Y - 1e-6; y += .5, i++){ const to = Math.min(Y, y + .5); d += `Q${n(X + (i % 2 ? -2 : 2) * a)} ${n((y + to) / 2)} ${n(X)} ${n(to)}`; } else d += `L${n(X)} ${n(Y)}`;
+        if (Y < H - 1e-6) for (let x = X, i = 0; x > p.x + 1e-6; x -= .5, i++){ const to = Math.max(p.x, x - .5); d += `Q${n((x + to) / 2)} ${n(Y + (i % 2 ? -2 : 2) * a)} ${n(to)} ${n(Y)}`; } else d += `L${n(p.x)} ${n(Y)}`;
+        return d + `L${n(p.x - a)} ${n(Y)}Z`; };
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'block-parts'); svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('preserveAspectRatio', 'none');
+      for (const p of [...parts].sort((p, q) => q.y - p.y || q.x - p.x)){ const el = document.createElementNS('http://www.w3.org/2000/svg', 'path'); el.setAttribute('d', path(p)); el.style.fill = `var(--${p.color})`; svg.append(el); }
+      el.prepend(svg); },
     paint(color){ block.shape = { ...block.shape, color }; el.style.setProperty('--block', `var(--${color})`); },
     call(name){ block.name = name; if (!nameEl.isContentEditable) nameEl.textContent = name; },
     rename(after = () => {}){ editText(nameEl, text => { const was = block.name; if (text) block.name = text; nameEl.textContent = block.name; after(block.name !== was, was); }); } };
-  block.set(rect);
+  block.set(rect); if (shape.parts) block.join(shape.parts);
   return block;
 }

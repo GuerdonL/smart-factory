@@ -30,6 +30,8 @@
                     "entries": { "2,1": 0, "3,1": "-inf" } },   entries given a number, by "column,row"
          "definition": "Keys/",                  the directory holding its definition space, if it has one
          "order": 3,                             its place among the shapes of its space, back to front
+         "parts": [ { "x": 0, "y": 0, "w": 3, "h": 2, "color": "lazuli" }, … ],      only on a shape joined from several:
+                                                 the rectangles it was joined from, each with its colour
          "variable": 2 }                         shapes carrying the same number are one variable used in several
                                                  places: one name, size, colour, set of entries and definition
                                                  (each has the definition directory; they hold the same thing)
@@ -89,7 +91,7 @@ export function write(project){
       if (shape.inside) space(shape.inside, dir + name + '/');
       return [name, { format: 'smart-factory/shape', version: FORMAT, type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}) }]; };
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.parts ? { parts: shape.parts } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     const inner = g => ({ name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
     let hasConfig = false;
@@ -128,7 +130,7 @@ export function read(files){
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
       return { type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
-        entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null }; });
+        entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null, parts: Array.isArray(c.parts) ? c.parts : null }; });
     return { shapes, groups };
   };
   const top = space('');
