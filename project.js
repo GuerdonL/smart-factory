@@ -19,7 +19,7 @@
 
    A shape's config:
        { "format": "smart-factory/shape", "version": 1,
-         "id": "b12",                            the block's id, kept so that it is the same block when opened again
+         "id": "b0x7m2c",                          the block's id, kept so that it is the same block when opened again
          "type": "tensor",                       which config in shapes/ it is an instance of
          "name": "Keys", "named": true,          named: it has been given a name of its own
          "commented": false,                     its name begins with //, so it takes no part

@@ -4,7 +4,7 @@ import { editText } from './components/dom.js';
 import { createView } from './components/view.js';
 import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
-import { createBlock, claimId } from './components/block.js';
+import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds } from './components/bounds.js';
 import { drawRectangle } from './components/draw.js';
@@ -141,7 +141,7 @@ const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: '
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at){
   const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
-  const b = createBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
+  const b = makeBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
   b.sides = { ...of.sides }; b.values = of.values; if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
   if (!spaceOf.has(of)){ const def = newSpace(of, space); for (const k of kinOf(of)) spaceOf.set(k, def); }
   spaceOf.set(b, spaceOf.get(of));                                                          /* the same definition */
@@ -236,7 +236,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   for (let X = 0; X <= cols - w; X++) for (let Y = 0; Y <= rows - h; Y++) if (!over(X, Y).length){ const d = Math.abs(X - wantX) + Math.abs(Y - wantY); if (!best || d < best[2]) best = [X, Y, d]; }
   const [X, Y] = best || [wantX, wantY];
   for (const t of over(X, Y)) out(t.block);
-  const slot = slotOf(a), use = createBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
+  const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
   use.sides = { ...v.sides }; use.values = v.values; use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
   const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set);
   def.blocks.push(use); if (def === space) view.world.append(use.el);
@@ -366,6 +366,9 @@ function typedNow(b, dim, text){
    group whenever the project is opened, and the same messages make the same ids and pick the same colours */
 let ids = createIds();
 const newGroup = () => ids.id('g');
+/* a block that is to be part of the project: made, and given its id. (A sketch while drawing, or a picture of a block
+   in an equation, is made with createBlock and has none.) */
+const makeBlock = (shape, rect, name) => Object.assign(createBlock(shape, rect, name), { id: ids.id('b') });
 /* the groups b is in, innermost first */
 const chain = (b, s = space) => { const out = []; for (let g = s.groupOf.get(b); g !== undefined; g = s.groupUp.get(g)) out.push(g); return out; };
 const inGroup = (g, s = space) => s.blocks.filter(b => chain(b, s).includes(g));
@@ -490,7 +493,7 @@ function summon(item, at){
   let config = [...space.groupNames].find(([, name]) => name.trim() === CONFIG)?.[0];
   if (config === undefined){ config = newGroup(); space.groupNames.set(config, CONFIG); }
   const groups = new Map(), groupFor = (name, up) => { if (!groups.has(name)){ const id = newGroup(); groups.set(name, id); space.groupNames.set(id, name); space.groupUp.set(id, up); } return groups.get(name); };
-  for (const v of which){ const b = createBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (v.at[0] - x0) * u, y: on(at.y) + (v.at[1] - y0) * u, w: v.cols * u, h: (v.rows || 1) * u }, v.name);
+  for (const v of which){ const b = makeBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (v.at[0] - x0) * u, y: on(at.y) + (v.at[1] - y0) * u, w: v.cols * u, h: (v.rows || 1) * u }, v.name);
     space.blocks.push(b); view.world.append(b.el); made.push(b);
     space.groupOf.set(b, item.group && v.branch ? groupFor(v.branch, groupFor(COLORS, config)) : config); }
   select(made);
@@ -594,7 +597,7 @@ function foldable(list){
 }
 function fold({ blocks: inside, type, box }, name, color = someColour()){
   const u = view.unit;
-  const made = createBlock({ ...typeNamed('tensor'), color },
+  const made = makeBlock({ ...typeNamed('tensor'), color },
     { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
   made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
   /* its definition space: the folded blocks, level with the equation at the centre and clear of it on the left */
@@ -635,7 +638,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); if (pic.tile && s !== space) b.tile = true;
+    const b = makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); if (pic.tile && s !== space) b.tile = true;
     if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
     s.blocks.push(b); made.push(b);
     pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, newGroup()); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
@@ -647,7 +650,7 @@ function develop(pictures, s, dx, dy){
 }
 /* a block made from a picture but put in no space: one of those a joined shape was joined from */
 function hidden(pic, s){
-  const b = createBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
+  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
   if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
   if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   return b;
@@ -722,7 +725,7 @@ function joinShapes(){
   const box = boxOf(list), held = chain(list[0]).find(g => list.every(b => chain(b).includes(g)));      /* the innermost group holding them all */
   select([]);
   for (const b of list){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b); }      /* out of sight, not forgotten */
-  const made = createBlock({ ...typeNamed('tensor') }, box, freeName());
+  const made = makeBlock({ ...typeNamed('tensor') }, box, freeName());
   made.members = list.map(b => ({ block: b, fx: (b.rect.x - box.x) / box.w, fy: (b.rect.y - box.y) / box.h, fw: b.rect.w / box.w, fh: b.rect.h / box.h }));
   space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
   tidy(); select([made]);
@@ -781,7 +784,7 @@ function rebuild(data){
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; if (d.id){ b.id = d.id; claimId(d.id); }
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -1006,7 +1009,7 @@ bus.on('save', ({ name = null }) => save(name));      /* name: what was typed wh
 bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () => zipPicker.click());
 /* changing the project */
 bus.on('project.load', ({ files, name = null }) => openFrom(files, name), changes);
-bus.on('add', ({ type, rect, name }) => { const b = createBlock({ ...typeNamed(type) }, rect, name); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
+bus.on('add', ({ type, rect, name }) => { const b = makeBlock({ ...typeNamed(type) }, rect, name); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 bus.on('place', ({ rects }) => { for (const r of rects) blockOf(r.id)?.set({ x: r.x, y: r.y, w: r.w, h: r.h }); shown(); }, changes);      /* where blocks go, and how big: the end of a move or a resize */
 /* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
 const chosen = fn => ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(); };
@@ -1042,7 +1045,7 @@ bus.on('use', ({ id, at }) => { const v = blockOf(id); if (v) useShape(v, at); }
 bus.on('slot', ({ into, id, cx, cy }) => { const a = blockOf(into), v = blockOf(id); if (a && v) slotIn(a, v, cx, cy); }, changes);
 bus.on('summon', ({ name, key, group: all, at }) => { summon({ name, key, group: all }, at); shown(); }, changes);
 bus.on('length.add', ({ name, units, at }) => { const u = view.unit, on = v => Math.round(v / u) * u, h = units * u;      /* a named length set down on the canvas: a vector that long */
-  const b = createBlock({ ...typeNamed('tensor') }, { x: on(at.x - u / 2), y: on(at.y - h / 2), w: u, h }, freeName());
+  const b = makeBlock({ ...typeNamed('tensor') }, { x: on(at.x - u / 2), y: on(at.y - h / 2), w: u, h }, freeName());
   b.sides = { w: null, h: name }; space.blocks.push(b); view.world.append(b.el); select([b]); }, changes);
 
 let menuAt = { x: 0, y: 0 };

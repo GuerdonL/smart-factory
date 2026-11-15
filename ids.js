@@ -3,7 +3,7 @@
 
    createIds(seed) -> { id(prefix), random(), state(), restore(state) }
      seed     a whole number; left out, one is taken from the clock and Math.random, once, here
-     id       the next id: the prefix and six letters or digits, say "g4k09zq"
+     id       the next id: the prefix and six letters or digits, say "g4k09zq" for a group or "b0x7m2c" for a block
      random   the next number from 0 up to (not including) 1, in place of Math.random
      state    { seed, at }: the seed it began with and where it has got to; plain data, kept in a saved project
      restore  carries on from a state given by state() */
