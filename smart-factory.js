@@ -20,7 +20,7 @@ import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
-import { SYSTEM, SLOTS, OLD, CONFIG, COLORS, leaf } from './system.js';
+import { SYSTEM, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
 import { written, squares } from './components/matrix.js';
 
@@ -137,7 +137,7 @@ function inReach(){
   return [...shapes.filter(i => !isHidden(i.name)), ...items.filter(i => i.kind === 'length')];
 }
 let dotted = [];
-const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 },
+const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 }, { kind: 'system', name: DARK, group: true, color: 'muted', cols: 3, rows: 2 },
   ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 })), ...dotted];
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at){
@@ -447,37 +447,57 @@ const isHidden = name => bare(name).trim().startsWith('.');
 const cells = b => { const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), v = [];      /* a block's entries, row by row */
   const from = valuesOf(b);
   for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(from.get(c + ',' + r)); return v; };
-let defaults = null;                           /* the theme's own colours, read with nothing of ours laid over them */
+/* The theme has two sets of colours, light and dark. Which is in use is .dark_mode's to say: 1 is dark, 0 light, and
+   left blank it is whatever the computer (or the app the page sits in) asks for. The page then says so on the root
+   element, which is what the stylesheet goes by, over whatever was there. A colour shape in a .config sets the light
+   colour if it is in .colors, the dark one if it is in .dark_colors, and both if it is in neither. */
+const root = document.documentElement, bySystemKey = new Map(SYSTEM.map(v => [v.key, v]));
+let defaults = null;                           /* { light, dark }: the theme's own colours for each, read with nothing of ours laid over them */
+let hostTheme = root.dataset.theme || null, ourTheme;      /* what the app has put on the root element, and what the page last put there */
+const asksForDark = () => hostTheme ? hostTheme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 function programDefaults(){
   if (defaults) return defaults;
   for (const v of SYSTEM) for (const css of v.cssRows || (v.css ? [v.css] : [])) rootStyle.removeProperty('--' + css);
-  const probe = document.body.appendChild(document.createElement('i')); defaults = new Map();
+  const probe = document.body.appendChild(document.createElement('i')), was = root.dataset.theme;
   const rgb = css => { probe.style.color = `var(--${css})`; return (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n)); };
-  for (const v of SYSTEM) defaults.set(v.key, v.css ? rgb(v.css) : v.value);      /* a colour is the stylesheet's; anything else starts as system.js says */
+  defaults = {};
+  for (const mode of ['light', 'dark']){ root.dataset.theme = mode;      /* the stylesheet is asked for each set in turn */
+    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : v.value])); }      /* a colour is the stylesheet's; anything else starts as system.js says */
+  if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
   probe.remove(); return defaults;
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => bus.send('theme', { dark: e.matches }));
-new MutationObserver(() => bus.send('theme', { set: document.documentElement.dataset.theme || null })).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+new MutationObserver(() => { const now = root.dataset.theme || null; if (now === ourTheme || now === hostTheme) return;      /* the page's own doing, or no change */
+  bus.send('theme', { set: now }); }).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
 const inConfig = (b, s) => chain(b, s).some(g => (s.groupNames.get(g) || '').trim() === CONFIG);
-/* a system variable as it stands after the .configs of these spaces, highest first, have each covered what they give */
-function systemValue(key, spaces){
-  const v = [...programDefaults().get(key)];
-  for (const s of spaces) for (const b of s.blocks) if (!isOff(b) && leaf(b.name) === key && inConfig(b, s))
-    cells(b).slice(0, v.length).forEach((n, i) => { if (Number.isFinite(n)) v[i] = n; });
+const modeOf = (b, s) => { const names = chain(b, s).map(g => (s.groupNames.get(g) || '').trim()); return names.includes(DARK) ? 'dark' : names.includes(COLORS) ? 'light' : 'both'; };
+/* a system variable as it stands after the .configs of these spaces, highest first, have each covered what they give.
+   mode: for a colour, which of the two sets is wanted */
+function systemValue(key, spaces, mode = 'light'){
+  const v = [...programDefaults()[mode].get(key)], coloured = isColour(bySystemKey.get(key));
+  for (const s of spaces) for (const b of s.blocks) if (!isOff(b) && leaf(b.name) === key && inConfig(b, s)){
+    const m = modeOf(b, s); if (coloured && m !== 'both' && m !== mode) continue;
+    cells(b).slice(0, v.length).forEach((n, i) => { if (Number.isFinite(n)) v[i] = n; }); }
   return v;
 }
+const modeIn = spaces => systemValue('dark-mode', spaces)[0] ? 'dark' : 'light';
 function configure(){
-  const base = programDefaults(), spaces = trail();
-  for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []);      /* only the colours are read so far */
-    const v = each.length ? systemValue(key, spaces).map(n => Math.max(0, Math.min(255, n))) : [], d = base.get(key);
+  const spaces = trail(), mode = modeIn(spaces), base = programDefaults()[mode], byte = n => Math.max(0, Math.min(255, n));
+  if ((root.dataset.theme || null) !== mode){ ourTheme = mode; root.dataset.theme = mode; }
+  for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []);      /* only the colours, and which set of them, are read so far */
+    const v = each.length ? systemValue(key, spaces, mode).map(byte) : [], d = base.get(key);
     each.forEach((name, i) => { const mine = v.slice(3 * i, 3 * i + 3);
       if (css && mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }      /* the rows of an array are always set: the stylesheet has nothing for them */
+  /* a colour's shape in a .config is drawn in the colour it comes to, in the set it belongs to */
+  for (const b of space.blocks){ const v = !isOff(b) && inConfig(b, space) && bySystemKey.get(leaf(b.name)); if (!v?.css) continue;
+    const m = modeOf(b, space); b.el.style.setProperty('--block', `rgb(${systemValue(v.key, spaces, m === 'both' ? mode : m).map(byte).join(', ')})`); }
 }
 /* what the definitions above give to a block, for the entries it leaves blank. s is the space the block is in. */
 function inheritedBy(b, s){
   const above = []; for (let p = s.parent; p; p = p.parent) above.unshift(p);
   const key = leaf(b.name), got = new Map(), cols = Math.round(b.rect.w / view.unit);
-  if (inConfig(b, s)){ if (programDefaults().has(key)) systemValue(key, above).forEach((n, i) => got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
+  if (inConfig(b, s)){ const m = modeOf(b, s);
+    if (bySystemKey.has(key)) systemValue(key, above, m === 'both' ? modeIn(trail()) : m).forEach((n, i) => got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
     return got; }                                /* in a .config: what the program and the .configs above make of it */
   if (!isNamed(b)) return got;
   const name = bare(b.name).trim(), mine = new Set(kinOf(b));
@@ -488,15 +508,19 @@ function inheritedBy(b, s){
    none). One variable brings one shape. .colors brings every colour, in its Shapes and UI groups; .config brings the
    whole tree. They are laid out as in system.js. */
 function summon(item, at){
-  const u = view.unit, on = v => Math.round(v / u) * u, made = [];
-  const which = !item.group ? SYSTEM.filter(v => v.key === item.key) : item.name === COLORS ? SYSTEM.filter(v => v.css) : SYSTEM;
-  const [x0, y0] = which[0].at;
+  const u = view.unit, on = v => Math.round(v / u) * u, made = [], colours = SYSTEM.filter(isColour);
+  /* which variables, and the area of the .config each goes in: .colors, .dark_colors, or neither */
+  const which = !item.group ? [[SYSTEM.find(v => v.key === item.key), null]] : item.name === COLORS ? colours.map(v => [v, COLORS]) : item.name === DARK ? colours.map(v => [v, DARK])
+    : [...SYSTEM.filter(v => !isColour(v)).map(v => [v, null]), ...colours.map(v => [v, COLORS]), ...colours.map(v => [v, DARK])];
+  const place = ([v, area]) => [v.at[0], v.at[1] + (area === DARK ? DARK_DOWN : 0)], [x0, y0] = place(which[0]);
   let config = [...space.groupNames].find(([, name]) => name.trim() === CONFIG)?.[0];
   if (config === undefined){ config = newGroup(); space.groupNames.set(config, CONFIG); }
-  const groups = new Map(), groupFor = (name, up) => { if (!groups.has(name)){ const id = newGroup(); groups.set(name, id); space.groupNames.set(id, name); space.groupUp.set(id, up); } return groups.get(name); };
-  for (const v of which){ const b = makeBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (v.at[0] - x0) * u, y: on(at.y) + (v.at[1] - y0) * u, w: v.cols * u, h: (v.rows || 1) * u }, v.name);
+  const groups = new Map(), groupFor = (key, name, up) => { if (!groups.has(key)){ const id = newGroup(); groups.set(key, id); space.groupNames.set(id, name); space.groupUp.set(id, up); } return groups.get(key); };
+  for (const [v, area] of which){ const [x, y] = place([v, area]);
+    const b = makeBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (x - x0) * u, y: on(at.y) + (y - y0) * u, w: v.cols * u, h: (v.rows || 1) * u }, v.name);
     space.blocks.push(b); view.world.append(b.el); made.push(b);
-    space.groupOf.set(b, item.group && v.branch ? groupFor(v.branch, groupFor(COLORS, config)) : config); }
+    const outer = area && groupFor(area, area, config);
+    space.groupOf.set(b, !area ? config : v.branch ? groupFor(area + '/' + v.branch, v.branch, outer) : outer); }
   select(made);
 }
 
@@ -1045,7 +1069,7 @@ bus.on('cut', chosen(cut), changes); bus.on('delete', chosen(remove), changes);
 bus.on('transpose', chosen(transpose), changes); bus.on('join', chosen(joinShapes), changes); bus.on('disjoin', chosen(disjoin), changes);
 bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
-bus.on('theme', () => { defaults = null; shown(); });
+bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return; b.call(name); renamed(b, color); }, changes);
 bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text === null ? undefined : readEntry(text);      /* nothing typed puts the symbol back; anything that is not a number is not taken */
   if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v); }

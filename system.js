@@ -2,12 +2,14 @@
 
        .config
          .integer_precision            a whole number; nothing reads it yet
+         .dark_mode                    0 for the light colours, 1 for the dark ones; left blank, whatever the computer asks for
          .colors
            Shapes                      the colours shapes are drawn in
              .tensor_default  .data-in
              .variable_colors          the colours a newly named shape takes one of at random: six rows, a colour each
            UI                          the colours of the canvas and what is written on it
              .bg .panel .hover .focus  .fg .line .fade-to .dot  .muted .measure_bar .warn .select
+         .dark_colors                  the same two groups again: the colours used while .dark_mode is 1
 
    Each variable: name; key, the name as it is matched (lower case, no dot, - for _ and for spaces); css, the theme
    variable a colour sets (a colour is three entries: red, green, blue); cssRows, for an array of colours, the theme
@@ -22,6 +24,7 @@ export const SLOTS = ['variable-1', 'variable-2', 'variable-3', 'variable-4', 'v
 export const OLD = { lavender: SLOTS[0], watermelon: SLOTS[1], lazuli: SLOTS[2], fanta: SLOTS[3], marigold: SLOTS[4], lagoon: SLOTS[5] };
 export const SYSTEM = [
   { name: '.integer_precision', key: 'integer-precision', value: [32], branch: null, at: [2, 1], cols: 1, color: SLOTS[1] },
+  { name: '.dark_mode', key: 'dark-mode', value: [0], branch: null, at: [12, 1], cols: 1, color: SLOTS[2] },      /* its starting value is really the computer's own setting: see programDefaults */
   colour('.tensor_default', 'tensor', 'Shapes', [2, 6]), colour('.data-in', 'data-in', 'Shapes', [2, 8]),
   { name: '.variable_colors', key: 'variable-colors', cssRows: SLOTS, value: [154, 123, 234, 47, 174, 98, 44, 95, 220, 255, 122, 20, 227, 160, 8, 15, 163, 168],
     branch: 'Shapes', at: [14, 6], cols: 3, rows: 6, color: SLOTS[0] },
@@ -29,6 +32,8 @@ export const SYSTEM = [
   colour('.fg', 'fg', 'UI', [2, 18]), colour('.line', 'line', 'UI', [12, 18]), colour('.fade-to', 'fade-to', 'UI', [22, 18]), colour('.dot', 'dot', 'UI', [32, 18]),
   colour('.muted', 'muted', 'UI', [2, 20]), colour('.measure_bar', 'measure', 'UI', [12, 20]), colour('.warn', 'warn', 'UI', [22, 20]), colour('.select', 'select', 'UI', [32, 20]),
 ];
-export const CONFIG = '.config', COLORS = '.colors';
+export const CONFIG = '.config', COLORS = '.colors', DARK = '.dark_colors';
+export const DARK_DOWN = 20;                    /* how far below .colors the same shapes sit in .dark_colors, in the default layout */
+export const isColour = v => !!(v.css || v.cssRows);
 /* a name as it is matched against the keys above: ".Data in" and "--data_in" are both "data-in" */
 export const leaf = name => name.replace(/^\s*\/\/\s*/, '').trim().toLowerCase().replace(/^(--|\.)/, '').replace(/[\s_]+/g, '-');
