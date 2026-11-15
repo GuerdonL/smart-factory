@@ -17,9 +17,16 @@ import { createResult } from './components/result.js';
 import { joins, pieces, stacks, typeOf, initials, readEntry } from './algebra.js';
 import { createEquals } from './components/equals.js';
 import * as project from './project.js';
+import { createBus } from './bus.js';
 import { SYSTEM, CONFIG, COLORS, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
 import { written, squares } from './components/matrix.js';
+
+/* every event the user causes goes through the bus as a named message (bus.js). via(type, fn) gives a function that,
+   called, sends itself as a message of that type and so runs fn: for the places where what is to be done is bound up
+   with where it happens (the block under the pointer, the entry being typed into). */
+const bus = createBus(); globalThis.smartFactoryBus = bus;      /* on the page as smartFactoryBus, to look at its log */
+const via = (type, fn, changes = true) => { if (!bus.has(type)) bus.on(type, (run, ...args) => run(...args), { changes }); return (...args) => bus.send(type, fn, ...args); };
 
 /* the shapes registry: shapes/index.json names the configs in shapes/ */
 let shapes = [];
@@ -81,7 +88,7 @@ function backIn(){
 for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, e => {
   if (e.button !== 3 && e.button !== 4) return;
   e.preventDefault(); e.stopPropagation();
-  if (type === 'mouseup') e.button === 3 ? out() : backIn();
+  if (type === 'mouseup') bus.send(e.button === 3 ? 'space.out' : 'space.back');
 }, true);
 
 /* a block is named once it has been given a name of its own, in place of the "Shape n" it was drawn with.
@@ -255,8 +262,8 @@ function reach(x, y){
   return best;
 }
 const variables = createVariables({
-  onDrag: (item, x, y) => { if (selected.size) select([]); if (item.kind === 'length') reach(x, y); },
-  onDrop: (item, x, y) => {
+  onDrag: via('variable.drag', (item, x, y) => { if (selected.size) select([]); if (item.kind === 'length') reach(x, y); }, false),
+  onDrop: via('variable.drop', (item, x, y) => {
     if (item.kind === 'shape'){ const onto = matrixAt(x, y); return onto ? slotIn(onto.block, onto.el, item.block, x, y) : useShape(item.block, view.toWorld(x, y)); }
     if (item.kind === 'system'){ summon(item, view.toWorld(x, y)); return shown(); }
     const target = reach(x, y), u = view.unit;
@@ -264,8 +271,8 @@ const variables = createVariables({
     else { const at = view.toWorld(x, y), on = v => Math.round(v / u) * u, h = item.units * u;      /* onto the canvas: a vector that long */
       const b = createBlock({ ...typeNamed('tensor') }, { x: on(at.x - u / 2), y: on(at.y - h / 2), w: u, h }, freeName());
       b.sides = { w: null, h: item.name }; space.blocks.push(b); view.world.append(b.el); select([b]); }
-    shown(); },
-  onEnd: () => { for (const m of near.values()) m.el.remove(); near.clear(); },
+    shown(); }),
+  onEnd: via('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); }, false),
 });
 
 const blockAt = el => space.blocks.find(b => b.el.contains(el));
@@ -792,9 +799,9 @@ const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(l
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
    one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
 ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
-  if (first) openKept(first).then(() => { current = 'menu'; });
+  if (first) bus.send('project.open', first).then(() => { current = 'menu'; });
   else if (!kept) Promise.all(DEFAULT_MENU.map(path => fetch('projects/default-menu/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e))))
-    .then(files => openFrom(files.filter(Boolean), 'menu')).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
+    .then(files => bus.send('project.load', files.filter(Boolean), 'menu')).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(){
   const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
@@ -816,33 +823,27 @@ async function save(){
 /* opening replaces everything on the page */
 function openFrom(files, name = null){ const data = project.read(files); rebuild(data); current = name; hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes`); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
-  .then(files => openFrom(files, name)).catch(e => hud.say('Could not open: ' + (e.message || e)));
+  .then(files => bus.send('project.load', files, name)).catch(e => hud.say('Could not open: ' + (e.message || e)));
 const zipPicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true });
 document.body.append(zipPicker);
 zipPicker.addEventListener('change', async () => { const file = zipPicker.files[0]; zipPicker.value = ''; if (!file) return;
-  try { openFrom(await unzip(new Uint8Array(await file.arrayBuffer()))); } catch (e) { hud.say('Could not open: ' + (e.message || e)); } });
+  try { bus.send('project.load', await unzip(new Uint8Array(await file.arrayBuffer()))); } catch (e) { hud.say('Could not open: ' + (e.message || e)); } });
 
 /* ---- keys ---- */
 let boxing = null;                             /* the box selection in progress, if any */
 addEventListener('keydown', e => {
   /* Ctrl or Cmd with c copies the selection; with x cuts it (copies, then removes); with v pastes in the middle of the screen. (While typing in a name or a
      measurement these keys never reach here, so text is copied and pasted as usual.) */
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); copy(); } return; }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); cut(); } return; }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); paste(view.camera()); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy'); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); bus.send('cut'); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); bus.send('paste', view.camera()); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === 'Escape') return selected.size || !space.parent || boxing ? select([]) : out();      /* with nothing selected, Escape steps out of a definition space */
+  if (e.key === 'Escape') return bus.send('escape');      /* with nothing selected, Escape steps out of a definition space */
   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
-  if (e.key === 's' || e.key === 'S'){
-    if (boxing) return boxing.cancel();
-    const box = boxing = boxSelect(view);
-    return box.done.then(r => { boxing = null; if (!r) return;
-      const hit = space.blocks.filter(b => b.rect.x < r.x + r.w && b.rect.x + b.rect.w > r.x && b.rect.y < r.y + r.h && b.rect.y + b.rect.h > r.y);
-      select([...new Set(hit.flatMap(members))]); });
-  }
-  if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return transpose(); }      /* t transposes the selection */
+  if (e.key === 's' || e.key === 'S') return bus.send('select.box');
+  if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose'); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
-  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); remove(); }
+  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); bus.send('delete'); }
 });
 
 /* ---- drags that begin on a block ----
@@ -916,11 +917,11 @@ function clicked(el, e){
       /* a named group's name: the first click selects the group, a click once it is selected renames it */
       if (id !== null && groupIs([...selected]) !== id) return select(list);
       f.nameEl.textContent = '';
-      return editText(f.nameEl, name => {
+      return editText(f.nameEl, via('group.name', name => {
         if (name && id !== null) space.groupNames.set(id, name);                                      /* rename a named group */
         else if (name && groupIs(list) !== null) space.groupNames.set(groupIs(list), name);          /* name a group: it stays here, framed */
         else if (name && list.every(b => space.blocks.includes(b))) return fold(foldable(list), name); /* name a plain selection: it folds into a new block */
-        shown(); });
+        shown(); }));
     }
     return;
   }
@@ -929,17 +930,17 @@ function clicked(el, e){
   if (entry){
     const [o, key] = entryHome(space.owner, +entry.dataset.c, +entry.dataset.r);      /* in a joined shape, the entry belongs to the shape it came from */
     select([]); entry.textContent = o.values.has(key) ? written(o.values.get(key)) : '';
-    return editText(entry, text => { const v = text === null ? undefined : readEntry(text);
+    return editText(entry, via('entry.set', text => { const v = text === null ? undefined : readEntry(text);
       if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
-      write(); shown(); });
+      write(); shown(); }));
   }
   /* a result's matrix: name it, and the blocks that came to it fold into a new block */
   const r = results.find(r => r.el.isConnected && r.el.contains(el));
-  if (r){ const piece = r.piece; if (piece.blocks.length < 2) return; select([]); return r.name(name => { if (name && !piece.type.error && piece.blocks.every(b => space.blocks.includes(b))) fold(piece, name); }); }
+  if (r){ const piece = r.piece; if (piece.blocks.length < 2) return; select([]); return r.name(via('result.name', name => { if (name && !piece.type.error && piece.blocks.every(b => space.blocks.includes(b))) fold(piece, name); })); }
   /* a measurement: double-click to type a length in whole units, a name for that side, or both; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
     const b = [...selected][0];
-    if (twice) editText(el, text => { if (text) typed(b, dim, text); shown(); });
+    if (twice) editText(el, via('side.set', text => { if (text) typed(b, dim, text); shown(); }));
     return;                                     /* a click on a measurement never changes the selection */
   }
   const b = blockAt(el);
@@ -951,7 +952,7 @@ function clicked(el, e){
     return shown();
   }
   if (b && twice){                              /* double click */
-    if (el === b.nameEl){ select([b]); return b.rename((changed, was) => renamed(b, changed, was)); }      /* on a name: rename it */
+    if (el === b.nameEl){ select([b]); return b.rename(via('shape.rename', (changed, was) => renamed(b, changed, was))); }      /* on a name: rename it */
     if (selected.size === 1 && selected.has(b)) return open(b);             /* on a block selected alone: open its definition space */
     /* on a block in a selected group: step one group inwards, or to the block itself from the innermost */
     const outwards = chain(b).reverse(), at = outwards.indexOf(groupIs([...selected]));
@@ -969,33 +970,55 @@ function clicked(el, e){
 /* what choosing a shape from "New" does, by the shape's "draw" */
 const draw = {
   rectangle: shape => { select([]); const name = freeName();
-    return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (block){ space.blocks.push(block); shown(); } }); },
+    return drawRectangle(view, rect => createBlock(shape, rect, name)).then(via('shape.add', block => { if (block){ space.blocks.push(block); shown(); } })); },
 };
 
 /* the right-click menu. A right click on a block that is not selected selects it first, so Cut, Copy and Delete mean that block.
    Paste puts the copy where the click was. */
+/* ---- messages ----
+   What each message does. (Those that carry something typed, or belong to one place in the code, are named where they
+   are sent, with via.) The second argument to bus.on marks the ones that can change the project. */
+const changes = { changes: true };
+bus.on('pointer.click', clicked, changes); bus.on('pointer.drag', dragged, changes); bus.on('pointer.drop', taken => taken.end(), changes);
+bus.on('copy', copy); bus.on('cut', cut, changes); bus.on('paste', paste, changes); bus.on('delete', remove, changes);
+bus.on('transpose', transpose, changes); bus.on('join', joinShapes, changes); bus.on('disjoin', disjoin, changes);
+bus.on('new', shape => draw[shape.draw]?.(shape));
+bus.on('save', save); bus.on('project.open', name => openKept(name)); bus.on('project.pick', () => zipPicker.click());
+bus.on('project.load', (files, name) => openFrom(files, name), changes);
+bus.on('space.out', out); bus.on('space.back', backIn);
+bus.on('escape', () => selected.size || !space.parent || boxing ? select([]) : out());      /* with nothing selected, Escape steps out of a definition space */
+/* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
+bus.on('select.box', () => {
+  if (boxing) return boxing.cancel();
+  const box = boxing = boxSelect(view);
+  return box.done.then(via('select.boxed', r => { boxing = null; if (!r) return;
+    const hit = space.blocks.filter(b => b.rect.x < r.x + r.w && b.rect.x + b.rect.w > r.x && b.rect.y < r.y + r.h && b.rect.y + b.rect.h > r.y);
+    select([...new Set(hit.flatMap(members))]); }, false));
+});
+
 let menuAt = { x: 0, y: 0 };
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
-  { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => draw[shape.draw]?.(shape) })) },
-  { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: cut },
-  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: copy },
-  { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
-  { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: transpose },
-  { label: 'Join', disabled: () => !fitsTogether([...selected]), run: joinShapes },
-  { label: 'Disjoin', disabled: () => ![...selected].some(b => b.members), run: disjoin },
-  { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
-  { label: 'Save project', run: save },
-  { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => openKept(name) })) : [{ label: 'From a zip', run: () => zipPicker.click() }] },
+  { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', shape) })) },
+  { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => bus.send('cut') },
+  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy') },
+  { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', menuAt) },
+  { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: () => bus.send('transpose') },
+  { label: 'Join', disabled: () => !fitsTogether([...selected]), run: () => bus.send('join') },
+  { label: 'Disjoin', disabled: () => ![...selected].some(b => b.members), run: () => bus.send('disjoin') },
+  { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => bus.send('delete') },
+  { label: 'Save project', run: () => bus.send('save') },
+  { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => bus.send('project.open', name) })) : [{ label: 'From a zip', run: () => bus.send('project.pick') }] },
 ]);
-const hud = createHud({ onHome: () => view.home() });
-const crumbs = createCrumbs({ onGo: i => { deeper.length = 0; go(trail()[i]); } });
+const hud = createHud({ onHome: via('camera.home', () => view.home(), false) });
+const crumbs = createCrumbs({ onGo: via('space.go', i => { deeper.length = 0; go(trail()[i]); }, false) });
 const view = createView({
-  onChange: cam => { hud.show(cam); menu.close(); shown(); },
-  onMenu: (x, y, el) => { const b = blockAt(el); if (b && !selected.has(b)) select(members(b));
-    menuAt = view.toWorld(x, y); menu.openAt(x, y); },
-  onClick: clicked,
-  onDrag: dragged,
+  onChange: via('camera', cam => { hud.show(cam); menu.close(); shown(); }, false),
+  onMenu: via('menu.open', (x, y, el) => { const b = blockAt(el); if (b && !selected.has(b)) select(members(b));
+    menuAt = view.toWorld(x, y); menu.openAt(x, y); }, false),
+  onClick: (el, e) => bus.send('pointer.click', el, e),
+  /* a drag is two messages: it begins, and (if something took it) it ends. The moves in between go straight to whatever took it. */
+  onDrag: (el, from, e) => { const taken = bus.send('pointer.drag', el, from, e); return taken && { move: taken.move, end: () => bus.send('pointer.drop', taken) }; },
 });
 document.body.append(view.el, menu.el, hud.el, crumbs.el, variables.el);
 hud.show(view.camera());

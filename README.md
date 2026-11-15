@@ -26,6 +26,9 @@ There is no password. Anyone who can reach the port can read and overwrite the p
 - `smart-factory.html`, `.css`, `.js`: the page, its theme (every colour and typeface), and the wiring.
 - `components/`: one file per thing on screen, each carrying its own markup, styles and behaviour.
 - `algebra.js`, `project.js`, `zip.js`: what shapes mean, how a project is written to files, and zip; no drawing.
+- `bus.js`: the message bus. Everything the user does reaches the wiring as a named message sent through it; it keeps
+  a log and can be tapped before and after each message, which is where history and undo will attach.
+- `system.js`: the program's own variables, the tree a `.config` shadows.
 - `shapes/`: the kinds of block, one config each, listed in `shapes/index.json`.
 - `projects/`: saved projects, including `default-menu`, what the page opens on until you save a `menu` of your own.
 - `server.py`, `smart-factory.service`: the server and the unit that keeps it running.
