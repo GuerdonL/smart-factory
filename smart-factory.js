@@ -53,6 +53,7 @@ function go(to){
 function write(){
   space.definition?.el.remove(); space.definition = null;
   if (!space.owner) return;
+  flow(space.owner);
   const o = space.owner, r = o.rect;
   space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
     name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: o.values, inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
@@ -129,7 +130,7 @@ const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: '
 function useShape(of, at){
   const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
   const b = createBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
-  b.sides = { ...of.sides }; b.values = of.values;                                         /* the same entries, not a copy */
+  b.sides = { ...of.sides }; b.values = of.values; if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
   if (!spaceOf.has(of)){ const def = newSpace(of, space); for (const k of kinOf(of)) spaceOf.set(k, def); }
   spaceOf.set(b, spaceOf.get(of));                                                          /* the same definition */
   const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
@@ -421,6 +422,7 @@ function summon(item, at){
 
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   configure();
+  for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h }); }
@@ -528,7 +530,8 @@ function fold({ blocks: inside, type, box }, name){
 let clipboard = null;
 const picture = (b, s) => ({ shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: new Map(b.values), groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
-  inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null });
+  inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
+  members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
 function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
 function cut(){ if (selected.size){ copy(); remove(); } }
 /* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
@@ -539,6 +542,7 @@ function develop(pictures, s, dx, dy){
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
     const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
+    if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
     s.blocks.push(b); made.push(b);
     pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, nextGroup++); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
       if (i === 0) s.groupOf.set(b, groups.get(g.id)); else s.groupUp.set(groups.get(pic.groups[i - 1].id), groups.get(g.id)); });
@@ -546,6 +550,13 @@ function develop(pictures, s, dx, dy){
   }
   tidy(s);                                     /* a group of which only part was copied may not be a group here */
   return made;
+}
+/* a block made from a picture but put in no space: one of those a joined shape was joined from */
+function hidden(pic, s){
+  const b = createBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.values = new Map(pic.values);
+  if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
+  if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
+  return b;
 }
 function paste(at){                             /* at: a world point; the pasted blocks are centred on it, on the dots */
   if (!clipboard) return;
@@ -570,38 +581,76 @@ function transpose(){
   const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h })))
     .map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x)).filter(c => c.length > 1)
     .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
-  for (const b of list){ const variable = kin.get(b) || b; if (done.has(variable)) continue; done.add(variable);
+  const flip = b => { const variable = kin.get(b) || b; if (done.has(variable)) return; done.add(variable);
     const was = [...b.values]; b.values.clear(); for (const [k, v] of was){ const [c, r] = k.split(','); b.values.set(r + ',' + c, v); }
-    for (const k of kinOf(b)){ k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w };
-      if (k.shape.parts) k.join(k.shape.parts.map(p => ({ ...p, x: p.y, y: p.x, w: p.h, h: p.w }))); } }
+    for (const k of kinOf(b)){ k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; }
+    for (const m of b.members || []){ [m.fx, m.fy, m.fw, m.fh] = [m.fy, m.fx, m.fh, m.fw]; flip(m.block); } };      /* a joined shape turns with everything it was joined from */
+  list.forEach(flip);
   for (const c of chains){ let x = c.x; for (const b of c.blocks.reverse()){ b.set({ ...b.rect, x, y: c.y }); x += b.rect.w; } }
   if (space.owner && kinOf(space.owner).some(k => done.has(kin.get(k) || k))) write();      /* the block whose space this is has turned too */
   shown();
 }
-/* joins the selected shapes into one, if they fit together into a rectangle with nothing missing and nothing doubled.
-   The new shape is that rectangle. Each shape it was made from keeps its colour as a part of the new one's face, and
-   its entries keep their places. (Their definition spaces are not kept.) */
+/* ---- joined shapes ----
+   Shapes that fit together into a rectangle, with nothing missing and nothing doubled, can be joined into one shape:
+   that rectangle. Like a group, it keeps the shapes it was joined from, whole (their names, entries, definitions),
+   only out of sight; disjoin puts them back. On its face each keeps its colour, with a wavy line where two meet.
+   Its entries are theirs: each of its entries is the entry of the shape that covers that place, and a number typed
+   into it goes to that shape. A joined shape can be joined again, into a larger one.
+   block.members: [{ block, fx, fy, fw, fh }], each with the part of the joined shape it takes up, as fractions, so
+   they follow when it is resized. */
 function fitsTogether(list){
   if (list.length < 2) return false;
   const box = boxOf(list), area = list.reduce((sum, b) => sum + b.rect.w * b.rect.h, 0);
   return Math.abs(area - box.w * box.h) < 1e-6 && !list.some((a, i) => list.some((b, j) => j > i && a.rect.x < b.rect.x + b.rect.w && b.rect.x < a.rect.x + a.rect.w && a.rect.y < b.rect.y + b.rect.h && b.rect.y < a.rect.y + a.rect.h));
 }
+/* the coloured parts of a block's face, in units: one for a plain block, its members' for a joined one, all the way down */
+const partsOf = (b, x, y, w, h) => b.members ? b.members.flatMap(m => partsOf(m.block, x + m.fx * w, y + m.fy * h, m.fw * w, m.fh * h)) : [{ x, y, w, h, color: b.shape.color }];
+/* where a member sits in its joined shape as that now is: whole units, never less than one */
+function placeOf(m, cols, rows){ const x = Math.round(m.fx * cols), y = Math.round(m.fy * rows);
+  return { x, y, w: Math.max(1, Math.round((m.fx + m.fw) * cols) - x), h: Math.max(1, Math.round((m.fy + m.fh) * rows) - y) }; }
+/* a joined shape's entries, gathered up from its members' */
+function flow(b){
+  if (!b.members) return;
+  const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u); b.values.clear();
+  for (const m of b.members){ flow(m.block); const at = placeOf(m, cols, rows);
+    for (const [k, v] of m.block.values){ const [c, r] = k.split(',').map(Number); if (c <= at.w && r <= at.h) b.values.set((c + at.x) + ',' + (r + at.y), v); } }
+}
+/* the shape an entry of b really belongs to, and the entry's place in it */
+function entryHome(b, c, r){
+  if (!b.members) return [b, c + ',' + r];
+  const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u);
+  for (const m of b.members){ const at = placeOf(m, cols, rows); if (c > at.x && c <= at.x + at.w && r > at.y && r <= at.y + at.h) return entryHome(m.block, c - at.x, r - at.y); }
+  return [b, c + ',' + r];
+}
 function joinShapes(){
-  const list = [...selected].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x), u = view.unit;
+  const list = [...selected].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
   if (!fitsTogether(list)) return hud.say('To join, the shapes must fit together into one rectangle');
-  const box = boxOf(list), values = new Map(), parts = [];
-  for (const b of list){ const dx = (b.rect.x - box.x) / u, dy = (b.rect.y - box.y) / u, cols = b.rect.w / u, rows = b.rect.h / u;
-    for (const [k, v] of b.values){ const [c, r] = k.split(',').map(Number); values.set((c + dx) + ',' + (r + dy), v); }
-    const own = b.shape.parts, W = own && Math.max(...own.map(p => p.x + p.w)), H = own && Math.max(...own.map(p => p.y + p.h));      /* one already joined brings its parts, at its present size */
-    for (const p of own || [{ x: 0, y: 0, w: cols, h: rows, color: b.shape.color }]) parts.push(own ? { x: dx + p.x * cols / W, y: dy + p.y * rows / H, w: p.w * cols / W, h: p.h * rows / H, color: p.color } : { ...p, x: dx, y: dy }); }
-  remove();
-  const made = createBlock({ ...typeNamed('tensor'), color: parts[0].color, parts }, box, freeName());
-  made.values = values; space.blocks.push(made); view.world.append(made.el); select([made]);
+  const box = boxOf(list), held = chain(list[0]).find(g => list.every(b => chain(b).includes(g)));      /* the innermost group holding them all */
+  select([]);
+  for (const b of list){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b); }      /* out of sight, not forgotten */
+  const made = createBlock({ ...typeNamed('tensor') }, box, freeName());
+  made.members = list.map(b => ({ block: b, fx: (b.rect.x - box.x) / box.w, fy: (b.rect.y - box.y) / box.h, fw: b.rect.w / box.w, fh: b.rect.h / box.h }));
+  space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
+  tidy(); select([made]);
+}
+/* puts back the shapes a joined shape was joined from, where they now fall in it and at the size they now are there */
+function disjoin(){
+  const u = view.unit, back = [], others = [...selected].filter(b => !b.members);
+  for (const j of [...selected].filter(b => b.members)){ const cols = Math.round(j.rect.w / u), rows = Math.round(j.rect.h / u), group = space.groupOf.get(j);
+    for (const m of j.members){ const at = placeOf(m, cols, rows), b = m.block;
+      for (const k of kinOf(b)) if (k !== b) k.set({ ...k.rect, w: at.w * u, h: at.h * u });      /* every use of a variable is one size */
+      b.set({ x: j.rect.x + at.x * u, y: j.rect.y + at.y * u, w: at.w * u, h: at.h * u });
+      space.blocks.push(b); view.world.append(b.el); if (group !== undefined) space.groupOf.set(b, group); back.push(b); }
+    j.el.remove(); space.blocks.splice(space.blocks.indexOf(j), 1); space.groupOf.delete(j); j.members = null; forget(j); }
+  tidy(); select([...others, ...back]);
+}
+function forget(b){                             /* one use fewer of its variable; what it was joined from goes with it */
+  spaceOf.delete(b); const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); }
+  for (const m of b.members || []) forget(m.block);
 }
 function remove(){
   const gone = [...selected]; select([]);
-  for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); spaceOf.delete(b);
-    const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); } }      /* one use fewer of its variable */
+  for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); forget(b); }
   tidy(); shown();
 }
 
@@ -614,9 +663,11 @@ const typeNamed = name => shapes.find(s => s.name === name) || { name, label: na
 /* the page's spaces as plain data, lengths in units */
 function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
+  const one = b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   const plain = s => ({
-    shapes: s.blocks.map(b => ({ type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-      colsName: b.sides.w, rowsName: b.sides.h, entries: Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b), parts: b.shape.parts || null })),
+    shapes: s.blocks.map(one),
     groups: tree(s, undefined) });
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
@@ -631,14 +682,18 @@ function rebuild(data){
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
   const u = view.unit;
+  /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
+  const build = (d, s) => { const type = typeNamed(d.type);
+    const b = createBlock({ ...type, color: d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries));
+    if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
+    const first = d.variable != null && uses.get(d.variable)?.[0];
+    if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
+    if (first){ b.values = first.values; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); return b; }      /* a later use: the first one's entries and definition */
+    if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); }
+    return b; };
   const fill = (plain, s) => {
-    for (const d of plain.shapes){ const type = typeNamed(d.type);
-      const b = createBlock({ ...type, color: d.color || type.color, ...(d.parts ? { parts: d.parts } : {}) }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
-      b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); s.blocks.push(b);
-      const first = d.variable != null && uses.get(d.variable)?.[0];
-      if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
-      if (first){ b.values = first.values; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); continue; }      /* a later use: the first one's entries and definition */
-      if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); } }
+    for (const d of plain.shapes) s.blocks.push(build(d, s));
     const regroup = (g, up) => { const id = nextGroup++; if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name);
       for (const i of g.members) s.groupOf.set(s.blocks[i], id); for (const inner of g.groups || []) regroup(inner, id); };
     for (const g of plain.groups) regroup(g, undefined);
@@ -791,7 +846,7 @@ function clicked(el, e){
   /* an entry of this space's own matrix, if its block has been named: type a whole number, or inf / -inf, over it. Nothing typed puts the symbol back. */
   const entry = el.closest?.('.definition.editable [data-c]');
   if (entry){
-    const o = space.owner, key = entry.dataset.c + ',' + entry.dataset.r;
+    const [o, key] = entryHome(space.owner, +entry.dataset.c, +entry.dataset.r);      /* in a joined shape, the entry belongs to the shape it came from */
     select([]); entry.textContent = o.values.has(key) ? written(o.values.get(key)) : '';
     return editText(entry, text => { const v = text === null ? undefined : readEntry(text);
       if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
@@ -847,6 +902,7 @@ const menu = createMenu([
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => paste(menuAt) },
   { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: transpose },
   { label: 'Join', disabled: () => !fitsTogether([...selected]), run: joinShapes },
+  { label: 'Disjoin', disabled: () => ![...selected].some(b => b.members), run: disjoin },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: remove },
   { label: 'Save project', run: save },
   { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => openKept(name) })) : [{ label: 'From a zip', run: () => zipPicker.click() }] },

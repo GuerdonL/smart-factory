@@ -21,10 +21,11 @@
      off      shows it as commented out: washed out, with a dashed edge
      paint    changes its colour to another theme variable's ("lazuli" -> --lazuli)
      call     gives it a name outright
-     join     makes it a block joined from several: parts is [{ x, y, w, h, color }], rectangles that together fill the
-              block, measured in any one unit, each with its theme colour. Each part keeps its colour on the block's
-              face, with a wavy line where two meet. The parts are kept on shape.parts (a shape made with parts is
-              drawn this way from the start); null goes back to one plain colour. They stretch with the block.
+     join     draws it as a block joined from several: join(parts, cols, rows), where parts is [{ x, y, w, h, color }],
+              rectangles that together fill the block, in units, each with its theme colour, and cols and rows are
+              the block's size in units. Each part keeps its colour on the block's face, with a wavy line where two
+              meet. Call it again whenever the block or its parts change: the waves are worked out afresh for the
+              size given, so they keep their length. null goes back to one plain colour.
      rename   lets the user type a new name in place: Enter or clicking away keeps it, Escape puts the old one back,
               and an empty name is not kept. after(changed, was) is called when they finish, saying whether the
               name is now a different one and what it was. */
@@ -65,7 +66,7 @@ style('block', `
 .block.selected .block-name { color: var(--select); }
 /* a joined block: its parts' colours are drawn over the face, and the lips and rim are drawn again over those */
 .block-parts { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; overflow: hidden; pointer-events: none; }
-.block-parts path { stroke: var(--rim); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.block-parts .seams { fill: none; stroke: var(--rim); stroke-width: 1.2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .block.joined::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: var(--bands, none);
   box-shadow: inset 0 0 0 var(--px) var(--rim), inset 0 calc(2.5 * var(--px)) 0 var(--lit), inset 0 calc(-4 * var(--px)) 0 var(--shade); }
 .block.dim .block-parts, .block.off .block-parts { opacity: .25; }
@@ -97,6 +98,7 @@ export function createBlock(shape, rect, name = ''){
   for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
+  let joinedAs = '';
   const block = { el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(),
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
@@ -105,21 +107,35 @@ export function createBlock(shape, rect, name = ''){
     stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');
       if (way) el.style.setProperty('--u', unit + 'px'); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },
-    join(parts){ block.shape = { ...block.shape, parts: parts || undefined }; el.querySelector('.block-parts')?.remove(); el.classList.toggle('joined', !!parts);
+    join(parts, cols, rows){
+      const key = parts ? JSON.stringify([parts, cols, rows]) : ''; if (key === joinedAs) return; joinedAs = key;
+      el.querySelector('.block-parts')?.remove(); el.classList.toggle('joined', !!parts);
       if (!parts) return;
-      const W = Math.max(...parts.map(p => p.x + p.w)), H = Math.max(...parts.map(p => p.y + p.h)), a = .13, n = v => +v.toFixed(3);
+      const a = .13, eps = 1e-6, n = v => +v.toFixed(3);
       /* each part reaches a little under its neighbours above and to the left, and ends in a wave on the right and below
-         where another part follows. Drawn from the bottom right back to the top left, every wave lies over the part it borders. */
-      const path = p => { const X = p.x + p.w, Y = p.y + p.h; let d = `M${n(p.x - a)} ${n(p.y - a)}L${n(X)} ${n(p.y - a)}L${n(X)} ${n(p.y)}`;
-        if (X < W - 1e-6) for (let y = p.y, i = 0; y < Y - 1e-6; y += .5, i++){ const to = Math.min(Y, y + .5); d += `Q${n(X + (i % 2 ? -2 : 2) * a)} ${n((y + to) / 2)} ${n(X)} ${n(to)}`; } else d += `L${n(X)} ${n(Y)}`;
-        if (Y < H - 1e-6) for (let x = X, i = 0; x > p.x + 1e-6; x -= .5, i++){ const to = Math.max(p.x, x - .5); d += `Q${n((x + to) / 2)} ${n(Y + (i % 2 ? -2 : 2) * a)} ${n(to)} ${n(Y)}`; } else d += `L${n(p.x)} ${n(Y)}`;
-        return d + `L${n(p.x - a)} ${n(Y)}Z`; };
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'block-parts'); svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('preserveAspectRatio', 'none');
-      for (const p of [...parts].sort((p, q) => q.y - p.y || q.x - p.x)){ const el = document.createElementNS('http://www.w3.org/2000/svg', 'path'); el.setAttribute('d', path(p)); el.style.fill = `var(--${p.color})`; svg.append(el); }
+         where another part follows; a wave lies over the part it borders, so a part is drawn after every part to its
+         right and below it */
+      const right = (p, q) => Math.abs(q.x - p.x - p.w) < eps && q.y < p.y + p.h - eps && q.y + q.h > p.y + eps;
+      const below = (p, q) => Math.abs(q.y - p.y - p.h) < eps && q.x < p.x + p.w - eps && q.x + q.w > p.x + eps;
+      const order = [], seen = new Set(), visit = p => { if (seen.has(p)) return; seen.add(p); for (const q of parts) if (right(p, q) || below(p, q)) visit(q); order.push(p); };
+      parts.forEach(visit);
+      const down = p => { const X = p.x + p.w, Y = p.y + p.h; let d = '';      /* the wave down its right side, from the top; a straight line at the block's own edge */
+        if (X < cols - eps) for (let y = p.y, i = 0; y < Y - eps; y += .5, i++){ const to = Math.min(Y, y + .5); d += `Q${n(X + (i % 2 ? -2 : 2) * a)} ${n((y + to) / 2)} ${n(X)} ${n(to)}`; }
+        return d; };
+      const along = p => { const X = p.x + p.w, Y = p.y + p.h; let d = '';     /* the wave along its bottom, from the right */
+        if (Y < rows - eps) for (let x = X, i = 0; x > p.x + eps; x -= .5, i++){ const to = Math.max(p.x, x - .5); d += `Q${n((x + to) / 2)} ${n(Y + (i % 2 ? -2 : 2) * a)} ${n(to)} ${n(Y)}`; }
+        return d; };
+      const path = p => { const X = p.x + p.w, Y = p.y + p.h;
+        const in_ = Math.min(3 * a, p.w / 2);      /* the reach under the part above stops short of the corner, where that part's own wave turns away */
+        return `M${n(p.x - a)} ${n(p.y - a)}L${n(X - in_)} ${n(p.y - a)}L${n(X - in_)} ${n(p.y)}L${n(X)} ${n(p.y)}${down(p) || `L${n(X)} ${n(Y)}`}${along(p) || `L${n(p.x)} ${n(Y)}`}L${n(p.x - a)} ${n(Y)}Z`; };
+      const seams = p => (down(p) ? `M${n(p.x + p.w)} ${n(p.y)}${down(p)}` : '') + (along(p) ? `M${n(p.x + p.w)} ${n(p.y + p.h)}${along(p)}` : '');
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'block-parts'); svg.setAttribute('viewBox', `0 0 ${cols} ${rows}`); svg.setAttribute('preserveAspectRatio', 'none');
+      for (const p of order){ const part = document.createElementNS('http://www.w3.org/2000/svg', 'path'); part.setAttribute('d', path(p)); part.style.fill = `var(--${p.color})`; svg.append(part); }
+      const lines = document.createElementNS('http://www.w3.org/2000/svg', 'path'); lines.setAttribute('d', parts.map(seams).join('')); lines.setAttribute('class', 'seams'); svg.append(lines);      /* the waves' lines, over every part */
       el.prepend(svg); },
     paint(color){ block.shape = { ...block.shape, color }; el.style.setProperty('--block', `var(--${color})`); },
     call(name){ block.name = name; if (!nameEl.isContentEditable) nameEl.textContent = name; },
     rename(after = () => {}){ editText(nameEl, text => { const was = block.name; if (text) block.name = text; nameEl.textContent = block.name; after(block.name !== was, was); }); } };
-  block.set(rect); if (shape.parts) block.join(shape.parts);
+  block.set(rect);
   return block;
 }
