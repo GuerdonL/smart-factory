@@ -1011,12 +1011,16 @@ bus.on('undo', () => { const type = history.undo(); hud.say(type ? 'Undid ' + ty
 bus.on('redo', () => { const type = history.redo(); hud.say(type ? 'Redid ' + type : 'Nothing to redo'); });
 /* looking and moving about */
 bus.on('select', ({ ids, toggle = false }) => select(ids.map(blockOf).filter(Boolean), { toggle }));
-bus.on('select.box', () => {                   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
+bus.on('select.box', () => {                   /* s: drag a box; every block it touches is selected. Press s again to leave without selecting. */
   if (boxing) return boxing.cancel();
   const box = boxing = boxSelect(view);
   return box.done.then(r => { boxing = null; if (!r) return;
     const hit = space.blocks.filter(b => b.rect.x < r.x + r.w && b.rect.x + b.rect.w > r.x && b.rect.y < r.y + r.h && b.rect.y + b.rect.h > r.y);
-    pick(new Set(hit.flatMap(members))); }); });
+    /* a block the box touches brings its group only if the box crosses that group's frame or surrounds it: a box drawn
+       wholly inside a frame picks out what it touches there (which may be a group inside, by the same rule) */
+    const frame = g => { const m = boxOf(inGroup(g)), grow = namedBelow(g); return { x: m.x - 12 - 14 * grow, y: m.y - 32 - 34 * grow, w: m.w + 2 * (12 + 14 * grow), h: m.h + 32 + 34 * grow + 12 + 14 * grow }; };      /* as bounds.js draws it */
+    const within = f => r.x > f.x && r.y > f.y && r.x + r.w < f.x + f.w && r.y + r.h < f.y + f.h;
+    pick(new Set(hit.flatMap(b => { const g = chain(b).reverse().find(g => !within(frame(g))); return g === undefined ? [b] : inGroup(g); }))); }); });
 bus.on('escape', () => selected.size || !space.parent || boxing ? select([]) : out());      /* with nothing selected, Escape steps out of a definition space */
 bus.on('open', ({ id }) => { const b = blockOf(id); if (b) open(b); });
 bus.on('space.out', out); bus.on('space.back', backIn);
