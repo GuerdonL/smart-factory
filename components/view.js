@@ -2,8 +2,8 @@
 
    createView({ onChange(camera), onMenu(x, y, element), onClick(element, event), onDrag(element, point) }) -> { el, world, origin, unit, grid(), camera(), look(camera), home(), toWorld(x, y), toScreen(x, y), tool(t) }
      el        the element to put on the page
-     world     put things here to place them on the canvas, in world coordinates. It carries the CSS variable
-               --zoom, so a thing can keep a detail the same size on screen: calc(8px / var(--zoom))
+     world     put things here to place them on the canvas, in world coordinates. Everything in it zooms as one:
+               text, padding and line weights are in world units and keep their proportions at any zoom.
      grid()    the spacing of the dots now on screen, in world units; there is a dot at every multiple of it.
                Zoomed far out, the dots thin to every 2nd, 4th… so they stay apart, and grid() follows.
      camera()  { x, y, zoom }: the world point at the centre of the screen, and the zoom
@@ -50,7 +50,6 @@ export function createView({ onChange = () => {}, onMenu = () => {}, onClick = (
   let saveT = 0;
   function draw(){
     world.style.transform = `translate(${cam.tx}px,${cam.ty}px) scale(${cam.z})`;
-    world.style.setProperty('--zoom', cam.z);
     /* the grid is a background, so it never runs out. One kind of dot: every dot on screen is a place things snap to. */
     const g = grid() * cam.z;
     el.style.backgroundSize = `${g}px ${g}px`;

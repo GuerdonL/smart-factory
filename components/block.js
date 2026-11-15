@@ -27,10 +27,10 @@
 import { html, style, editText } from './dom.js';
 
 style('block', `
-.block { position: absolute; box-sizing: border-box; --px: calc(1px / var(--zoom, 1));   /* one screen pixel, whatever the zoom */
+.block { position: absolute; box-sizing: border-box; --px: 1px;   /* the measure every detail here is given in: world units, so it all zooms with the canvas */
   border-radius: calc(8 * var(--px));
   /* lit from above: a flat face with a bright top lip, a dark bottom lip, and a shadow underneath.
-     These are sized in screen pixels, so a block looks the same zoomed in or out. */
+     These are sized in world units, like everything on the canvas, so the whole picture zooms as one. */
   /* the block's own colours: the theme's, until dim() fades them */
   --face: var(--block); --rim: var(--edge); --lit: var(--raise-light); --shade: var(--raise-dark); --cast: var(--shadow); --ink: var(--fg);
   background: var(--bands, none) var(--face); transition: background-color .15s;

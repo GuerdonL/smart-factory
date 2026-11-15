@@ -7,7 +7,7 @@
 import { html, style } from './dom.js';
 
 style('marquee', `
-.marquee { position: absolute; z-index: 3; pointer-events: none; --px: calc(1px / var(--zoom, 1));
+.marquee { position: absolute; z-index: 3; pointer-events: none; --px: 1px;
   background: var(--select-halo); border: var(--px) dashed var(--select); border-radius: calc(2 * var(--px)); }
 `);
 

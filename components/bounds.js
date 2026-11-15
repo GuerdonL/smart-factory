@@ -25,7 +25,7 @@ const ICON = {
 };
 
 style('bounds', `
-.bounds { position: absolute; z-index: 2; pointer-events: none; --px: calc(1px / var(--zoom, 1)); --grow: 0;
+.bounds { position: absolute; z-index: 2; pointer-events: none; --px: 1px; --grow: 0;
   --pad: calc((12 + 14 * var(--grow)) * var(--px)); --top: calc((32 + 34 * var(--grow)) * var(--px)); --ink: var(--muted); }
 .bounds.selected { --ink: var(--select); }
 .bounds::before { content: ""; position: absolute; inset: calc(-1 * var(--top)) calc(-1 * var(--pad)) calc(-1 * var(--pad));
