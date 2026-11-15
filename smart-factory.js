@@ -497,8 +497,9 @@ function shown(){                              /* brings what is on screen in li
   if (space.definition && space.definition.tiled !== JSON.stringify(tileLook(space.owner))) write();      /* shapes have gone into, or come out of, its block's matrix */
   space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {});
   const ps = space.owner ? [] : all;
-  /* a result goes to the right of its piece; if something else is there (another block, or a result already placed),
-     it goes below instead, as far down as it takes to be clear */
+  /* a result stays by its piece: to the right; if something else is there (another block, or a result already placed),
+     just below, to the left, or a little further below; and if every one of those is taken, to the right all the
+     same, over whatever is there. It never goes off looking for room. */
   const taken = space.blocks.map(b => b.rect),      /* commented-out blocks are still in the way */
      hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
@@ -511,8 +512,8 @@ function shown(){                              /* brings what is on screen in li
     look: { letter: initials(b.name), values: valuesOf(b), inherited: inheritedBy(b, space), tiles: tileLook(b) } });
   writ.forEach(({ blocks, type, look, nameable, box }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     r.piece = { blocks, type, box };            /* what this result is the result of */
-    let at = r.set(box, type, { look, nameable });
-    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, type, { side: 'below', drop, look, nameable });
+    let at = null;
+    for (const where of [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}]){ at = r.set(box, type, { ...where, look, nameable }); if (!hits(at)) break; }
     r.piece.at = at; taken.push(at); });
   for (const r of results.slice(writ.length)) r.el.remove();
   /* a named group's frame takes in what is written beside its shapes, too */

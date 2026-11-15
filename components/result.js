@@ -4,7 +4,8 @@
      unit   world units to one "u"
      set    box is the rectangle round the piece's shapes ({ x, y, w, h }, world coordinates). side says where the
             "=" and the matrix go: 'right' (the default) puts them to the right of the box, level with its middle;
-            'below' puts them under it, starting at its left edge, `drop` further units down (default 0).
+            'below' puts them under it, starting at its left edge, `drop` further units down (default 0);
+            'left' puts the matrix and then the sign to the left of the box.
             Either way they sit on the dots.
             type is what the piece comes to: { cols, rows } is written out in matrix notation; { error } is written
             as the error, in the warning colour. With no type nothing is shown.
@@ -48,6 +49,11 @@ export function createResult({ unit }){
         body = m.el; body.classList.add('result-body'); width = m.width; height = m.height; }
       el.append(body); }
     /* the matrix sits on the dots; the sign is level with the matrix, a unit and a half before it */
+    if (side === 'left'){                      /* the matrix first, then the sign, then the shapes: [ … ] = [shapes] */
+      const signX = on(box.x) - 1.5 * unit, bodyX = signX - 1.5 * unit - width, y = height ? on(box.y + box.h / 2 - height / 2) : box.y + box.h / 2;
+      Object.assign(sign.style, { left: signX + 'px', top: y + height / 2 + 'px' });
+      Object.assign(body.style, { left: bodyX + 'px', top: y + 'px' }); Object.assign(nameEl.style, { left: bodyX + 'px', top: y + 'px' });
+      const air = unit / 4; return { x: bodyX - air, y: y - (height ? air : unit / 2), w: width + 2.5 * unit + air, h: (height || unit) + 2 * air }; }
     const left = side === 'below' ? on(box.x) : on(box.x + box.w) + 1.5 * unit;
     const top = side === 'below' ? on(box.y + box.h) + (1 + drop) * unit + (height ? 0 : unit / 2) : height ? on(box.y + box.h / 2 - height / 2) : box.y + box.h / 2;
     Object.assign(sign.style, { left: left + 'px', top: top + height / 2 + 'px' });
