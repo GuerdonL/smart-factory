@@ -19,6 +19,7 @@ import { createEquals } from './components/equals.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
+import { createHistory } from './history.js';
 import { SYSTEM, CONFIG, COLORS, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
 import { written, squares } from './components/matrix.js';
@@ -831,7 +832,8 @@ async function save(name){
 }
 
 /* opening replaces everything on the page */
-function openFrom(files, name = null){ const data = project.read(files); rebuild(data); current = name; hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes`); }
+function openFrom(files, name = null){ const data = project.read(files); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
+  hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes`); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
 const zipPicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true });
@@ -844,6 +846,8 @@ let boxing = null;                             /* the box selection in progress,
 addEventListener('keydown', e => {
   /* Ctrl or Cmd with c copies the selection; with x cuts it (copies, then removes); with v pastes in the middle of the screen. (While typing in a name or a
      measurement these keys never reach here, so text is copied and pasted as usual.) */
+  /* Ctrl or Cmd with z undoes; with shift and z, or with y, redoes */
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')){ e.preventDefault(); return bus.send(e.shiftKey || e.key === 'y' || e.key === 'Y' ? 'redo' : 'undo'); }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy', { ids: idsOf(selected) }); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); bus.send('cut', { ids: idsOf(selected) }); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); bus.send('paste', { at: { x: view.camera().x, y: view.camera().y }, pasted: clipboard }); } return; }
@@ -957,7 +961,8 @@ function clicked(el, e){
   }
   if (b && twice){                              /* double click */
     if (el === b.nameEl){ pick([b]);          /* on a name: rename it. Adding or taking off the // is not a new name, so it brings no new colour */
-      return b.rename((changed, was) => bus.send('rename', { id: b.id, name: b.name, color: changed && isNamed(b) && bare(b.name) !== bare(was) ? someColour(b.shape.color) : null })); }
+      return b.rename((changed, was) => { const name = b.name, color = changed && isNamed(b) && bare(name) !== bare(was) ? someColour(b.shape.color) : null;
+        b.call(was); bus.send('rename', { id: b.id, name, color }); }); }      /* the typing put the name on the block already: it is taken off again, and the message names it */
     if (selected.size === 1 && selected.has(b)) return bus.send('open', { id: b.id });             /* on a block selected alone: open its definition space */
     /* on a block in a selected group: step one group inwards, or to the block itself from the innermost */
     const outwards = chain(b).reverse(), at = outwards.indexOf(groupIs([...selected]));
@@ -985,6 +990,25 @@ const draw = {
    What each message does. Its payload is plain data; blocks are named by id. The ones marked `changes` can alter the
    project; the rest look at it, move about in it, or change what is selected. */
 const changes = { changes: true };
+/* ---- undo and redo ----
+   History is a tap on the bus (history.js). What it keeps is the whole project as it is saved, with where the user
+   was: the space they were in and what was selected. Putting one back rebuilds the project from it (every block and
+   group has its id again), keeps each space's view where it now is, and goes back to that place. */
+const history = createHistory(bus, {
+  snap: () => { const data = gather(); return { data, text: JSON.stringify(data.top), path: trail().slice(1).map(s => s.owner.id), selected: idsOf(selected) }; },
+  same: (a, b) => a.text === b.text,
+  restore(state){
+    const views = new Map([[null, space === top ? view.camera() : top.camera]]);      /* each space's camera, by the id of the block it defines */
+    for (const [b, s] of spaceOf) views.set(b.id, s === space ? view.camera() : s.camera);
+    const kept = clipboard, name = current;
+    rebuild(state.data); clipboard = kept; current = name;
+    top.camera = views.get(null); for (const [b, s] of spaceOf) if (views.has(b.id)) s.camera = views.get(b.id);
+    view.look(top.camera);
+    for (const id of state.path){ const b = space.blocks.find(x => x.id === id); if (!b) break; open(b); }
+    select(state.selected.map(blockOf).filter(b => b && space.blocks.includes(b)));
+  } });
+bus.on('undo', () => { const type = history.undo(); hud.say(type ? 'Undid ' + type : 'Nothing to undo'); });
+bus.on('redo', () => { const type = history.redo(); hud.say(type ? 'Redid ' + type : 'Nothing to redo'); });
 /* looking and moving about */
 bus.on('select', ({ ids, toggle = false }) => select(ids.map(blockOf).filter(Boolean), { toggle }));
 bus.on('select.box', () => {                   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
@@ -1052,6 +1076,8 @@ let menuAt = { x: 0, y: 0 };
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }) })) },
+  { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
+  { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },
   { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => bus.send('cut', { ids: idsOf(selected) }) },
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy', { ids: idsOf(selected) }) },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', { at: menuAt, pasted: clipboard }) },
