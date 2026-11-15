@@ -6,8 +6,9 @@
    not just at a corner), are a matrix product, left · right. It is defined when the left one's columns are the right
    one's rows: where both of those sides are named, they must carry the same name; otherwise they must be the same
    length. It gives a variable with the left one's rows and the right one's columns.
-   Touching is the only thing that combines shapes. Shapes that do not touch side by side have nothing to do with
-   each other, however close they are, and one above another is not an operation.
+   Touching is the only thing that combines shapes. Besides the product, shapes of one width set one directly on
+   top of the next are a stack (see stacks, below). Shapes that do not touch have nothing to do with each other here,
+   however close they are.
 
    joins(rects)  -> [{ left, right, x, y, ok, note }]
        every side-by-side touch: indexes into rects, the middle of the shared edge, whether the product is defined,
