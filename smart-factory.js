@@ -307,7 +307,7 @@ const boxOf = list => { const x = Math.min(...list.map(b => b.rect.x)), y = Math
    Naming a plain selection folds it into a new block of that name. Naming a group makes it a named group. */
 const selected = new Set();
 let measure = null;                            /* the dimension lines of the one selected block */
-const bounds = createBounds();
+const bounds = createBounds(), roomFrame = createBounds();
 const results = [];                            /* the Menu's "= …", one for each piece */
 let marks = [];                                /* the product marks now on the canvas */
 /* ---- shadowing ----
@@ -385,12 +385,14 @@ function shown(){                              /* brings what is on screen in li
   /* named groups keep their frames; the one that is the whole selection also carries the tools */
   const oneGroup = groupIs(list), live = new Set();
   for (const [id, name] of space.groupNames){
-    const ms = inGroup(id); if (ms.length < 2) continue;
+    const ms = inGroup(id); if (!ms.length) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
-    const f = space.frames.get(id), on = id === oneGroup;
-    f.set(boxOf(ms), { name, solid: true, selected: on, tools: on, grouped: true, fold: true, grow: namedBelow(id) }); view.world.append(f.el);
+    const f = space.frames.get(id), on = id === oneGroup || id === room.host;      /* held over it, the frame takes the selection in */
+    f.set(boxOf(id === room.host ? [...ms, ...list] : ms), { name, solid: true, selected: on, tools: id === oneGroup, grouped: true, fold: true, grow: namedBelow(id) }); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
+  if (room.host !== null && !space.groupNames.has(room.host)){ roomFrame.set(boxOf([...inGroup(room.host), ...list]), { selected: true, grouped: true, grow: namedBelow(room.host) }); view.world.append(roomFrame.el); }
+  else roomFrame.el.remove();                  /* a group with no name has no frame of its own: it is lent one while something is held over it */
   /* any other selection of several gets the dashed box, with a name to fill in */
   if (list.length > 1 && !live.has(oneGroup)){
     bounds.set(boxOf(list), { selected: true, tools: true, grouped: oneGroup !== null, grow: namedWithin(list) });
@@ -646,8 +648,51 @@ function dragged(el, from){
   if (!selected.has(b)) return;
   const start = [...selected].map(b => [b, b.rect]);
   cursor('move');
-  return { end, move(p){ const dx = snap(p.x - from.x), dy = snap(p.y - from.y);
-    for (const [b, r] of start) b.set({ ...r, x: r.x + dx, y: r.y + dy }); shown(); } };
+  /* held over a group, the selection is shown its place there: the group's pieces step aside and its frame takes the
+     selection in. Let go there and it joins the group; carried on, or let go elsewhere, the pieces go back. */
+  const held = new Set(selected), u = view.unit, moved = new Map();      /* moved: a piece that stepped aside -> where it was */
+  const others = [...new Set([...space.groupOf.values(), ...space.groupUp.keys(), ...space.groupUp.values()])].filter(id => { const m = inGroup(id); return m.length && !m.some(x => held.has(x)); });
+  const within = (p, r) => p.x >= r.x - u && p.x <= r.x + r.w + u && p.y >= r.y - 1.5 * u && p.y <= r.y + r.h + u;      /* the frame stands a little off its blocks, more above */
+  const back = () => { for (const [m, r] of moved) m.set(r); moved.clear(); };
+  return {
+    end(){ cursor(''); const host = room.host; room.host = null; room.box = null;
+      if (host === null) return;
+      for (const b of held){ const outer = chain(b).at(-1);
+        if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group */
+      tidy(); shown(); },
+    move(p){ const dx = snap(p.x - from.x), dy = snap(p.y - from.y);
+      for (const [b, r] of start) b.set({ ...r, x: r.x + dx, y: r.y + dy });
+      back();
+      const over = others.filter(id => within(p, boxOf(inGroup(id))) || (id === room.host && within(p, room.box)));
+      const area = id => { const r = boxOf(inGroup(id)); return r.w * r.h; };
+      room.host = over.length ? over.reduce((a, c) => area(c) < area(a) ? c : a) : null;      /* the innermost of those the pointer is in */
+      if (room.host !== null){ const members = inGroup(room.host);
+        for (const [m, r] of makeRoom(boxOf([...held]), members, u)){ moved.set(m, m.rect); m.set(r); }
+        room.box = boxOf([...members, ...held]); } else room.box = null;
+      shown(); } };
+}
+/* where a group's pieces must stand to leave this box clear, with a square of air round it. Pieces that touch move as
+   one. A piece in the way steps the shorter way out, across or up and down; one it then lands on steps on the same way.
+   Returns only the pieces that move: block -> its new rect. */
+const room = { host: null, box: null };        /* the group the dragged selection is held over, and the frame it is shown */
+function makeRoom(box, members, u){
+  const touch = (a, b) => a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h;
+  const clusters = [];
+  for (const m of members){ const joined = clusters.filter(c => c.some(o => touch(o.rect, m.rect)));
+    for (const c of joined) clusters.splice(clusters.indexOf(c), 1); clusters.push([m, ...joined.flat()]); }
+  const centre = r => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 }), c0 = centre(box), far = r => Math.hypot(centre(r).x - c0.x, centre(r).y - c0.y);
+  const near = (f, r) => r.x < f.x + f.w + u && r.x + r.w > f.x - u && r.y < f.y + f.h + u && r.y + r.h > f.y - u;
+  const placed = [{ r: box, way: null }], out = new Map();
+  for (const c of clusters.map(c => ({ blocks: c, r: boxOf(c) })).sort((a, b) => far(a.r) - far(b.r))){
+    const r = { ...c.r }; let way = null;
+    for (let i = 0; i < 40; i++){ const f = placed.find(o => near(o.r, r)); if (!f) break;
+      way ||= f.way || [['x', 1, f.r.x + f.r.w + u - r.x], ['x', -1, r.x + r.w - f.r.x + u], ['y', 1, f.r.y + f.r.h + u - r.y], ['y', -1, r.y + r.h - f.r.y + u]].reduce((a, b) => b[2] < a[2] ? b : a);
+      if (way[0] === 'x') r.x = way[1] > 0 ? f.r.x + f.r.w + u : f.r.x - u - r.w; else r.y = way[1] > 0 ? f.r.y + f.r.h + u : f.r.y - u - r.h; }
+    if (!way) continue;
+    placed.push({ r, way });
+    for (const m of c.blocks) out.set(m, { ...m.rect, x: m.rect.x + r.x - c.r.x, y: m.rect.y + r.y - c.r.y });
+  }
+  return out;
 }
 
 /* ---- clicks ----
