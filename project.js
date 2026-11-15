@@ -46,7 +46,7 @@
    A named side's length is not stored anywhere else: it is the size of the sides that carry the name.
 
    A group's config:
-       { "format": "smart-factory/group", "version": 1, "name": "Pair", "named": true,
+       { "format": "smart-factory/group", "version": 1, "id": "g4k09zq", "name": "Pair", "named": true,
          "shapes": [ { a shape's config }, … ],            the shapes directly in the group
          "groups": [ { "name", "named", "shapes", "groups" }, … ] }      the groups inside it, written the same way
 
@@ -55,13 +55,13 @@
 
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
-   project: { top: space, saved: an ISO date }
+   project: { top: space, saved: an ISO date, ids: where the project's source of ids has got to (ids.js), kept in project.json }
 
    Format 1 had two spaces at the top: the top level, in the project's directory, and the settings, in _settings/.
    Now there is one, the Menu, which is what the settings were. Reading a format 1 project, _settings/ becomes the
    top; if the old top level had shapes too, they are kept inside one block called "Top level", set beside it.
    space:   { shapes: [shape], groups: [group] }
-   group:   { name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
+   group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
               variable: a number shared by shapes that are one variable, or null,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
@@ -100,13 +100,13 @@ export function write(project){
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.tile ? { tile: true } : {}),
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
-    const inner = g => ({ name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
+    const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
     let hasConfig = false;
     s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'group ' + (n + 1), taken);
       if (own) hasConfig = true;
       files.push({ path: own ? dir + '.config' : dir + name + '.group.json', text: JSON.stringify({ format: 'smart-factory/group', version: FORMAT, ...body }, null, 2) + '\n' }); });
   };
-  files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null }, null, 2) + '\n' });
+  files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, ...(project.ids ? { ids: project.ids } : {}) }, null, 2) + '\n' });
   space(project.top, '');
   return files;
 }
@@ -124,7 +124,7 @@ export function read(files){
 
   const space = dir => {
     const found = [], groups = [];                       /* found: [config, the group it is directly in, or null] */
-    const take = c => { const g = { name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take) };
+    const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take) };
       for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
       if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !(path.endsWith('.json') || path.slice(dir.length) === '.config') || path === 'project.json') continue;
@@ -147,7 +147,7 @@ export function read(files){
     const menu = space('_settings/');
     if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'lazuli', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
       cols: 3, rows: 2, colsName: null, rowsName: null, entries: {}, inside: top, variable: null });
-    return { top: menu, saved: meta.saved || null };
+    return { top: menu, saved: meta.saved || null, ids: meta.ids || null };
   }
-  return { top, saved: meta.saved || null };
+  return { top, saved: meta.saved || null, ids: meta.ids || null };
 }

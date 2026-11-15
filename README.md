@@ -29,6 +29,8 @@ There is no password. Anyone who can reach the port can read and overwrite the p
 - `bus.js`: the message bus. Everything the user does takes effect as a named message of plain data (blocks by id)
   sent through it; it keeps a log and can be tapped before and after each message, which is where history and undo
   will attach. What each message does is listed under "messages" in `smart-factory.js`.
+- `ids.js`: a seeded source of ids and of chance, kept with each project, so groups keep their ids and the same
+  messages make the same choices.
 - `system.js`: the program's own variables, the tree a `.config` shadows.
 - `shapes/`: the kinds of block, one config each, listed in `shapes/index.json`.
 - `projects/`: saved projects, including `default-menu`, what the page opens on until you save a `menu` of your own.

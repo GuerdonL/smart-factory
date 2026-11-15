@@ -18,6 +18,7 @@ import { joins, pieces, stacks, typeOf, initials, readEntry } from './algebra.js
 import { createEquals } from './components/equals.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
+import { createIds } from './ids.js';
 import { SYSTEM, CONFIG, COLORS, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
 import { written, squares } from './components/matrix.js';
@@ -105,7 +106,7 @@ const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoo
 function someColour(not){                        /* one this space is not using, while there is one; never the one it has */
   const used = new Set(space.blocks.map(b => b.shape.color)), free = PALETTE.filter(c => !used.has(c) && c !== not);
   const from = free.length ? free : PALETTE.filter(c => c !== not);
-  return from[Math.floor(Math.random() * from.length)];
+  return from[Math.floor(ids.random() * from.length)];
 }
 function renamed(b, color){                        /* color: the new colour that comes with a new name, if it is one */
   if (color) b.paint(color);
@@ -361,7 +362,10 @@ function typedNow(b, dim, text){
    A group can be given a name. A named group keeps a solid frame and its name on the canvas whether or not it is
    selected. It behaves as one named thing, but its blocks stay where they are, in this space, and can still be
    worked on directly; folding it is what moves them into a block of their own. */
-let nextGroup = 1;
+/* a project's ids and its chance come from one seeded source (ids.js), kept with the project: a group's id is the same
+   group whenever the project is opened, and the same messages make the same ids and pick the same colours */
+let ids = createIds();
+const newGroup = () => ids.id('g');
 /* the groups b is in, innermost first */
 const chain = (b, s = space) => { const out = []; for (let g = s.groupOf.get(b); g !== undefined; g = s.groupUp.get(g)) out.push(g); return out; };
 const inGroup = (g, s = space) => s.blocks.filter(b => chain(b, s).includes(g));
@@ -373,7 +377,7 @@ const groupIs = list => { if (list.length < 2) return null;
 /* makes these blocks one group. Groups lying wholly among them go in as they are, as groups within the new one;
    the new group itself sits in whatever group already held all of them. */
 function group(list){
-  const g = nextGroup++, done = new Set();
+  const g = newGroup(), done = new Set();
   const holder = chain(list[0]).find(c => list.every(b => chain(b).includes(c)));      /* the innermost group holding them all, if any */
   for (const b of list){ if (done.has(b)) continue;
     let unit = null; for (const c of chain(b)){ if (c === holder) break; if (inGroup(c).every(x => list.includes(x))) unit = c; }      /* the largest group, with b in it, wholly inside the list */
@@ -448,8 +452,8 @@ function programDefaults(){
   for (const v of SYSTEM) defaults.set(v.key, v.cssRows ? v.cssRows.flatMap(rgb) : v.css ? rgb(v.css) : v.value);      /* an array of colours: its rows end to end */
   probe.remove(); return defaults;
 }
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { defaults = null; shown(); });
-new MutationObserver(() => { defaults = null; shown(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => bus.send('theme', { dark: e.matches }));
+new MutationObserver(() => bus.send('theme', { set: document.documentElement.dataset.theme || null })).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 const inConfig = (b, s) => chain(b, s).some(g => (s.groupNames.get(g) || '').trim() === CONFIG);
 /* a system variable as it stands after the .configs of these spaces, highest first, have each covered what they give */
 function systemValue(key, spaces){
@@ -484,8 +488,8 @@ function summon(item, at){
   const which = !item.group ? SYSTEM.filter(v => v.key === item.key) : item.name === COLORS ? SYSTEM.filter(v => v.css) : SYSTEM;
   const [x0, y0] = which[0].at;
   let config = [...space.groupNames].find(([, name]) => name.trim() === CONFIG)?.[0];
-  if (config === undefined){ config = nextGroup++; space.groupNames.set(config, CONFIG); }
-  const groups = new Map(), groupFor = (name, up) => { if (!groups.has(name)){ const id = nextGroup++; groups.set(name, id); space.groupNames.set(id, name); space.groupUp.set(id, up); } return groups.get(name); };
+  if (config === undefined){ config = newGroup(); space.groupNames.set(config, CONFIG); }
+  const groups = new Map(), groupFor = (name, up) => { if (!groups.has(name)){ const id = newGroup(); groups.set(name, id); space.groupNames.set(id, name); space.groupUp.set(id, up); } return groups.get(name); };
   for (const v of which){ const b = createBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (v.at[0] - x0) * u, y: on(at.y) + (v.at[1] - y0) * u, w: v.cols * u, h: (v.rows || 1) * u }, v.name);
     space.blocks.push(b); view.world.append(b.el); made.push(b);
     space.groupOf.set(b, item.group && v.branch ? groupFor(v.branch, groupFor(COLORS, config)) : config); }
@@ -617,7 +621,8 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ tile: !!b.tile, shape: b.shape, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: new Map(b.values), groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
+const picture = (b, s) => ({ tile: !!b.tile, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: [...b.values],      /* plain data throughout, so a paste can say what it pasted */
+  groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
   members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
@@ -633,7 +638,7 @@ function develop(pictures, s, dx, dy){
     const b = createBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); if (pic.tile && s !== space) b.tile = true;
     if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
     s.blocks.push(b); made.push(b);
-    pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, nextGroup++); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
+    pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, newGroup()); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
       if (i === 0) s.groupOf.set(b, groups.get(g.id)); else s.groupUp.set(groups.get(pic.groups[i - 1].id), groups.get(g.id)); });
     if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   }
@@ -647,8 +652,8 @@ function hidden(pic, s){
   if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   return b;
 }
-function paste(at){                             /* at: a world point; the pasted blocks are centred on it, on the dots */
-  if (!clipboard) return;
+function paste(at, clipboard){                             /* at: a world point; the pasted blocks are centred on it, on the dots */
+  if (!clipboard?.length) return;
   const u = view.unit, rs = clipboard.map(p => p.rect), x0 = Math.min(...rs.map(r => r.x)), y0 = Math.min(...rs.map(r => r.y));
   const cx = (x0 + Math.max(...rs.map(r => r.x + r.w))) / 2, cy = (y0 + Math.max(...rs.map(r => r.y + r.h))) / 2;
   let dx = Math.round((at.x - cx) / u) * u, dy = Math.round((at.y - cy) / u) * u;
@@ -761,8 +766,8 @@ function gather(){
     groups: tree(s, undefined) });
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
-    .map(g => ({ name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
-  return { top: plain(top), saved: new Date().toISOString() };
+    .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
+  return { top: plain(top), saved: new Date().toISOString(), ids: ids.state() };
 }
 /* the reverse: everything on the page is replaced by what the data describes */
 function rebuild(data){
@@ -770,6 +775,7 @@ function rebuild(data){
   for (const s of [top]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
     s.blocks.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.frames.clear(); }
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
+  ids = createIds(); if (data.ids) ids.restore(data.ids);
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
   const u = view.unit;
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
@@ -784,7 +790,7 @@ function rebuild(data){
     return b; };
   const fill = (plain, s) => {
     for (const d of plain.shapes) s.blocks.push(build(d, s));
-    const regroup = (g, up) => { const id = nextGroup++; if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name);
+    const regroup = (g, up) => { const id = g.id || newGroup(); if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name);
       for (const i of g.members) s.groupOf.set(s.blocks[i], id); for (const inner of g.groups || []) regroup(inner, id); };
     for (const g of plain.groups) regroup(g, undefined);
     tidy(s);
@@ -805,11 +811,10 @@ ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => k
   else if (!kept) Promise.all(DEFAULT_MENU.map(path => fetch('projects/default-menu/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e))))
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
-async function save(){
+async function save(name){
   const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
   try {
     if (kept){                                   /* on the server, under a name */
-      const name = (window.prompt('Save this project as', current || 'untitled') || '').trim();
       if (!name) return hud.say('Not saved');
       const r = await fetch('api/projects/' + encodeURIComponent(name), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(files) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'the server answered ' + r.status);
@@ -836,16 +841,16 @@ let boxing = null;                             /* the box selection in progress,
 addEventListener('keydown', e => {
   /* Ctrl or Cmd with c copies the selection; with x cuts it (copies, then removes); with v pastes in the middle of the screen. (While typing in a name or a
      measurement these keys never reach here, so text is copied and pasted as usual.) */
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy'); } return; }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); bus.send('cut'); } return; }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); bus.send('paste', { at: view.camera() }); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy', { ids: idsOf(selected) }); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); bus.send('cut', { ids: idsOf(selected) }); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); bus.send('paste', { at: { x: view.camera().x, y: view.camera().y }, pasted: clipboard }); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === 'Escape') return bus.send('escape');      /* with nothing selected, Escape steps out of a definition space */
   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
   if (e.key === 's' || e.key === 'S') return bus.send('select.box');
-  if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose'); }      /* t transposes the selection */
+  if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose', { ids: idsOf(selected) }); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
-  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); bus.send('delete'); }
+  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); bus.send('delete', { ids: idsOf(selected) }); }
 });
 
 /* ---- drags that begin on a block ----
@@ -996,14 +1001,20 @@ bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); if (b && !s
 bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size) select([]); if (kind === 'length') reach(x, y); });
 bus.on('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); });
 bus.on('new', ({ type }) => { const shape = typeNamed(type); return draw[shape.draw]?.(shape); });      /* begins drawing; 'add' is the block */
-bus.on('copy', copy); bus.on('save', save);
+bus.on('copy', ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
+bus.on('save', ({ name = null }) => save(name));      /* name: what was typed when asked what to save it as */
 bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () => zipPicker.click());
 /* changing the project */
 bus.on('project.load', ({ files, name = null }) => openFrom(files, name), changes);
 bus.on('add', ({ type, rect, name }) => { const b = createBlock({ ...typeNamed(type) }, rect, name); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 bus.on('place', ({ rects }) => { for (const r of rects) blockOf(r.id)?.set({ x: r.x, y: r.y, w: r.w, h: r.h }); shown(); }, changes);      /* where blocks go, and how big: the end of a move or a resize */
-bus.on('cut', cut, changes); bus.on('paste', ({ at }) => paste(at), changes); bus.on('delete', remove, changes);
-bus.on('transpose', transpose, changes); bus.on('join', joinShapes, changes); bus.on('disjoin', disjoin, changes);
+/* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
+const chosen = fn => ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(); };
+bus.on('cut', chosen(cut), changes); bus.on('delete', chosen(remove), changes);
+bus.on('transpose', chosen(transpose), changes); bus.on('join', chosen(joinShapes), changes); bus.on('disjoin', chosen(disjoin), changes);
+bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
+/* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
+bus.on('theme', () => { defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return; b.call(name); renamed(b, color); }, changes);
 bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text === null ? undefined : readEntry(text);      /* nothing typed puts the symbol back; anything that is not a number is not taken */
   if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v); }
@@ -1038,14 +1049,15 @@ let menuAt = { x: 0, y: 0 };
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }) })) },
-  { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => bus.send('cut') },
-  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy') },
-  { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', { at: menuAt }) },
-  { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: () => bus.send('transpose') },
-  { label: 'Join', disabled: () => !fitsTogether([...selected]), run: () => bus.send('join') },
-  { label: 'Disjoin', disabled: () => ![...selected].some(b => b.members), run: () => bus.send('disjoin') },
-  { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => bus.send('delete') },
-  { label: 'Save project', run: () => bus.send('save') },
+  { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => bus.send('cut', { ids: idsOf(selected) }) },
+  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy', { ids: idsOf(selected) }) },
+  { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', { at: menuAt, pasted: clipboard }) },
+  { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: () => bus.send('transpose', { ids: idsOf(selected) }) },
+  { label: 'Join', disabled: () => !fitsTogether([...selected]), run: () => bus.send('join', { ids: idsOf(selected) }) },
+  { label: 'Disjoin', disabled: () => ![...selected].some(b => b.members), run: () => bus.send('disjoin', { ids: idsOf(selected) }) },
+  { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => bus.send('delete', { ids: idsOf(selected) }) },
+  { label: 'Save project', run: () => { const name = kept ? (window.prompt('Save this project as', current || 'untitled') || '').trim() : null;      /* asked here, so the message says what was answered */
+    if (kept && !name) return hud.say('Not saved'); bus.send('save', { name }); } },
   { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => bus.send('project.open', { name }) })) : [{ label: 'From a zip', run: () => bus.send('project.pick') }] },
 ]);
 const hud = createHud({ onHome: () => bus.send('camera.home') });
