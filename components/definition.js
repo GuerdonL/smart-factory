@@ -41,11 +41,11 @@ style('definition', `
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
 
-export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, editable = false, colsName = null, rowsName = null }){
+export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, inherited, editable = false, colsName = null, rowsName = null }){
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign">=</div></div>`;
   el.classList.toggle('editable', editable);
-  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit, letter, color, values });
+  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit, letter, color, values, inherited });
   matrix.el.classList.add('promised');
   /* the sign is at the origin, with one unit of air each side; both sides are level with it */
   const top = on(-rows * unit / 2), level = top + rows * unit / 2;

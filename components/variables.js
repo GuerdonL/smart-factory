@@ -1,10 +1,12 @@
 /* The variables in reach, down the right edge of the screen: named shapes and named side lengths.
 
-   createVariables({ onDrag(item, x, y), onDrop(item, x, y), onEnd() }) -> { el, show(items) }
+   createVariables({ onDrag(item, x, y), onDrop(item, x, y), onEnd() }) -> { el, show(items, hidden) }
      show     takes what to list, top to bottom:
                 { kind: 'shape',  name, color, cols, rows }   drawn as a miniature of the shape, with its name
                 { kind: 'length', name, units }               drawn as a ruler, with its name and its length
               Anything else on an item is kept and handed back untouched, for the caller's own use.
+              hidden is a second list, of the same kind of items (kind 'system' is drawn as a shape; with group: true,
+              as an outline). It is kept out of sight below a divider and a plus button; the button opens and shuts it.
      Each sits small and washed out until the pointer is over it, when it grows and takes its full colour.
      It can then be pressed and dragged out onto the canvas:
      onDrag   called as it moves, with the item and the pointer's screen position
@@ -28,6 +30,13 @@ style('variables', `
 .variable small { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* the copy that follows the pointer hangs below and to the right of it, so it never covers what it is about to land on */
 .variable-ghost { position: fixed; z-index: 30; pointer-events: none; margin: 0; transform: translate(14px, 14px) scale(1.12); transform-origin: left top; }
+.variable-mini.group { background: none; box-shadow: none; border: 1.5px dashed var(--muted); box-sizing: border-box; }
+.variables-more { flex: none; pointer-events: auto; display: flex; align-items: center; gap: 6px; margin: 4px 6px 2px 0; }
+.variables-more::before { content: ""; width: 44px; height: 1px; background: var(--line); }
+.variables-more button { all: unset; box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  font: 15px/20px var(--font-ui); text-align: center; cursor: pointer; }
+.variables-more button:hover { color: var(--fg); background: var(--hover); }
+.variables-more button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .variable { transition: none; } }
 `);
 
@@ -37,8 +46,8 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
   let showing = '';
   const draw = item => {
     const v = html`<div class="variable"></div>`;
-    if (item.kind === 'shape'){ const k = 22 / Math.max(item.cols, item.rows), mini = html`<i class="variable-mini"></i>`;      /* the shape's proportions, 22px on its longer side */
-      Object.assign(mini.style, { width: Math.max(5, item.cols * k) + 'px', height: Math.max(5, item.rows * k) + 'px' }); mini.style.setProperty('--mini', `var(--${item.color})`);
+    if (item.kind !== 'length'){ const k = 22 / Math.max(item.cols, item.rows), mini = html`<i class="variable-mini"></i>`;      /* the shape's proportions, 22px on its longer side */
+      Object.assign(mini.style, { width: Math.max(5, item.cols * k) + 'px', height: Math.max(5, item.rows * k) + 'px' }); mini.style.setProperty('--mini', `var(--${item.color})`); mini.classList.toggle('group', !!item.group);
       v.append(mini, html`<span></span>`); v.lastChild.textContent = item.name; }
     else { v.innerHTML = RULER; v.append(html`<span></span>`, html`<small></small>`); v.children[1].textContent = item.name; v.lastChild.textContent = item.units + 'u'; }
     return v;
@@ -58,9 +67,17 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
       onEnd(); };
     v.addEventListener('pointermove', move); v.addEventListener('pointerup', up); v.addEventListener('pointercancel', up);
   }
-  return { el, show(items){
-    const key = JSON.stringify(items.map(i => [i.kind, i.name, i.color, i.cols, i.rows, i.units]));
+  let open = false, last = [[], []];
+  const more = html`<div class="variables-more"><button type="button" aria-expanded="false" aria-label="System variables" title="System variables">+</button></div>`;
+  const self = { el, show(items, hidden = []){
+    last = [items, hidden];
+    const key = JSON.stringify([open, ...[...items, ...hidden].map(i => [i.kind, i.name, i.color, i.cols, i.rows, i.units])]);
     if (key === showing && !items.some(i => i.fresh)) return;      /* nothing to redraw: leave whatever is being hovered or dragged alone */
-    showing = key; el.hidden = !items.length; el.replaceChildren();
-    for (const item of items){ const v = draw(item); v.addEventListener('pointerdown', e => { if (e.button === 0) hold(v, item, e); }); el.append(v); } } };
+    showing = key; el.hidden = !items.length && !hidden.length; el.replaceChildren();
+    const put = item => { const v = draw(item); v.addEventListener('pointerdown', e => { if (e.button === 0) hold(v, item, e); }); el.append(v); };
+    items.forEach(put);
+    if (hidden.length){ more.firstChild.textContent = open ? '\u2212' : '+'; more.firstChild.setAttribute('aria-expanded', open); el.append(more); if (open) hidden.forEach(put); } } };
+  more.firstChild.addEventListener('pointerdown', e => e.stopPropagation());
+  more.firstChild.addEventListener('click', () => { open = !open; self.show(...last); });
+  return self;
 }

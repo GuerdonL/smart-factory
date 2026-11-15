@@ -26,13 +26,17 @@ The page has one space at the top, the Menu, and a project is what is in it. On 
 called `menu` if you have saved one, and otherwise `default-menu`, which comes with the repository. Save offers the
 name `menu`, so your first save makes the Menu your own without touching `default-menu`.
 
-## .config
+## .config and shadowing
 
-A group named `.config` gives values to the theme's root variables (the ones in `smart-factory.css`) for the space it
-is in and every space below it. Each shape in the group stands for the variable of its name: `tensor`, `data in` and
-`--data-in` all work. A shape of three entries is a colour, as red, green, blue; a shape of one entry is a number.
-A `.config` further down overrides the ones above it, for its own space and below. It is saved as a file called
+The program's own variables exist from the start, above the Menu: `.config`, holding `.colors`, holding one variable
+for each plain colour of the theme (`.tensor`, `.bg`, ...), each a shape of three entries: red, green, blue. They are
+behind the plus button under the list at the right edge, and can be dragged in from there.
+
+A group named `.config` shadows the program's from its space downwards, and one further down shadows it again. It
+covers only what it gives: a colour shape with one entry filled changes that one entry. It is saved as a file called
 `.config` in its space's directory, so there can be one at every level; the Menu's is the project's root `.config`.
+
+Every variable works this way: a shape with the name of one higher up shadows it from there down, entry by entry.
 
 ## example/
 

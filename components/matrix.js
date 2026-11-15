@@ -10,6 +10,8 @@
                   its rows come from (the first of the chain) and the block its columns come from (the last).
                   Each entry is then written as the pair it is made from, each half in its block's colour:
                   k₂·q₃ is the second row of k against the third column of q.
+     inherited    a Map of the same kind: entries not given here but given by a definition this one shadows. They are
+                  written faintly, and a value of the block's own covers them.
      values       a Map from "column,row" (say "2,1") to a number, for entries that have been given one. Those are
                   written as the number, upright, in place of the symbol; infinity is +∞ or −∞.
      width, height  the size of what was made, in world units (for placing it)
@@ -27,6 +29,7 @@ style('matrix', `
 .matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; line-height: 1; }
 .matrix > span { text-align: center; line-height: var(--cell); white-space: nowrap; }      /* centred in its square */
 .matrix > span.set { font-style: normal; font-family: var(--font-ui); font-weight: 600; font-size: .92em; font-variant-numeric: tabular-nums; }
+.matrix > span.set.inherited { opacity: .45; font-weight: 400; }
 .matrix i { font-style: inherit; }           /* half of a product's entry */
 .matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves */
 .matrix > span.dots { font-style: normal; color: var(--muted); }
@@ -40,7 +43,7 @@ const shown = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 
 /* how many squares a side of n takes once written (the elided middle is one) */
 export const squares = n => shown(n).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), product = null }){
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null }){
   const cs = shown(cols), rs = shown(rows), vector = cols === 1 || rows === 1;
   const el = html`<div class="matrix"></div>`;
   /* one size of type for the whole matrix, small enough that its widest entry fits its square:
@@ -48,7 +51,7 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
   const comma = cols > 9 || rows > 9 ? ',' : '', digits = n => String(n).length;
   const symbol = product ? .5 * (product.rows.letter.length + product.cols.letter.length) + .34 * (digits(rows) + digits(cols)) + .3
     : .5 * letter.length + .34 * (vector ? digits(Math.max(cols, rows)) : digits(cols) + digits(rows) + (comma ? .6 : 0));
-  const widest = Math.max(symbol, ...[...values.values()].map(v => written(v).length * .72));
+  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(v => written(v).length * .72));
   el.style.fontSize = Math.min(cell * .6, cell * .8 / widest) + 'px';
   el.style.gridTemplateColumns = `repeat(${cs.length}, ${cell}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
   for (const r of rs) for (const c of cs){
@@ -58,6 +61,7 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     if (product) entry.append(half(product.rows, r), html`<b>·</b>`, half(product.cols, c));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
       if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
+      else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); }      /* not given here: what a definition higher up gives */
       else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? r : c) : c + comma + r; } }
     el.append(entry);
   }

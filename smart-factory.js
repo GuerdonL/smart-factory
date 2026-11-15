@@ -54,7 +54,7 @@ function write(){
   if (!space.owner) return;
   const o = space.owner, r = o.rect;
   space.definition = createDefinition({ cols: Math.round(r.w / view.unit), rows: Math.round(r.h / view.unit), unit: view.unit,
-    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: o.values, editable: isNamed(o),      /* a named block's matrix is written in its colour */
+    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: o.values, inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
     colsName: o.sides.w, rowsName: o.sides.h });
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
@@ -114,8 +114,13 @@ function inReach(){
       items.push({ kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b }); }
     for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); items.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
   }
-  return [...items.filter(i => i.kind === 'shape'), ...items.filter(i => i.kind === 'length')];
+  /* of several definitions of one name, the lowest is the one in reach: it shadows the others. Dotted names are kept out. */
+  const lowest = new Map(); for (const i of items) if (i.kind === 'shape') lowest.set(bare(i.name).trim(), i);
+  const shapes = items.filter(i => i.kind === 'shape' && lowest.get(bare(i.name).trim()) === i && !isHidden(i.name));
+  return [...shapes, ...items.filter(i => i.kind === 'length')];
 }
+const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 },
+  ...SYSTEM.map(key => ({ kind: 'system', name: '.' + key, key, color: key, cols: 3, rows: 1 }))];
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at){
   const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
@@ -150,6 +155,7 @@ const variables = createVariables({
   onDrag: (item, x, y) => { if (selected.size) select([]); if (item.kind === 'length') reach(x, y); },
   onDrop: (item, x, y) => {
     if (item.kind === 'shape') return useShape(item.block, view.toWorld(x, y));
+    if (item.kind === 'system'){ summon(item, view.toWorld(x, y)); return shown(); }
     const target = reach(x, y), u = view.unit;
     if (target) typed(target.b, target.dim, item.name);                                     /* onto a side: that side takes the name, and its length */
     else { const at = view.toWorld(x, y), on = v => Math.round(v / u) * u, h = item.units * u;      /* onto the canvas: a vector that long */
@@ -271,21 +277,22 @@ function ungroup(g, s = space){
   for (const [c, at] of s.groupUp) if (at === g) up === undefined ? s.groupUp.delete(c) : s.groupUp.set(c, up);
   s.groupUp.delete(g); s.groupNames.delete(g);
 }
-/* after blocks have left: a group with fewer than two things in it is no group, and a group that is gone keeps no name */
+/* after blocks have left: an unnamed group with fewer than two things in it is no group, nor a named one with nothing, and a group that is gone keeps no name */
 function tidy(s = space){
   for (const b of [...s.groupOf.keys()]) if (!s.blocks.includes(b)) s.groupOf.delete(b);
   for (let again = true; again;){ again = false;
     const ids = new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()]);
     for (const g of ids){ const holds = [...s.groupOf.values()].filter(at => at === g).length + [...s.groupUp.values()].filter(at => at === g).length;
-      if (holds < 2){ ungroup(g, s); again = true; break; } } }
+      if (holds < (s.groupNames.has(g) ? 1 : 2)){ ungroup(g, s); again = true; break; } } }      /* a named group may hold a single thing */
   const live = new Set([...s.groupOf.values(), ...s.groupUp.values()]);
   for (const id of [...s.groupNames.keys()]) if (!live.has(id)) s.groupNames.delete(id);
 }
 /* how many levels of named groups sit strictly inside these blocks' frame: 0 if none */
-function namedWithin(list, not = null){
+const namedBelow = id => Math.max(0, ...[...space.groupUp].filter(([, up]) => up === id).map(([c]) => (space.groupNames.has(c) ? 1 : 0) + namedBelow(c)));      /* the same, for a group: by what is grouped inside it */
+function namedWithin(list, not = []){             /* not: the groups already counted on the way in (two may hold exactly the same blocks) */
   let most = 0;
-  for (const [id] of space.groupNames){ if (id === not) continue; const m = inGroup(id);
-    if (m.length && m.every(b => list.includes(b))) most = Math.max(most, 1 + namedWithin(m, id)); }
+  for (const [id] of space.groupNames){ if (not.includes(id)) continue; const m = inGroup(id);
+    if (m.length && m.every(b => list.includes(b))) most = Math.max(most, 1 + namedWithin(m, [...not, id])); }
   return most;
 }
 const boxOf = list => { const x = Math.min(...list.map(b => b.rect.x)), y = Math.min(...list.map(b => b.rect.y));
@@ -303,28 +310,70 @@ let measure = null;                            /* the dimension lines of the one
 const bounds = createBounds();
 const results = [];                            /* the Menu's "= …", one for each piece */
 let marks = [];                                /* the product marks now on the canvas */
-/* .config: a group with that name hands values to the theme's root variables, for the space it is in and every space
-   below it. A shape in the group stands for the variable of its name ("data in" and "--data-in" are both --data-in).
-   A shape of three entries is a colour, red green blue; a shape of one entry is a number. A shape whose name is no root
-   variable, or whose entries are not all given, or which gives a number where the theme has a colour, does nothing. A .config further down is laid over the ones above it,
-   so what it sets wins there and below. A commented-out shape, or a group called //.config, takes no part. */
-const CONFIG = '.config', rootStyle = document.documentElement.style, configured = new Set();
-const configOf = s => { const found = new Map();
-  for (const [id, name] of s.groupNames){ if (name.trim() !== CONFIG) continue;
-    for (const b of inGroup(id, s)){ if (isOff(b)) continue;
-      const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), v = [];
-      for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(b.values.get(c + ',' + r));
-      if (!v.every(Number.isFinite)) continue;
-      const key = '--' + bare(b.name).trim().toLowerCase().replace(/^--/, '').replace(/\s+/g, '-');
-      if (v.length === 3) found.set(key, `rgb(${v.map(n => Math.max(0, Math.min(255, n))).join(', ')})`); else if (v.length === 1) found.set(key, String(v[0])); } }
-  return found; };
+/* ---- shadowing ----
+   A variable is defined at the highest space that mentions it. A shape of the same name further down is a new
+   definition that shadows the one above, from its own space downwards, but only in the parts it gives: an entry it
+   leaves blank is still the entry from above (written faintly in its matrix), and an entry it gives covers it.
+
+   The program's own variables are there from the start, above the Menu. Their names begin with a dot, and they are
+   kept out of the list at the right edge, behind its plus button. They are .config, which holds .colors, which holds
+   one variable for each plain colour of the theme (.tensor, .bg, ...): a shape of three entries, red green blue.
+   A group named .config shadows the program's .config from its space downwards, and one further down shadows it
+   again. Only what is in it counts: a shape named for a system variable, anywhere in the group (in a .colors group
+   inside it or not), covers the entries it gives and no others. Anything else in the group is a new attribute, which
+   the program does not read. A commented-out shape, or a group called //.config, takes no part. */
+const CONFIG = '.config', COLORS = '.colors', rootStyle = document.documentElement.style;
+const SYSTEM = ['tensor', 'data-in', 'lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon', 'bg', 'fg', 'muted', 'panel', 'line', 'hover', 'dot', 'focus', 'fade-to', 'warn', 'select', 'measure'];
+const leaf = name => bare(name).trim().toLowerCase().replace(/^(--|\.)/, '').replace(/\s+/g, '-');      /* ".Data in" -> "data-in" */
+const isHidden = name => bare(name).trim().startsWith('.');
+const cells = b => { const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), v = [];      /* a block's entries, row by row */
+  for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(b.values.get(c + ',' + r)); return v; };
+let defaults = null;                           /* the theme's own colours, read with nothing of ours laid over them */
+function programDefaults(){
+  if (defaults) return defaults;
+  for (const key of SYSTEM) rootStyle.removeProperty('--' + key);
+  const probe = document.body.appendChild(document.createElement('i')); defaults = new Map();
+  for (const key of SYSTEM){ probe.style.color = `var(--${key})`; defaults.set(key, (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n))); }
+  probe.remove(); return defaults;
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { defaults = null; shown(); });
+new MutationObserver(() => { defaults = null; shown(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+const inConfig = (b, s) => chain(b, s).some(g => (s.groupNames.get(g) || '').trim() === CONFIG);
+/* a system colour as it stands after the .configs of these spaces, highest first, have each covered what they give */
+function systemValue(key, spaces){
+  const v = [...programDefaults().get(key)];
+  for (const s of spaces) for (const b of s.blocks) if (!isOff(b) && leaf(b.name) === key && inConfig(b, s))
+    cells(b).slice(0, 3).forEach((n, i) => { if (Number.isFinite(n)) v[i] = Math.max(0, Math.min(255, n)); });
+  return v;
+}
 function configure(){
-  for (const key of configured) rootStyle.removeProperty(key); configured.clear();
-  const theme = getComputedStyle(document.documentElement);      /* read with nothing of ours set: only what the theme itself defines counts */
-  const want = new Map();
-  for (const s of trail()) for (const [key, value] of configOf(s)){ const now = theme.getPropertyValue(key).trim(), number = v => /^-?[\d.]+$/.test(v);
-    if (now !== '' && number(now) === number(value)) want.set(key, value); }      /* a number only for a variable that is a number, a colour only for one that is not */
-  for (const [key, value] of want){ rootStyle.setProperty(key, value); configured.add(key); }
+  const base = programDefaults(), spaces = trail();
+  for (const key of SYSTEM){ const v = systemValue(key, spaces);
+    if (v.join() === base.get(key).join()) rootStyle.removeProperty('--' + key); else rootStyle.setProperty('--' + key, `rgb(${v.join(', ')})`); }
+}
+/* what the definitions above give to a block, for the entries it leaves blank. s is the space the block is in. */
+function inheritedBy(b, s){
+  const above = []; for (let p = s.parent; p; p = p.parent) above.unshift(p);
+  const key = leaf(b.name), got = new Map(), cols = Math.round(b.rect.w / view.unit);
+  if (inConfig(b, s)){ if (programDefaults().has(key)) systemValue(key, above).forEach((n, i) => got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
+    return got; }                                /* in a .config: what the program and the .configs above make of it */
+  if (!isNamed(b)) return got;
+  const name = bare(b.name).trim(), mine = new Set(kinOf(b));
+  for (const p of above) for (const o of p.blocks) if (!isOff(o) && !mine.has(o) && bare(o.name).trim() === name) for (const [k, n] of o.values) got.set(k, n);
+  return got;
+}
+/* a system variable dragged in from the list: blank shapes that shadow it, in this space's .config (made if there is
+   none). One colour brings one shape; .colors or .config brings every colour, in a .colors group. */
+function summon(item, at){
+  const u = view.unit, on = v => Math.round(v / u) * u, keys = item.group ? SYSTEM : [item.key], made = [];
+  keys.forEach((key, i) => { const b = createBlock({ ...typeNamed('tensor'), color: key }, { x: on(at.x) + (i % 2) * 6 * u, y: on(at.y) + Math.floor(i / 2) * 2 * u, w: 3 * u, h: u }, '.' + key);
+    space.blocks.push(b); view.world.append(b.el); made.push(b); });
+  let config = [...space.groupNames].find(([, name]) => name.trim() === CONFIG)?.[0];
+  if (config === undefined){ config = nextGroup++; space.groupNames.set(config, CONFIG); }
+  let into = config;
+  if (item.group){ into = nextGroup++; space.groupNames.set(into, COLORS); space.groupUp.set(into, config); }
+  for (const b of made) space.groupOf.set(b, into);
+  select(made);
 }
 
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
@@ -339,7 +388,7 @@ function shown(){                              /* brings what is on screen in li
     const ms = inGroup(id); if (ms.length < 2) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
     const f = space.frames.get(id), on = id === oneGroup;
-    f.set(boxOf(ms), { name, solid: true, selected: on, tools: on, grouped: true, fold: true, grow: namedWithin(ms, id) }); view.world.append(f.el);
+    f.set(boxOf(ms), { name, solid: true, selected: on, tools: on, grouped: true, fold: true, grow: namedBelow(id) }); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
   /* any other selection of several gets the dashed box, with a name to fill in */
@@ -349,7 +398,7 @@ function shown(){                              /* brings what is on screen in li
   } else bounds.el.remove();
   /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
   for (const b of space.blocks) b.off(isOff(b));
-  const u = view.unit, active = space.blocks.filter(b => !isOff(b));           /* commented-out blocks take no part */
+  const u = view.unit, active = space.blocks.filter(b => !isOff(b) && !inConfig(b, space));           /* commented-out blocks take no part, nor what is in a .config */
   const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   for (const j of marks) j.el.remove();
   const js = joins(rects);
@@ -383,7 +432,7 @@ function shown(){                              /* brings what is on screen in li
     for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, { side: 'below', drop, look, nameable });
     taken.push(at); });
   for (const r of results.slice(ps.length)) r.el.remove();
-  variables.show(inReach());
+  variables.show(inReach(), systemItems());
 }
 function select(list, { toggle = false } = {}){
   if (!toggle) selected.clear();
