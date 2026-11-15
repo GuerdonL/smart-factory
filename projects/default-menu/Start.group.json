@@ -11,7 +11,7 @@
       "name": "//Projects",
       "named": true,
       "commented": true,
-      "color": "lavender",
+      "color": "variable-1",
       "position": {
         "x": -4,
         "y": -2
@@ -37,7 +37,7 @@
       "name": "//Tutorial",
       "named": true,
       "commented": true,
-      "color": "lazuli",
+      "color": "variable-3",
       "position": {
         "x": -4,
         "y": 1

@@ -11,7 +11,7 @@
       "name": ".lavender",
       "named": true,
       "commented": false,
-      "color": "lavender",
+      "color": "variable-1",
       "position": {
         "x": 46,
         "y": 1
@@ -32,7 +32,8 @@
           "3,1": 234
         }
       },
-      "order": 19
+      "order": 19,
+      "variable": 1
     },
     {
       "format": "smart-factory/shape",
@@ -41,7 +42,7 @@
       "name": ".watermelon",
       "named": true,
       "commented": false,
-      "color": "watermelon",
+      "color": "variable-2",
       "position": {
         "x": 46,
         "y": 3
@@ -62,7 +63,8 @@
           "3,1": 98
         }
       },
-      "order": 20
+      "order": 20,
+      "variable": 2
     },
     {
       "format": "smart-factory/shape",
@@ -71,7 +73,7 @@
       "name": ".lazuli",
       "named": true,
       "commented": false,
-      "color": "lazuli",
+      "color": "variable-3",
       "position": {
         "x": 46,
         "y": 5
@@ -92,7 +94,8 @@
           "3,1": 220
         }
       },
-      "order": 21
+      "order": 21,
+      "variable": 3
     },
     {
       "format": "smart-factory/shape",
@@ -101,7 +104,7 @@
       "name": ".fanta",
       "named": true,
       "commented": false,
-      "color": "fanta",
+      "color": "variable-4",
       "position": {
         "x": 46,
         "y": 7
@@ -122,7 +125,8 @@
           "3,1": 20
         }
       },
-      "order": 22
+      "order": 22,
+      "variable": 4
     },
     {
       "format": "smart-factory/shape",
@@ -131,7 +135,7 @@
       "name": ".marigold",
       "named": true,
       "commented": false,
-      "color": "marigold",
+      "color": "variable-5",
       "position": {
         "x": 46,
         "y": 9
@@ -152,7 +156,8 @@
           "3,1": 8
         }
       },
-      "order": 23
+      "order": 23,
+      "variable": 5
     },
     {
       "format": "smart-factory/shape",
@@ -161,7 +166,7 @@
       "name": ".lagoon",
       "named": true,
       "commented": false,
-      "color": "lagoon",
+      "color": "variable-6",
       "position": {
         "x": 46,
         "y": 11
@@ -182,7 +187,8 @@
           "3,1": 168
         }
       },
-      "order": 24
+      "order": 24,
+      "variable": 6
     }
   ],
   "groups": []

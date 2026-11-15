@@ -23,7 +23,7 @@
          "type": "tensor",                       which config in shapes/ it is an instance of
          "name": "Keys", "named": true,          named: it has been given a name of its own
          "commented": false,                     its name begins with //, so it takes no part
-         "color": "lazuli",                      a theme colour; null for an unnamed shape, which has its type's
+         "color": "variable-3",                     a theme colour; null for an unnamed shape, which has its type's
          "position": { "x": -12, "y": 4 },       its top-left corner, in units from the space's origin
          "size": { "cols": 4, "rows": 6 },
          "sides": { "cols": "key", "rows": "context" },      the names of its sides, null where unnamed
@@ -145,7 +145,7 @@ export function read(files){
   const top = space('');
   if ((meta.version || 1) < 2 && [...at.keys()].some(p => p.startsWith('_settings/'))){      /* format 1: see the note above */
     const menu = space('_settings/');
-    if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'lazuli', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
+    if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'variable-3', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
       cols: 3, rows: 2, colsName: null, rowsName: null, entries: {}, inside: top, variable: null });
     return { top: menu, saved: meta.saved || null, ids: meta.ids || null };
   }

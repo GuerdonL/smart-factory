@@ -20,7 +20,7 @@ import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
-import { SYSTEM, CONFIG, COLORS, leaf } from './system.js';
+import { SYSTEM, SLOTS, OLD, CONFIG, COLORS, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
 import { written, squares } from './components/matrix.js';
 
@@ -103,7 +103,7 @@ for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, 
 const isOff = b => /^\s*\/\//.test(b.name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');                  /* a name without its comment mark */
 const isNamed = b => !/^Shape \d+$/.test(bare(b.name));
-const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'];      /* the six places in the theme a named shape's colour is kept; what colour each is, is .variable_colors' to say (system.js) */
+const PALETTE = SLOTS;                          /* the six places a named shape's colour is kept; what colour each is, is .variable_colors' to say (system.js) */
 function someColour(not){                        /* one this space is not using, while there is one; never the one it has */
   const used = new Set(space.blocks.map(b => b.shape.color)), free = PALETTE.filter(c => !used.has(c) && c !== not);
   const from = free.length ? free : PALETTE.filter(c => c !== not);
@@ -453,7 +453,7 @@ function programDefaults(){
   for (const v of SYSTEM) for (const css of v.cssRows || (v.css ? [v.css] : [])) rootStyle.removeProperty('--' + css);
   const probe = document.body.appendChild(document.createElement('i')); defaults = new Map();
   const rgb = css => { probe.style.color = `var(--${css})`; return (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n)); };
-  for (const v of SYSTEM) defaults.set(v.key, v.cssRows ? v.cssRows.flatMap(rgb) : v.css ? rgb(v.css) : v.value);      /* an array of colours: its rows end to end */
+  for (const v of SYSTEM) defaults.set(v.key, v.css ? rgb(v.css) : v.value);      /* a colour is the stylesheet's; anything else starts as system.js says */
   probe.remove(); return defaults;
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => bus.send('theme', { dark: e.matches }));
@@ -471,7 +471,7 @@ function configure(){
   for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []);      /* only the colours are read so far */
     const v = each.length ? systemValue(key, spaces).map(n => Math.max(0, Math.min(255, n))) : [], d = base.get(key);
     each.forEach((name, i) => { const mine = v.slice(3 * i, 3 * i + 3);
-      if (mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }
+      if (css && mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }      /* the rows of an array are always set: the stylesheet has nothing for them */
 }
 /* what the definitions above give to a block, for the entries it leaves blank. s is the space the block is in. */
 function inheritedBy(b, s){
@@ -784,7 +784,7 @@ function rebuild(data){
   const u = view.unit;
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
-    const b = createBlock({ ...type, color: d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);
+    const b = createBlock({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
     b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
@@ -805,7 +805,7 @@ function rebuild(data){
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top); };
 /* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
-const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Default Colors.group.json', '.config'];   /* the files of projects/default-menu */
+const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Default Colors.group.json', '.config', ...['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'].map(n => `variable_colors/${n}.json`)];   /* the files of projects/default-menu */
 let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
