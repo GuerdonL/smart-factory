@@ -44,6 +44,11 @@ covers only what it gives: a colour shape with one entry filled changes that one
 
 Every variable works this way: a shape with the name of one higher up shadows it from there down, entry by entry.
 
+A `.config` reaches as far as the group it is in. One in no group covers its whole space and everything below; one
+inside a group covers that group alone, with everything below its shapes. The default Menu uses this: `.dark_colors`
+holds a small `.config` of its own with `.dark_mode` = 1, so that group is drawn in the dark colours it sets while the
+rest of the Menu stays light.
+
 ## example/
 
 A small hand-written project showing every kind of file: a shape with a definition, a shape with numbers typed

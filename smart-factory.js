@@ -6,7 +6,7 @@ import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
-import { createBounds } from './components/bounds.js';
+import { createBounds, createBackdrop } from './components/bounds.js';
 import { drawRectangle } from './components/draw.js';
 import { boxSelect } from './components/marquee.js';
 import { createDefinition } from './components/definition.js';
@@ -439,7 +439,7 @@ let marks = [], equalSigns = [];                                /* the product m
    kept out of the list at the right edge, behind its plus button. The tree of them is in system.js: .config, holding
    .integer_precision and .colors, whose two branches, Shapes and UI, hold the colours: shapes of three entries, red green blue.
    A group named .config shadows the program's .config from its space downwards, and one further down shadows it
-   again. Only what is in it counts: a shape named for a system variable, anywhere in the group (in a .colors group
+   again. One set inside another group shadows it for that group alone (see systemValue). Only what is in it counts: a shape named for a system variable, anywhere in the group (in a .colors group
    inside it or not), covers the entries it gives and no others. Anything else in the group is a new attribute, which
    the program does not read. A commented-out shape, or a group called //.config, takes no part. */
 const rootStyle = document.documentElement.style;
@@ -473,16 +473,32 @@ const inConfig = (b, s) => chain(b, s).some(g => (s.groupNames.get(g) || '').tri
 const modeOf = (b, s) => { const names = chain(b, s).map(g => (s.groupNames.get(g) || '').trim()); return names.includes(DARK) ? 'dark' : names.includes(COLORS) ? 'light' : 'both'; };
 /* a system variable as it stands after the .configs of these spaces, highest first, have each covered what they give.
    mode: for a colour, which of the two sets is wanted */
-function systemValue(key, spaces, mode = 'light'){
+/* A .config reaches as far as the group it is in: one in no group, the whole space and everything below it; one inside
+   a group, that group's shapes and groups and everything below them. (A group is no wall: its shapes share the
+   space's variables with everything else there. But what a .config inside it says is said of that group only.)
+   So a value is asked for a path: each space on the way down, with the groups (innermost first) round the block the
+   way went through, or round the thing being asked about; null where it is the space as a whole. */
+let configs = null;                            /* each space's .config shapes, worked out once for every time the screen is brought up to date */
+bus.tap(phase => { if (phase === 'before') configs = null; });      /* and afresh for every message */
+const configsOf = s => { configs ||= new Map();
+  if (!configs.has(s)) configs.set(s, s.blocks.filter(b => !isOff(b) && inConfig(b, s) && bySystemKey.has(leaf(b.name))).map(b => { const groups = chain(b, s), own = groups.find(g => (s.groupNames.get(g) || '').trim() === CONFIG);
+    return { key: leaf(b.name), mode: modeOf(b, s), reach: s.groupUp.get(own), values: cells(b) }; }));      /* reach: the group its .config is in, or undefined */
+  return configs.get(s); };
+const pathTo = s => { const path = []; for (let c = s; c.parent; c = c.parent) path.unshift({ s: c.parent, at: chain(c.owner, c.parent) }); return path; };      /* the spaces above s */
+const pathOf = (at = null) => [...pathTo(space), { s: space, at }];      /* down to this space, or to something in it */
+const upFrom = g => { const out = [g]; for (let p = space.groupUp.get(g); p !== undefined; p = space.groupUp.get(p)) out.push(p); return out; };      /* a group and those round it, innermost first */
+function systemValue(key, path, mode = 'light'){
   const v = [...programDefaults()[mode].get(key)], coloured = isColour(bySystemKey.get(key));
-  for (const s of spaces) for (const b of s.blocks) if (!isOff(b) && leaf(b.name) === key && inConfig(b, s)){
-    const m = modeOf(b, s); if (coloured && m !== 'both' && m !== mode) continue;
-    cells(b).slice(0, v.length).forEach((n, i) => { if (Number.isFinite(n)) v[i] = n; }); }
+  for (const { s, at } of path){
+    const said = configsOf(s).filter(c => c.key === key && (c.reach === undefined || (at && at.includes(c.reach))) && !(coloured && c.mode !== 'both' && c.mode !== mode));
+    said.sort((a, b) => (a.reach === undefined ? -1 : at.length - at.indexOf(a.reach)) - (b.reach === undefined ? -1 : at.length - at.indexOf(b.reach)));      /* the space's first, then outer groups', then inner */
+    for (const c of said) c.values.slice(0, v.length).forEach((n, i) => { if (Number.isFinite(n)) v[i] = n; }); }
   return v;
 }
-const modeIn = spaces => systemValue('dark-mode', spaces)[0] ? 'dark' : 'light';
+const modeIn = path => systemValue('dark-mode', path)[0] ? 'dark' : 'light';
 function configure(){
-  const spaces = trail(), mode = modeIn(spaces), base = programDefaults()[mode], byte = n => Math.max(0, Math.min(255, n));
+  configs = null;
+  const spaces = pathOf(), mode = modeIn(spaces), base = programDefaults()[mode], byte = n => Math.max(0, Math.min(255, n));
   if ((root.dataset.theme || null) !== mode){ ourTheme = mode; root.dataset.theme = mode; }
   for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []);      /* only the colours, and which set of them, are read so far */
     const v = each.length ? systemValue(key, spaces, mode).map(byte) : [], d = base.get(key);
@@ -490,14 +506,43 @@ function configure(){
       if (css && mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }      /* the rows of an array are always set: the stylesheet has nothing for them */
   /* a colour's shape in a .config is drawn in the colour it comes to, in the set it belongs to */
   for (const b of space.blocks){ const v = !isOff(b) && inConfig(b, space) && bySystemKey.get(leaf(b.name)); if (!v?.css) continue;
-    const m = modeOf(b, space); b.el.style.setProperty('--block', `rgb(${systemValue(v.key, spaces, m === 'both' ? mode : m).map(byte).join(', ')})`); }
+    const m = modeOf(b, space), path = pathOf(chain(b)); b.el.style.setProperty('--block', `rgb(${systemValue(v.key, path, m === 'both' ? modeIn(path) : m).map(byte).join(', ')})`); }
+}
+/* Where a .config inside a group gives that group colours of its own, everything of the group's wears them: its shapes,
+   what is written beside them, its frame, and the ground under it. An element wears a set of colours by a class (the
+   stylesheet's light or dark) and, set on it directly, whatever the .configs make different from that. */
+const worn = new WeakMap(); let backdrops = [];
+function dress(){
+  for (const d of backdrops) d.remove(); backdrops = [];
+  const local = configsOf(space).some(c => c.reach !== undefined), page = pathOf(), pageMode = modeIn(page), byte = n => Math.max(0, Math.min(255, n));
+  const colours = (path, mode) => { const out = new Map();
+    for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []); if (!each.length) continue;
+      const v = systemValue(key, path, mode).map(byte); each.forEach((name, i) => out.set('--' + name, `rgb(${v.slice(3 * i, 3 * i + 3).join(', ')})`)); }
+    return out; };
+  const pageColours = local ? colours(page, pageMode) : null, plain = { light: null, dark: null };
+  const wear = (el, at) => { const had = worn.get(el) || new Set(), now = new Map(); let mode = pageMode;
+    if (local){ const path = pathOf(at); mode = modeIn(path);
+      if (mode !== pageMode) plain[mode] ||= colours([], mode);      /* that set as the stylesheet has it */
+      const against = mode === pageMode ? pageColours : plain[mode];
+      for (const [name, value] of colours(path, mode)) if (value !== against.get(name) || (mode !== pageMode && name.startsWith('--variable-'))) now.set(name, value); }
+    el.classList.toggle('theme-dark', mode !== pageMode && mode === 'dark'); el.classList.toggle('theme-light', mode !== pageMode && mode === 'light');
+    for (const name of had) if (!now.has(name)) el.style.removeProperty(name);
+    for (const [name, value] of now) el.style.setProperty(name, value);
+    worn.set(el, new Set(now.keys())); return mode; };
+  for (const b of space.blocks) wear(b.el, chain(b));
+  for (const r of results) if (r.el.isConnected && r.piece) wear(r.el, chain(r.piece.blocks[0]));
+  for (const [id, f] of space.frames){ const round = upFrom(id), mode = wear(f.el, round);
+    if (!local || !f.box || mode === modeIn(pathOf(round.length > 1 ? round.slice(1) : null))) continue;      /* the same colours as what is round it: no ground of its own */
+    const grow = namedBelow(id), side = 12 + 14 * grow, above = 32 + 34 * grow + 26;      /* as bounds.js draws the frame, and its name above it, which is in these colours too */
+    const ground = createBackdrop({ x: f.box.x - side, y: f.box.y - above, w: f.box.w + 2 * side, h: f.box.h + above + side });
+    wear(ground, round); view.world.prepend(ground); backdrops.push(ground); }
 }
 /* what the definitions above give to a block, for the entries it leaves blank. s is the space the block is in. */
 function inheritedBy(b, s){
   const above = []; for (let p = s.parent; p; p = p.parent) above.unshift(p);
   const key = leaf(b.name), got = new Map(), cols = Math.round(b.rect.w / view.unit);
   if (inConfig(b, s)){ const m = modeOf(b, s);
-    if (bySystemKey.has(key)) systemValue(key, above, m === 'both' ? modeIn(trail()) : m).forEach((n, i) => got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
+    if (bySystemKey.has(key)) systemValue(key, pathTo(s), m === 'both' ? modeIn(pathOf()) : m).forEach((n, i) => got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
     return got; }                                /* in a .config: what the program and the .configs above make of it */
   if (!isNamed(b)) return got;
   const name = bare(b.name).trim(), mine = new Set(kinOf(b));
@@ -600,7 +645,9 @@ function shown(){                              /* brings what is on screen in li
   for (const f of space.frames.values()){ const [box, options, ms] = f.fit; let x0 = box.x, y0 = box.y, x1 = box.x + box.w, y1 = box.y + box.h;
     for (const r of results.slice(0, writ.length)) if (r.piece.at && r.piece.blocks.every(b => ms.includes(b))){ const a = r.piece.at;
       x0 = Math.min(x0, a.x); y0 = Math.min(y0, a.y); x1 = Math.max(x1, a.x + a.w); y1 = Math.max(y1, a.y + a.h); }
-    if (x1 - x0 !== box.w || y1 - y0 !== box.h) f.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, options); }
+    f.box = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    if (x1 - x0 !== box.w || y1 - y0 !== box.h) f.set(f.box, options); }
+  dress();
   variables.show(inReach(), systemItems());
 }
 function select(list, { toggle = false } = {}){

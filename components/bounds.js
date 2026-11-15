@@ -28,6 +28,8 @@ style('bounds', `
 .bounds { position: absolute; z-index: 2; pointer-events: none; --px: 1px; --grow: 0;
   --pad: calc((12 + 14 * var(--grow)) * var(--px)); --top: calc((32 + 34 * var(--grow)) * var(--px)); --ink: var(--muted); }
 .bounds.selected { --ink: var(--select); }
+.bounds-backdrop { position: absolute; z-index: -2; pointer-events: none; border-radius: 10px; background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--dot) 1.3px, transparent 1.7px); background-size: 24px 24px; }
 .bounds::before { content: ""; position: absolute; inset: calc(-1 * var(--top)) calc(-1 * var(--pad)) calc(-1 * var(--pad));
   border: calc(1.5 * var(--px)) dashed var(--ink); border-radius: calc(10 * var(--px)); }
 .bounds.solid::before { border-style: solid; }
@@ -42,6 +44,13 @@ style('bounds', `
 .bounds-tools svg { width: calc(16 * var(--px)); height: calc(16 * var(--px)); fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 `);
 
+/* the ground under a group whose colours are not the page's: the canvas, dots and all, in that group's colours.
+   createBackdrop(rect) -> el, for the view's world; rect is the frame's outer edge, in world coordinates */
+export function createBackdrop(r){
+  const el = html`<div class="bounds-backdrop"></div>`;
+  Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', backgroundPosition: `${-r.x - 12}px ${-r.y - 12}px` });      /* its dots fall on the canvas's */
+  return el;
+}
 export function createBounds(){
   const el = html`<div class="bounds"><span class="bounds-name"></span><div class="bounds-tools">
     <button type="button"><svg viewBox="0 0 16 16"></svg></button><button type="button" title="Move into a new block" aria-label="Move into a new block"><svg viewBox="0 0 16 16">${ICON.fold}</svg></button></div></div>`;

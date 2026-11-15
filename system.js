@@ -11,6 +11,8 @@
              .bg .panel .hover .focus  .fg .line .fade-to .dot  .muted .measure_bar .warn .select
          .dark_colors                  the same two groups again: the colours used while .dark_mode is 1
 
+   A .config's reach is the group it is in, or the whole space if it is in none: see "shadowing" in smart-factory.js.
+
    Each variable: name; key, the name as it is matched (lower case, no dot, - for _ and for spaces); css, the theme
    variable a colour sets (a colour is three entries: red, green, blue); cssRows, for an array of colours, the theme
    variable each row sets; value, what a variable starts as when the stylesheet does not say (one that is not a colour,
@@ -33,7 +35,7 @@ export const SYSTEM = [
   colour('.muted', 'muted', 'UI', [2, 20]), colour('.measure_bar', 'measure', 'UI', [12, 20]), colour('.warn', 'warn', 'UI', [22, 20]), colour('.select', 'select', 'UI', [32, 20]),
 ];
 export const CONFIG = '.config', COLORS = '.colors', DARK = '.dark_colors';
-export const DARK_DOWN = 20;                    /* how far below .colors the same shapes sit in .dark_colors, in the default layout */
+export const DARK_DOWN = 24;                    /* how far below .colors the same shapes sit in .dark_colors, in the default layout */
 export const isColour = v => !!(v.css || v.cssRows);
 /* a name as it is matched against the keys above: ".Data in" and "--data_in" are both "data-in" */
 export const leaf = name => name.replace(/^\s*\/\/\s*/, '').trim().toLowerCase().replace(/^(--|\.)/, '').replace(/[\s_]+/g, '-');
