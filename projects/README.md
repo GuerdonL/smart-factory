@@ -20,6 +20,12 @@ Run `python3 server.py` in the repository and open the page it serves. Right-cli
 Opened anywhere without that server (the published artifact, say), Save hands over a zip of the same tree and
 Open takes one back.
 
+## The Menu
+
+The page has one space at the top, the Menu, and a project is what is in it. On opening, the page loads the project
+called `menu` if you have saved one, and otherwise `default-menu`, which comes with the repository. Save offers the
+name `menu`, so your first save makes the Menu your own without touching `default-menu`.
+
 ## example/
 
 A small hand-written project showing every kind of file: a shape with a definition, a shape with numbers typed

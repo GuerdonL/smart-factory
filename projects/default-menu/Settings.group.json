@@ -1,0 +1,149 @@
+{
+  "format": "smart-factory/group",
+  "version": 2,
+  "name": "//Settings",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": "Integer Precision",
+      "named": true,
+      "commented": false,
+      "color": "lagoon",
+      "position": {
+        "x": 2,
+        "y": -1
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 32
+        }
+      },
+      "order": 2
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": "//",
+      "named": true,
+      "commented": true,
+      "color": "fanta",
+      "position": {
+        "x": 16,
+        "y": 7
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 6
+    }
+  ],
+  "groups": [
+    {
+      "name": "//Colors",
+      "named": true,
+      "shapes": [
+        {
+          "format": "smart-factory/shape",
+          "version": 2,
+          "type": "tensor",
+          "name": "Color 1",
+          "named": true,
+          "commented": false,
+          "color": "watermelon",
+          "position": {
+            "x": 2,
+            "y": 3
+          },
+          "size": {
+            "cols": 3,
+            "rows": 1
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {}
+          },
+          "order": 3
+        },
+        {
+          "format": "smart-factory/shape",
+          "version": 2,
+          "type": "tensor",
+          "name": "Color 2",
+          "named": true,
+          "commented": false,
+          "color": "marigold",
+          "position": {
+            "x": 2,
+            "y": 5
+          },
+          "size": {
+            "cols": 3,
+            "rows": 1
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {}
+          },
+          "order": 4
+        },
+        {
+          "format": "smart-factory/shape",
+          "version": 2,
+          "type": "tensor",
+          "name": "Color 3",
+          "named": true,
+          "commented": false,
+          "color": "lagoon",
+          "position": {
+            "x": 2,
+            "y": 7
+          },
+          "size": {
+            "cols": 3,
+            "rows": 1
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {}
+          },
+          "order": 5
+        }
+      ],
+      "groups": []
+    }
+  ]
+}

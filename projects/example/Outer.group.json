@@ -1,12 +1,12 @@
 {
   "format": "smart-factory/group",
-  "version": 1,
+  "version": 2,
   "name": "Outer",
   "named": true,
   "shapes": [
     {
       "format": "smart-factory/shape",
-      "version": 1,
+      "version": 2,
       "type": "tensor",
       "name": "Mask",
       "named": true,
@@ -43,7 +43,7 @@
       "shapes": [
         {
           "format": "smart-factory/shape",
-          "version": 1,
+          "version": 2,
           "type": "tensor",
           "name": "Shape 1",
           "named": false,
@@ -69,7 +69,7 @@
         },
         {
           "format": "smart-factory/shape",
-          "version": 1,
+          "version": 2,
           "type": "tensor",
           "name": "Shape 2",
           "named": false,

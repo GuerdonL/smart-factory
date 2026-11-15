@@ -27,5 +27,5 @@ There is no password. Anyone who can reach the port can read and overwrite the p
 - `components/`: one file per thing on screen, each carrying its own markup, styles and behaviour.
 - `algebra.js`, `project.js`, `zip.js`: what shapes mean, how a project is written to files, and zip; no drawing.
 - `shapes/`: the kinds of block, one config each, listed in `shapes/index.json`.
-- `projects/`: saved projects.
+- `projects/`: saved projects, including `default-menu`, what the page opens on until you save a `menu` of your own.
 - `server.py`, `smart-factory.service`: the server and the unit that keeps it running.

@@ -11,7 +11,6 @@ import { drawRectangle } from './components/draw.js';
 import { boxSelect } from './components/marquee.js';
 import { createDefinition } from './components/definition.js';
 import { createCrumbs } from './components/crumbs.js';
-import { createSettingsButton } from './components/settings.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
@@ -27,14 +26,14 @@ fetch('shapes/index.json').then(r => r.json())
   .then(list => { shapes = list; }).catch(() => {});
 
 /* ---- spaces ----
-   A space is one canvas-full of blocks. The page opens on the top space. Every block has a definition space of its
-   own, made the first time it is opened (the top space instead shows "=" and what each piece of touching shapes comes to): a canvas showing an equation, with the block as a variable in matrix
-   notation on the right and, on the left, the place for what defines it. What is put in the space must come to the
-   block's promised size (w units across, h units down). Only the current space's blocks are on the canvas. */
+   A space is one canvas-full of blocks. There is one space at the top, the Menu, which is where the page opens.
+   Every block has a definition space of its own, made the first time it is opened: a canvas showing an equation,
+   with the block as a variable in matrix notation on the right and what the shapes in the space come to on the left.
+   What is put in the space must come to the block's promised size (w units across, h units down). The Menu has no
+   promise, so it writes "=" and what each piece of touching shapes comes to beside that piece.
+   Only the current space's blocks are on the canvas. */
 const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), groupUp: new Map(), groupNames: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
-const top = newSpace(null, null);
-/* the settings: a space of its own, opened from the gear in the corner and reached from anywhere. Nothing is in it yet. */
-const settings = Object.assign(newSpace(null, top), { label: 'Settings' });
+const top = newSpace(null, null);              /* the Menu */
 const spaceOf = new Map();                     /* block -> its definition space */
 let space = top;
 const trail = () => { const t = []; for (let s = space; s; s = s.parent) t.unshift(s); return t; };
@@ -46,8 +45,7 @@ function go(to){
   write();
   view.origin.hidden = !!space.owner;          /* a definition space has its equals sign at the origin */
   view.look(space.camera);
-  crumbs.show(trail().map(s => s.owner ? s.owner.name : s.label || 'Top'));
-  gear.active(space === settings);
+  crumbs.show(trail().map(s => s.owner ? s.owner.name : 'Menu'));
 }
 /* writes out the current space's equation: afresh each time it is opened, so it follows its block's size, and again
    whenever one of the block's entries is given a number */
@@ -70,8 +68,7 @@ function open(b){
 }
 /* out and back in again, like a browser's back and forward: stepping out remembers the space left, so stepping in can return to it */
 const deeper = [];
-function out(){ if (!space.parent) return; if (space === settings) return go(before);      /* leaving the settings goes back to where they were opened from */
-  deeper.push(space); go(space.parent); }
+function out(){ if (!space.parent) return; deeper.push(space); go(space.parent); }
 function backIn(){
   const to = deeper.pop();
   if (to && to.parent === space && space.blocks.includes(to.owner)) go(to); else deeper.length = 0;      /* its block may have been deleted since */
@@ -175,7 +172,7 @@ function freeName(){
    and in the spaces beneath it is the same length: change one and they all change. So a name used at the top level
    is one length everywhere, while the same name used in two spaces that are not above one another is two separate
    lengths. Two named sides multiply only if they carry the same name. */
-const everySpace = () => [...new Set([top, settings, ...spaceOf.values()])];
+const everySpace = () => [...new Set([top, ...spaceOf.values()])];
 const everyBlock = () => everySpace().flatMap(s => s.blocks);
 const spaceWith = b => everySpace().find(s => s.blocks.includes(b));
 const uses = (s, name) => s.blocks.some(b => b.sides.w === name || b.sides.h === name);
@@ -304,7 +301,7 @@ const boxOf = list => { const x = Math.min(...list.map(b => b.rect.x)), y = Math
 const selected = new Set();
 let measure = null;                            /* the dimension lines of the one selected block */
 const bounds = createBounds();
-const results = [];                            /* the top space's "= …", one for each piece */
+const results = [];                            /* the Menu's "= …", one for each piece */
 let marks = [];                                /* the product marks now on the canvas */
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   const list = [...selected], one = list.length === 1 ? list[0] : null;
@@ -343,7 +340,7 @@ function shown(){                              /* brings what is on screen in li
   const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
     return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: first.values }
       : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
-  /* a definition space sets what is here beside its block's promised size. The top space has no promise, so it
+  /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const all = pieces(rects);
   space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {});
@@ -466,12 +463,12 @@ function gather(){
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
-  return { top: plain(top), settings: plain(settings), saved: new Date().toISOString() };
+  return { top: plain(top), saved: new Date().toISOString() };
 }
 /* the reverse: everything on the page is replaced by what the data describes */
 function rebuild(data){
   go(top); select([]);
-  for (const s of [top, settings]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
+  for (const s of [top]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
     s.blocks.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.frames.clear(); }
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
@@ -489,15 +486,18 @@ function rebuild(data){
     for (const g of plain.groups) regroup(g, undefined);
     tidy(s);
   };
-  fill(data.top, top); fill(data.settings, settings);
+  fill(data.top, top);
   for (const list of uses.values()) if (list.length > 1){ const set = new Set(list); for (const b of list) kin.set(b, set); }
   view.world.append(...top.blocks.map(b => b.el)); shown();
 }
-const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top) + n(data.settings); };
+const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top); };
 /* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
 let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
-ask();
+/* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
+   one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
+ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
+  if (first) openKept(first).then(() => { current = 'menu'; }); });
 
 async function save(){
   const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
@@ -665,10 +665,6 @@ const menu = createMenu([
   { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => openKept(name) })) : [{ label: 'From a zip', run: () => zipPicker.click() }] },
 ]);
 const hud = createHud({ onHome: () => view.home() });
-/* the gear opens the settings from wherever you are; pressed again, or with Escape or Back, it returns to where you were */
-let before = top;
-const gear = createSettingsButton({ onPress: () => { if (trail().includes(settings)) return go(before);
-  before = space; deeper.length = 0; go(settings); } });
 const crumbs = createCrumbs({ onGo: i => { deeper.length = 0; go(trail()[i]); } });
 const view = createView({
   onChange: cam => { hud.show(cam); menu.close(); shown(); },
@@ -677,5 +673,5 @@ const view = createView({
   onClick: clicked,
   onDrag: dragged,
 });
-document.body.append(view.el, menu.el, hud.el, crumbs.el, gear.el, variables.el);
+document.body.append(view.el, menu.el, hud.el, crumbs.el, variables.el);
 hud.show(view.camera());

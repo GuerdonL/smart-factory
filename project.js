@@ -13,7 +13,8 @@
            Embedding.json
            Key Weights.json
          Pair.group.json           a group: several shapes in one file
-         _settings/                the settings space, when there is anything in it
+
+   The project's own directory is the top space, the Menu.
 
    A shape's config:
        { "format": "smart-factory/shape", "version": 1,
@@ -43,13 +44,17 @@
 
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
-   project: { top: space, settings: space, saved: an ISO date }
+   project: { top: space, saved: an ISO date }
+
+   Format 1 had two spaces at the top: the top level, in the project's directory, and the settings, in _settings/.
+   Now there is one, the Menu, which is what the settings were. Reading a format 1 project, _settings/ becomes the
+   top; if the old top level had shapes too, they are kept inside one block called "Top level", set beside it.
    space:   { shapes: [shape], groups: [group] }
    group:   { name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
               variable: a number shared by shapes that are one variable, or null } */
 
-export const FORMAT = 1;
+export const FORMAT = 2;
 const isCommented = name => /^\s*\/\//.test(name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');
 export const isNamed = name => !/^Shape \d+$/.test(bare(name));
@@ -88,7 +93,6 @@ export function write(project){
   };
   files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null }, null, 2) + '\n' });
   space(project.top, '');
-  if (project.settings && project.settings.shapes.length) space(project.settings, '_settings/');
   return files;
 }
 
@@ -121,5 +125,12 @@ export function read(files){
         entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null }; });
     return { shapes, groups };
   };
-  return { top: space(''), settings: [...at.keys()].some(p => p.startsWith('_settings/')) ? space('_settings/') : { shapes: [], groups: [] }, saved: meta.saved || null };
+  const top = space('');
+  if ((meta.version || 1) < 2 && [...at.keys()].some(p => p.startsWith('_settings/'))){      /* format 1: see the note above */
+    const menu = space('_settings/');
+    if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'lazuli', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
+      cols: 3, rows: 2, colsName: null, rowsName: null, entries: {}, inside: top, variable: null });
+    return { top: menu, saved: meta.saved || null };
+  }
+  return { top, saved: meta.saved || null };
 }

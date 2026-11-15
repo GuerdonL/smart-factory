@@ -1,0 +1,61 @@
+{
+  "format": "smart-factory/group",
+  "version": 2,
+  "name": "Start",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": "//Projects",
+      "named": true,
+      "commented": true,
+      "color": "lavender",
+      "position": {
+        "x": -4,
+        "y": -2
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 0
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": "//Tutorial",
+      "named": true,
+      "commented": true,
+      "color": "lazuli",
+      "position": {
+        "x": -4,
+        "y": 1
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 1
+    }
+  ],
+  "groups": []
+}
