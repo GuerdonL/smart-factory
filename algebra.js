@@ -51,6 +51,20 @@ export function pieces(rects){
   });
 }
 
+/* Shapes of one width set one directly on top of the next are a stack: one piece, whose rows are theirs, top to
+   bottom. stacks(rects, pieces(rects)) gives the pieces again with every such run of lone shapes made one piece,
+   marked stack: true, its members in order from the top. (A shape that is part of a product is not stacked.) */
+export function stacks(rects, ps){
+  const lone = ps.filter(p => p.members.length === 1 && !p.type.error).sort((a, b) => rects[a.members[0]].y - rects[b.members[0]].y), rest = ps.filter(p => !lone.includes(p));
+  const used = new Set(), out = [];
+  for (const p of lone){ if (used.has(p)) continue; used.add(p);
+    const run = [p]; let last = rects[p.members[0]];
+    for (let next; (next = lone.find(q => !used.has(q) && rects[q.members[0]].x === last.x && rects[q.members[0]].w === last.w && rects[q.members[0]].y === last.y + last.h));){ used.add(next); run.push(next); last = rects[next.members[0]]; }
+    if (run.length === 1){ out.push(p); continue; }
+    const first = rects[p.members[0]], rows = run.reduce((sum, q) => sum + rects[q.members[0]].h, 0);
+    out.push({ members: run.map(q => q.members[0]), stack: true, box: { x: first.x, y: first.y, w: first.w, h: rows }, type: { cols: first.w, rows, colsName: first.wName || null, rowsName: null } }); }
+  return [...rest, ...out];
+}
 export function typeOf(rects){
   const ps = pieces(rects);
   return !ps.length ? null : ps.length === 1 ? ps[0].type : { error: ps.length + ' pieces' };

@@ -14,7 +14,8 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { joins, pieces, typeOf, initials, readEntry } from './algebra.js';
+import { joins, pieces, stacks, typeOf, initials, readEntry } from './algebra.js';
+import { createEquals } from './components/equals.js';
 import * as project from './project.js';
 import { SYSTEM, CONFIG, COLORS, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
@@ -157,10 +158,44 @@ function tilesOf(b){
   return out;
 }
 const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: t.h, color: t.block.shape.color, name: t.block.name }));
-/* a block's entries: its own, or, once shapes standing in its matrix cover all of it, theirs */
+/* ---- the algebra of a space ----
+   algebraIn(s): the blocks of s that take part, their rectangles in units, and the pieces they make (products, stacks,
+   and shapes on their own).
+   pairsIn(s): the assertions written in s by setting a piece beside a shape. A shape (one on its own, or one in a
+   .config) with a piece to its right, level with it, of its own size, one to four units away with nothing between,
+   is asserted equal to that piece: block -> { piece, blocks, x, y }, x and y being the middle of the gap. */
+function algebraIn(s){
+  const u = view.unit, active = s.owner && tilesOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b) && !inConfig(b, s));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part, nor what is in a .config */
+  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
+  return { active, rects, all: stacks(rects, pieces(rects)) };
+}
+function pairsIn(s, { active, all } = algebraIn(s)){
+  const u = view.unit, out = new Map(), every = s.blocks.map(b => b.rect);
+  const lefts = [...all.filter(p => p.members.length === 1 && !p.type.error).map(p => active[p.members[0]]), ...s.blocks.filter(b => !isOff(b) && inConfig(b, s))];
+  for (const b of lefts){ const l = { x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u };
+    for (const p of all){ if (p.type.error || (p.members.length === 1 && active[p.members[0]] === b)) continue;
+      const gap = p.box.x - l.x - l.w;
+      if (p.box.y !== l.y || p.box.h !== l.h || p.type.cols !== l.w || p.type.rows !== l.h || gap < 1 || gap > 4) continue;
+      const strip = { x: (l.x + l.w) * u, y: l.y * u, w: gap * u, h: l.h * u };
+      if (every.some(r => r.x < strip.x + strip.w && strip.x < r.x + r.w && r.y < strip.y + strip.h && strip.y < r.y + r.h)) continue;
+      out.set(b, { piece: p, blocks: p.members.map(m => active[m]), x: strip.x + strip.w / 2, y: strip.y + strip.h / 2 }); break; } }
+  return out;
+}
+/* the entries of a piece a shape is asserted equal to: a shape's own; a stack's, row under row; a product's are not worked out */
+function pieceValues({ piece, blocks }, depth){
+  if (blocks.length === 1) return valuesOf(blocks[0], depth);
+  if (!piece.stack) return null;
+  const all = new Map(), u = view.unit; let down = 0;
+  for (const b of blocks){ for (const [k, v] of valuesOf(b, depth)){ const [c, r] = k.split(',').map(Number); all.set(c + ',' + (r + down), v); } down += Math.round(b.rect.h / u); }
+  return all;
+}
+/* a block's entries: its own; or, once shapes standing in its matrix cover all of it, theirs; or, where it is asserted
+   equal to a piece beside it, that piece's, under any of its own */
 function valuesOf(b, depth = 0){
   const tiles = depth < 8 && tilesOf(b), u = view.unit;
-  if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)) return b.values;
+  if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
+    const s = depth < 8 && spaceWith(b), pair = s && pairsIn(s).get(b), from = pair && pieceValues(pair, depth + 1);
+    return from ? new Map([...from, ...b.values]) : b.values; }
   const all = new Map();
   for (const t of tiles) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); }
   return all;
@@ -377,7 +412,7 @@ const selected = new Set();
 let measure = null;                            /* the dimension lines of the one selected block */
 const bounds = createBounds(), roomFrame = createBounds();
 const results = [];                            /* the Menu's "= …", one for each piece */
-let marks = [];                                /* the product marks now on the canvas */
+let marks = [], equalSigns = [];                                /* the product marks now on the canvas */
 /* ---- shadowing ----
    A variable is defined at the highest space that mentions it. A shape of the same name further down is a new
    definition that shadows the one above, from its own space downwards, but only in the parts it gives: an entry it
@@ -474,9 +509,8 @@ function shown(){                              /* brings what is on screen in li
   } else bounds.el.remove();
   /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
   for (const b of space.blocks) b.off(isOff(b));
-  const u = view.unit, active = space.owner && tilesOf(space.owner) ? [] : space.blocks.filter(b => !isOff(b) && !inConfig(b, space));      /* shapes standing in the block's matrix are entries, not a product */
+  const u = view.unit, { active, rects, all } = algebraIn(space);
   /* commented-out blocks take no part, nor what is in a .config */
-  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   for (const j of marks) j.el.remove();
   const js = joins(rects);
   marks = js.map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: j.note }));
@@ -489,11 +523,16 @@ function shown(){                              /* brings what is on screen in li
      row it takes from the first block against the column it takes from the last, each in its block's colour.
      (A product is not worked out in numbers yet.) */
   const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
+    if (piece.stack) return { letter: initials(first.name), values: pieceValues({ piece, blocks: bs }, 0) };      /* a stack: its shapes' entries, row under row */
     return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first) }
       : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
-  const all = pieces(rects);
+  /* a shape with a piece of its own size beside it is asserted equal to it: a sign goes between them, and only the
+     piece at the end of such a row has its value written out */
+  const pairs = pairsIn(space, { active, rects, all });
+  for (const e of equalSigns) e.el.remove();
+  equalSigns = [...pairs.values()].map(p => createEquals(p)); view.world.append(...equalSigns.map(e => e.el));
   if (space.definition && space.definition.tiled !== JSON.stringify(tileLook(space.owner))) write();      /* shapes have gone into, or come out of, its block's matrix */
   space.definition?.check(!all.length ? null : all.length === 1 ? all[0].type : { error: all.length + ' pieces' }, all.length === 1 ? lookOf(all[0]) : {});
   const ps = space.owner ? [] : all;
@@ -503,12 +542,12 @@ function shown(){                              /* brings what is on screen in li
   const taken = space.blocks.map(b => b.rect),      /* commented-out blocks are still in the way */
      hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
-  const writ = ps.map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1,
+  const writ = ps.filter(piece => !(piece.members.length === 1 && pairs.has(active[piece.members[0]]))).map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1,
     box: { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u } }));
   /* what is in a .config takes no part in the algebra, but each shape there still has its value written beside it:
      the entries it gives, and faintly those it leaves to the definitions above. In the ordinary text colour, since
      its own colour may be the canvas's. */
-  if (!space.owner) for (const b of space.blocks) if (!isOff(b) && inConfig(b, space)) writ.push({ blocks: [b], type: { cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u) }, nameable: false, box: b.rect,
+  if (!space.owner) for (const b of space.blocks) if (!isOff(b) && inConfig(b, space) && !pairs.has(b)) writ.push({ blocks: [b], type: { cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u) }, nameable: false, box: b.rect,
     look: { letter: initials(b.name), values: valuesOf(b), inherited: inheritedBy(b, space), tiles: tileLook(b) } });
   writ.forEach(({ blocks, type, look, nameable, box }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     r.piece = { blocks, type, box };            /* what this result is the result of */
