@@ -16,6 +16,7 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { joins, pieces, typeOf, initials, readEntry } from './algebra.js';
 import * as project from './project.js';
+import { SYSTEM, CONFIG, COLORS, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
 import { written, squares } from './components/matrix.js';
 
@@ -121,7 +122,7 @@ function inReach(){
   return [...shapes, ...items.filter(i => i.kind === 'length')];
 }
 const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 },
-  ...SYSTEM.map(key => ({ kind: 'system', name: '.' + key, key, color: key, cols: 3, rows: 1 }))];
+  ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: 1 }))];
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at){
   const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
@@ -353,40 +354,39 @@ let marks = [];                                /* the product marks now on the c
    leaves blank is still the entry from above (written faintly in its matrix), and an entry it gives covers it.
 
    The program's own variables are there from the start, above the Menu. Their names begin with a dot, and they are
-   kept out of the list at the right edge, behind its plus button. They are .config, which holds .colors, which holds
-   one variable for each plain colour of the theme (.tensor, .bg, ...): a shape of three entries, red green blue.
+   kept out of the list at the right edge, behind its plus button. The tree of them is in system.js: .config, holding
+   .integer_precision and .colors, whose two branches, Shapes and UI, hold the colours: shapes of three entries, red green blue.
    A group named .config shadows the program's .config from its space downwards, and one further down shadows it
    again. Only what is in it counts: a shape named for a system variable, anywhere in the group (in a .colors group
    inside it or not), covers the entries it gives and no others. Anything else in the group is a new attribute, which
    the program does not read. A commented-out shape, or a group called //.config, takes no part. */
-const CONFIG = '.config', COLORS = '.colors', rootStyle = document.documentElement.style;
-const SYSTEM = ['tensor', 'data-in', 'lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon', 'bg', 'fg', 'muted', 'panel', 'line', 'hover', 'dot', 'focus', 'fade-to', 'warn', 'select', 'measure'];
-const leaf = name => bare(name).trim().toLowerCase().replace(/^(--|\.)/, '').replace(/\s+/g, '-');      /* ".Data in" -> "data-in" */
+const rootStyle = document.documentElement.style;
 const isHidden = name => bare(name).trim().startsWith('.');
 const cells = b => { const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), v = [];      /* a block's entries, row by row */
   for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(b.values.get(c + ',' + r)); return v; };
 let defaults = null;                           /* the theme's own colours, read with nothing of ours laid over them */
 function programDefaults(){
   if (defaults) return defaults;
-  for (const key of SYSTEM) rootStyle.removeProperty('--' + key);
+  for (const v of SYSTEM) if (v.css) rootStyle.removeProperty('--' + v.css);
   const probe = document.body.appendChild(document.createElement('i')); defaults = new Map();
-  for (const key of SYSTEM){ probe.style.color = `var(--${key})`; defaults.set(key, (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n))); }
+  for (const v of SYSTEM){ if (!v.css){ defaults.set(v.key, v.value); continue; }
+    probe.style.color = `var(--${v.css})`; defaults.set(v.key, (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n))); }
   probe.remove(); return defaults;
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { defaults = null; shown(); });
 new MutationObserver(() => { defaults = null; shown(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 const inConfig = (b, s) => chain(b, s).some(g => (s.groupNames.get(g) || '').trim() === CONFIG);
-/* a system colour as it stands after the .configs of these spaces, highest first, have each covered what they give */
+/* a system variable as it stands after the .configs of these spaces, highest first, have each covered what they give */
 function systemValue(key, spaces){
   const v = [...programDefaults().get(key)];
   for (const s of spaces) for (const b of s.blocks) if (!isOff(b) && leaf(b.name) === key && inConfig(b, s))
-    cells(b).slice(0, 3).forEach((n, i) => { if (Number.isFinite(n)) v[i] = Math.max(0, Math.min(255, n)); });
+    cells(b).slice(0, v.length).forEach((n, i) => { if (Number.isFinite(n)) v[i] = n; });
   return v;
 }
 function configure(){
   const base = programDefaults(), spaces = trail();
-  for (const key of SYSTEM){ const v = systemValue(key, spaces);
-    if (v.join() === base.get(key).join()) rootStyle.removeProperty('--' + key); else rootStyle.setProperty('--' + key, `rgb(${v.join(', ')})`); }
+  for (const { key, css } of SYSTEM){ if (!css) continue; const v = systemValue(key, spaces).map(n => Math.max(0, Math.min(255, n)));      /* only the colours are read so far */
+    if (v.join() === base.get(key).join()) rootStyle.removeProperty('--' + css); else rootStyle.setProperty('--' + css, `rgb(${v.join(', ')})`); }
 }
 /* what the definitions above give to a block, for the entries it leaves blank. s is the space the block is in. */
 function inheritedBy(b, s){
@@ -400,16 +400,18 @@ function inheritedBy(b, s){
   return got;
 }
 /* a system variable dragged in from the list: blank shapes that shadow it, in this space's .config (made if there is
-   none). One colour brings one shape; .colors or .config brings every colour, in a .colors group. */
+   none). One variable brings one shape. .colors brings every colour, in its Shapes and UI groups; .config brings the
+   whole tree. They are laid out as in system.js. */
 function summon(item, at){
-  const u = view.unit, on = v => Math.round(v / u) * u, keys = item.group ? SYSTEM : [item.key], made = [];
-  keys.forEach((key, i) => { const b = createBlock({ ...typeNamed('tensor'), color: key }, { x: on(at.x) + (i % 2) * 6 * u, y: on(at.y) + Math.floor(i / 2) * 2 * u, w: 3 * u, h: u }, '.' + key);
-    space.blocks.push(b); view.world.append(b.el); made.push(b); });
+  const u = view.unit, on = v => Math.round(v / u) * u, made = [];
+  const which = !item.group ? SYSTEM.filter(v => v.key === item.key) : item.name === COLORS ? SYSTEM.filter(v => v.css) : SYSTEM;
+  const [x0, y0] = which[0].at;
   let config = [...space.groupNames].find(([, name]) => name.trim() === CONFIG)?.[0];
   if (config === undefined){ config = nextGroup++; space.groupNames.set(config, CONFIG); }
-  let into = config;
-  if (item.group){ into = nextGroup++; space.groupNames.set(into, COLORS); space.groupUp.set(into, config); }
-  for (const b of made) space.groupOf.set(b, into);
+  const groups = new Map(), groupFor = (name, up) => { if (!groups.has(name)){ const id = nextGroup++; groups.set(name, id); space.groupNames.set(id, name); space.groupUp.set(id, up); } return groups.get(name); };
+  for (const v of which){ const b = createBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (v.at[0] - x0) * u, y: on(at.y) + (v.at[1] - y0) * u, w: v.cols * u, h: u }, v.name);
+    space.blocks.push(b); view.world.append(b.el); made.push(b);
+    space.groupOf.set(b, item.group && v.branch ? groupFor(v.branch, groupFor(COLORS, config)) : config); }
   select(made);
 }
 
@@ -606,7 +608,7 @@ function rebuild(data){
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top); };
 /* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
-const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Settings.group.json', '.config'];   /* the files of projects/default-menu */
+const DEFAULT_MENU = ['project.json', 'Start.group.json', '.config'];   /* the files of projects/default-menu */
 let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
