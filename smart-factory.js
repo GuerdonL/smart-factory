@@ -289,7 +289,7 @@ function reach(x, y){
 const variables = createVariables({
   onDrag: (item, x, y) => bus.send('variable.drag', { kind: item.kind, x, y }),
   /* what a drop amounts to: a shape into a matrix, or onto the canvas as another use; a system variable into this
-     space's .config; a length onto a side, or onto the canvas as a vector that long */
+     space's .config; a length onto a side, or onto the canvas as a single entry holding it */
   onDrop: (item, x, y) => { const at = view.toWorld(x, y);
     if (item.kind === 'shape'){ const onto = matrixAt(x, y); if (!onto) return bus.send('use', { id: item.block.id, at, transposed: !!item.transposed });
       const r = onto.el.getBoundingClientRect(), u = view.unit, cols = Math.round(onto.block.rect.w / u), rows = Math.round(onto.block.rect.h / u), whole = cols <= 8 && rows <= 8;      /* a longer matrix is written with its middle left out, so the pointer cannot say where */
@@ -715,7 +715,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
   for (const b of inside) if (going.has(space.groupOf.get(b))) def.groupOf.set(b, space.groupOf.get(b));
   for (const g of going){ if (going.has(space.groupUp.get(g))) def.groupUp.set(g, space.groupUp.get(g)); if (space.groupNames.has(g)) def.groupNames.set(g, space.groupNames.get(g)); }
   for (const g of going){ space.groupUp.delete(g); space.groupNames.delete(g); }
-  const dx = -u * (3 + squares(type.cols)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
+  const dx = -u * (3 + squares(type.cols, type.colsName)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
   for (const b of inside){
     b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b);
     b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); def.blocks.push(b);
@@ -1198,9 +1198,9 @@ bus.on('fold', ({ ids, name, color, product = false }) => { const list = ids.map
 bus.on('use', ({ id, at, transposed = false }) => { const v = blockOf(id); if (v) useShape(v, at, transposed); }, changes);
 bus.on('slot', ({ into, id, cx, cy }) => { const a = blockOf(into), v = blockOf(id); if (a && v) slotIn(a, v, cx, cy); }, changes);
 bus.on('summon', ({ name, key, group: all, at }) => { summon({ name, key, group: all }, at); shown(); }, changes);
-bus.on('length.add', ({ name, units, at }) => { const u = view.unit, on = v => Math.round(v / u) * u, h = units * u;      /* a named length set down on the canvas: a vector that long */
-  const b = makeBlock({ ...typeNamed('tensor') }, { x: on(at.x - u / 2), y: on(at.y - h / 2), w: u, h }, freeName());
-  b.sides = { w: null, h: name }; space.blocks.push(b); view.world.append(b.el); select([b]); }, changes);
+bus.on('length.add', ({ name, units, at }) => { const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
+  const b = makeBlock({ ...typeNamed('tensor'), color: someColour() }, { x: on(at.x - u / 2), y: on(at.y - u / 2), w: u, h: u }, name);
+  b.values.set('1,1', units); space.blocks.push(b); view.world.append(b.el); select([b]); }, changes);
 
 /* shift, held, shows the list's shapes as their transposes */
 let shiftHeld = false;

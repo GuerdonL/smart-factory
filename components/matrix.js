@@ -14,6 +14,8 @@
                   written faintly, and a value of the block's own covers them.
      transposed   the matrix is a variable's transpose: each symbol carries the variable's own column and row, so the
                   entry in column 1, row 2 reads k₂₁
+     colsName, rowsName   the names of the sides, where they have them. A named side is a variable length, and is
+                  written elided however long it is now: first three, dots, last (numbered by the name's initials)
      tiles        [{ x, y, w, h, color, name, id }]: shapes that stand in for the entries they cover, drawn in their
                   places inside the brackets (x, y from 0, in entries), each with its name on it. One given an id can
                   be pressed, and carries the id as data-tile for whoever handles the click. Left out where the matrix is elided.
@@ -42,36 +44,45 @@ style('matrix', `
 .matrix i { font-style: inherit; }           /* half of a product's entry */
 .matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves */
 .matrix > span.dots { font-style: normal; color: var(--muted); }
+.matrix > span.ghost { opacity: .5; }      /* an entry a variable side would have were it longer */
 .matrix sub { font-style: normal; font-size: .68em; vertical-align: -0.35em; line-height: 0; margin-left: .04em; }
 /* the brackets: a tall stroke each side with short feet turned inwards */
 .matrix::before, .matrix::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: 5px; border: 1.2px solid var(--fg); }
 .matrix::before { left: -5px; border-right: 0; } .matrix::after { right: -5px; border-left: 0; }
 `);
 
-const shown = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 3, null, n];      /* null: the elided middle */
+/* which entries along a side are written: every one up to eight; past that the first three, dots, and the last (null
+   is the elided middle). A side whose length is a variable (it has a name) is always written that way, as if it were
+   long, since it may be: 1, 2, 3, dots, and the last, which carries the name's initials for its number. Where the
+   side is shorter than that just now, the entries that are not there yet are written as symbols only (ghost). */
+const shown = (n, name = null) => name ? [...[1, 2, 3].map(i => ({ i, ghost: i >= n })), null, { i: n, last: true }]
+  : (n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 3, null, n]).map(i => i === null ? null : { i });
+const short = name => (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toLowerCase()).join('').slice(0, 3) || 'n';
 /* how many squares a side of n takes once written (the elided middle is one) */
-export const squares = n => shown(n).length;
+export const squares = (n, name = null) => shown(n, name).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, tiles = [], transposed = false }){
-  const cs = shown(cols), rs = shown(rows), vector = cols === 1 || rows === 1;
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, tiles = [], transposed = false, colsName = null, rowsName = null }){
+  const cs = shown(cols, colsName), rs = shown(rows, rowsName), vector = (cols === 1 && !colsName) || (rows === 1 && !rowsName);
+  const num = (e, name) => e.last && name ? short(name) : e.i;      /* an entry's number along a side: the last of a variable side is that side's name */
   const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
   /* one size of type for the whole matrix, small enough that its widest entry fits its square:
      a letter is about half an em wide and a subscript digit about a third */
-  const comma = cols > 9 || rows > 9 ? ',' : '', digits = n => String(n).length;
+  const comma = cols > 9 || rows > 9 || colsName || rowsName ? ',' : '', digits = n => String(n).length;      /* a name among the numbers needs the comma too */
   const symbol = product ? .5 * (product.rows.letter.length + product.cols.letter.length) + .34 * (digits(rows) + digits(cols)) + .3
     : .5 * letter.length + .34 * (vector ? digits(Math.max(cols, rows)) : digits(cols) + digits(rows) + (comma ? .6 : 0));
   const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(v => written(v).length * .72));
   el.style.fontSize = Math.min(cell * .6, cell * .8 / widest) + 'px';
   el.style.gridTemplateColumns = `repeat(${cs.length}, ${cell}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
-  for (const r of rs) for (const c of cs){
-    if (r === null || c === null){ el.append(html`<span class="dots">${r === null && c === null ? '⋱' : r === null ? '⋮' : '⋯'}</span>`); continue; }
-    const entry = html`<span data-c="${c}" data-r="${r}"></span>`, key = c + ',' + r;
+  for (const re of rs) for (const ce of cs){
+    if (re === null || ce === null){ el.append(html`<span class="dots">${re === null && ce === null ? '⋱' : re === null ? '⋮' : '⋯'}</span>`); continue; }
+    const c = ce.i, r = re.i, ghost = ce.ghost || re.ghost, cn = num(ce, colsName), rn = num(re, rowsName);
+    const entry = ghost ? html`<span class="ghost"></span>` : html`<span data-c="${c}" data-r="${r}"></span>`, key = ghost ? '' : c + ',' + r;
     const half = (from, n) => { const h = html`<i><sub></sub></i>`; h.prepend(from.letter); h.lastChild.textContent = n; if (from.color) h.style.color = `var(--${from.color})`; return h; };
-    if (product) entry.append(half(product.rows, r), html`<b>·</b>`, half(product.cols, c));
+    if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
       if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
       else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); }      /* not given here: what a definition higher up gives */
-      else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? r : c) : transposed ? r + comma + c : c + comma + r; } }
+      else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? rn : cn) : transposed ? rn + comma + cn : cn + comma + rn; } }
     if (!elided && tiles.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
     el.append(entry);
   }

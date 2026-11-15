@@ -46,7 +46,7 @@ export function createDefinition({ cols, rows, unit, name = '', letter = 'x', co
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign">=</div></div>`;
   el.classList.toggle('editable', editable);
-  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, cell: unit, letter, color, values, inherited, tiles });
+  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, colsName, rowsName, cell: unit, letter, color, values, inherited, tiles });
   matrix.el.classList.add('promised');
   /* the sign is at the origin, with one unit of air each side; both sides are level with it */
   const top = on(-rows * unit / 2), level = top + rows * unit / 2;
@@ -64,10 +64,10 @@ export function createDefinition({ cols, rows, unit, name = '', letter = 'x', co
     const wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows || !named(type.colsName, colsName) || !named(type.rowsName, rowsName));
     el.classList.toggle('wrong', wrong); sign.textContent = wrong ? '≠' : '='; slot.hidden = !!type;
     /* the left side, rewritten only when it would read differently; it ends one unit before the sign */
-    const key = !type ? '' : type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + JSON.stringify({ ...look, values: look.values ? [...look.values] : [] });
+    const key = !type ? '' : type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + (type.colsName || '') + '/' + (type.rowsName || '') + JSON.stringify({ ...look, values: look.values ? [...look.values] : [] });
     if (key !== showing){ showing = key; left?.remove(); left = null;
       if (type && type.error){ left = html`<div class="definition-error"></div>`; left.textContent = type.error; Object.assign(left.style, { left: -unit + 'px', top: level + 'px' }); }
-      else if (type){ const m = createMatrix({ cols: type.cols, rows: type.rows, cell: unit, ...look }); left = m.el;
+      else if (type){ const m = createMatrix({ cols: type.cols, rows: type.rows, colsName: type.colsName, rowsName: type.rowsName, cell: unit, ...look }); left = m.el;
         Object.assign(left.style, { left: -unit - m.width + 'px', top: on(level - m.height / 2) + 'px' }); }
       if (left) el.append(left); } } };
 }
