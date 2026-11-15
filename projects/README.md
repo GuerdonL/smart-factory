@@ -31,6 +31,9 @@ name `menu`, so your first save makes the Menu your own without touching `defaul
 The program's own variables exist from the start, above the Menu. The tree is in `system.js`: `.config` holds
 `.integer_precision` (a whole number, not read yet) and `.colors`, whose two groups hold the colours, each a shape of
 three entries, red, green, blue: `Shapes` (`.tensor_default`, `.data-in`) and `UI` (`.bg`, `.fg`, `.select`, ...).
+`Shapes` also holds `.variable_colors`, an array of six colours, a row each: the ones a newly named shape takes at
+random. The named colours themselves (`.lavender`, `.fanta`, ...) are not system variables: the default Menu carries
+them as ordinary dotted shapes in a group called `Default Colors`.
 They are behind the plus button under the list at the right edge, and can be dragged in from there.
 
 A group named `.config` shadows the program's from its space downwards, and one further down shadows it again. It

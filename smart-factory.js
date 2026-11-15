@@ -89,7 +89,7 @@ for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, 
 const isOff = b => /^\s*\/\//.test(b.name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');                  /* a name without its comment mark */
 const isNamed = b => !/^Shape \d+$/.test(bare(b.name));
-const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'];      /* colours in the theme */
+const PALETTE = ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'];      /* the six places in the theme a named shape's colour is kept; what colour each is, is .variable_colors' to say (system.js) */
 function someColour(not){                        /* one this space is not using, while there is one; never the one it has */
   const used = new Set(space.blocks.map(b => b.shape.color)), free = PALETTE.filter(c => !used.has(c) && c !== not);
   const from = free.length ? free : PALETTE.filter(c => c !== not);
@@ -113,16 +113,18 @@ function inReach(){
   for (const s of spaces) for (const b of s.blocks){
     if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
       for (const k of kinOf(b)) seen.add(k);
-      items.push({ kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b }); }
+      items.push({ kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, config: inConfig(b, s) }); }
     for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); items.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
   }
   /* of several definitions of one name, the lowest is the one in reach: it shadows the others. Dotted names are kept out. */
   const lowest = new Map(); for (const i of items) if (i.kind === 'shape') lowest.set(bare(i.name).trim(), i);
-  const shapes = items.filter(i => i.kind === 'shape' && lowest.get(bare(i.name).trim()) === i && !isHidden(i.name));
-  return [...shapes, ...items.filter(i => i.kind === 'length')];
+  const shapes = items.filter(i => i.kind === 'shape' && lowest.get(bare(i.name).trim()) === i);
+  dotted = shapes.filter(i => isHidden(i.name) && !i.config);      /* these go behind the plus, after the program's own */
+  return [...shapes.filter(i => !isHidden(i.name)), ...items.filter(i => i.kind === 'length')];
 }
+let dotted = [];
 const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 },
-  ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: 1 }))];
+  ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 })), ...dotted];
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at){
   const u = view.unit, on = v => Math.round(v / u) * u, r = of.rect;
@@ -367,10 +369,10 @@ const cells = b => { const u = view.unit, cols = Math.round(b.rect.w / u), rows 
 let defaults = null;                           /* the theme's own colours, read with nothing of ours laid over them */
 function programDefaults(){
   if (defaults) return defaults;
-  for (const v of SYSTEM) if (v.css) rootStyle.removeProperty('--' + v.css);
+  for (const v of SYSTEM) for (const css of v.cssRows || (v.css ? [v.css] : [])) rootStyle.removeProperty('--' + css);
   const probe = document.body.appendChild(document.createElement('i')); defaults = new Map();
-  for (const v of SYSTEM){ if (!v.css){ defaults.set(v.key, v.value); continue; }
-    probe.style.color = `var(--${v.css})`; defaults.set(v.key, (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n))); }
+  const rgb = css => { probe.style.color = `var(--${css})`; return (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n)); };
+  for (const v of SYSTEM) defaults.set(v.key, v.cssRows ? v.cssRows.flatMap(rgb) : v.css ? rgb(v.css) : v.value);      /* an array of colours: its rows end to end */
   probe.remove(); return defaults;
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { defaults = null; shown(); });
@@ -385,8 +387,10 @@ function systemValue(key, spaces){
 }
 function configure(){
   const base = programDefaults(), spaces = trail();
-  for (const { key, css } of SYSTEM){ if (!css) continue; const v = systemValue(key, spaces).map(n => Math.max(0, Math.min(255, n)));      /* only the colours are read so far */
-    if (v.join() === base.get(key).join()) rootStyle.removeProperty('--' + css); else rootStyle.setProperty('--' + css, `rgb(${v.join(', ')})`); }
+  for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []);      /* only the colours are read so far */
+    const v = each.length ? systemValue(key, spaces).map(n => Math.max(0, Math.min(255, n))) : [], d = base.get(key);
+    each.forEach((name, i) => { const mine = v.slice(3 * i, 3 * i + 3);
+      if (mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }
 }
 /* what the definitions above give to a block, for the entries it leaves blank. s is the space the block is in. */
 function inheritedBy(b, s){
@@ -409,7 +413,7 @@ function summon(item, at){
   let config = [...space.groupNames].find(([, name]) => name.trim() === CONFIG)?.[0];
   if (config === undefined){ config = nextGroup++; space.groupNames.set(config, CONFIG); }
   const groups = new Map(), groupFor = (name, up) => { if (!groups.has(name)){ const id = nextGroup++; groups.set(name, id); space.groupNames.set(id, name); space.groupUp.set(id, up); } return groups.get(name); };
-  for (const v of which){ const b = createBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (v.at[0] - x0) * u, y: on(at.y) + (v.at[1] - y0) * u, w: v.cols * u, h: u }, v.name);
+  for (const v of which){ const b = createBlock({ ...typeNamed('tensor'), color: v.css || v.color }, { x: on(at.x) + (v.at[0] - x0) * u, y: on(at.y) + (v.at[1] - y0) * u, w: v.cols * u, h: (v.rows || 1) * u }, v.name);
     space.blocks.push(b); view.world.append(b.el); made.push(b);
     space.groupOf.set(b, item.group && v.branch ? groupFor(v.branch, groupFor(COLORS, config)) : config); }
   select(made);
@@ -608,7 +612,7 @@ function rebuild(data){
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top); };
 /* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
-const DEFAULT_MENU = ['project.json', 'Start.group.json', '.config'];   /* the files of projects/default-menu */
+const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Default Colors.group.json', '.config'];   /* the files of projects/default-menu */
 let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the

@@ -1,0 +1,189 @@
+{
+  "format": "smart-factory/group",
+  "version": 2,
+  "name": "Default Colors",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": ".lavender",
+      "named": true,
+      "commented": false,
+      "color": "lavender",
+      "position": {
+        "x": 21,
+        "y": 1
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 154,
+          "2,1": 123,
+          "3,1": 234
+        }
+      },
+      "order": 19
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": ".watermelon",
+      "named": true,
+      "commented": false,
+      "color": "watermelon",
+      "position": {
+        "x": 21,
+        "y": 3
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 47,
+          "2,1": 174,
+          "3,1": 98
+        }
+      },
+      "order": 20
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": ".lazuli",
+      "named": true,
+      "commented": false,
+      "color": "lazuli",
+      "position": {
+        "x": 21,
+        "y": 5
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 44,
+          "2,1": 95,
+          "3,1": 220
+        }
+      },
+      "order": 21
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": ".fanta",
+      "named": true,
+      "commented": false,
+      "color": "fanta",
+      "position": {
+        "x": 21,
+        "y": 7
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 255,
+          "2,1": 122,
+          "3,1": 20
+        }
+      },
+      "order": 22
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": ".marigold",
+      "named": true,
+      "commented": false,
+      "color": "marigold",
+      "position": {
+        "x": 21,
+        "y": 9
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 227,
+          "2,1": 160,
+          "3,1": 8
+        }
+      },
+      "order": 23
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 2,
+      "type": "tensor",
+      "name": ".lagoon",
+      "named": true,
+      "commented": false,
+      "color": "lagoon",
+      "position": {
+        "x": 21,
+        "y": 11
+      },
+      "size": {
+        "cols": 3,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 15,
+          "2,1": 163,
+          "3,1": 168
+        }
+      },
+      "order": 24
+    }
+  ],
+  "groups": []
+}
