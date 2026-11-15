@@ -13,6 +13,7 @@
            Embedding.json
            Key Weights.json
          Pair.group.json           a group: several shapes in one file
+         .config                   the group called .config, under exactly that name (see below)
 
    The project's own directory is the top space, the Menu.
 
@@ -41,6 +42,9 @@
        { "format": "smart-factory/group", "version": 1, "name": "Pair", "named": true,
          "shapes": [ { a shape's config }, … ],            the shapes directly in the group
          "groups": [ { "name", "named", "shapes", "groups" }, … ] }      the groups inside it, written the same way
+
+   A group named .config is written as the file .config in its space's directory, in the same form as any group.
+   The page reads it for root variables: see configure in smart-factory.js. There may be one at every level.
 
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
@@ -88,8 +92,10 @@ export function write(project){
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     const inner = g => ({ name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
-    s.groups.forEach((g, n) => { const body = inner(g), name = stem(g.name || 'group ' + (n + 1), taken);
-      files.push({ path: dir + name + '.group.json', text: JSON.stringify({ format: 'smart-factory/group', version: FORMAT, ...body }, null, 2) + '\n' }); });
+    let hasConfig = false;
+    s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'group ' + (n + 1), taken);
+      if (own) hasConfig = true;
+      files.push({ path: own ? dir + '.config' : dir + name + '.group.json', text: JSON.stringify({ format: 'smart-factory/group', version: FORMAT, ...body }, null, 2) + '\n' }); });
   };
   files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null }, null, 2) + '\n' });
   space(project.top, '');
@@ -112,7 +118,7 @@ export function read(files){
     const take = c => { const g = { name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take) };
       for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
-      if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !path.endsWith('.json') || path === 'project.json') continue;
+      if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !(path.endsWith('.json') || path.slice(dir.length) === '.config') || path === 'project.json') continue;
       let c; try { c = JSON.parse(text); } catch (e) { throw new Error(path + ' is not valid JSON'); }
       if (c.format === 'smart-factory/shape') found.push([c, null]);
       else if (c.format === 'smart-factory/group') groups.push(take(c));

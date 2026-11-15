@@ -26,11 +26,11 @@ PAGE = ('<!doctype html><html><head><meta charset="utf8"><meta name="viewport" c
 
 
 def project_files(name):
-    """Every .json file of a project, as [{path, text}], paths relative to the project's directory."""
+    """Every .json and .config file of a project, as [{path, text}], paths relative to the project's directory."""
     base, out = os.path.join(PROJECTS, name), []
     for folder, _, files in os.walk(base):
         for f in sorted(files):
-            if f.endswith('.json'):
+            if f.endswith('.json') or f == '.config':
                 full = os.path.join(folder, f)
                 out.append({'path': os.path.relpath(full, base).replace(os.sep, '/'), 'text': open(full, encoding='utf8').read()})
     return out
@@ -43,7 +43,7 @@ def write_project(name, files):
     try:
         for f in files:
             parts = str(f['path']).split('/')
-            if not f['path'].endswith('.json') or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts):
+            if not (f['path'].endswith('.json') or parts[-1] == '.config') or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts):
                 raise ValueError('not a path a project may contain: %r' % f['path'])
             full = os.path.join(fresh, *parts)
             os.makedirs(os.path.dirname(full), exist_ok=True)

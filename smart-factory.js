@@ -303,7 +303,32 @@ let measure = null;                            /* the dimension lines of the one
 const bounds = createBounds();
 const results = [];                            /* the Menu's "= …", one for each piece */
 let marks = [];                                /* the product marks now on the canvas */
+/* .config: a group with that name hands values to the theme's root variables, for the space it is in and every space
+   below it. A shape in the group stands for the variable of its name ("data in" and "--data-in" are both --data-in).
+   A shape of three entries is a colour, red green blue; a shape of one entry is a number. A shape whose name is no root
+   variable, or whose entries are not all given, or which gives a number where the theme has a colour, does nothing. A .config further down is laid over the ones above it,
+   so what it sets wins there and below. A commented-out shape, or a group called //.config, takes no part. */
+const CONFIG = '.config', rootStyle = document.documentElement.style, configured = new Set();
+const configOf = s => { const found = new Map();
+  for (const [id, name] of s.groupNames){ if (name.trim() !== CONFIG) continue;
+    for (const b of inGroup(id, s)){ if (isOff(b)) continue;
+      const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), v = [];
+      for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(b.values.get(c + ',' + r));
+      if (!v.every(Number.isFinite)) continue;
+      const key = '--' + bare(b.name).trim().toLowerCase().replace(/^--/, '').replace(/\s+/g, '-');
+      if (v.length === 3) found.set(key, `rgb(${v.map(n => Math.max(0, Math.min(255, n))).join(', ')})`); else if (v.length === 1) found.set(key, String(v[0])); } }
+  return found; };
+function configure(){
+  for (const key of configured) rootStyle.removeProperty(key); configured.clear();
+  const theme = getComputedStyle(document.documentElement);      /* read with nothing of ours set: only what the theme itself defines counts */
+  const want = new Map();
+  for (const s of trail()) for (const [key, value] of configOf(s)){ const now = theme.getPropertyValue(key).trim(), number = v => /^-?[\d.]+$/.test(v);
+    if (now !== '' && number(now) === number(value)) want.set(key, value); }      /* a number only for a variable that is a number, a colour only for one that is not */
+  for (const [key, value] of want){ rootStyle.setProperty(key, value); configured.add(key); }
+}
+
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
+  configure();
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h }); }
@@ -492,15 +517,15 @@ function rebuild(data){
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top); };
 /* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
-const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Settings.group.json'];   /* the files of projects/default-menu */
+const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Settings.group.json', '.config'];   /* the files of projects/default-menu */
 let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
    one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
 ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
   if (first) openKept(first).then(() => { current = 'menu'; });
-  else if (!kept) Promise.all(DEFAULT_MENU.map(path => fetch('projects/default-menu/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }))))
-    .then(files => openFrom(files, 'menu')).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
+  else if (!kept) Promise.all(DEFAULT_MENU.map(path => fetch('projects/default-menu/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e))))
+    .then(files => openFrom(files.filter(Boolean), 'menu')).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(){
   const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
