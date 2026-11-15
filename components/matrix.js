@@ -12,8 +12,9 @@
                   k₂·q₃ is the second row of k against the third column of q.
      inherited    a Map of the same kind: entries not given here but given by a definition this one shadows. They are
                   written faintly, and a value of the block's own covers them.
-     tiles        [{ x, y, w, h, color, name }]: shapes that stand in for the entries they cover, drawn in their
-                  places inside the brackets (x, y from 0, in entries). Left out where the matrix is elided.
+     tiles        [{ x, y, w, h, color, name, id }]: shapes that stand in for the entries they cover, drawn in their
+                  places inside the brackets (x, y from 0, in entries), each with its name on it. One given an id can
+                  be pressed, and carries the id as data-tile for whoever handles the click. Left out where the matrix is elided.
      values       a Map from "column,row" (say "2,1") to a number, for entries that have been given one. Those are
                   written as the number, upright, in place of the symbol; infinity is +∞ or −∞.
      width, height  the size of what was made, in world units (for placing it)
@@ -32,8 +33,9 @@ style('matrix', `
 .matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; line-height: 1; }
 .matrix > span { text-align: center; line-height: var(--cell); white-space: nowrap; }      /* centred in its square */
 .matrix > span.set { font-style: normal; font-family: var(--font-ui); font-weight: 600; font-size: .92em; font-variant-numeric: tabular-nums; }
-/* a shape standing in for some of the entries: its name would lie over the row above, so it is kept as a tooltip */
-.matrix > .likeness .block-name { display: none; }
+/* a shape standing in for some of the entries: its name is written on it, small, since above it is the next row up */
+.matrix > .likeness .block-name { left: 0; right: 0; bottom: auto; top: 50%; transform: translateY(-50%); margin: 0; padding: 0; text-align: center;
+  font-size: 10px; font-style: normal; color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .matrix > span.set.inherited { opacity: .45; font-weight: 400; }
 .matrix i { font-style: inherit; }           /* half of a product's entry */
 .matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves */
@@ -72,6 +74,7 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     el.append(entry);
   }
   if (!elided) for (const t of tiles){ const b = likeness({ cols: t.w, rows: t.h, unit: cell, color: t.color, name: t.name }); b.el.title = t.name;
+    if (t.id){ b.el.dataset.tile = t.id; b.el.style.pointerEvents = 'auto'; b.el.style.cursor = 'pointer'; }      /* it can be pressed: the page hears of it by this id */
     Object.assign(b.el.style, { left: t.x * cell + 'px', top: t.y * cell + 'px' }); el.append(b.el); }
   return { el, width: cs.length * cell, height: rs.length * cell };
 }

@@ -169,7 +169,7 @@ function tilesOf(b){
     out.push({ block: t, x, y, w, h }); }
   return out;
 }
-const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: t.h, color: t.block.shape.color, name: t.block.name }));
+const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: t.h, color: t.block.shape.color, name: t.block.name, id: t.block.id }));
 /* ---- the algebra of a space ----
    algebraIn(s): the blocks of s that take part, their rectangles in units, and the pieces they make (products, stacks,
    and shapes on their own).
@@ -1006,6 +1006,9 @@ function clicked(el, e){
     }
     return;
   }
+  /* a shape standing in a matrix: it is the real shape, shown where it stands. A double click opens it, as it would on the canvas. */
+  const tile = el.closest?.('[data-tile]');
+  if (tile){ if (twice) bus.send('open', { id: tile.dataset.tile }); return; }
   /* an entry of this space's own matrix, if its block has been named: type a whole number, or inf / -inf, over it. Nothing typed puts the symbol back. */
   const entry = el.closest?.('.definition.editable [data-c]');
   if (entry){

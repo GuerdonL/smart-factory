@@ -2,13 +2,13 @@
   "format": "smart-factory/shape",
   "version": 2,
   "type": "tensor",
-  "name": ".fanta_dark",
+  "name": ".watermelon",
   "named": true,
   "commented": false,
-  "color": "variable-4",
+  "color": "variable-2",
   "position": {
     "x": -4,
-    "y": 0
+    "y": -2
   },
   "size": {
     "cols": 3,
@@ -21,12 +21,11 @@
   "value": {
     "as": "resolved",
     "entries": {
-      "1,1": 255,
-      "2,1": 138,
-      "3,1": 48
+      "1,1": 61,
+      "2,1": 187,
+      "3,1": 112
     }
   },
-  "order": 3,
-  "variable": 10,
+  "order": 1,
   "tile": true
 }

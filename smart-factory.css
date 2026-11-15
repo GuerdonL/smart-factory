@@ -21,6 +21,7 @@
   --select: #2f7bf0;        /* the ring round a selected block */
   --select-halo: rgba(47, 123, 240, .28);    /* its soft glow */
   --measure: #4a5266;       /* dimension lines and their numbers */
+  --on-block: #ffffff;      /* small writing set on a block's own colour */
   /* blocks: one colour per shape, named by the shape's config ("color": "tensor" -> --tensor) */
   --tensor: #e5534b;        /* a friendly red */
   --data-in: #ff2e93;       /* a bright pink. Pink is Data in's alone: none of the named-shape colours below is a pink */

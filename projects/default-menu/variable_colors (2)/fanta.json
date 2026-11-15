@@ -2,13 +2,13 @@
   "format": "smart-factory/shape",
   "version": 2,
   "type": "tensor",
-  "name": ".lazuli_dark",
+  "name": ".fanta",
   "named": true,
   "commented": false,
-  "color": "variable-3",
+  "color": "variable-4",
   "position": {
     "x": -4,
-    "y": -1
+    "y": 0
   },
   "size": {
     "cols": 3,
@@ -21,12 +21,11 @@
   "value": {
     "as": "resolved",
     "entries": {
-      "1,1": 74,
-      "2,1": 122,
-      "3,1": 240
+      "1,1": 255,
+      "2,1": 138,
+      "3,1": 48
     }
   },
-  "order": 2,
-  "variable": 9,
+  "order": 3,
   "tile": true
 }
