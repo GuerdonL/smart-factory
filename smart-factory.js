@@ -462,7 +462,7 @@ function programDefaults(){
   const rgb = css => { probe.style.color = `var(--${css})`; return (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n)); };
   defaults = {};
   for (const mode of ['light', 'dark']){ root.dataset.theme = mode;      /* the stylesheet is asked for each set in turn */
-    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : v.value])); }      /* a colour is the stylesheet's; anything else starts as system.js says */
+    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.cssRows ? v.cssRows.flatMap(() => rgb('tensor')) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : v.value])); }      /* a colour is the stylesheet's; an array of colours, with nothing said, is a plain tensor's all through; anything else starts as system.js says */
   if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
   probe.remove(); return defaults;
 }
@@ -876,14 +876,13 @@ function rebuild(data){
 }
 const count = data => { const n = s => s.shapes.reduce((t, d) => t + 1 + (d.inside ? n(d.inside) : 0), 0); return n(data.top); };
 /* is there a server keeping projects? Asked once, at the start; the list is refreshed after every save. */
-const DEFAULT_MENU = ['project.json', 'Start.group.json', 'Default Colors.group.json', '.config', ...['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'].map(n => `variable_colors/${n}.json`)];   /* the files of projects/default-menu */
 let kept = null, current = null;               /* kept: the names of the server's projects, or null with no server; current: the one open */
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
    one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
 ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
   if (first) bus.send('project.open', { name: first }).then(() => { current = 'menu'; });
-  else if (!kept) Promise.all(DEFAULT_MENU.map(path => fetch('projects/default-menu/' + path).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e))))
+  else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => Promise.all(list.map(path => fetch('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e)))))
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(name){
