@@ -17,10 +17,10 @@ const colour = (name, css, branch, at) => ({ name, key: name.slice(1).replace(/_
 export const SYSTEM = [
   { name: '.integer_precision', key: 'integer-precision', value: [32], branch: null, at: [2, 1], cols: 1, color: 'watermelon' },
   colour('.tensor_default', 'tensor', 'Shapes', [2, 6]), colour('.data-in', 'data-in', 'Shapes', [2, 8]),
-  { name: '.variable_colors', key: 'variable-colors', cssRows: ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'], branch: 'Shapes', at: [8, 6], cols: 3, rows: 6, color: 'lavender' },
-  colour('.bg', 'bg', 'UI', [2, 16]), colour('.panel', 'panel', 'UI', [6, 16]), colour('.hover', 'hover', 'UI', [10, 16]), colour('.focus', 'focus', 'UI', [14, 16]),
-  colour('.fg', 'fg', 'UI', [2, 18]), colour('.line', 'line', 'UI', [6, 18]), colour('.fade-to', 'fade-to', 'UI', [10, 18]), colour('.dot', 'dot', 'UI', [14, 18]),
-  colour('.muted', 'muted', 'UI', [2, 20]), colour('.measure_bar', 'measure', 'UI', [6, 20]), colour('.warn', 'warn', 'UI', [10, 20]), colour('.select', 'select', 'UI', [14, 20]),
+  { name: '.variable_colors', key: 'variable-colors', cssRows: ['lavender', 'watermelon', 'lazuli', 'fanta', 'marigold', 'lagoon'], branch: 'Shapes', at: [14, 6], cols: 3, rows: 6, color: 'lavender' },
+  colour('.bg', 'bg', 'UI', [2, 16]), colour('.panel', 'panel', 'UI', [12, 16]), colour('.hover', 'hover', 'UI', [22, 16]), colour('.focus', 'focus', 'UI', [32, 16]),
+  colour('.fg', 'fg', 'UI', [2, 18]), colour('.line', 'line', 'UI', [12, 18]), colour('.fade-to', 'fade-to', 'UI', [22, 18]), colour('.dot', 'dot', 'UI', [32, 18]),
+  colour('.muted', 'muted', 'UI', [2, 20]), colour('.measure_bar', 'measure', 'UI', [12, 20]), colour('.warn', 'warn', 'UI', [22, 20]), colour('.select', 'select', 'UI', [32, 20]),
 ];
 export const CONFIG = '.config', COLORS = '.colors';
 /* a name as it is matched against the keys above: ".Data in" and "--data_in" are both "data-in" */

@@ -433,7 +433,8 @@ function shown(){                              /* brings what is on screen in li
     const ms = inGroup(id); if (!ms.length) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
     const f = space.frames.get(id), on = id === oneGroup || id === room.host;      /* lit while a selection is held over it */
-    f.set(room.loose?.get(id) || boxOf(ms), { name, solid: true, selected: on, tools: id === oneGroup, grouped: true, fold: true, grow: namedBelow(id) }); view.world.append(f.el);
+    f.fit = [room.loose?.get(id) || boxOf(ms), { name, solid: true, selected: on, tools: id === oneGroup, grouped: true, fold: true, grow: namedBelow(id) }, room.loose?.has(id) ? [] : ms];
+    f.set(f.fit[0], f.fit[1]); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
   if (room.host !== null && !space.groupNames.has(room.host)){ roomFrame.set(boxOf(inGroup(room.host)), { selected: true, grouped: true, grow: namedBelow(room.host) }); view.world.append(roomFrame.el); }
@@ -471,15 +472,25 @@ function shown(){                              /* brings what is on screen in li
      it goes below instead, as far down as it takes to be clear */
   const taken = space.blocks.map(b => b.rect),      /* commented-out blocks are still in the way */
      hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
-  ps.forEach((piece, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
-    const box = { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u }, look = lookOf(piece);
-    r.piece = { blocks: piece.members.map(m => active[m]), type: piece.type, box };       /* what this result is the result of */
-    /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
-    const nameable = piece.members.length > 1;
-    let at = r.set(box, piece.type, { look, nameable });
-    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, piece.type, { side: 'below', drop, look, nameable });
-    taken.push(at); });
-  for (const r of results.slice(ps.length)) r.el.remove();
+  /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
+  const writ = ps.map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1,
+    box: { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u } }));
+  /* what is in a .config takes no part in the algebra, but each shape there still has its value written beside it:
+     the entries it gives, and faintly those it leaves to the definitions above. In the ordinary text colour, since
+     its own colour may be the canvas's. */
+  if (!space.owner) for (const b of space.blocks) if (!isOff(b) && inConfig(b, space)) writ.push({ blocks: [b], type: { cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u) }, nameable: false, box: b.rect,
+    look: { letter: initials(b.name), values: b.values, inherited: inheritedBy(b, space) } });
+  writ.forEach(({ blocks, type, look, nameable, box }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
+    r.piece = { blocks, type, box };            /* what this result is the result of */
+    let at = r.set(box, type, { look, nameable });
+    for (let drop = 0; hits(at) && drop < 60; drop++) at = r.set(box, type, { side: 'below', drop, look, nameable });
+    r.piece.at = at; taken.push(at); });
+  for (const r of results.slice(writ.length)) r.el.remove();
+  /* a named group's frame takes in what is written beside its shapes, too */
+  for (const f of space.frames.values()){ const [box, options, ms] = f.fit; let x0 = box.x, y0 = box.y, x1 = box.x + box.w, y1 = box.y + box.h;
+    for (const r of results.slice(0, writ.length)) if (r.piece.at && r.piece.blocks.every(b => ms.includes(b))){ const a = r.piece.at;
+      x0 = Math.min(x0, a.x); y0 = Math.min(y0, a.y); x1 = Math.max(x1, a.x + a.w); y1 = Math.max(y1, a.y + a.h); }
+    if (x1 - x0 !== box.w || y1 - y0 !== box.h) f.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, options); }
   variables.show(inReach(), systemItems());
 }
 function select(list, { toggle = false } = {}){

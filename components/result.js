@@ -42,7 +42,7 @@ export function createResult({ unit }){
   return { el, set(box, type, { side = 'right', drop = 0, look = {}, nameable = false } = {}){
     el.classList.toggle('nameable', nameable);
     el.hidden = !type; if (!type) return null;
-    const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + JSON.stringify({ ...look, values: look.values ? [...look.values] : [] });
+    const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + JSON.stringify({ ...look, values: look.values ? [...look.values] : [], inherited: look.inherited ? [...look.inherited] : [] });
     if (key !== showing){ showing = key; body?.remove();
       if (type.error){ body = html`<div class="result-error"></div>`; body.textContent = type.error; width = 4 * unit; height = 0; }
       else { const m = look.stands ? likeness({ cols: type.cols, rows: type.rows, unit, ...look.stands }) : createMatrix({ cols: type.cols, rows: type.rows, cell: unit, ...look });
