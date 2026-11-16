@@ -166,9 +166,9 @@ function useShape(of, at, transposed = false){      /* transposed: whether the n
 }
 /* ---- shapes standing in a matrix ----
    A variable dragged from the list onto a shape's matrix (the "= [...]" beside it in the Menu, or the right-hand side
-   in its definition space) goes into the matrix, where it was dropped, in place of the entries it covers. It must be
-   as wide as the matrix or as tall, so vectors can be loaded in one at a time; the entries not yet covered stay as
-   they were. The first one put in replaces whatever was in the receiving shape's definition space. From then on that
+   in its definition space) goes into the matrix, where it was dropped, in place of the entries it covers. It may be
+   any size that fits inside the matrix, and the shapes there may be packed in any arrangement that does not overlap;
+   the entries not yet covered stay as they were. The first one put in replaces whatever was in the receiving shape's definition space. From then on that
    space holds the shapes standing in the matrix, each marked as a tile and lying where it stands: the place where the
    equation's left side is written is the matrix, entry for unit. Once the tiles cover every entry, the receiving
    shape's entries are theirs, as if they had been joined. */
@@ -179,7 +179,7 @@ function tilesOf(b){
   const act = def.blocks.filter(t => !isOff(t) && !inConfig(t, def)), slot = slotOf(b), cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), out = [];
   if (!act.length) return null;
   for (const t of act){ const x = (t.rect.x - slot.x) / u, y = (t.rect.y - slot.y) / u, w = t.rect.w / u, h = t.rect.h / u;
-    if (!t.tile || x % 1 || y % 1 || x < 0 || y < 0 || x + w > cols || y + h > rows || (w !== cols && h !== rows)) return null;
+    if (!t.tile || x % 1 || y % 1 || x < 0 || y < 0 || x + w > cols || y + h > rows) return null;
     if (out.some(o => x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h)) return null;
     out.push({ block: t, x, y, w, h }); }
   return out;
@@ -226,7 +226,7 @@ function matrixAt(x, y){
 function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix the pointer was, in entries from its top-left corner */
   const u = view.unit, home = a === space.owner ? space.parent : space, cols = Math.round(a.rect.w / u), rows = Math.round(a.rect.h / u), w = Math.round(v.rect.w / u), h = Math.round(v.rect.h / u);
   if (kinOf(a).includes(v)) return hud.say('A shape cannot go into its own matrix');
-  if (w > cols || h > rows || (w !== cols && h !== rows)) return hud.say(`${bare(v.name)} is neither as wide nor as tall as ${bare(a.name)}`);
+  if (w > cols || h > rows) return hud.say(`${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
   const def = spaceOf.get(a);
