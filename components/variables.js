@@ -4,7 +4,8 @@
      show     takes what to list, top to bottom:
                 { kind: 'shape',  name, color, cols, rows, children }   drawn as a miniature of the shape, with its name.
                                                               Its children (its side lengths) open under it on a click, as a frame's do
-                { kind: 'length', name, units }               drawn as a ruler, with its name and its length
+                { kind: 'length', name, units, label }        drawn as a ruler, with its name and its length (label, where
+                                                              given, is written in place of the units: "√2u")
                 { kind: 'frame',  name, children }            drawn as an outline, with its name. Its children are items
                                                               of any kind, kept out of sight under it until it is
                                                               clicked, when it opens to show them (and shuts again).
@@ -59,7 +60,7 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
     if (item.kind !== 'length'){ const k = 22 / Math.max(item.cols, item.rows), mini = html`<i class="variable-mini"></i>`;      /* the shape's proportions, 22px on its longer side */
       Object.assign(mini.style, { width: Math.max(5, item.cols * k) + 'px', height: Math.max(5, item.rows * k) + 'px' }); mini.style.setProperty('--mini', `var(--${item.color})`); mini.classList.toggle('group', !!item.group || item.kind === 'frame');
       v.append(mini, html`<span></span>`); v.lastChild.textContent = item.name; }
-    else { v.insertAdjacentHTML('beforeend', RULER); v.append(html`<span></span>`, html`<small></small>`); v.lastChild.previousSibling.textContent = item.name; v.lastChild.textContent = item.units + 'u'; }
+    else { v.insertAdjacentHTML('beforeend', RULER); v.append(html`<span></span>`, html`<small></small>`); v.lastChild.previousSibling.textContent = item.name; v.lastChild.textContent = item.label || item.units + 'u'; }
     return v;
   };
   function hold(v, item, down){
@@ -83,7 +84,7 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
   const more = html`<div class="variables-more"><button type="button" aria-expanded="false" aria-label="System variables" title="System variables">+</button></div>`;
   const self = { el, show(items, hidden = []){
     last = [items, hidden];
-    const told = i => [i.kind, i.name, i.color, i.cols, i.rows, i.units, (i.children || []).map(told)];
+    const told = i => [i.kind, i.name, i.color, i.cols, i.rows, i.units, i.label, (i.children || []).map(told)];
     const key = JSON.stringify([open, [...opened], ...[...items, ...hidden].map(told)]);
     if (key === showing && !items.some(i => i.fresh)) return;      /* nothing to redraw: leave whatever is being hovered or dragged alone */
     showing = key; el.hidden = !items.length && !hidden.length; el.replaceChildren();

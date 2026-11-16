@@ -36,3 +36,9 @@ There is no password. Anyone who can reach the port can read and overwrite the p
 - `shapes/`: the kinds of block, one config each, listed in `shapes/index.json`.
 - `projects/`: saved projects, including `default-menu`, what the page opens on until you save a `menu` of your own.
 - `server.py`, `smart-factory.service`: the server and the unit that keeps it running.
+
+## How results are written
+
+A result that would not come out as a whole number is left in algebraic form, never rounded to decimals: the side of
+a scalar holding 2 is `√2u`, not `1.41u`; of 12, `2√3u`; of 9, `3u`. Roots are the only case so far, but this is the
+rule for anything worked out later.

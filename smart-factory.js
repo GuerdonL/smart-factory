@@ -142,7 +142,7 @@ function inReach(){
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
-          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : +rootSide(b).toFixed(2) })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
+          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: rootSide(b) === null ? null : rootText(scalarOf(b)) + 'u' })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
         shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
       if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
     } });
@@ -285,7 +285,8 @@ const variables = createVariables({
     if (item.kind === 'system') return bus.send('summon', { name: item.name, key: item.key || null, group: !!item.group, at });
     if (item.kind === 'frame') return bus.send('replicate', { frame: item.id, at });
     const target = reach(x, y);
-    return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : bus.send('length.add', { name: item.name, units: item.units, at }); },
+    return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : Number.isInteger(item.units) ? bus.send('length.add', { name: item.name, units: item.units, at })
+      : hud.say(`${item.name} is ${item.label}: not a whole number, so it cannot be set down as an entry`); },      /* an entry holds whole numbers; it is not rounded to make one */
   onEnd: () => bus.send('variable.end'),
 });
 
@@ -612,7 +613,12 @@ const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || 
 const asText = v => v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
 /* the length of each side of such an entry, in units: the root of its number (null where it has none, or none with a root) */
 const rootSide = b => { const v = scalarOf(b); return v !== null && v >= 0 && Number.isFinite(v) ? Math.sqrt(v) : null; };
-const rootOf = b => { const r = rootSide(b); if (r === null) return {}; const t = dim => (sideName(b, dim) ? sideName(b, dim) + ' ' : '') + +r.toFixed(2) + 'u'; return { wText: t('w'), hText: t('h') }; };
+/* A GENERAL PRINCIPLE of what is written: a result that would not come out as a whole number is left in algebraic
+   form, never rounded to decimals. The root of 2 is written √2, not 1.41; of 12, 2√3; of 9, 3. (Roots are the only
+   case so far. Anything worked out later that need not be whole is to be written the same way.) */
+const rootText = v => { if (!Number.isInteger(v)) return '√' + v; let k = Math.floor(Math.sqrt(v)); while (k > 1 && v % (k * k)) k--; const rest = v / (k * k);
+  return rest === 1 ? String(k) : (k > 1 ? k : '') + '√' + rest; };
+const rootOf = b => { const r = rootSide(b); if (r === null) return {}; const t = dim => (sideName(b, dim) ? sideName(b, dim) + ' ' : '') + rootText(scalarOf(b)) + 'u'; return { wText: t('w'), hText: t('h') }; };
 /* a side's length as other sides take it, in world units: a block's own, but for such an entry the root of its
    number, to the nearest whole unit (a side on the canvas is a whole number of squares) */
 const sideLength = (b, dim) => { const r = rootSide(b); return r === null ? b.rect[dim] : Math.max(1, Math.round(r)) * view.unit; };
