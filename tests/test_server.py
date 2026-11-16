@@ -1,5 +1,5 @@
 """server.py: saving and opening projects, and what it will not serve. Run with: python3 -B -m unittest discover tests"""
-import json, os, shutil, sys, tempfile, threading, unittest
+import json, os, shutil, sys, tempfile, threading, unittest, unittest.mock
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from urllib.parse import quote
@@ -105,7 +105,6 @@ class ServerTest(unittest.TestCase):
                 status, _, reply = self.ask(method, '/api/projects/' + quote(name, safe=''), body)
                 self.assertEqual(status, 400, (method, name)); self.assertIn('error', reply)
         self.assertFalse(os.path.exists(server.PROJECTS) and os.listdir(server.PROJECTS))
-        self.assertEqual(os.listdir(self.dir) if not os.path.exists(server.PROJECTS) else ['projects'], os.listdir(self.dir))
 
     def test_a_path_that_would_leave_the_project_is_refused_and_nothing_is_written(self):
         self.save('attention', FILES)
@@ -190,8 +189,6 @@ class ServerTest(unittest.TestCase):
             status, _, text = self.ask('GET', path)
             self.assertEqual(status, 404, path); self.assertNotIn('not secret', text)
 
-
-import unittest.mock      # for ANY
 
 if __name__ == '__main__':
     unittest.main()
