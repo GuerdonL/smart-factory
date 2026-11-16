@@ -5,7 +5,7 @@
          .dark_mode                    0 for the light colours, 1 for the dark ones; left blank, whatever the computer asks for
          .colors
            .shapes                     the colours shapes are drawn in
-             .tensor_default  .data-in
+             .tensor_default  .data-in  .function      .function: the arrow a function is drawn as
              .variable_colors          the colours a newly named shape takes one of at random: six rows, a colour each
            .ui                         the colours of the canvas and what is written on it
              .bg .panel .hover .focus  .fg .line .fade-to .dot  .muted .measure_bar .warn .select
@@ -29,7 +29,7 @@ export const OLD = { lavender: SLOTS[0], watermelon: SLOTS[1], lazuli: SLOTS[2],
 export const SYSTEM = [
   { name: '.integer_precision', key: 'integer-precision', branch: null, at: [2, 1], cols: 1, color: SLOTS[1] },
   { name: '.dark_mode', key: 'dark-mode', branch: null, at: [12, 1], cols: 1, color: SLOTS[2] },      /* with nothing said, the computer's own setting: see programDefaults */
-  colour('.tensor_default', 'tensor', '.shapes', [2, 6]), colour('.data-in', 'data-in', '.shapes', [2, 8]),
+  colour('.tensor_default', 'tensor', '.shapes', [2, 6]), colour('.data-in', 'data-in', '.shapes', [2, 8]), colour('.function', 'function', '.shapes', [2, 10]),
   { name: '.variable_colors', key: 'variable-colors', cssRows: SLOTS,
     branch: '.shapes', at: [14, 6], cols: 3, rows: 6, color: SLOTS[0] },
   colour('.bg', 'bg', '.ui', [2, 16]), colour('.panel', 'panel', '.ui', [12, 16]), colour('.hover', 'hover', '.ui', [22, 16]), colour('.focus', 'focus', '.ui', [32, 16]),

@@ -1,6 +1,6 @@
 /* The theme. Every typeface is defined here, and the few colours that are not the project's to set (shadows, the
    lit and shaded lips of a block). The colours of the canvas, of text and of shapes are not here: --bg --fg --muted
-   --panel --line --hover --dot --focus --fade-to --warn --select --measure --tensor --data-in and --variable-1 to
+   --panel --line --hover --dot --focus --fade-to --warn --select --measure --tensor --data-in --function and --variable-1 to
    --variable-6 are set by the page from the project's .config (system.js), and from nowhere else. A project whose
    .config leaves one out has no such colour. Components only ever refer to these variables. */
 :root, .theme-light {      /* .theme-light: an element that wears the light colours while the page is dark */
