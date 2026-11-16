@@ -644,8 +644,15 @@ function shown(){                              /* brings what is on screen in li
     if (piece.stack) return { letter: initials(first.name), values: pieceValues({ piece, blocks: bs }, 0) };      /* a stack: its shapes' entries, row under row */
     /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
     if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), tiles: tileLook(first) };
-    return bs.length === 1 ? { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first), transposed: turned(first) }
-      : { product: { rows: { letter: initials(first.name), color: first.shape.color }, cols: { letter: initials(last.name), color: last.shape.color } } }; };
+    if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first), transposed: turned(first) };
+    /* scalars times at most one other shape: that shape's entries, each multiplied through where the numbers are known;
+       an entry not known is written as the scalars against its symbol */
+    const one = b => b.rect.w === u && b.rect.h === u && !b.members, scalars = bs.filter(one), solid = bs.filter(b => !one(b));
+    if (scalars.length && solid.length <= 1){ const of = solid[0] || scalars.pop(), ks = scalars.map(b => valuesOf(b).get('1,1'));
+      const known = ks.every(k => typeof k === 'number'), k = known ? ks.reduce((a, b) => a * b, 1) : null, values = new Map();
+      if (known) for (const [key, v] of valuesOf(of)) if (typeof v === 'number'){ const p = k * v; values.set(key, Number.isNaN(p) ? 0 : p); }      /* nothing times infinity is written as nothing */
+      return { letter: (known ? asText(k) : scalars.map(b => initials(b.name)).join('')) + initials(of.name), color: of.shape.color, values, transposed: turned(of) }; }
+    const ends = solid.length ? solid : bs; return { product: { rows: { letter: initials(ends[0].name), color: ends[0].shape.color }, cols: { letter: initials(ends[ends.length - 1].name), color: ends[ends.length - 1].shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const stacked = new Set(all.filter(p => p.stack).flatMap(p => p.members.map(m => active[m])));

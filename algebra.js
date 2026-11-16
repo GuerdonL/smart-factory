@@ -6,6 +6,9 @@
    not just at a corner), are a matrix product, left · right. It is defined when the left one's columns are the right
    one's rows: where both of those sides are named, they must carry the same name; otherwise they must be the same
    length. It gives a variable with the left one's rows and the right one's columns.
+   A single entry (a one by one shape) is a scalar: touching anything on either side, it scales it, whatever the
+   other's size, and the product is the other's size. In a row of shapes the scalars are passed over when the sizes
+   are matched: A · s · B is defined when A · B is.
    Touching is the only thing that combines shapes. Besides the product, shapes of one width set one directly on
    top of the next are a stack (see stacks, below). Shapes that do not touch have nothing to do with each other here,
    however close they are.
@@ -26,14 +29,16 @@
        symbol), or undefined for anything else (not accepted)
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
 
+export const isScalar = r => r.w === 1 && r.h === 1;
 export function joins(rects){
   const out = [];
   rects.forEach((a, left) => rects.forEach((b, right) => {
     if (left === right || a.x + a.w !== b.x) return;
     const top = Math.max(a.y, b.y), bottom = Math.min(a.y + a.h, b.y + b.h);
     if (bottom <= top) return;
-    const byName = a.wName && b.hName, ok = byName ? a.wName === b.hName : a.w === b.h;
-    out.push({ left, right, x: b.x, y: (top + bottom) / 2, ok, note: ok ? '' : byName ? `${a.wName} ≠ ${b.hName}` : `${a.w} ≠ ${b.h}` });
+    const scalar = isScalar(a) || isScalar(b);      /* a single entry multiplies anything, from either side */
+    const byName = a.wName && b.hName, ok = scalar || (byName ? a.wName === b.hName : a.w === b.h);
+    out.push({ left, right, x: b.x, y: (top + bottom) / 2, ok, scalar, note: ok ? '' : byName ? `${a.wName} ≠ ${b.hName}` : `${a.w} ≠ ${b.h}` });
   }));
   return out;
 }
@@ -46,8 +51,11 @@ export function pieces(rects){
     const members = rects.map((_, i) => i).filter(i => piece[i] === id), inside = js.filter(j => piece[j.left] === id);
     const x = Math.min(...members.map(i => rects[i].x)), y = Math.min(...members.map(i => rects[i].y));
     const box = { x, y, w: Math.max(...members.map(i => rects[i].x + rects[i].w)) - x, h: Math.max(...members.map(i => rects[i].y + rects[i].h)) - y };
-    const row = inOneRow(members, inside), first = row && rects[row[0]], last = row && rects[row[row.length - 1]];
-    const type = !row || inside.some(j => !j.ok) ? { error: 'undefined' } : { cols: last.w, rows: first.h, colsName: last.wName || null, rowsName: first.hName || null };
+    /* single entries in the row only scale it: what it comes to, and whether it is defined, is a matter for the others */
+    const row = inOneRow(members, inside), solid = row ? row.filter(i => !isScalar(rects[i])) : [], ends = solid.length ? solid : row || [];
+    const first = rects[ends[0]], last = rects[ends[ends.length - 1]];
+    const fits = solid.every((i, n) => { if (!n) return true; const a = rects[solid[n - 1]], b = rects[i]; return a.wName && b.hName ? a.wName === b.hName : a.w === b.h; });
+    const type = !row || inside.some(j => !j.ok) || !fits ? { error: 'undefined' } : { cols: last.w, rows: first.h, colsName: last.wName || null, rowsName: first.hName || null };
     return { members: row || members, box, type };
   });
 }
