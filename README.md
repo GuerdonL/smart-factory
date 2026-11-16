@@ -29,7 +29,11 @@ beside `server.py`, and start the server again:
 
 (or give it as `SMART_FACTORY_PIN` in the environment, which comes first). With a PIN set, nothing is answered without
 it: the browser asks once, for a user name and a password. The password is the PIN; the user name can be anything. Five
-wrong PINs from one address and that address is turned away for ten minutes.
+different wrong PINs from one address within ten minutes and that address is turned away for ten minutes, whatever it
+sends; each wrong PIN is written in the server's log.
+
+If `.pin` is there but the server cannot read it (it belongs to another user, say) or its first line is empty, the
+server does not start, and says why: it will not quietly run with no password. Only no `.pin` at all means no PIN.
 
 It is a PIN, not a lock: over plain `http` it travels as typed and can be read on the way, so it keeps out whoever
 finds the port, not whoever can listen to the network. With no PIN set, the server says so when it starts, and anyone

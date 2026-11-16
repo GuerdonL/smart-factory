@@ -14,31 +14,44 @@ What it does:
 
 The password is a PIN, kept out of the repository: the SMART_FACTORY_PIN environment variable, or else the one line of
 a file called .pin beside this one. With a PIN set, nothing at all is answered without it: the browser asks for it
-once (any user name) and sends it with every request after. Five wrong PINs from one address and that address is
-turned away for ten minutes. It is sent as it is typed, so over plain http it can be read on the way: it keeps out
-whoever finds the port, not whoever can listen to the network.
-With no PIN set there is no password: anyone who can reach the port can read and overwrite projects.
+once (any user name) and sends it with every request after. Five different wrong PINs from one address within ten
+minutes and that address is turned away for ten minutes. It is sent as it is typed, so over plain http it can be read
+on the way: it keeps out whoever finds the port, not whoever can listen to the network.
+With no PIN set there is no password: anyone who can reach the port can read and overwrite projects. That is only when
+there is no .pin at all: one that is there and cannot be read, or has nothing in it, stops the server from starting.
 """
-import base64, hmac, json, os, re, shutil, subprocess, sys, tempfile, threading, time
+import base64, hashlib, hmac, json, os, re, shutil, subprocess, sys, tempfile, threading, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import unquote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$')          # a project's name: one plain directory name
-TRIES, LOCKED_FOR = 5, 600                                         # wrong PINs allowed from one address, and the seconds it is then turned away
-wrong, wrong_lock = {}, threading.Lock()                           # address -> [wrong PINs so far, when it may try again]
+TRIES, LOCKED_FOR = 5, 600                                         # different wrong PINs allowed from one address within LOCKED_FOR seconds, and the seconds it is then turned away
+SWALLOWED = 64 << 20                                               # how much of a refused request's body is read and dropped, in bytes
+clock = time.monotonic                                             # the clock the counting goes by: its own name, so a test can set it and nothing else's
+# address -> { since: when its first wrong PIN came, seen: the different wrong PINs since (as digests), until: when it may try again, 0 if it still may }
+wrong, wrong_lock = {}, threading.Lock()
 
 
 def read_pin():
-    """The PIN, or None where none is set: SMART_FACTORY_PIN, or else the first line of .pin beside this file."""
+    """The PIN, or None where none is set: SMART_FACTORY_PIN, or else the first line of .pin beside this file.
+    None is only for no .pin at all. A .pin that is there and gives no PIN (it cannot be opened, is not text, or its
+    first line is empty) stops the server: to go on would be to serve everything with no password, unasked."""
     pin = os.environ.get('SMART_FACTORY_PIN', '').strip()
+    if pin:
+        return pin
+    path = os.path.join(ROOT, '.pin')
+    try:
+        with open(path, encoding='utf-8-sig') as f:                # -sig: an editor's mark at the start of the file is no part of the PIN
+            pin = f.readline().strip()
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:                             # ValueError: not UTF-8
+        raise SystemExit('%s is there but cannot be read (%s). Not starting: that would be starting with no PIN.' % (path, e))
     if not pin:
-        try:
-            with open(os.path.join(ROOT, '.pin'), encoding='utf8') as f:
-                pin = f.readline().strip()
-        except OSError:
-            pin = ''
-    return pin or None
+        raise SystemExit('%s is there but its first line is empty. Not starting: that would be starting with no PIN.' % path)
+    return pin
 
 
 PIN = read_pin()
@@ -102,29 +115,42 @@ class Handler(SimpleHTTPRequestHandler):
         makes a browser ask for it, or 429 once the address has given too many wrong ones."""
         if PIN is None:
             return True
-        who, now, given = self.client_address[0], time.monotonic(), None
+        who, now, given = self.client_address[0], clock(), None
         kind, _, sent = self.headers.get('Authorization', '').partition(' ')
         if kind.lower() == 'basic':
             try:
                 given = base64.b64decode(sent.strip(), validate=True).decode('utf8').partition(':')[2]
             except ValueError:
                 given = ''
-        wait = 0
+        wait, note = 0, None
         with wrong_lock:                                           # only the counting is done here: the answer is sent after, so a slow reader holds no one else up
-            count, until = wrong.get(who, (0, 0))
-            if until > now:                                        # turned away: not even the right PIN is looked at
-                wait = int(until - now) + 1
+            for a in [a for a, e in wrong.items() if (e['until'] or e['since'] + LOCKED_FOR) <= now]:
+                del wrong[a]                                       # forgotten: a wait that is over, or wrong PINs from more than LOCKED_FOR ago
+            e = wrong.get(who)
+            if e and e['until']:                                   # turned away: not even the right PIN is looked at
+                wait = int(e['until'] - now) + 1
             elif given is not None and hmac.compare_digest(given.encode(), PIN.encode()):
                 wrong.pop(who, None)
                 return True
-            elif given is not None:                                # a wrong PIN counts; asking without one does not
-                count = count + 1 if until == 0 else 1
-                wrong[who] = (count, now + LOCKED_FOR if count >= TRIES else 0)
-                if count >= TRIES:
-                    print('%d wrong PINs from %s: turned away for %d seconds' % (count, who, LOCKED_FOR), flush=True)
+            elif given is not None:
+                # A wrong PIN counts; asking without one does not. The same wrong PIN again does not count twice: a
+                # page left open resends the one it has with every request, and that is no one guessing.
+                e = wrong.setdefault(who, {'since': now, 'seen': set(), 'until': 0})
+                e['seen'].add(hashlib.sha256(given.encode()).digest())
+                note = 'wrong PIN (%d of %d)' % (len(e['seen']), TRIES)
+                if len(e['seen']) >= TRIES:
+                    e['until'] = now + LOCKED_FOR
+                    note += ': turned away for %d seconds' % LOCKED_FOR
         if wait:
+            self.note('refused while turned away for too many wrong PINs')
             return self.refuse(429, 'too many wrong PINs: try again later', {'Retry-After': str(wait)})
+        if note:
+            self.note(note)
         return self.refuse(401, 'the PIN is needed', {'WWW-Authenticate': 'Basic realm="Smart Factory PIN (any user name)", charset="UTF-8"'})
+
+    def note(self, what):
+        """A line in the log about this request, whatever its address: log_message below keeps to saves and loads."""
+        SimpleHTTPRequestHandler.log_message(self, '%s: "%s"', what, self.requestline)
 
     def refuse(self, status, why, headers):
         data = b'' if self.command == 'HEAD' else json.dumps({'error': why}).encode()
@@ -136,8 +162,25 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Connection', 'close')
         self.end_headers()
         self.wfile.write(data)
-        self.close_connection = True                               # whatever body the request had is not read
+        self.wfile.flush()
+        self.close_connection = True
+        self.swallow()
         return False
+
+    def swallow(self):
+        """Reads and drops the body of a request that has been refused. To close on a client still sending is to cut
+        it off, and it then sees a broken connection in place of the answer: a save refused for want of the PIN would
+        tell the page nothing. Up to SWALLOWED bytes, and not for long."""
+        try:
+            left = min(int(self.headers.get('Content-Length') or 0), SWALLOWED)
+            self.connection.settimeout(10)
+            while left > 0:
+                got = self.rfile.read(min(left, 1 << 16))
+                if not got:
+                    break
+                left -= len(got)
+        except (OSError, ValueError):
+            pass
 
     def reply(self, status, body, kind='application/json'):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -145,21 +188,32 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', kind + '; charset=utf-8')
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != 'HEAD':
+            self.wfile.write(data)
 
     def project(self):
         """The project a /api/projects/<name> address names, or None after answering that it is no good."""
-        name = self.path.split('?')[0][len('/api/projects/'):]
-        from urllib.parse import unquote
-        name = unquote(name)
+        name = unquote(self.path.split('?')[0][len('/api/projects/'):])
         if NAME.match(name):
             return name
         self.reply(400, {'error': 'a project name is letters, digits, spaces, _ . and -, up to 64, starting with a letter or digit'})
 
+    def address(self):
+        """The address asked for, without whatever follows a ? or a #."""
+        return self.path.split('?')[0].split('#')[0]
+
+    def page(self):
+        """Answers with the page if the address is the page's, and says whether it was."""
+        if self.address() not in ('/', '/index.html'):
+            return False
+        with open(os.path.join(ROOT, 'smart-factory.html'), encoding='utf8') as f:
+            self.reply(200, PAGE.replace('{page}', f.read()).encode(), 'text/html')
+        return True
+
     def do_GET(self):
-        path = self.path.split('?')[0]
-        if path in ('/', '/index.html'):
-            return self.reply(200, PAGE.replace('{page}', open(os.path.join(ROOT, 'smart-factory.html'), encoding='utf8').read()).encode(), 'text/html')
+        path = self.address()
+        if self.page():
+            return
         if path == '/api/projects':
             names = sorted(n for n in os.listdir(PROJECTS) if os.path.isfile(os.path.join(PROJECTS, n, 'project.json'))) if os.path.isdir(PROJECTS) else []
             return self.reply(200, names)
@@ -175,15 +229,20 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_HEAD(self):
-        if self.hidden():
+        if self.hidden() or self.address().startswith('/api/'):
             return self.send_error(404)
-        super().do_HEAD()
+        if not self.page():                                        # the page's headers, as GET gives them, without the page
+            super().do_HEAD()
 
     def hidden(self):
         """Whether the address names a dot-file, read as the file server will read it: %2egit is .git."""
-        from urllib.parse import unquote
-        path = unquote(self.path.split('?')[0].split('#')[0])
+        path = unquote(self.address())
         return '/.' in path or '\\' in path
+
+    def list_directory(self, path):
+        """A directory is not listed: a list names the dot-files in it, which are not to be served, and is no use to
+        the page, which asks for every file by name."""
+        self.send_error(404)
 
     def do_PUT(self):
         if not self.path.startswith('/api/projects/'):
