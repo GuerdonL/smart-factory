@@ -634,6 +634,7 @@ function shown(){                              /* brings what is on screen in li
   /* the properties of the one shape selected: its name, its shape, its value */
   if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
     properties.show({ name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar: cols === 1 && rows === 1 && !one.members,
+      sides: cols === 1 && rows === 1 && !one.members ? ['w', 'h'].map(dim => rootOf(one)[dim + 'Text'] || (sideName(one, dim) ? sideName(one, dim) + ' ' : '') + '1u') : null,      /* a single entry's sides: the root of its number */
       matrix: { letter: initials(one.name), values: valuesOf(one), transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
   else properties.show(null);
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: sideName(one, 'w'), hName: sideName(one, 'h'), ...rootOf(one) }); }

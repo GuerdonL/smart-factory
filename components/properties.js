@@ -5,6 +5,7 @@
               name     the variable's name, written large
               color    a CSS colour for the name (the variable's own); where it is no colour, the text colour is used
               cols, rows   the shape, written "3 wide × 6 tall" (a single entry is "scalar")
+              sides    for a single entry, its two side lengths as text, a line each under "scalar": ["depth.x 3u", "depth.y 3u"]
               matrix   what createMatrix takes, less its cell: the value. A long side is cut short there, to its
                        first three entries, dots, and its last.
    Nothing else is shown, and nothing in it can be pressed: the canvas under it still takes the pointer. */
@@ -17,7 +18,8 @@ style('properties', `
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 10px var(--shadow); animation: properties-up .12s ease-out; }
 @keyframes properties-up { from { opacity: 0; transform: translateY(6px); } }
 .properties-name { font-family: var(--font-name); font-size: 22px; line-height: 1.15; letter-spacing: -0.02em; color: var(--named, var(--fg)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.properties-shape { color: var(--muted); font-variant-numeric: tabular-nums; }
+.properties-shape, .properties-sides { color: var(--muted); font-variant-numeric: tabular-nums; }
+.properties-sides { margin-top: -4px; font-family: var(--font-name); }
 .properties-value { padding: 5px 7px 3px; }
 .properties-value .matrix { position: relative; }
 @media (prefers-reduced-motion: reduce) { .properties { animation: none; } }
@@ -25,15 +27,16 @@ style('properties', `
 
 const CELL = 26;
 export function createProperties(){
-  const el = html`<div class="properties" aria-label="Properties" hidden><div class="properties-name"></div><div class="properties-shape"></div><div class="properties-value"></div></div>`;
-  const [name, shape, value] = el.children;
+  const el = html`<div class="properties" aria-label="Properties" hidden><div class="properties-name"></div><div class="properties-shape"></div><div class="properties-sides" hidden></div><div class="properties-value"></div></div>`;
+  const [name, shape, sides, value] = el.children;
   let showing = '';
   return { el, show(what){
     if (!what){ el.hidden = true; showing = ''; return; }
-    const key = JSON.stringify([what.name, what.color, what.cols, what.rows, what.scalar, { ...what.matrix, values: [...(what.matrix.values || [])] }]);
+    const key = JSON.stringify([what.name, what.color, what.cols, what.rows, what.scalar, what.sides, { ...what.matrix, values: [...(what.matrix.values || [])] }]);
     if (key === showing) return; showing = key;
     name.textContent = what.name; name.style.setProperty('--named', what.color || 'initial');
     shape.textContent = what.scalar ? 'scalar' : `${what.cols} wide × ${what.rows} tall`;
+    sides.hidden = !what.sides?.length; sides.replaceChildren(...(what.sides || []).map(t => { const d = html`<div></div>`; d.textContent = t; return d; }));
     const m = createMatrix({ ...what.matrix, cols: what.cols, rows: what.rows, cell: CELL });
     value.replaceChildren(m.el);
     el.hidden = false; } };
