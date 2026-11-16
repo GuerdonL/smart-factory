@@ -1,12 +1,9 @@
 """server.py: saving and opening projects, and what it will not serve. Run with: python3 -B -m unittest discover tests"""
-import json, os, shutil, sys, tempfile, threading, unittest, unittest.mock
-from http.client import HTTPConnection
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json, os, shutil, sys, unittest, unittest.mock
 from urllib.parse import quote
 
-sys.dont_write_bytecode = True
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import server
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from serving import ServerCase, server
 
 HEAD = {'path': 'project.json', 'text': '{"format": "smart-factory/project", "version": 2}\n'}
 FILES = [HEAD, {'path': 'Keys.json', 'text': '{"name": "Keys"}\n'}, {'path': 'Keys/Key Weights.json', 'text': '{"name": "√2 · ∞"}\n'},
@@ -14,39 +11,17 @@ FILES = [HEAD, {'path': 'Keys.json', 'text': '{"name": "Keys"}\n'}, {'path': 'Ke
 by_path = lambda files: sorted(files, key=lambda f: f['path'])
 
 
-class ServerTest(unittest.TestCase):
-    def setUp(self):
-        """A server over a directory of its own: saved projects, and the files it serves, are not the repository's."""
-        self.kept, self.dir = (server.ROOT, server.PROJECTS, server.PIN), tempfile.mkdtemp(prefix='smart-factory-test-')
-        shutil.copy(os.path.join(server.ROOT, 'smart-factory.html'), self.dir)
-        for path, text in {'smart-factory.js': '/* the page */', 'components/block.js': '/* a block */', '.git/config': 'secret', '.git/HEAD': 'secret',
-                           '.serve-token': 'secret', 'components/.hidden.js': 'secret', 'outside.txt': 'not secret'}.items():
-            os.makedirs(os.path.dirname(os.path.join(self.dir, path)), exist_ok=True)
-            with open(os.path.join(self.dir, path), 'w') as f:
-                f.write(text)
-        server.ROOT, server.PROJECTS = self.dir, os.path.join(self.dir, 'projects')
-        server.PIN = None      # whatever PIN this machine has set for its own server is not these tests' (test_server_pin.py has the PIN's)
-        # the server's own log_message runs, as it does in use; only the line it would write to stderr is kept off the screen
-        quiet = unittest.mock.patch.object(BaseHTTPRequestHandler, 'log_message', lambda *a: None)
-        quiet.start(); self.addCleanup(quiet.stop)
-        self.httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
-        threading.Thread(target=self.httpd.serve_forever, args=(0.01,), daemon=True).start()
-
-    def tearDown(self):
-        self.httpd.shutdown(); self.httpd.server_close()
-        server.ROOT, server.PROJECTS, server.PIN = self.kept
-        shutil.rmtree(self.dir, ignore_errors=True)
+class ServerTest(ServerCase):
+    SERVED = {'smart-factory.js': '/* the page */', 'components/block.js': '/* a block */', '.git/config': 'secret', '.git/HEAD': 'secret',
+              '.serve-token': 'secret', '.pin': 'secret', 'components/.hidden.js': 'secret', 'outside.txt': 'not secret'}
 
     def ask(self, method, path, body=None):
         """-> (status, headers, the body read as JSON where it is JSON, else as text)"""
-        c = HTTPConnection('127.0.0.1', self.httpd.server_address[1], timeout=10)
-        data = body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode()
-        c.request(method, path, body=data)
-        r = c.getresponse(); text = r.read().decode('utf8', 'replace'); c.close()
+        status, headers, text = self.request(method, path, body)
         try:
-            return r.status, r.headers, json.loads(text)
+            return status, headers, json.loads(text)
         except ValueError:
-            return r.status, r.headers, text
+            return status, headers, text
 
     def save(self, name, files):
         return self.ask('PUT', '/api/projects/' + quote(name), files)
@@ -158,7 +133,33 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.ask('GET', '/api/projects')[1]['Cache-Control'], 'no-cache')
         self.assertEqual(self.ask('GET', '/no-such-file.js')[0], 404)
 
-    DOT_FILES = ['/.git/config', '/.git/HEAD', '/.git/', '/.serve-token', '/components/.hidden.js', '/components/../.git/config', '/projects/attention/.config']
+    def test_the_page_is_the_page_whatever_follows_its_address(self):
+        for path in ['/#', '/?', '/#top', '/?x=1#top', '/index.html#top']:
+            status, _, text = self.ask('GET', path)
+            self.assertEqual(status, 200, path); self.assertIn('src="smart-factory.js"', text, path); self.assertNotIn('Directory listing', text, path)
+
+    def test_head_gives_the_page_s_headers_without_the_page(self):
+        got, _, page = self.ask('GET', '/')
+        for path in ['/', '/index.html', '/#']:
+            status, headers, text = self.ask('HEAD', path)
+            self.assertEqual(status, 200, path); self.assertIn('text/html', headers['Content-Type']); self.assertEqual(text, '')
+            self.assertEqual(int(headers['Content-Length']), len(page.encode()))
+        self.assertEqual(self.ask('HEAD', '/smart-factory.js')[0], 200)
+        self.assertEqual(self.ask('HEAD', '/api/projects')[0], 404)
+
+    def test_a_directory_is_not_listed(self):
+        self.save('attention', FILES)
+        for path in ['/components/', '/components/#', '/components/?x', '/projects/', '/projects/attention/', '/components/../', '/%63omponents/', '/./']:
+            for method in ('GET', 'HEAD'):
+                status, _, text = self.ask(method, path)
+                self.assertEqual(status, 404, (method, path))
+                for name in ['Directory listing', '.hidden', '.git', '.pin', '.serve-token', 'block.js', '.config']:
+                    self.assertNotIn(name, str(text), (method, path))
+        self.assertEqual(self.ask('GET', '/components/block.js')[0], 200)      # what is in it is still served by name
+        for path in ['//', '///', '/.', '/..', '/%2e/']:                       # the top directory by other names: the page or nothing, never a list
+            self.assertNotIn('Directory listing', str(self.ask('GET', path)[2]), path)
+
+    DOT_FILES = ['/.git/config', '/.git/HEAD', '/.git/', '/.serve-token', '/.pin', '/components/.hidden.js', '/components/../.git/config', '/projects/attention/.config']
 
     def test_dot_files_are_not_served(self):
         self.save('attention', FILES)
