@@ -2,7 +2,8 @@
 
    createVariables({ onDrag(item, x, y), onDrop(item, x, y), onEnd() }) -> { el, show(items, hidden) }
      show     takes what to list, top to bottom:
-                { kind: 'shape',  name, color, cols, rows }   drawn as a miniature of the shape, with its name
+                { kind: 'shape',  name, color, cols, rows, children }   drawn as a miniature of the shape, with its name.
+                                                              Its children (its side lengths) open under it on a click, as a frame's do
                 { kind: 'length', name, units }               drawn as a ruler, with its name and its length
                 { kind: 'frame',  name, children }            drawn as an outline, with its name. Its children are items
                                                               of any kind, kept out of sight under it until it is
@@ -54,7 +55,7 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
   const draw = (item, depth = 0) => {
     const v = html`<div class="variable"></div>`;
     if (depth){ v.classList.add('child'); v.style.setProperty('--depth', depth); }
-    if (item.children?.length){ v.append(html`<b></b>`); v.firstChild.textContent = opened.has(keyOf(item)) ? '\u25be' : '\u25b8'; }
+    if (item.children?.length && item.kind !== 'shape'){ v.append(html`<b></b>`);      /* a shape carries no mark: it is clicked to show its sides all the same */ v.firstChild.textContent = opened.has(keyOf(item)) ? '\u25be' : '\u25b8'; }
     if (item.kind !== 'length'){ const k = 22 / Math.max(item.cols, item.rows), mini = html`<i class="variable-mini"></i>`;      /* the shape's proportions, 22px on its longer side */
       Object.assign(mini.style, { width: Math.max(5, item.cols * k) + 'px', height: Math.max(5, item.rows * k) + 'px' }); mini.style.setProperty('--mini', `var(--${item.color})`); mini.classList.toggle('group', !!item.group || item.kind === 'frame');
       v.append(mini, html`<span></span>`); v.lastChild.textContent = item.name; }

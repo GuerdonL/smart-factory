@@ -125,6 +125,7 @@ const kinOf = b => kin.get(b) || [b];
    A named frame is a variable: dragged from the list, all of it is made again where it is dropped. What is named
    inside a named frame is listed under that frame, out of sight until the frame is opened, and nowhere else: it is an
    attribute of the frame. (A frame is no scope: its shapes share the space's variables with everything else there.)
+   A named shape's two side lengths are listed under it in the same way: click the shape and they show beneath it.
    A dotted name is a hidden variable, kept behind the plus, along with everything under a dotted frame.
    Of several definitions of one name in different spaces, the lowest is the one in reach: it shadows the others. */
 function inReach(){
@@ -139,9 +140,10 @@ function inReach(){
     for (const b of s.blocks){
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
-        const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth };
+        const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
+          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: b.rect[dim] / view.unit })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
         shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
-      for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){ names.add(b.sides[dim]); lengths.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
+      if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
     } });
   const lowest = new Map(); for (const [i] of shapes) lowest.set(bare(i.name).trim(), Math.max(i.depth, lowest.get(bare(i.name).trim()) ?? 0));
   for (const [i, into] of shapes) if (lowest.get(bare(i.name).trim()) === i.depth) into.push(i);
@@ -150,7 +152,8 @@ function inReach(){
       if (i.kind === 'shape' && !i.block.members){ const over = !!i.block.t !== shiftHeld; if (over) [i.cols, i.rows] = [i.rows, i.cols]; if (shiftHeld){ i.name += '\u1d40'; i.transposed = true; } } } };
   face(main); face(hidden);
   const told = new Set(), tell = list => { for (const i of list){ told.add(i.name); if (i.children) tell(i.children); } }; tell(hidden);
-  return { main: [...main, ...lengths], hidden: [...systemItems().filter(i => !told.has(i.name)), ...hidden] };      /* the program's own, where the project has none of that name */
+  const under = new Set(shapes.flatMap(([i]) => i.children.map(c => c.name)));      /* lengths already listed under a shape */
+  return { main: [...main, ...lengths.filter(l => !under.has(l.name))], hidden: [...systemItems().filter(i => !told.has(i.name)), ...hidden] };      /* the program's own, where the project has none of that name */
 }
 const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 }, { kind: 'system', name: DARK, group: true, color: 'muted', cols: 3, rows: 2 },
   ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 }))];
