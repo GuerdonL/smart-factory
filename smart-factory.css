@@ -6,9 +6,10 @@
 :root, .theme-light {      /* .theme-light: an element that wears the light colours while the page is dark */
   --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;      /* menus, readouts */
   /* names on the canvas: technical and cramped. The real 3270 is used where it is installed;
-     otherwise Share Tech Mono, loaded by the page, stands in. */
+     otherwise the computer's own fixed-width typeface stands in. No typeface is fetched: the page loads nothing
+     from anywhere but its own server. */
   --font-math: "STIX Two Math", "Cambria Math", "Latin Modern Math", "Times New Roman", Times, serif;      /* variables, in matrix notation */
-  --font-name: "3270 Nerd Font", "3270 Nerd Font Mono", "3270NF", "IBM 3270", "Share Tech Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-name: "3270 Nerd Font", "3270 Nerd Font Mono", "3270NF", "IBM 3270", "Share Tech Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;      /* Share Tech Mono: only where it is installed */
 
   --shadow: rgba(20, 26, 40, .28);
   --select-halo: color-mix(in srgb, var(--select) 28%, transparent);    /* the soft glow round a selected block */
