@@ -144,8 +144,8 @@ function inReach(){
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
-          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', of: originOf(b).id, side: (dim === 'w') !== turned(b) ? 'x' : 'y', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: rootSide(b) === null ? null : valueText(rootSide(b)) + 'u' }))
-            .concat(massName(b) ? [{ kind: 'length', of: originOf(b).id, side: 'm', name: massName(b), units: scalarOf(b), label: valueText(scalarOf(b)) }] : []) };      /* and a scalar's mass: the number it holds */      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
+          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', of: originOf(b).id, side: (dim === 'w') !== turned(b) ? 'x' : 'y', name: sideName(b, dim), units: unset(b) ? null : rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: unset(b) ? '√' + symbolOf(b) : rootSide(b) === null ? null : valueText(rootSide(b)) + 'u' }))
+            .concat(massName(b) ? [{ kind: 'length', of: originOf(b).id, side: 'm', name: massName(b), units: scalarOf(b), label: unset(b) ? symbolOf(b) : valueText(scalarOf(b)) }] : []) };      /* and a scalar's mass: the number it holds */      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
         shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
       if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', of: b.id, side: dim === 'w' ? 'x' : 'y', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
     } });
@@ -317,9 +317,14 @@ const spaceWith = b => everySpace().find(s => s.blocks.includes(b));
    name goes by that one. (A side's own automatic name is only a handle: it does not make the side a variable one,
    so it neither elides the shape's matrix nor has to match a neighbour's name in a product.) */
 const autoSide = (b, dim) => isNamed(b) ? bare(b.name).trim().slice(0, 10) + ((dim === 'w') !== turned(b) ? '.x' : '.y') : null;
-/* a named scalar that holds a number has a third measure beside its two sides: its mass, the number itself, called
+/* a named scalar has a third measure beside its two sides: its mass, the number it holds, called
    by the shape's name with .mass. ('m' stands for it wherever 'w' and 'h' stand for the sides.) */
-const massName = b => isNamed(b) && scalarOf(b) !== null ? bare(b.name).trim().slice(0, 10) + '.mass' : null;
+const single = b => !b.members && b.rect.w === view.unit && b.rect.h === view.unit;
+const massName = b => isNamed(b) && single(b) ? bare(b.name).trim().slice(0, 10) + '.mass' : null;      /* whether or not it has been given a number yet */
+/* a named scalar not yet given a number: its mass is still a symbol, written as its one entry is in its definition
+   (the name's initials and the entry's number: k₁), and its sides are the root of that */
+const unset = b => isNamed(b) && single(b) && scalarOf(b) === null;
+const symbolOf = b => initials(b.name) + '₁';
 const sideName = (b, dim) => dim === 'm' ? massName(b) : b.sides[dim] || autoSide(b, dim);
 const uses = (s, name) => s.blocks.some(b => sideName(b, 'w') === name || sideName(b, 'h') === name || massName(b) === name);
 /* s and every space above it: the spaces holding a block whose definition s is, and so on up */
@@ -365,7 +370,7 @@ function agree(b){
       if (length === null){      /* the entry's side is not a whole number now: no side can be that long, so the sides that carried its name let go of it and stay as they are */
         for (const [o, d] of group) if (rootSide(o) === null && o.sides[d]){ hud.say(`${o.sides[d]} is not a whole number now: ${bare(o.name)} no longer follows it`); o.sides[d] = null; }
         continue; }
-      for (const [o, d] of group) if (rootSide(o) === null && o.rect[d] !== length){ o.set({ ...o.rect, [d]: length }); done.delete(o); todo.push(o); } }
+      for (const [o, d] of group) if (rootSide(o) === null && !unset(o) && o.rect[d] !== length){ o.set({ ...o.rect, [d]: length }); done.delete(o); todo.push(o); } }
   }
 }
 /* Runs change(), then puts back together whatever it pulled apart: blocks that were touching side by side, in any
@@ -634,11 +639,12 @@ const rootSide = b => { const v = scalarOf(b); return v === null ? null : rootVa
 /* A GENERAL PRINCIPLE of what is written: a result that would not come out as a whole number is left in algebraic
    form, never rounded to decimals. The root of 2 is written √2, not 1.41; of 12, 2√3; of 9, 3. (Roots are the only
    case so far. Anything worked out later that need not be whole is to be written the same way.) */
-const rootOf = b => { const r = rootSide(b); if (r === null) return {}; const t = dim => (sideName(b, dim) ? sideName(b, dim) + ' ' : '') + valueText(r) + 'u'; return { wText: t('w'), hText: t('h') }; };
+const rootOf = b => { const r = rootSide(b); if (r === null && unset(b)){ const t = dim => sideName(b, dim) + ' √' + symbolOf(b); return { wText: t('w'), hText: t('h') }; } if (r === null) return {}; const t = dim => (sideName(b, dim) ? sideName(b, dim) + ' ' : '') + valueText(r) + 'u'; return { wText: t('w'), hText: t('h') }; };
 /* a side's length as other sides take it, in world units: a block's own, but for such an entry the root of its
    number. Only a whole number of units can be a side's length, with no exceptions and no rounding: where the root is
    not whole, this is null, and no side can take it. */
-const sideLength = (b, dim) => { if (dim === 'm'){ const v = scalarOf(b); return isWhole(v) && v >= 1 ? v * view.unit : null; } const r = rootSide(b); return r === null ? b.rect[dim] : isWhole(r) && r >= 1 ? r * view.unit : null; };
+const sideLength = (b, dim) => { if (unset(b)) return null;      /* no number yet: no length to give */
+  if (dim === 'm'){ const v = scalarOf(b); return isWhole(v) && v >= 1 ? v * view.unit : null; } const r = rootSide(b); return r === null ? b.rect[dim] : isWhole(r) && r >= 1 ? r * view.unit : null; };
 /* The circles on a shape: one over every entry whose number is known, its area in step with the number's size, the
    largest on the shape filling its square. (A single entry has none: its number is written on it.) A negative number is a ring; zero is a speck (known, and nothing). */
 function dotsOf(b){
@@ -663,9 +669,9 @@ function lookupFor(b, seen = new Set()){
     const got = evaluate(a.text, lookupFor(b, new Set([...seen, a]))); return got.value || (got.inexact ? 'inexact' : undefined); };
 }
 function attributesOf(b){
-  const r = rootSide(b), u = view.unit, len = dim => r === null ? String(Math.round(b.rect[dim] / u)) : valueText(r), v = scalarOf(b), single = b.rect.w === u && b.rect.h === u && !b.members;
+  const r = rootSide(b), u = view.unit, len = dim => unset(b) ? '√' + symbolOf(b) : r === null ? String(Math.round(b.rect[dim] / u)) : valueText(r), v = scalarOf(b), one = single(b);
   const fixed = [{ key: 'x', label: sideName(b, 'w') || 'x', text: len('w') }, { key: 'y', label: sideName(b, 'h') || 'y', text: len('h') }];
-  if (single) fixed.push({ key: 'mass', label: massName(b) || 'mass', text: v === null ? '' : valueText(v) });
+  if (one) fixed.push({ key: 'mass', label: massName(b) || 'mass', text: v === null ? symbolOf(b) : valueText(v) });      /* not yet given a number: its symbol */
   return [...fixed, ...attrsOf(b).map((a, i) => { const got = evaluate(a.text, lookupFor(b, new Set([a])));
     return { key: 'a' + i, custom: true, label: a.name, text: a.text, error: got.error || null, result: (r => r && r.replace(/\s+/g, '') !== a.text.replace(/\s+/g, '') ? r : null)(got.value ? writtenValue(got.value) : got.text || null) }; })];      /* what it comes to, where that says more than what was typed */
 }
@@ -970,7 +976,7 @@ function remove(also = []){                      /* also: blocks anywhere that g
 const originOf = b => [...kinOf(b)].find(k => !k.ref) || b;      /* the shape a variable was made as */
 const sourceOf = b => b.from ? everyKnown().find(o => o.id === b.from.id) || null : null;
 const dimOf = (b, src) => b.from.side === 'm' ? 'm' : (b.from.side === 'x') !== turned(src) ? 'w' : 'h';      /* which of the source's sides, the way it now lies */
-const derived = b => { const src = sourceOf(b); if (!src || src === b) return null; const dim = dimOf(b, src), r = rootSide(src); if (dim === 'm') return scalarOf(src); return r === null ? Math.round(src.rect[dim] / view.unit) : r; };
+const derived = b => { const src = sourceOf(b); if (!src || src === b) return null; const dim = dimOf(b, src), r = rootSide(src); if (dim === 'm') return scalarOf(src); if (unset(src)) return null; return r === null ? Math.round(src.rect[dim] / view.unit) : r; };
 function doomed(blocks){
   const gone = new Set(blocks), all = everyBlock();
   for (let more = true; more;){ more = false;
