@@ -29,9 +29,10 @@
    Each entry's element carries data-c and data-r, its column and row, for whoever wants to act on a click. */
 
 /* a number as it is written in a matrix */
-export const written = v => v === Infinity ? '+∞' : v === -Infinity ? '−∞' : String(v).replace('-', '−');
+export const written = v => isSurd(v) ? valueText(v) : v === Infinity ? '+∞' : v === -Infinity ? '−∞' : String(v).replace('-', '−');
 import { html, style } from './dom.js';
 import { likeness } from './block.js';
+import { isSurd, valueText } from '../algebra.js';
 
 style('matrix', `
 .matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; line-height: 1; }

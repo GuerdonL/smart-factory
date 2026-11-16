@@ -15,7 +15,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { joins, pieces, stacks, typeOf, initials, readEntry } from './algebra.js';
+import { joins, pieces, stacks, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -142,7 +142,7 @@ function inReach(){
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
-          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: rootSide(b) === null ? null : rootText(scalarOf(b)) + 'u' })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
+          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: rootSide(b) === null ? null : valueText(rootSide(b)) + 'u' })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
         shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
       if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
     } });
@@ -285,8 +285,8 @@ const variables = createVariables({
     if (item.kind === 'system') return bus.send('summon', { name: item.name, key: item.key || null, group: !!item.group, at });
     if (item.kind === 'frame') return bus.send('replicate', { frame: item.id, at });
     const target = reach(x, y);
-    return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : Number.isInteger(item.units) ? bus.send('length.add', { name: item.name, units: item.units, at })
-      : hud.say(`${item.name} is ${item.label}: not a whole number, so it cannot be set down as an entry`); },      /* an entry holds whole numbers; it is not rounded to make one */
+    if (target && !isWhole(item.units)) return hud.say(`${item.name} is ${item.label}, not a whole number: it cannot be a side's length`);      /* only whole numbers are side lengths */
+    return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : bus.send('length.add', { name: item.name, units: item.units, at }); },      /* on the canvas: an entry holding it, a root left as a root */
   onEnd: () => bus.send('variable.end'),
 });
 
@@ -340,7 +340,7 @@ function sidesCalled(name, s){
 /* the length a side called name has in s already, if one at or above s carries it; otherwise undefined */
 function lengthCalled(name, s, not = null){
   const here = above(s), from = sidesCalled(name, s).find(([o, , t]) => o !== not && here.has(t));
-  return from && sideLength(from[0], from[1]);
+  return from ? sideLength(from[0], from[1]) ?? undefined : undefined;      /* a length that is not whole is no length a side can take */
 }
 /* after b's size has changed: every other use of its variable takes its size, and every side that shares a name
    with one of its sides takes that side's length; then the same for whatever those changed, until nothing moves */
@@ -353,6 +353,9 @@ function agree(b){
     const s = spaceWith(c); if (!s) continue;
     for (const dim of ['w', 'h']) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o]) => rootSide(o) !== null);      /* a single entry's number settles the length: it is not resized to suit the others */
       const length = boss ? sideLength(boss[0], boss[1]) : c.rect[dim];
+      if (length === null){      /* the entry's side is not a whole number now: no side can be that long, so the sides that carried its name let go of it and stay as they are */
+        for (const [o, d] of group) if (rootSide(o) === null && o.sides[d]){ hud.say(`${o.sides[d]} is ${valueText(rootSide(boss[0]))}u, not a whole number: ${bare(o.name)} no longer follows it`); o.sides[d] = null; }
+        continue; }
       for (const [o, d] of group) if (rootSide(o) === null && o.rect[d] !== length){ o.set({ ...o.rect, [d]: length }); done.delete(o); todo.push(o); } }
   }
 }
@@ -377,6 +380,7 @@ function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
 function typedNow(b, dim, text){
   const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(), n = m[2] ? Math.round(parseFloat(m[2])) : null;
   if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
+  if (name && sidesCalled(name, space).some(([o, d]) => o !== b && sideLength(o, d) === null)){ hud.say(`${name} is not a whole number: it cannot be a side's length`); return; }
   if (name){ b.sides[dim] = null; const has = lengthCalled(name, space, null);      /* the length the name already has here or above, looked up before this side joins it */
     b.sides[dim] = name; if (n === null && has !== undefined) b.set({ ...b.rect, [dim]: has }); }
   if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit });
@@ -607,21 +611,20 @@ function hush(){
 }
 /* A single entry (a 1 by 1 block) that holds a number: the number is its area, so each side is the root of it. The
    block still takes one square of the grid and is still one by one in a product; only what is written changes: the
-   number on its face, and its sides as the root of the number: 9 has sides of 3u. A side elsewhere that carries one of
-   its sides' names is that long (to the nearest whole unit) and follows the number as it changes. */
-const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || b.rect.h !== u) return null; const v = valuesOf(b).get('1,1'); return typeof v === 'number' ? v : null; };
-const asText = v => v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
+   number on its face, and its sides as the root of the number: 9 has sides of 3u, 2 of √2u. A side elsewhere that carries one of
+   its sides' names is that long and follows the number as it changes, so long as the root is a whole number. */
+const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || b.rect.h !== u) return null; const v = valuesOf(b).get('1,1'); return typeof v === 'number' || isSurd(v) ? v : null; };
+const asText = valueText;
 /* the length of each side of such an entry, in units: the root of its number (null where it has none, or none with a root) */
-const rootSide = b => { const v = scalarOf(b); return v !== null && v >= 0 && Number.isFinite(v) ? Math.sqrt(v) : null; };
+const rootSide = b => { const v = scalarOf(b); return v === null ? null : rootValue(v); };      /* a value: a whole number, or a root left as a root */
 /* A GENERAL PRINCIPLE of what is written: a result that would not come out as a whole number is left in algebraic
    form, never rounded to decimals. The root of 2 is written √2, not 1.41; of 12, 2√3; of 9, 3. (Roots are the only
    case so far. Anything worked out later that need not be whole is to be written the same way.) */
-const rootText = v => { if (!Number.isInteger(v)) return '√' + v; let k = Math.floor(Math.sqrt(v)); while (k > 1 && v % (k * k)) k--; const rest = v / (k * k);
-  return rest === 1 ? String(k) : (k > 1 ? k : '') + '√' + rest; };
-const rootOf = b => { const r = rootSide(b); if (r === null) return {}; const t = dim => (sideName(b, dim) ? sideName(b, dim) + ' ' : '') + rootText(scalarOf(b)) + 'u'; return { wText: t('w'), hText: t('h') }; };
+const rootOf = b => { const r = rootSide(b); if (r === null) return {}; const t = dim => (sideName(b, dim) ? sideName(b, dim) + ' ' : '') + valueText(r) + 'u'; return { wText: t('w'), hText: t('h') }; };
 /* a side's length as other sides take it, in world units: a block's own, but for such an entry the root of its
-   number, to the nearest whole unit (a side on the canvas is a whole number of squares) */
-const sideLength = (b, dim) => { const r = rootSide(b); return r === null ? b.rect[dim] : Math.max(1, Math.round(r)) * view.unit; };
+   number. Only a whole number of units can be a side's length, with no exceptions and no rounding: where the root is
+   not whole, this is null, and no side can take it. */
+const sideLength = (b, dim) => { const r = rootSide(b); return r === null ? b.rect[dim] : isWhole(r) && r >= 1 ? r * view.unit : null; };
 /* The circles on a shape: one over every entry whose number is known, its area in step with the number's size, the
    largest on the shape filling its square. (A single entry has none: its number is written on it.) A negative number is a ring; zero is a speck (known, and nothing). */
 function dotsOf(b){

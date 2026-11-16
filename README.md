@@ -42,3 +42,11 @@ There is no password. Anyone who can reach the port can read and overwrite the p
 A result that would not come out as a whole number is left in algebraic form, never rounded to decimals: the side of
 a scalar holding 2 is `√2u`, not `1.41u`; of 12, `2√3u`; of 9, `3u`. Roots are the only case so far, but this is the
 rule for anything worked out later.
+
+A root is kept as a value in its own right (saved in an entry as `{ "n": 30, "k": 1 }`, the 2^k-th root of n), so
+dropping the length `√30u` on the canvas gives an entry holding `√30`, whose own sides are `∜30u`. Nothing is turned
+into decimals along the way.
+
+Only whole numbers can be a side's length, with no exceptions and no rounding. A length that is not whole cannot be
+dropped or typed onto a side, and a side that was following a scalar's side lets go of the name, keeping its size,
+when the scalar's value stops giving a whole root.
