@@ -36,6 +36,14 @@ There is no password. Anyone who can reach the port can read and overwrite the p
 - `shapes/`: the kinds of block, one config each, listed in `shapes/index.json`.
 - `projects/`: saved projects, including `default-menu`, what the page opens on until you save a `menu` of your own.
 - `server.py`, `smart-factory.service`: the server and the unit that keeps it running.
+- `tests/`: tests of the files that do no drawing (`expression.js`, `algebra.js`, `project.js`), one file each.
+
+## Tests
+
+    node --test
+
+Nothing to install: the tests use Node's own test runner (Node 20 or later), and `tests/solver.js` loads the maths
+solver the way the page does.
 
 ## How results are written
 
