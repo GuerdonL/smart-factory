@@ -1,7 +1,7 @@
 """server.py: saving and opening projects, and what it will not serve. Run with: python3 -B -m unittest discover tests"""
 import json, os, shutil, sys, tempfile, threading, unittest, unittest.mock
 from http.client import HTTPConnection
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote
 
 sys.dont_write_bytecode = True
@@ -25,7 +25,9 @@ class ServerTest(unittest.TestCase):
             with open(os.path.join(self.dir, path), 'w') as f:
                 f.write(text)
         server.ROOT, server.PROJECTS = self.dir, os.path.join(self.dir, 'projects')
-        server.Handler.log_message = lambda *a: None
+        # the server's own log_message runs, as it does in use; only the line it would write to stderr is kept off the screen
+        quiet = unittest.mock.patch.object(BaseHTTPRequestHandler, 'log_message', lambda *a: None)
+        quiet.start(); self.addCleanup(quiet.stop)
         self.httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         threading.Thread(target=self.httpd.serve_forever, args=(0.01,), daemon=True).start()
 
@@ -162,11 +164,6 @@ class ServerTest(unittest.TestCase):
         for path in self.DOT_FILES:
             self.assertEqual(self.ask('GET', path)[0], 404, path)
 
-    # The two tests below fail against server.py as it stands: a dot-file is refused only when the address is written
-    # with a plain "/." and asked for with GET, so /%2egit/config and HEAD /.git/config are answered. They are marked
-    # as expected failures so the suite says so without stopping; when the server is fixed they will be reported as
-    # unexpected successes, and the marks should come off.
-    @unittest.expectedFailure
     def test_dot_files_are_not_served_however_the_address_is_written(self):
         self.save('attention', FILES)
         for path in self.DOT_FILES:
@@ -174,7 +171,6 @@ class ServerTest(unittest.TestCase):
                 status, _, text = self.ask('GET', written)
                 self.assertEqual(status, 404, written); self.assertNotIn('secret', text)
 
-    @unittest.expectedFailure
     def test_dot_files_are_not_served_to_head_either(self):
         self.save('attention', FILES)
         for path in self.DOT_FILES:

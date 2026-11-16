@@ -102,9 +102,20 @@ class Handler(SimpleHTTPRequestHandler):
             if not os.path.isfile(os.path.join(PROJECTS, name, 'project.json')):
                 return self.reply(404, {'error': 'no project called ' + name})
             return self.reply(200, project_files(name))
-        if path.startswith('/api/') or '/.' in path:               # nothing else under /api, and no dot-files (.git)
+        if path.startswith('/api/') or self.hidden():              # nothing else under /api, and no dot-files (.git)
             return self.reply(404, {'error': 'not found'})
         super().do_GET()
+
+    def do_HEAD(self):
+        if self.hidden():
+            return self.send_error(404)
+        super().do_HEAD()
+
+    def hidden(self):
+        """Whether the address names a dot-file, read as the file server will read it: %2egit is .git."""
+        from urllib.parse import unquote
+        path = unquote(self.path.split('?')[0].split('#')[0])
+        return '/.' in path or '\\' in path
 
     def do_PUT(self):
         if not self.path.startswith('/api/projects/'):
@@ -120,7 +131,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.reply(200, {'saved': name, 'files': len(files)})
 
     def log_message(self, fmt, *args):
-        if '/api/' in (args[0] if args else ''):                   # the log is for saves and loads, not every file
+        if '/api/' in str(args[0] if args else ''):                  # the log is for saves and loads, not every file
             super().log_message(fmt, *args)
 
 
