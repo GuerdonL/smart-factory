@@ -611,7 +611,7 @@ const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || 
 const asText = v => v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
 const rootOf = b => { const v = scalarOf(b); if (v === null) return {}; const t = '√' + (isNamed(b) ? b.name : asText(v)); return { wText: t, hText: t }; };
 /* The circles on a shape: one over every entry whose number is known, its area in step with the number's size, the
-   largest on the shape filling its square. A negative number is a ring; zero is a speck (known, and nothing). */
+   largest on the shape filling its square. (A single entry has none: its number is written on it.) A negative number is a ring; zero is a speck (known, and nothing). */
 function dotsOf(b){
   const cols = Math.round(b.rect.w / view.unit), rows = Math.round(b.rect.h / view.unit), known = [];
   for (const [k, v] of valuesOf(b)){ const [c, r] = k.split(',').map(Number); if (typeof v === 'number' && !Number.isNaN(v) && c >= 1 && r >= 1 && c <= cols && r <= rows) known.push({ c, r, v }); }
@@ -620,7 +620,7 @@ function dotsOf(b){
 }
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); configure();
-  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.dots(dotsOf(b), Math.round(b.rect.w / view.unit), Math.round(b.rect.h / view.unit)); }
+  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.dots(v === null ? dotsOf(b) : null, Math.round(b.rect.w / view.unit), Math.round(b.rect.h / view.unit)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
