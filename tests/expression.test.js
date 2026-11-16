@@ -95,6 +95,37 @@ test('numbers too large to hold exactly are inexact, not wrong', () => {
   const r = evaluate('2^(80)'); assert.equal(r.inexact, true); assert.equal(r.value, undefined);
 });
 
+test('a fraction too long to hold is inexact as written, never rounded to a value', () => {
+  is('(10^17+1)/10^17', { inexact: true, text: '100000000000000001/100000000000000000' });
+  is('9007199254740993/9007199254740992', { inexact: true, text: '9007199254740993/9007199254740992' });
+  is('1/9007199254740993', { inexact: true, text: '1/9007199254740993' });
+  is('9007199254740992', { inexact: true, text: '9007199254740992' });      /* 2^53: the first whole number that is not safe */
+  is('-9007199254740992/3', { inexact: true, text: '-9007199254740992/3' });
+  is('10^23/(10^23+1)', { inexact: true, text: '100000000000000000000000/100000000000000000000001' });
+});
+
+test('the largest numbers that can be held still are, and long working that comes out short is exact', () => {
+  is('9007199254740991', v(9007199254740991)); is('-9007199254740991/2', v(-9007199254740991, 2));
+  is('9007199254740993 - 9007199254740992', v(1)); is('10^17 + 1 - 10^17', v(1)); is('2^80 / 2^79', v(2));
+  is('(10^17+1)/10^17 - 1', { inexact: true, text: '1/100000000000000000' });
+});
+
+test('value() takes nothing that has already been rounded', () => {
+  assert.equal(value(2 ** 53, 2 ** 53), 'inexact');      /* not 1: neither is the number that was written */
+  assert.equal(value(2 ** 53 + 2, 2), 'inexact'); assert.equal(value(1, 2 ** 53), 'inexact'); assert.equal(value(2 ** 60, 1, 1), 'inexact');
+  assert.deepEqual(value(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER), { p: 1, q: 1, k: 0 });
+  assert.deepEqual(value(-Number.MAX_SAFE_INTEGER, 1), { p: -Number.MAX_SAFE_INTEGER, q: 1, k: 0 });
+});
+
+test('a long decimal is the fraction it is, digit for digit', () => {
+  is('0.30000000000000004', { inexact: true, text: '7500000000000001/25000000000000000' });      /* not 3/10 */
+  is('0.12345678901234567891 - 0.1234567890123456789', { inexact: true, text: '1/100000000000000000000' });      /* not 0 */
+  is('0.30000000000000004 - 0.3', { inexact: true, text: '1/25000000000000000' });
+  is('0.05', v(1, 20)); is('.5', v(1, 2)); is('2.50', v(5, 2)); is('2^0.5', v(2, 1, 1)); is('-1.5', v(-3, 2)); is('2^-0.5', v(1, 2, 1));
+  const names = { x: value(3) }; is('2.5x', v(15, 2), n => names[n]); is('√0.25', v(1, 2));
+  assert.ok(evaluate('1.5.2').error, 'two points in one number');
+});
+
 test('written() writes values out', () => {
   const w = (p, q, k) => written(value(p, q, k));
   assert.equal(w(7), '7'); assert.equal(w(-3), '-3'); assert.equal(w(3, 4), '3/4');

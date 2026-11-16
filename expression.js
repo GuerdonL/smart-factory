@@ -31,6 +31,7 @@ const INEXACT = 'inexact';
 const sq = n => { const r = Math.round(Math.sqrt(n)); return r * r === n ? r : null; };
 /* a value in lowest terms: p over q, under k square roots, as few of them as it needs (√(9/4) is 3/2) */
 function make(p, q = 1, k = 0){
+  if (!Number.isSafeInteger(p) || !Number.isSafeInteger(q)) return INEXACT;      /* past 2^53 a number has already been rounded: it is not the one that was written, and nothing is worked out from it */
   if (q < 0){ p = -p; q = -q; } const g = gcd(p, q); p /= g; q /= g;
   if (p === 0) return { p: 0, q: 1, k: 0 };
   while (k > 0){ const a = sq(Math.abs(p)), b = sq(q); if (a === null || b === null) break; p = Math.sign(p) * a; q = b; k--; }
@@ -64,6 +65,9 @@ function prepared(text, lookup){
     if (c === '√' || c === '∜'){ i++; out += `((${operand()})^(1/${c === '∜' ? 4 : 2}))`; continue; }
     if (/[A-Za-z_]/.test(c)){ const id = s.slice(i).match(/^[A-Za-z_][\w.]*/)[0].replace(/\.+$/, ''); i += id.length; const v = lookup(id);
       if (v === undefined) throw new Wrong('unknown name: ' + id); if (v === INEXACT) throw new Inexact(); out += forSolver(v); continue; }
+    /* a decimal goes to the solver as the fraction it is, digit for digit: left as a decimal, the solver rounds it (0.30000000000000004 to 3/10) */
+    if (/[\d.]/.test(c)){ const n = s.slice(i).match(/^[\d.]+/)[0], d = n.match(/^(\d*)\.(\d+)$/); i += n.length;
+      out += d ? `(${BigInt(d[1] + d[2])}/1${'0'.repeat(d[2].length)})` : n; continue; }
     if (/[0-9.+\-*\/^()\s]/.test(c)){ out += c; i++; continue; }
     throw new Wrong(`cannot read "${c}"`);
   }
@@ -97,6 +101,8 @@ export function evaluate(text, lookup = () => undefined){
     /* a single root comes out whole, or as a fraction, when it is squared enough times */
     for (let k = 0; k <= 3; k++){ let up; try { up = N(`expand((${said})^${2 ** k})`).toString(); } catch (e){ break; }
       const m = up.match(RATIONAL); if (!m) continue;
+      /* the digits become numbers here, and one too long to be held is rounded as it does: make() refuses any that is
+         not a safe integer as it arrives, before it reduces the fraction, so (10^17+1)/10^17 is not taken for 1 */
       const top = Number(m[1]), sign = k > 0 && Number(answer.evaluate().text()) < 0 ? -1 : 1; if (k > 0 && top < 0) continue;      /* an even power is never negative */
       const v = make(sign * top, Number(m[2] || 1), k);
       return v === INEXACT ? { inexact: true, text: pretty(said) } : { value: v }; }
