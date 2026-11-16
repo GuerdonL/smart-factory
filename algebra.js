@@ -29,6 +29,8 @@
        symbol), or undefined for anything else (not accepted)
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
 
+import { value as make, written as writtenExact } from './expression.js';
+
 export const isScalar = r => r.w === 1 && r.h === 1;
 export function joins(rects){
   const out = [];
@@ -87,23 +89,22 @@ export function readEntry(text){
   return m ? (m[1] === '-' ? -Infinity : Infinity) : undefined;
 }
 
-/* A number that is not whole is kept in algebraic form, never as decimals. The only such numbers so far are roots:
-   { n, k } is the 2^k-th root of the whole number n (k 1: √n; k 2: the fourth root), kept only where it is not
-   itself a whole number.
-   surd(n, k)    -> that root as a value: a plain number where it comes out whole (surd(9, 1) is 3), else { n, k }
-   rootOf(v)     -> the square root of a value, itself a value; null where v has none to write (negative, infinite, not a number)
-   isWhole(v)    -> whether a value is a plain whole number
-   valueText(v)  -> a value written out: "7", "∞", "√2", "2√3", "∜12" */
-export function surd(n, k){ while (k > 0 && Number.isInteger(Math.sqrt(n))){ n = Math.sqrt(n); k--; } return k ? { n, k } : n; }
+/* A number that is not whole is kept in algebraic form, never as decimals: a fraction, a root, or a root of a
+   fraction. Such a value is { n, d, k }: n over d (d left out where it is 1), under k square roots (k 0: a
+   fraction; k 1: √; k 2: the fourth root), in lowest terms, and kept only where it is not itself a whole number.
+   surd(n, k, d)  -> that as a value: a plain number where it comes out whole (surd(9, 1) is 3), else { n, d, k }
+   rootOf(v)      -> the square root of a value, itself a value; null where v has none to write (negative, infinite, not a number)
+   isWhole(v)     -> whether a value is a plain whole number;   isSurd(v) -> whether it is one of the others
+   exact(v)       -> a value as expression.js has them ({ p, q, k }), or null (an infinity, or no value)
+   held(e)        -> the other way: what expression.js worked out, as a value an entry can hold
+   valueText(v)   -> a value written out: "7", "∞", "3/4", "√2", "2√3", "∜12" */
 export const isSurd = v => !!v && typeof v === 'object' && Number.isInteger(v.n) && Number.isInteger(v.k);
 export const isWhole = v => typeof v === 'number' && Number.isInteger(v);
-export function rootOf(v){ return isSurd(v) ? surd(v.n, v.k + 1) : isWhole(v) && v >= 0 ? surd(v, 1) : null; }
-export function valueText(v){
-  if (!isSurd(v)) return v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
-  const p = 2 ** v.k; let c = Math.floor(Math.pow(v.n, 1 / p) + 1e-9); while (c > 1 && v.n % (c ** p)) c--;      /* the largest whole factor that comes out of the root */
-  const rest = v.n / (c ** p), mark = v.k === 1 ? '√' : v.k === 2 ? '∜' : null;
-  return (c > 1 ? c : '') + (mark ? mark + rest : `${rest}^(1/${p})`);
-}
+export const exact = v => isSurd(v) ? make(v.n, v.d || 1, v.k) : isWhole(v) ? make(v, 1, 0) : null;
+export const held = e => !e || e === 'inexact' ? null : !e.k && e.q === 1 ? e.p : { n: e.p, ...(e.q !== 1 ? { d: e.q } : {}), k: e.k };
+export function surd(n, k, d = 1){ return held(make(n, d, k)); }
+export function rootOf(v){ const e = exact(v); return !e || e.p < 0 ? null : held(make(e.p, e.q, e.k + 1)); }
+export function valueText(v){ return isSurd(v) ? writtenExact(exact(v)) : v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v); }
 
 export function initials(name){
   return (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toLowerCase()).join('').slice(0, 3) || 'x';

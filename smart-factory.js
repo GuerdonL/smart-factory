@@ -6,7 +6,7 @@ import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
 import { createWarning } from './components/warning.js';
-import { evaluate, written as writtenValue, whole as wholeValue, number as numberValue } from './expression.js';
+import { evaluate, written as writtenValue, whole as wholeValue, number as numberValue, power } from './expression.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds, createBackdrop } from './components/bounds.js';
@@ -17,7 +17,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { joins, pieces, stacks, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText } from './algebra.js';
+import { joins, pieces, stacks, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -654,7 +654,7 @@ function dotsOf(b){
    arithmetic (expression.js), in which the variable's other attributes can be used by name: x, y, mass, and the
    added ones. Added attributes belong to the variable: every reference to it has the same ones. */
 const attrsOf = b => (b.attrs ||= []);
-const asValue = v => isWhole(v) ? numberValue(v) : v === null || v === undefined ? undefined : 'inexact';      /* a root or an infinity is not a whole number or a fraction */
+const asValue = v => v === null || v === undefined ? undefined : exact(v) || 'inexact';      /* an infinity is not a number arithmetic can use */
 function lookupFor(b, seen = new Set()){
   const u = view.unit, r = rootSide(b), names = new Map([['x', asValue(r === null ? Math.round((turned(b) ? b.rect.h : b.rect.w) / u) : r)], ['y', asValue(r === null ? Math.round((turned(b) ? b.rect.w : b.rect.h) / u) : r)]]);
   if (scalarOf(b) !== null) names.set('mass', asValue(scalarOf(b)));
@@ -671,7 +671,7 @@ function attributesOf(b){
 }
 /* a whole number typed, or arithmetic that comes to one, for a value that has to be whole: null (and a word why) otherwise */
 function wholeTyped(b, text, what){ const got = evaluate(text, lookupFor(b)), n = got.value ? wholeValue(got.value) : null;
-  if (n === null) hud.say(got.error ? `${what}: ${got.error}` : `${what} has to be a whole number`); return n; }
+  if (n === null) hud.say(got.error ? `${what}: ${got.error}` : `a matrix's side is a whole number of squares: ${what} cannot be ${got.value ? writtenValue(got.value) : 'that'}`); return n; }
 const properties = createProperties({
   onName: text => { const b = [...selected][0]; if (b) bus.send('rename', { id: b.id, name: text, color: isNamed(b) ? null : someColour() }); },
   onAdd: () => { const b = [...selected][0]; if (!b) return; properties.focus('a' + attrsOf(b).length + '.label'); bus.send('attr.add', { id: b.id }); },
@@ -679,10 +679,16 @@ const properties = createProperties({
   onEntry: (key, text) => { const b = [...selected][0]; if (b) bus.send('entry.set', { id: b.id, key, text: text === '' ? null : text }); },
   onValue: (key, text) => { const b = [...selected][0]; if (!b) return;
     if (key[0] === 'a') return bus.send('attr.set', { id: b.id, index: +key.slice(1), text });
+    /* a scalar's measures are numbers of any kind: whole, a fraction, a root. Whatever is typed is worked out exactly
+       and kept in that form; only something with no single exact value (√2 + 1, say) cannot be taken. */
+    const worked = what => { const got = evaluate(text, lookupFor(b)); if (!got.value) hud.say(got.error ? `${what}: ${got.error}` : `${what}: that does not come to one exact value`); return got.value || null; };
     if (key === 'mass'){ if (text === '' || readEntry(text) !== undefined) return bus.send('entry.set', { id: b.id, key: '1,1', text: text === '' ? null : text });
-      const n = wholeTyped(b, text, 'mass'); return n === null ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', text: String(n) }); }
+      const v = worked('mass'); return v === null ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', value: held(v) }); }
+    if (rootSide(b) !== null || (isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit)){      /* a scalar's side is the root of its mass: a side of 3 is a mass of 9, of √2 a mass of 2. It stays one square whatever is typed */
+      const v = worked(key), mass = v && power(v, numberValue(2)); if (v && mass === 'inexact') hud.say(`${key}: too large to square`);
+      return !v || mass === 'inexact' ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', value: held(mass) }); }
+    /* any other shape is drawn on the grid: its sides are whole numbers of squares */
     const n = wholeTyped(b, text, key); if (n === null || n < 1){ if (n !== null) hud.say(`${key} has to be at least 1`); return shown(); }
-    if (rootSide(b) !== null || (isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit)) return bus.send('entry.set', { id: b.id, key: '1,1', text: String(n * n) });      /* a scalar's side is the root of its mass: a side of 3 is a mass of 9. A named scalar stays one square whatever is typed */
     bus.send('side.set', { id: b.id, dim: key === 'x' ? 'w' : 'h', text: String(n) }); } });
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); configure();
@@ -1296,7 +1302,7 @@ bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return; b.call(name); renamed(b, color); }, changes);
-bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text === null ? undefined : readEntry(text);      /* nothing typed puts the symbol back; anything that is not a number is not taken */
+bus.on('entry.set', ({ id, key, text = null, value }) => { const o = blockOf(id), v = value !== undefined ? value : text === null ? null : readEntry(text);      /* value: a number already worked out (a fraction or a root, which cannot be typed as an entry) */      /* nothing typed puts the symbol back; anything that is not a number is not taken */
   if (o?.from){ const src = sourceOf(o); hud.say(`${bare(o.name)} is a length of ${src ? bare(src.name) : 'another shape'}: change it there`); return shown(); }
   if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
     keepTouching(() => { for (const k of kinOf(o)) agree(k); }); }      /* a single entry's number is its sides' length: whatever shares their names follows */

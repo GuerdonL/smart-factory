@@ -43,7 +43,11 @@ A result that would not come out as a whole number is left in algebraic form, ne
 a scalar holding 2 is `√2u`, not `1.41u`; of 12, `2√3u`; of 9, `3u`. Roots are the only case so far, but this is the
 rule for anything worked out later.
 
-A root is kept as a value in its own right (saved in an entry as `{ "n": 30, "k": 1 }`, the 2^k-th root of n), so
+A scalar can hold any exact number: a whole number, a fraction or a root. Typing `3/2` as its side gives it a mass of
+`9/4`; typing `2^(1/2)` (or `√2`) gives it a mass of 2. Only a matrix's sides have to be whole, because a matrix is
+drawn on the grid.
+
+A root is kept as a value in its own right (saved in an entry as `{ "n": 30, "k": 1 }`, n over an optional `d`, under k square roots), so
 dropping the length `√30u` on the canvas gives an entry holding `√30`, whose own sides are `∜30u`. Nothing is turned
 into decimals along the way.
 
