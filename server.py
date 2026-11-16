@@ -109,18 +109,21 @@ class Handler(SimpleHTTPRequestHandler):
                 given = base64.b64decode(sent.strip(), validate=True).decode('utf8').partition(':')[2]
             except ValueError:
                 given = ''
-        with wrong_lock:
+        wait = 0
+        with wrong_lock:                                           # only the counting is done here: the answer is sent after, so a slow reader holds no one else up
             count, until = wrong.get(who, (0, 0))
             if until > now:                                        # turned away: not even the right PIN is looked at
-                return self.refuse(429, 'too many wrong PINs: try again later', {'Retry-After': str(int(until - now) + 1)})
-            if given is not None and hmac.compare_digest(given.encode(), PIN.encode()):
+                wait = int(until - now) + 1
+            elif given is not None and hmac.compare_digest(given.encode(), PIN.encode()):
                 wrong.pop(who, None)
                 return True
-            if given is not None:                                  # a wrong PIN counts; asking without one does not
+            elif given is not None:                                # a wrong PIN counts; asking without one does not
                 count = count + 1 if until == 0 else 1
                 wrong[who] = (count, now + LOCKED_FOR if count >= TRIES else 0)
                 if count >= TRIES:
                     print('%d wrong PINs from %s: turned away for %d seconds' % (count, who, LOCKED_FOR), flush=True)
+        if wait:
+            return self.refuse(429, 'too many wrong PINs: try again later', {'Retry-After': str(wait)})
         return self.refuse(401, 'the PIN is needed', {'WWW-Authenticate': 'Basic realm="Smart Factory PIN (any user name)", charset="UTF-8"'})
 
     def refuse(self, status, why, headers):

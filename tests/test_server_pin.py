@@ -1,7 +1,7 @@
 """server.py: the PIN. Run with: python3 -B -m unittest discover tests"""
 import base64, json, os, shutil, sys, tempfile, threading, unittest
 from http.client import HTTPConnection
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 sys.dont_write_bytecode = True
@@ -17,19 +17,21 @@ class PinTest(unittest.TestCase):
 
     def setUp(self):
         """A server of its own, over a directory of its own, behind a PIN of its own."""
-        self.kept, self.dir = (server.ROOT, server.PROJECTS, server.PIN, server.Handler.log_message), tempfile.mkdtemp(prefix='smart-factory-test-')
+        self.kept, self.dir = (server.ROOT, server.PROJECTS, server.PIN), tempfile.mkdtemp(prefix='smart-factory-test-')
         shutil.copy(os.path.join(server.ROOT, 'smart-factory.html'), self.dir)
         with open(os.path.join(self.dir, 'smart-factory.js'), 'w') as f:
             f.write('/* the page */')
         server.ROOT, server.PROJECTS, server.PIN = self.dir, os.path.join(self.dir, 'projects'), self.PIN
-        server.Handler.log_message = lambda *a: None
+        # the server's own log_message runs, as it does in use; only the line it would write to stderr is kept off the screen
+        quiet = mock.patch.object(BaseHTTPRequestHandler, 'log_message', lambda *a: None)
+        quiet.start(); self.addCleanup(quiet.stop)
         server.wrong.clear()
         self.httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         threading.Thread(target=self.httpd.serve_forever, args=(0.01,), daemon=True).start()
 
     def tearDown(self):
         self.httpd.shutdown(); self.httpd.server_close()
-        server.ROOT, server.PROJECTS, server.PIN, server.Handler.log_message = self.kept
+        server.ROOT, server.PROJECTS, server.PIN = self.kept
         server.wrong.clear()
         shutil.rmtree(self.dir, ignore_errors=True)
 

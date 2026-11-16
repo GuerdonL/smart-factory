@@ -55,7 +55,7 @@ who can reach the port can read and overwrite the projects.
 ## Tests
 
     node --test                                # the JavaScript: expression, algebra, project, bus, history, ids, zip
-    python3 -B -m unittest discover tests      # the server: saving, opening, and what it will not serve
+    python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, and the PIN
 
 Nothing to install: the tests use Node's own test runner (Node 20 or later) and Python's unittest. `tests/solver.js`
 loads the maths solver the way the page does. The server's tests run a server of their own over an empty directory,
