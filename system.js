@@ -19,7 +19,7 @@
 
    Each variable: name; key, the name as it is matched (lower case, no dot, - for _ and for spaces); css, the theme
    variable a colour sets (a colour is three entries: red, green, blue); cssRows, for an array of colours, the theme
-   variable each row sets (with nothing in a .config, every row is the colour of a plain tensor); rows, how many rows its shape has; branch, the group of .colors it belongs to; at, where it sits in the default layout, in units; cols,
+   variable each row sets (a row no .config gives in full is no colour at all: what wears it is drawn without one); rows, how many rows its shape has; branch, the group of .colors it belongs to; at, where it sits in the default layout, in units; cols,
    how many entries wide its shape is; color, the theme colour a variable that is not a colour is drawn in. */
 const colour = (name, css, branch, at) => ({ name, key: name.slice(1).replace(/_/g, '-'), css, branch, at, cols: 3 });
 /* the six places a named shape's colour is kept: theme variables --variable-1 to --variable-6, which no stylesheet

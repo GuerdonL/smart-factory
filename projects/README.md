@@ -47,6 +47,9 @@ the program has none of its own either. In the default Menu each `.variable_colo
 space: open it, and six colour vectors stand in the definition's matrix, a row each, ordinary shapes. Together they
 fill it, and that is what `.variable_colors` equals. They are the only listing of the colours: change one's entries, or drag them to reorder.
 
+A row of `.variable_colors` that is not given in full (the matrix has a hole, or a shape standing in it leaves an
+entry as a symbol) is no colour: shapes that wear it are drawn with no fill. Nothing stands in for it.
+
 A shape is defined only in its definition space, and only by shapes standing in the definition's matrix: once they
 cover every entry, the shape's entries are theirs. Shapes set anywhere else, in that space or beside the shape on its
 own canvas, are only pieces and define nothing.

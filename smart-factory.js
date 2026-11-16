@@ -470,7 +470,7 @@ function programDefaults(){
   const rgb = css => { probe.style.color = `var(--${css})`; return (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n)); };
   defaults = {};
   for (const mode of ['light', 'dark']){ root.dataset.theme = mode;      /* the stylesheet is asked for each set in turn */
-    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.cssRows ? v.cssRows.flatMap(() => rgb('tensor')) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : [undefined]])); }      /* a colour is the stylesheet's; an array of colours, with nothing said, is a plain tensor's all through; anything else starts as system.js says */
+    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.cssRows ? v.cssRows.flatMap(() => [undefined, undefined, undefined]) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : [undefined]])); }      /* a colour is the stylesheet's; an array of colours has nothing until a .config gives it; nor has anything else */
   if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
   probe.remove(); return defaults;
 }
@@ -511,7 +511,8 @@ function configure(){
   for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []);      /* only the colours, and which set of them, are read so far */
     const v = each.length ? systemValue(key, spaces, mode).map(byte) : [], d = base.get(key);
     each.forEach((name, i) => { const mine = v.slice(3 * i, 3 * i + 3);
-      if (css && mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }      /* the rows of an array are always set: the stylesheet has nothing for them */
+      if (!mine.every(Number.isFinite)) rootStyle.setProperty('--' + name, 'initial');      /* a row not wholly given is no colour: what wears it is drawn without one */
+      else if (css && mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }
   /* a colour's shape in a .config is drawn in the colour it comes to, in the set it belongs to */
   for (const b of space.blocks){ const v = !isOff(b) && inConfig(b, space) && bySystemKey.get(leaf(b.name)); if (!v?.css) continue;
     const m = modeOf(b, space), path = pathOf(chain(b)); b.el.style.setProperty('--block', `rgb(${systemValue(v.key, path, m === 'both' ? modeIn(path) : m).map(byte).join(', ')})`); }
@@ -525,7 +526,7 @@ function dress(){
   const local = configsOf(space).some(c => c.reach !== undefined), page = pathOf(), pageMode = modeIn(page), byte = n => Math.max(0, Math.min(255, n));
   const colours = (path, mode) => { const out = new Map();
     for (const { key, css, cssRows } of SYSTEM){ const each = cssRows || (css ? [css] : []); if (!each.length) continue;
-      const v = systemValue(key, path, mode).map(byte); each.forEach((name, i) => out.set('--' + name, `rgb(${v.slice(3 * i, 3 * i + 3).join(', ')})`)); }
+      const v = systemValue(key, path, mode).map(byte); each.forEach((name, i) => { const mine = v.slice(3 * i, 3 * i + 3); out.set('--' + name, mine.every(Number.isFinite) ? `rgb(${mine.join(', ')})` : 'initial'); }); }
     return out; };
   const pageColours = local ? colours(page, pageMode) : null, plain = { light: null, dark: null };
   const wear = (el, at) => { const had = worn.get(el) || new Set(), now = new Map(); let mode = pageMode;
