@@ -194,17 +194,6 @@ function algebraIn(s){
   const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
   return { active, rects, all: stacks(rects, pieces(rects)) };
 }
-/* What a block is defined as: the one piece its definition space comes to, where that piece is the block's size
-   (the variable's own way round) and its entries can be read off: a shape's own, or a stack's, row under row.
-   All definition happens there: nothing set beside a shape on the same canvas defines it. */
-function definedBy(b, depth){
-  const def = spaceOf.get(b); if (!def || def.blocks.includes(b)) return null;
-  const { active, all } = algebraIn(def), mine = all.filter(p => !p.members.some(m => inConfig(active[m], def)));
-  if (mine.length !== 1 || mine[0].type.error) return null;
-  const u = view.unit, w = Math.round(b.rect.w / u), h = Math.round(b.rect.h / u), cols = turned(b) ? h : w, rows = turned(b) ? w : h;
-  if (mine[0].type.cols !== cols || mine[0].type.rows !== rows) return null;
-  return pieceValues({ piece: mine[0], blocks: mine[0].members.map(m => active[m]) }, depth + 1);
-}
 /* the entries of a piece: a shape's own; a stack's, row under row; a product's are not worked out */
 function pieceValues({ piece, blocks }, depth){
   if (blocks.length === 1) return valuesOf(blocks[0], depth);
@@ -213,8 +202,8 @@ function pieceValues({ piece, blocks }, depth){
   for (const b of blocks){ for (const [k, v] of valuesOf(b, depth)){ const [c, r] = k.split(',').map(Number); all.set(c + ',' + (r + down), v); } down += Math.round(b.rect.h / u); }
   return all;
 }
-/* a block's entries: its own; or, once shapes standing in its matrix cover all of it, theirs; or, where its
-   definition space comes to one piece of its size, that piece's, under any of its own */
+/* a block's entries: its own; or, once shapes standing in its matrix (in its definition space) cover all of it,
+   theirs. Nothing else defines it: shapes set anywhere else, there or beside it, are only pieces. */
 /* A block can be the transpose of its variable (block.t). Its entries are kept the variable's way round, shared with
    every other use; a transpose reads them turned. (A joined shape is turned bodily, with what it was joined from, so
    its entries are already the way it stands.) */
@@ -223,9 +212,7 @@ const own = (b, plain = false) => turned(b) && !plain ? new Map([...b.values].ma
 function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's own way round, whatever this use is */
   const tiles = depth < 8 && tilesOf(b), u = view.unit;
   if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
-    const got = depth < 8 && definedBy(b, depth), over = turned(b) && !plain;      /* the definition is the variable's own way round */
-    const from = got && (over ? new Map([...got].map(([k, v]) => { const [c, r] = k.split(','); return [r + ',' + c, v]; })) : got);
-    return from ? new Map([...from, ...own(b, plain)]) : own(b, plain); }
+    return own(b, plain); }
   const all = new Map();
   for (const t of tiles) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); }
   return all;
@@ -665,7 +652,8 @@ function shown(){                              /* brings what is on screen in li
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const stacked = new Set(all.filter(p => p.stack).flatMap(p => p.members.map(m => active[m])));
-  for (const b of space.blocks) b.inset(stacked.has(b));      /* in a stack, names go on the blocks */
+  const standing = new Set(((space.owner && tilesOf(space.owner)) || []).map(t => t.block));      /* shapes standing in the definition's matrix sit against one another too */
+  for (const b of space.blocks) b.inset(stacked.has(b) || standing.has(b));      /* in a stack, names go on the blocks */
   if (space.definition && space.definition.tiled !== JSON.stringify(tileLook(space.owner))) write();      /* shapes have gone into, or come out of, its block's matrix */
   const mine = all.filter(p => !p.members.some(m => inConfig(active[m], space)));      /* what is in a .config is no part of what the space comes to */
   space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? lookOf(mine[0]) : {});

@@ -7,7 +7,7 @@
   "commented": false,
   "color": "variable-6",
   "position": {
-    "x": -9,
+    "x": -4,
     "y": 2
   },
   "size": {
@@ -26,5 +26,6 @@
       "3,1": 168
     }
   },
-  "order": 5
+  "order": 5,
+  "tile": true
 }
