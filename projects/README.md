@@ -5,6 +5,7 @@ A saved project is a directory in here. Shapes and files are the same tree:
 - a space is a directory;
 - each shape in it is one `.json` config file;
 - a shape with a definition space has a directory of the same name beside its file, holding that space the same way;
+- a variable used in several places is a file for each use, with its definition's directory beside one of them only;
 - a group is one combined `.group.json` file holding all of its shapes.
 
 `project.json` at the top marks the directory as a project.

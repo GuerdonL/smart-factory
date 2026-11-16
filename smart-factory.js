@@ -1009,8 +1009,11 @@ const typeNamed = name => shapes.find(s => s.name === name) || { name, label: na
 /* the page's spaces as plain data, lengths in units */
 function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
+  /* a definition space is written once, under the first block met that has it: a variable used in several places is
+     several blocks with one space, and written under each, a space inside a space, the whole would multiply */
+  const written = new Set(), once = s => !written.has(s) && !!written.add(s);
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
     tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: b.from ? { ...b.from } : null,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   const plain = s => ({
@@ -1029,7 +1032,20 @@ function rebuild(data){
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
   ids = createIds(); if (data.ids) ids.restore(data.ids);
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
+  const defs = new Map(), sharing = new Map();   /* a variable's number -> its definition space, once a use that carries it has been met, and -> the blocks that share it */
   const u = view.unit;
+  /* A block's definition. One use of a variable carries it (any one: not always the first met here, and in projects
+     saved before, every one), and every use has it: those met already are given it now, and those to come as they
+     are made. What another use carries besides is a copy, and is left.
+     A shape written twice is treated likewise, by its id (a shape that several uses of a joined variable were joined
+     from is written under each, its definition under one): the one written without a definition has the other's. */
+  const define = (b, d, s) => { const v = d.variable ?? null, key = v ?? (d.id || null);
+    if (key !== null) sharing.set(key, [...(sharing.get(key) || []), b]);
+    if (defs.has(key) && (v !== null || !d.inside)) return spaceOf.set(b, defs.get(key));
+    if (!d.inside) return;
+    const def = newSpace(b, s); spaceOf.set(b, def);
+    if (key !== null && !defs.has(key)){ defs.set(key, def); for (const k of sharing.get(key)) spaceOf.set(k, def); }
+    fill(d.inside, def); };
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
@@ -1037,8 +1053,8 @@ function rebuild(data){
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
-    if (first){ b.values = first.values; b.attrs = first.attrs; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); return b; }      /* a later use: the first one's entries and definition */
-    if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); }
+    if (first){ b.values = first.values; b.attrs = first.attrs; }      /* a later use: the first one's entries */
+    define(b, d, s);
     return b; };
   const fill = (plain, s) => {
     for (const d of plain.shapes) s.blocks.push(build(d, s));
