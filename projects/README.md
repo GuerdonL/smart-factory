@@ -43,9 +43,13 @@ blank, whatever the computer asks for), `.dark_colors` (the colours used while `
 three entries, red, green, blue: `Shapes` (`.tensor_default`, `.data-in`) and `UI` (`.bg`, `.fg`, `.select`, ...).
 `Shapes` also holds `.variable_colors`, an array of six colours, a row each: the ones a newly named shape takes at
 random. The stylesheet has no colours for these (they are `--variable-1` to `--variable-6`, set from the array), and
-the program has none of its own either. In the default Menu each `.variable_colors` (light and dark) has six colour vectors stacked beside it: ordinary
-shapes, which the stack makes one matrix, and which `.variable_colors` is thereby asserted equal to. They are the only
-listing of the colours: open one to change it, drag them to reorder.
+the program has none of its own either. In the default Menu each `.variable_colors` (light and dark) is defined in its own definition
+space: open it, and six colour vectors are stacked there, ordinary shapes, which the stack makes one matrix. That is
+what `.variable_colors` equals. They are the only listing of the colours: change one's entries, or drag them to reorder.
+
+A shape is defined only in its definition space. Where what is there comes to one piece of the shape's size (a single
+shape, or a stack), the shape takes that piece's entries, under any typed into the shape itself. Setting a piece
+beside a shape on the same canvas asserts nothing.
 
 The program holds no values for any of these. They are written out, entry by entry, in the Menu's `.config` (the
 default Menu gives every one, light and dark), and that is the only place they are set. A project with no `.config`
