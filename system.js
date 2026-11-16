@@ -11,12 +11,15 @@
              .bg .panel .hover .focus  .fg .line .fade-to .dot  .muted .measure_bar .warn .select
          .dark_colors                  the same two groups again: the colours used while .dark_mode is 1
 
+   No values are written here. What each variable is comes from a project's .config (the default Menu's gives them
+   all); where no .config says, a colour falls back on the stylesheet so the page can still be drawn, and a variable
+   that is not a colour has no value.
+
    A .config's reach is the group it is in, or the whole space if it is in none: see "shadowing" in smart-factory.js.
 
    Each variable: name; key, the name as it is matched (lower case, no dot, - for _ and for spaces); css, the theme
    variable a colour sets (a colour is three entries: red, green, blue); cssRows, for an array of colours, the theme
-   variable each row sets (with nothing in a .config, every row is the colour of a plain tensor); value, what a variable
-   that is not a colour starts as; rows, how many rows its shape has; branch, the group of .colors it belongs to; at, where it sits in the default layout, in units; cols,
+   variable each row sets (with nothing in a .config, every row is the colour of a plain tensor); rows, how many rows its shape has; branch, the group of .colors it belongs to; at, where it sits in the default layout, in units; cols,
    how many entries wide its shape is; color, the theme colour a variable that is not a colour is drawn in. */
 const colour = (name, css, branch, at) => ({ name, key: name.slice(1).replace(/_/g, '-'), css, branch, at, cols: 3 });
 /* the six places a named shape's colour is kept: theme variables --variable-1 to --variable-6, which no stylesheet
@@ -25,8 +28,8 @@ const colour = (name, css, branch, at) => ({ name, key: name.slice(1).replace(/_
 export const SLOTS = ['variable-1', 'variable-2', 'variable-3', 'variable-4', 'variable-5', 'variable-6'];
 export const OLD = { lavender: SLOTS[0], watermelon: SLOTS[1], lazuli: SLOTS[2], fanta: SLOTS[3], marigold: SLOTS[4], lagoon: SLOTS[5] };
 export const SYSTEM = [
-  { name: '.integer_precision', key: 'integer-precision', value: [32], branch: null, at: [2, 1], cols: 1, color: SLOTS[1] },
-  { name: '.dark_mode', key: 'dark-mode', value: [0], branch: null, at: [12, 1], cols: 1, color: SLOTS[2] },      /* its starting value is really the computer's own setting: see programDefaults */
+  { name: '.integer_precision', key: 'integer-precision', branch: null, at: [2, 1], cols: 1, color: SLOTS[1] },
+  { name: '.dark_mode', key: 'dark-mode', branch: null, at: [12, 1], cols: 1, color: SLOTS[2] },      /* with nothing said, the computer's own setting: see programDefaults */
   colour('.tensor_default', 'tensor', '.shapes', [2, 6]), colour('.data-in', 'data-in', '.shapes', [2, 8]),
   { name: '.variable_colors', key: 'variable-colors', cssRows: SLOTS,
     branch: '.shapes', at: [14, 6], cols: 3, rows: 6, color: SLOTS[0] },

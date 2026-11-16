@@ -486,7 +486,7 @@ function programDefaults(){
   const rgb = css => { probe.style.color = `var(--${css})`; return (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n)); };
   defaults = {};
   for (const mode of ['light', 'dark']){ root.dataset.theme = mode;      /* the stylesheet is asked for each set in turn */
-    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.cssRows ? v.cssRows.flatMap(() => rgb('tensor')) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : v.value])); }      /* a colour is the stylesheet's; an array of colours, with nothing said, is a plain tensor's all through; anything else starts as system.js says */
+    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.cssRows ? v.cssRows.flatMap(() => rgb('tensor')) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : [undefined]])); }      /* a colour is the stylesheet's; an array of colours, with nothing said, is a plain tensor's all through; anything else starts as system.js says */
   if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
   probe.remove(); return defaults;
 }
@@ -511,8 +511,8 @@ const configsOf = s => { configs ||= new Map();
 const pathTo = s => { const path = []; for (let c = s; c.parent; c = c.parent) path.unshift({ s: c.parent, at: chain(c.owner, c.parent) }); return path; };      /* the spaces above s */
 const pathOf = (at = null) => [...pathTo(space), { s: space, at }];      /* down to this space, or to something in it */
 const upFrom = g => { const out = [g]; for (let p = space.groupUp.get(g); p !== undefined; p = space.groupUp.get(p)) out.push(p); return out; };      /* a group and those round it, innermost first */
-function systemValue(key, path, mode = 'light'){
-  const v = [...programDefaults()[mode].get(key)], coloured = isColour(bySystemKey.get(key));
+function systemValue(key, path, mode = 'light', said_only = false){      /* said_only: only what .configs say, blank where none does */
+  const v = [...programDefaults()[mode].get(key)].map(n => said_only ? undefined : n), coloured = isColour(bySystemKey.get(key));
   for (const { s, at } of path){
     const said = configsOf(s).filter(c => c.key === key && (c.reach === undefined || (at && at.includes(c.reach))) && !(coloured && c.mode !== 'both' && c.mode !== mode));
     said.sort((a, b) => (a.reach === undefined ? -1 : at.length - at.indexOf(a.reach)) - (b.reach === undefined ? -1 : at.length - at.indexOf(b.reach)));      /* the space's first, then outer groups', then inner */
@@ -566,8 +566,8 @@ function inheritedBy(b, s){
   const above = []; for (let p = s.parent; p; p = p.parent) above.unshift(p);
   const key = leaf(b.name), got = new Map(), cols = Math.round(b.rect.w / view.unit);
   if (inConfig(b, s)){ const m = modeOf(b, s);
-    if (bySystemKey.has(key)) systemValue(key, pathTo(s), m === 'both' ? modeIn(pathOf()) : m).forEach((n, i) => got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
-    return got; }                                /* in a .config: what the program and the .configs above make of it */
+    if (bySystemKey.has(key)) systemValue(key, pathTo(s), m === 'both' ? modeIn(pathOf()) : m, true).forEach((n, i) => Number.isFinite(n) && got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
+    return got; }                                /* in a .config: what the .configs above say of it (the program itself says nothing) */
   if (!isNamed(b)) return got;
   const name = bare(b.name).trim(), mine = new Set(kinOf(b));
   for (const p of above) for (const o of p.blocks) if (!isOff(o) && !mine.has(o) && bare(o.name).trim() === name) for (const [k, n] of o.values) got.set(k, n);

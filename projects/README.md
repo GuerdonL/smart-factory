@@ -47,6 +47,11 @@ the program has none of its own either. In the default Menu each `.variable_colo
 shapes, which the stack makes one matrix, and which `.variable_colors` is thereby asserted equal to. They are the only
 listing of the colours: open one to change it, drag them to reorder.
 
+The program holds no values for any of these. They are written out, entry by entry, in the Menu's `.config` (the
+default Menu gives every one, light and dark), and that is the only place they are set. A project with no `.config`
+is drawn in the stylesheet's colours, but those are not shown as values anywhere: a blank entry in a `.config` shape
+shows only what a `.config` above it says.
+
 A group named `.config` shadows the program's from its space downwards, and one further down shadows it again. It
 covers only what it gives: a colour shape with one entry filled changes that one entry. It is saved as a file called
 `.config` in its space's directory, so there can be one at every level; the Menu's is the project's root `.config`.
