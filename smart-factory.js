@@ -388,11 +388,16 @@ function keepTouching(change, except = () => false){
 function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
 function typedNow(b, dim, text){
   const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(), n = m[2] ? Math.round(parseFloat(m[2])) : null;
-  if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
+  /* a named scalar stays a scalar: a length given to its side is the root of its number, so the number becomes the
+     length squared, and the block keeps its one square */
+  const single = isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit;
+  if (single && b.from){ hud.say(`${bare(b.name)} is a measure of another shape: change it there`); return; }
+  const size = length => single ? b.values.set('1,1', (length / view.unit) ** 2) : b.set({ ...b.rect, [dim]: length });
+  if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) size(n * view.unit); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
   if (name && sidesCalled(name, space).some(([o, d]) => o !== b && sideLength(o, d) === null)){ hud.say(`${name} is not a whole number: it cannot be a side's length`); return; }
   if (name){ b.sides[dim] = null; const has = lengthCalled(name, space, null);      /* the length the name already has here or above, looked up before this side joins it */
-    b.sides[dim] = name; if (n === null && has !== undefined) b.set({ ...b.rect, [dim]: has }); }
-  if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit });
+    b.sides[dim] = name; if (n === null && has !== undefined) size(has); }
+  if (n >= 1) size(n * view.unit);
   agree(b);
 }
 
@@ -677,7 +682,7 @@ const properties = createProperties({
     if (key === 'mass'){ if (text === '' || readEntry(text) !== undefined) return bus.send('entry.set', { id: b.id, key: '1,1', text: text === '' ? null : text });
       const n = wholeTyped(b, text, 'mass'); return n === null ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', text: String(n) }); }
     const n = wholeTyped(b, text, key); if (n === null || n < 1){ if (n !== null) hud.say(`${key} has to be at least 1`); return shown(); }
-    if (rootSide(b) !== null) return bus.send('entry.set', { id: b.id, key: '1,1', text: String(n * n) });      /* a scalar's side is the root of its mass: a side of 3 is a mass of 9 */
+    if (rootSide(b) !== null || (isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit)) return bus.send('entry.set', { id: b.id, key: '1,1', text: String(n * n) });      /* a scalar's side is the root of its mass: a side of 3 is a mass of 9. A named scalar stays one square whatever is typed */
     bus.send('side.set', { id: b.id, dim: key === 'x' ? 'w' : 'h', text: String(n) }); } });
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); configure();
