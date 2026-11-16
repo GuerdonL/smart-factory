@@ -10,6 +10,8 @@
    (2(3+1), 2x). A power is written ^ and then a number, a name, or a bracket: 2^(1/2). √ and ∜ before a number, a
    name or a bracket are its square and fourth root, so a result can be typed back in: 2√3.
 
+   An odd root of a negative number is the real one: (-8)^(1/3) is -2. An even root of one is an error.
+
    Nothing is ever rounded: the solver works in whole numbers, fractions and roots, and decimals typed in are taken
    as fractions. An answer that is a single root is given as a value, { p, q, k }: the fraction p over q in lowest
    terms, under k square roots (k 0: a whole number or a fraction; k 1: its square root, so 2^(1/2) is { 2, 1, 1 },
@@ -78,7 +80,19 @@ export function evaluate(text, lookup = () => undefined){
     const typed = prepared(text, lookup);
     let answer; try { answer = N(typed); } catch (e){ const m = String(e.message || e);
       throw new Wrong(/zero/i.test(m) ? 'divide by zero' : /bracket/i.test(m) ? 'a bracket is not closed' : 'that cannot be read as arithmetic'); }
-    const said = answer.toString(); if (/(^|[^a-z])i([^a-z]|$)/.test(said)) throw new Wrong('an even root of a negative number');
+    let said = answer.toString(); if (/(^|[^a-z])i([^a-z]|$)/.test(said)) throw new Wrong('an even root of a negative number');
+    /* Two things the solver leaves undone, finished here.
+       A root of a negative number comes back as a power of -1: (-8)^(1/3) as 2*(-1)^(1/3). An odd root of a negative
+       number is the real one, so (-1)^(p/q) with q odd is (-1)^p, and that is -2; with q even there is none.
+       And some whole roots are left standing (27^(1/3), though not 8^(1/3)): whatever comes out from under a root
+       whole is brought out, so 27^(1/3) is 3 and 54^(1/3) is 3*2^(1/3). */
+    const MINUS = /\(-1\)\^\((-?\d+)\/(\d+)\)/g, ROOT = /(?<![\w.])(\d+)\^\((-?\d+)\/(\d+)\)/g;
+    if ([...said.matchAll(MINUS)].some(m => m[2] % 2 === 0)) throw new Wrong('an even root of a negative number');
+    const finished = said.replace(MINUS, (_, p) => `(-1)^(${p})`).replace(ROOT, (all, n, p, q) => { n = +n; q = +q;
+      if (!Number.isSafeInteger(n) || n < 2 || q > 64) return all;
+      let c = Math.floor(Math.pow(n, 1 / q) + 1e-9); while (c > 1 && n % (c ** q)) c--;
+      return c > 1 ? `((${c})^(${p})*(${n / c ** q})^(${p}/${q}))` : all; });
+    if (finished !== said){ answer = N(finished); said = answer.toString(); }
     if (!said || /NaN|Infinity/.test(said)) throw new Wrong('that has no value');
     /* a single root comes out whole, or as a fraction, when it is squared enough times */
     for (let k = 0; k <= 3; k++){ let up; try { up = N(`expand((${said})^${2 ** k})`).toString(); } catch (e){ break; }
