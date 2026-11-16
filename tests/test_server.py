@@ -17,7 +17,7 @@ by_path = lambda files: sorted(files, key=lambda f: f['path'])
 class ServerTest(unittest.TestCase):
     def setUp(self):
         """A server over a directory of its own: saved projects, and the files it serves, are not the repository's."""
-        self.kept, self.dir = (server.ROOT, server.PROJECTS), tempfile.mkdtemp(prefix='smart-factory-test-')
+        self.kept, self.dir = (server.ROOT, server.PROJECTS, server.PIN), tempfile.mkdtemp(prefix='smart-factory-test-')
         shutil.copy(os.path.join(server.ROOT, 'smart-factory.html'), self.dir)
         for path, text in {'smart-factory.js': '/* the page */', 'components/block.js': '/* a block */', '.git/config': 'secret', '.git/HEAD': 'secret',
                            '.serve-token': 'secret', 'components/.hidden.js': 'secret', 'outside.txt': 'not secret'}.items():
@@ -25,6 +25,7 @@ class ServerTest(unittest.TestCase):
             with open(os.path.join(self.dir, path), 'w') as f:
                 f.write(text)
         server.ROOT, server.PROJECTS = self.dir, os.path.join(self.dir, 'projects')
+        server.PIN = None      # whatever PIN this machine has set for its own server is not these tests' (test_server_pin.py has the PIN's)
         # the server's own log_message runs, as it does in use; only the line it would write to stderr is kept off the screen
         quiet = unittest.mock.patch.object(BaseHTTPRequestHandler, 'log_message', lambda *a: None)
         quiet.start(); self.addCleanup(quiet.stop)
@@ -33,7 +34,7 @@ class ServerTest(unittest.TestCase):
 
     def tearDown(self):
         self.httpd.shutdown(); self.httpd.server_close()
-        server.ROOT, server.PROJECTS = self.kept
+        server.ROOT, server.PROJECTS, server.PIN = self.kept
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def ask(self, method, path, body=None):
