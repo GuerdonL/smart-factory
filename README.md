@@ -73,6 +73,14 @@ space; before it does, a warning lists the variables and how many instances of e
 cancelled. In a project file a reference carries `"reference": true`, and a length taken from a shape carries
 `"from": { "id": …, "side": "x" | "y" }`.
 
+## The maths solver
+
+Arithmetic typed into the properties panel is worked out by [nerdamer](https://github.com/jiggzson/nerdamer), a
+symbolic maths solver, version 1.1.13 (MIT licence). It is kept in the repository as `vendor/nerdamer.min.js`, with
+its licence beside it, and loaded by the page before its own code, so nothing is fetched from elsewhere and there is
+still no build step. `expression.js` is the only file that talks to it: it gets what was typed ready (root signs,
+names turned into their values) and reads the answer back. To change solver, change that file.
+
 ## Attributes
 
 Select one shape and the panel in the corner shows everything the variable has, together: its name, its two side

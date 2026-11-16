@@ -6,7 +6,7 @@ import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
 import { createWarning } from './components/warning.js';
-import { evaluate, written as writtenValue, whole as wholeValue, number as numberValue, power } from './expression.js';
+import { evaluate, written as writtenValue, whole as wholeValue, number as numberValue } from './expression.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds, createBackdrop } from './components/bounds.js';
@@ -651,7 +651,7 @@ function dotsOf(b){
    Everything a variable has, together, as the properties panel shows it: the lengths of its two sides (x and y),
    a scalar's mass (the number it holds), and whatever attributes have been added to it by hand. Each has a value
    that can be typed over. An added attribute has a name of the user's choosing and a value that is a number or
-   arithmetic (expression.js), in which the variable's other attributes can be used by name: x, y, mass, and the
+   arithmetic (expression.js, which hands the working out to a maths solver), in which the variable's other attributes can be used by name: x, y, mass, and the
    added ones. Added attributes belong to the variable: every reference to it has the same ones. */
 const attrsOf = b => (b.attrs ||= []);
 const asValue = v => v === null || v === undefined ? undefined : exact(v) || 'inexact';      /* an infinity is not a number arithmetic can use */
@@ -667,7 +667,7 @@ function attributesOf(b){
   const fixed = [{ key: 'x', label: sideName(b, 'w') || 'x', text: len('w') }, { key: 'y', label: sideName(b, 'h') || 'y', text: len('h') }];
   if (single) fixed.push({ key: 'mass', label: massName(b) || 'mass', text: v === null ? '' : valueText(v) });
   return [...fixed, ...attrsOf(b).map((a, i) => { const got = evaluate(a.text, lookupFor(b, new Set([a])));
-    return { key: 'a' + i, custom: true, label: a.name, text: a.text, error: got.error || null, result: got.value && writtenValue(got.value) !== a.text.trim() ? writtenValue(got.value) : null }; })];
+    return { key: 'a' + i, custom: true, label: a.name, text: a.text, error: got.error || null, result: (r => r && r.replace(/\s+/g, '') !== a.text.replace(/\s+/g, '') ? r : null)(got.value ? writtenValue(got.value) : got.text || null) }; })];      /* what it comes to, where that says more than what was typed */
 }
 /* a whole number typed, or arithmetic that comes to one, for a value that has to be whole: null (and a word why) otherwise */
 function wholeTyped(b, text, what){ const got = evaluate(text, lookupFor(b)), n = got.value ? wholeValue(got.value) : null;
@@ -685,8 +685,8 @@ const properties = createProperties({
     if (key === 'mass'){ if (text === '' || readEntry(text) !== undefined) return bus.send('entry.set', { id: b.id, key: '1,1', text: text === '' ? null : text });
       const v = worked('mass'); return v === null ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', value: held(v) }); }
     if (rootSide(b) !== null || (isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit)){      /* a scalar's side is the root of its mass: a side of 3 is a mass of 9, of √2 a mass of 2. It stays one square whatever is typed */
-      const v = worked(key), mass = v && power(v, numberValue(2)); if (v && mass === 'inexact') hud.say(`${key}: too large to square`);
-      return !v || mass === 'inexact' ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', value: held(mass) }); }
+      const v = worked(key), squared = v && evaluate(`(${text})^2`, lookupFor(b)), mass = squared && squared.value; if (v && !mass) hud.say(`${key}: its square does not come to one exact value`);
+      return !mass ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', value: held(mass) }); }
     /* any other shape is drawn on the grid: its sides are whole numbers of squares */
     const n = wholeTyped(b, text, key); if (n === null || n < 1){ if (n !== null) hud.say(`${key} has to be at least 1`); return shown(); }
     bus.send('side.set', { id: b.id, dim: key === 'x' ? 'w' : 'h', text: String(n) }); } });

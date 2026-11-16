@@ -1,25 +1,28 @@
 /* Arithmetic as it is typed into an attribute: numbers, names, + - * / ^ and brackets, worked out exactly.
    No drawing here: text in, a value out.
 
-   The order is the usual one: brackets, then powers (right to left: 2^3^2 is 2^(3^2)), then times and divide, then
-   plus and minus. × · ÷ − are read as * * / -, and a number or a bracket set straight against another multiplies
-   (2(3+1), 2x). A power is written ^ and then a number, a name, or a bracket: 2^(1/2).
-   √ and ∜ before a number, a name or a bracket are its square and fourth root, so a result can be typed back in: 2√3.
+   The working out is not done here. It is handed to nerdamer, a symbolic maths solver (vendor/nerdamer.min.js,
+   version 1.1.13, MIT licence: vendor/nerdamer.license.txt), which the page loads before its own code and which is
+   found as the global `nerdamer`. This file only gets what was typed ready for it and reads its answer.
 
-   Nothing is ever rounded. A value is { p, q, k }: the fraction p over q in lowest terms, under k square roots (k 0:
-   a whole number or a fraction; k 1: its square root, so 2^(1/2) is { 2, 1, 1 }, written √2). Roots multiply,
-   divide and take powers exactly. A result that is none of these, such as √2 + 1 or 2^(1/3), is not worked out at
-   all: it is left as it was written (see "How results are written" in the README).
+   What can be typed: the usual order holds (brackets, then powers, right to left, then times and divide, then plus
+   and minus). × · ÷ − are read as * * / -, and a number or a bracket set straight against another multiplies
+   (2(3+1), 2x). A power is written ^ and then a number, a name, or a bracket: 2^(1/2). √ and ∜ before a number, a
+   name or a bracket are its square and fourth root, so a result can be typed back in: 2√3.
 
-   evaluate(text, lookup) -> { value: { p, q } }      worked out exactly
-                           | { inexact: true }        well formed, but not a whole number or a fraction: leave it as written
-                           | { error: 'why' }         not something that can be read: "unknown name: w", "divide by zero", …
-                           | { empty: true }          nothing typed
-       lookup(name) is asked for each name in it and gives { p, q }, the word 'inexact', or undefined for a name it does not know
+   Nothing is ever rounded: the solver works in whole numbers, fractions and roots, and decimals typed in are taken
+   as fractions. An answer that is a single root is given as a value, { p, q, k }: the fraction p over q in lowest
+   terms, under k square roots (k 0: a whole number or a fraction; k 1: its square root, so 2^(1/2) is { 2, 1, 1 },
+   written √2). Any other answer, such as √2 + 1 or 2^(1/3), stays as the solver simplified it, in words.
+
+   evaluate(text, lookup) -> { value: { p, q, k } }        it comes to one such value
+                           | { inexact: true, text }       well formed, but not one such value: text is its simplest form ("1+√2")
+                           | { error: 'why' }              not something that can be read: "unknown name: w", "divide by zero", …
+                           | { empty: true }               nothing typed
+       lookup(name) is asked for each name in it and gives { p, q, k }, the word 'inexact', or undefined for a name it does not know
    written(value)    -> "7", "-3", "3/4", "√2", "2√3", "√(1/2)"
    whole(value)      -> the whole number a value is, or null where it is not one
-   number(n)         -> a whole number as a value;  value(p, q, k) -> any value, in lowest terms
-   power(value, exponent) -> one value to the power of another, or the word 'inexact' */
+   number(n)         -> a whole number as a value;  value(p, q, k) -> any value, in lowest terms */
 class Wrong extends Error {}
 const gcd = (a, b) => { a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a || 1; };
 const INEXACT = 'inexact';
@@ -42,56 +45,47 @@ export function written(v){
   const rest = n / (c ** e); return sign + (c > 1 ? c : '') + (mark ? mark + rest : `${rest}^(1/${e})`);
 }
 
-function tokens(text){
-  const out = [], s = text.replace(/[×·∙*]/g, '*').replace(/÷/g, '/').replace(/[−–]/g, '-'); let i = 0;
+const solver = () => globalThis.nerdamer;
+/* a value as the solver reads it */
+const forSolver = v => { const body = v.k ? `((${Math.abs(v.p)}/${v.q})^(1/${2 ** v.k}))` : `(${Math.abs(v.p)}/${v.q})`; return v.p < 0 ? `(-${body})` : body; };
+/* what was typed, made ready: signs the solver does not know turned into ones it does, a root sign into a power, and
+   each name into the value it stands for */
+function prepared(text, lookup){
+  const s = String(text).replace(/[×·∙]/g, '*').replace(/÷/g, '/').replace(/[−–]/g, '-'); let out = '', i = 0;
+  const operand = () => {      /* what a root sign applies to: a bracket, a number or a name */
+    while (s[i] === ' ') i++;
+    if (s[i] === '('){ let depth = 0, from = i; for (; i < s.length; i++){ if (s[i] === '(') depth++; else if (s[i] === ')' && !--depth){ i++; return piece(s.slice(from + 1, i - 1)); } } throw new Wrong('a bracket is not closed'); }
+    if (s[i] === '√' || s[i] === '∜'){ const four = s[i] === '∜'; i++; return `((${operand()})^(1/${four ? 4 : 2}))`; }
+    const m = s.slice(i).match(/^(\d*\.?\d+|\d+\.?|[A-Za-z_][\w.]*)/); if (!m) throw new Wrong('a root sign with nothing under it'); i += m[0].length; return piece(m[0]); };
+  const piece = t => prepared(t, lookup);
   while (i < s.length){ const c = s[i];
-    if (/\s/.test(c)){ i++; continue; }
-    if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(s[i + 1] || ''))){ const m = s.slice(i).match(/^\d*\.?\d*/)[0]; out.push({ n: m }); i += m.length; continue; }
-    if (/[A-Za-z_]/.test(c)){ const m = s.slice(i).match(/^[A-Za-z_][\w.]*/)[0].replace(/\.+$/, ''); out.push({ id: m }); i += m.length; continue; }
-    if ('+-*/^()√∜'.includes(c)){ out.push({ op: c }); i++; continue; }
+    if (c === '√' || c === '∜'){ i++; out += `((${operand()})^(1/${c === '∜' ? 4 : 2}))`; continue; }
+    if (/[A-Za-z_]/.test(c)){ const id = s.slice(i).match(/^[A-Za-z_][\w.]*/)[0].replace(/\.+$/, ''); i += id.length; const v = lookup(id);
+      if (v === undefined) throw new Wrong('unknown name: ' + id); if (v === INEXACT) throw new Inexact(); out += forSolver(v); continue; }
+    if (/[0-9.+\-*\/^()\s]/.test(c)){ out += c; i++; continue; }
     throw new Wrong(`cannot read "${c}"`);
   }
   return out;
 }
-/* a value's whole numbers lifted under more roots, so that two values are under the same number of them */
-const lift = (v, K) => { const e = 2 ** (K - v.k); return [Math.sign(v.p) || 1, Math.pow(Math.abs(v.p), e), Math.pow(v.q, e)]; };
-const add = (a, b) => a === INEXACT || b === INEXACT || a.k || b.k ? (a !== INEXACT && b !== INEXACT && a.p === 0 ? b : a !== INEXACT && b !== INEXACT && b.p === 0 ? a : INEXACT) : make(a.p * b.q + b.p * a.q, a.q * b.q);      /* a sum with a root in it is not one number */
-function mul(a, b){ if (a === INEXACT || b === INEXACT) return INEXACT; const K = Math.max(a.k, b.k), [sa, pa, qa] = lift(a, K), [sb, pb, qb] = lift(b, K); return make(sa * sb * pa * pb, qa * qb, K); }
-const neg = a => a === INEXACT ? INEXACT : { ...a, p: -a.p };
-const inv = a => { if (a.p === 0) throw new Wrong('divide by zero'); return { p: Math.sign(a.p) * a.q, q: Math.abs(a.p), k: a.k }; };
-const div = (a, b) => { if (b !== INEXACT && b.p === 0) throw new Wrong('divide by zero'); return a === INEXACT || b === INEXACT ? INEXACT : mul(a, inv(b)); };
-/* the exact n-th root of a whole number, or null where it has none */
-const root = (v, n) => { const r = Math.round(Math.pow(v, 1 / n)); return Math.pow(r, n) === v ? r : null; };
-function pow(a, e){
-  if (a === INEXACT || e === INEXACT || e.k) return INEXACT;
-  if (a.p === 0){ if (e.p <= 0) throw new Wrong(e.p ? 'divide by zero' : '0^0 has no value'); return make(0); }
-  if (Math.abs(e.p) > 64) return INEXACT;
-  let sign = Math.sign(a.p), p = Math.abs(a.p), q = a.q, k = a.k, n = e.q, twos = 0;
-  while (n % 2 === 0){ n /= 2; twos++; }
-  if (twos){ if (sign < 0) throw new Wrong('an even root of a negative number'); k += twos; }      /* a square root is kept as a root */
-  if (n > 1){ if (k) return INEXACT; p = root(p, n); q = root(q, n); if (p === null || q === null) return INEXACT; }      /* any other root has to come out whole */
-  const m = Math.abs(e.p), out = make((m % 2 ? sign : 1) * Math.pow(p, m), Math.pow(q, m), k);
-  return out === INEXACT ? INEXACT : e.p < 0 ? make(Math.sign(out.p) * out.q, Math.abs(out.p), out.k) : out;
-}
-export const power = pow;
+class Inexact extends Error {}
+const RATIONAL = /^(-?\d+)(?:\/(\d+))?$/;
+/* the solver's answer in the signs results are written in here */
+const pretty = t => t.replace(/sqrt\(/g, '√(').replace(/√\((\d+)\)/g, '√$1').replace(/(\d)\*√/g, '$1√').replace(/\*/g, '·');
 export function evaluate(text, lookup = () => undefined){
   if (!String(text).trim()) return { empty: true };
+  const N = solver(); if (!N) return { error: 'the maths solver did not load' };
   try {
-    const ts = tokens(String(text)); let i = 0;
-    const peek = () => ts[i], op = c => ts[i]?.op === c && (i++, true);
-    const starts = () => { const t = peek(); return !!t && (t.n !== undefined || t.id !== undefined || t.op === '(' || t.op === '√' || t.op === '∜'); };
-    const atom = () => { const t = ts[i++];
-      if (!t) throw new Wrong('something is missing at the end');
-      if (t.n !== undefined){ const [w, f = ''] = t.n.split('.'); return make(Number(w + f), Math.pow(10, f.length)); }      /* a decimal typed in is a fraction: 0.25 is 1/4 */
-      if (t.id !== undefined){ const v = lookup(t.id); if (v === undefined) throw new Wrong('unknown name: ' + t.id); return v; }
-      if (t.op === '√' || t.op === '∜') return pow(power(), make(1, t.op === '√' ? 2 : 4));      /* a root sign, as results are written: √2, 2√3 */
-      if (t.op === '('){ const v = sum(); if (!op(')')) throw new Wrong('a bracket is not closed'); return v; }
-      throw new Wrong(`"${t.op}" is out of place`); };
-    const power = () => { const base = atom(); return op('^') ? pow(base, unary()) : base; };
-    const unary = () => op('-') ? neg(unary()) : op('+') ? unary() : power();
-    const product = () => { let v = unary(); for (;;){ if (op('*')) v = mul(v, unary()); else if (op('/')) v = div(v, unary()); else if (starts()) v = mul(v, power()); else return v; } };
-    const sum = () => { let v = product(); for (;;){ if (op('+')) v = add(v, product()); else if (op('-')) v = add(v, neg(product())); else return v; } };
-    const v = sum(); if (i < ts.length) throw new Wrong(ts[i].op === ')' ? 'a bracket is closed that was never opened' : 'two values with nothing between them');
-    return v === INEXACT ? { inexact: true } : { value: v };
-  } catch (e){ if (e instanceof Wrong) return { error: e.message }; throw e; }
+    const typed = prepared(text, lookup);
+    let answer; try { answer = N(typed); } catch (e){ const m = String(e.message || e);
+      throw new Wrong(/zero/i.test(m) ? 'divide by zero' : /bracket/i.test(m) ? 'a bracket is not closed' : 'that cannot be read as arithmetic'); }
+    const said = answer.toString(); if (/(^|[^a-z])i([^a-z]|$)/.test(said)) throw new Wrong('an even root of a negative number');
+    if (!said || /NaN|Infinity/.test(said)) throw new Wrong('that has no value');
+    /* a single root comes out whole, or as a fraction, when it is squared enough times */
+    for (let k = 0; k <= 3; k++){ let up; try { up = N(`expand((${said})^${2 ** k})`).toString(); } catch (e){ break; }
+      const m = up.match(RATIONAL); if (!m) continue;
+      const top = Number(m[1]), sign = k > 0 && Number(answer.evaluate().text()) < 0 ? -1 : 1; if (k > 0 && top < 0) continue;      /* an even power is never negative */
+      const v = make(sign * top, Number(m[2] || 1), k);
+      return v === INEXACT ? { inexact: true, text: pretty(said) } : { value: v }; }
+    return { inexact: true, text: pretty(said) };
+  } catch (e){ if (e instanceof Wrong) return { error: e.message }; if (e instanceof Inexact) return { inexact: true, text: null }; throw e; }
 }
