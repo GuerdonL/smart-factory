@@ -261,7 +261,7 @@ function reach(x, y){
   for (const b of within){
     if (!near.has(b)){ near.set(b, createMeasure(view.unit)); view.world.append(near.get(b).el); }
     const s = sides(view, b.rect), a = view.toScreen(b.rect.x, b.rect.y), z = view.toScreen(b.rect.x + b.rect.w, b.rect.y + b.rect.h);
-    near.get(b).set(b.rect, { ...s, wName: b.sides.w, hName: b.sides.h, ...rootOf(b) }); near.get(b).mark(null);
+    near.get(b).set(b.rect, { ...s, wName: sideName(b, 'w'), hName: sideName(b, 'h'), ...rootOf(b) }); near.get(b).mark(null);
     /* where the two lines are drawn on screen (measure.js: a 14px gap, then an 11px line) */
     const wy = s.top ? a.y - 2.4 * 14 - 5.5 : z.y + 14 + 5.5, hx = s.right ? z.x + 14 + 5.5 : a.x - 14 - 5.5;
     const dw = Math.hypot(Math.max(a.x - x, 0, x - z.x), y - wy), dh = Math.hypot(x - hx, Math.max(a.y - y, 0, y - z.y));
@@ -301,7 +301,14 @@ function freeName(){
 const everySpace = () => [...new Set([top, ...spaceOf.values()])];
 const everyBlock = () => everySpace().flatMap(s => s.blocks);
 const spaceWith = b => everySpace().find(s => s.blocks.includes(b));
-const uses = (s, name) => s.blocks.some(b => b.sides.w === name || b.sides.h === name);
+/* A named shape's sides are lengths with names of their own, without being given any: the shape's name, up to ten
+   characters, with .x for its width and .y for its height (a transpose's are the variable's, the other way round).
+   Such a name can be typed on any other side, which is then that length and stays so. A side that has been given a
+   name goes by that one. (A side's own automatic name is only a handle: it does not make the side a variable one,
+   so it neither elides the shape's matrix nor has to match a neighbour's name in a product.) */
+const autoSide = (b, dim) => isNamed(b) ? bare(b.name).trim().slice(0, 10) + ((dim === 'w') !== turned(b) ? '.x' : '.y') : null;
+const sideName = (b, dim) => b.sides[dim] || autoSide(b, dim);
+const uses = (s, name) => s.blocks.some(b => sideName(b, 'w') === name || sideName(b, 'h') === name);
 /* s and every space above it: the spaces holding a block whose definition s is, and so on up */
 function above(s){
   const seen = new Set([s]), todo = [s];
@@ -317,6 +324,12 @@ function homeOf(name, s){
 function sidesCalled(name, s){
   const home = homeOf(name, s), out = [];
   for (const t of everySpace()) if (uses(t, name) && homeOf(name, t) === home) for (const b of t.blocks) for (const dim of ['w', 'h']) if (b.sides[dim] === name) out.push([b, dim, t]);
+  /* and the shape the name is taken from, where it is a shape's own: one variable only, the nearest, so that
+     shapes which merely share a name are not tied to one another */
+  const order = [...above(s)].sort((a, b) => above(b).size - above(a).size), all = [...order, ...everySpace().filter(t => !order.includes(t))];
+  let owner = null;
+  for (const t of all){ if (homeOf(name, t) !== home) continue; owner = t.blocks.find(b => ['w', 'h'].some(dim => !b.sides[dim] && autoSide(b, dim) === name)); if (owner) break; }
+  if (owner) for (const k of kinOf(owner)){ const t = spaceWith(k); if (t) for (const dim of ['w', 'h']) if (!k.sides[dim] && autoSide(k, dim) === name) out.push([k, dim, t]); }
   return out;
 }
 /* the length a side called name has in s already, if one at or above s carries it; otherwise undefined */
@@ -333,7 +346,7 @@ function agree(b){
     for (const k of kinOf(c)) if (k !== c){ const over = !!k.t !== !!c.t, w = over ? c.rect.h : c.rect.w, h = over ? c.rect.w : c.rect.h;      /* a transpose of it is the other way round */
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = spaceWith(c); if (!s) continue;
-    for (const dim of ['w', 'h']) if (c.sides[dim]) for (const [o, d] of sidesCalled(c.sides[dim], s)) if (o.rect[d] !== c.rect[dim]){ o.set({ ...o.rect, [d]: c.rect[dim] }); done.delete(o); todo.push(o); }
+    for (const dim of ['w', 'h']) if (sideName(c, dim)) for (const [o, d] of sidesCalled(sideName(c, dim), s)) if (o.rect[d] !== c.rect[dim]){ o.set({ ...o.rect, [d]: c.rect[dim] }); done.delete(o); todo.push(o); }
   }
 }
 /* Runs change(), then puts back together whatever it pulled apart: blocks that were touching side by side, in any
@@ -356,7 +369,7 @@ function keepTouching(change, except = () => false){
 function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
 function typedNow(b, dim, text){
   const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(), n = m[2] ? Math.round(parseFloat(m[2])) : null;
-  if (name === '-'){ b.sides[dim] = null; if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); return; }
+  if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit }); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
   if (name){ b.sides[dim] = null; const has = lengthCalled(name, space, null);      /* the length the name already has here or above, looked up before this side joins it */
     b.sides[dim] = name; if (n === null && has !== undefined) b.set({ ...b.rect, [dim]: has }); }
   if (n >= 1) b.set({ ...b.rect, [dim]: n * view.unit });
@@ -605,7 +618,7 @@ function shown(){                              /* brings what is on screen in li
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
-  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h, ...rootOf(one) }); }
+  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: sideName(one, 'w'), hName: sideName(one, 'h'), ...rootOf(one) }); }
   else measure?.el.remove();
   /* every frame is drawn, named or not; the one that is the whole selection also carries the tools */
   const oneGroup = groupIs(list), live = new Set();
