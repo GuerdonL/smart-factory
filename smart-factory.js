@@ -463,16 +463,11 @@ const root = document.documentElement, bySystemKey = new Map(SYSTEM.map(v => [v.
 let defaults = null;                           /* { light, dark }: the theme's own colours for each, read with nothing of ours laid over them */
 let hostTheme = root.dataset.theme || null, ourTheme;      /* what the app has put on the root element, and what the page last put there */
 const asksForDark = () => hostTheme ? hostTheme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-function programDefaults(){
+function programDefaults(){                    /* what the program itself says of each variable: nothing, but for .dark_mode, which left blank is whatever the computer asks for */
   if (defaults) return defaults;
-  for (const v of SYSTEM) for (const css of v.cssRows || (v.css ? [v.css] : [])) rootStyle.removeProperty('--' + css);
-  const probe = document.body.appendChild(document.createElement('i')), was = root.dataset.theme;
-  const rgb = css => { probe.style.color = `var(--${css})`; return (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).slice(0, 3).map(n => Math.round(+n)); };
-  defaults = {};
-  for (const mode of ['light', 'dark']){ root.dataset.theme = mode;      /* the stylesheet is asked for each set in turn */
-    defaults[mode] = new Map(SYSTEM.map(v => [v.key, v.css ? rgb(v.css) : v.cssRows ? v.cssRows.flatMap(() => [undefined, undefined, undefined]) : v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : [undefined]])); }      /* a colour is the stylesheet's; an array of colours has nothing until a .config gives it; nor has anything else */
-  if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
-  probe.remove(); return defaults;
+  const blank = v => v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : Array.from({ length: v.cssRows ? 3 * v.cssRows.length : v.css ? 3 : 1 }, () => undefined);
+  defaults = { light: new Map(SYSTEM.map(v => [v.key, blank(v)])), dark: new Map(SYSTEM.map(v => [v.key, blank(v)])) };
+  return defaults;
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => bus.send('theme', { dark: e.matches }));
 new MutationObserver(() => { const now = root.dataset.theme || null; if (now === ourTheme || now === hostTheme) return;      /* the page's own doing, or no change */
@@ -512,10 +507,11 @@ function configure(){
     const v = each.length ? systemValue(key, spaces, mode).map(byte) : [], d = base.get(key);
     each.forEach((name, i) => { const mine = v.slice(3 * i, 3 * i + 3);
       if (!mine.every(Number.isFinite)) rootStyle.setProperty('--' + name, 'initial');      /* a row not wholly given is no colour: what wears it is drawn without one */
-      else if (css && mine.join() === d.slice(3 * i, 3 * i + 3).join()) rootStyle.removeProperty('--' + name); else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }
+      else rootStyle.setProperty('--' + name, `rgb(${mine.join(', ')})`); }); }
   /* a colour's shape in a .config is drawn in the colour it comes to, in the set it belongs to */
   for (const b of space.blocks){ const v = !isOff(b) && inConfig(b, space) && bySystemKey.get(leaf(b.name)); if (!v?.css) continue;
-    const m = modeOf(b, space), path = pathOf(chain(b)); b.el.style.setProperty('--block', `rgb(${systemValue(v.key, path, m === 'both' ? modeIn(path) : m).map(byte).join(', ')})`); }
+    const m = modeOf(b, space), path = pathOf(chain(b)); const rgb = systemValue(v.key, path, m === 'both' ? modeIn(path) : m).map(byte);
+    b.el.style.setProperty('--block', rgb.every(Number.isFinite) ? `rgb(${rgb.join(', ')})` : 'initial'); }      /* not given in full: no colour */
 }
 /* Where a .config inside a group gives that group colours of its own, everything of the group's wears them: its shapes,
    what is written beside them, its frame, and the ground under it. An element wears a set of colours by a class (the

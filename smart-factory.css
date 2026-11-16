@@ -1,5 +1,8 @@
-/* The theme. Every colour and typeface in the project is defined here and nowhere else;
-   components only ever refer to these variables. */
+/* The theme. Every typeface is defined here, and the few colours that are not the project's to set (shadows, the
+   lit and shaded lips of a block). The colours of the canvas, of text and of shapes are not here: --bg --fg --muted
+   --panel --line --hover --dot --focus --fade-to --warn --select --measure --tensor --data-in and --variable-1 to
+   --variable-6 are set by the page from the project's .config (system.js), and from nowhere else. A project whose
+   .config leaves one out has no such colour. Components only ever refer to these variables. */
 :root, .theme-light {      /* .theme-light: an element that wears the light colours while the page is dark */
   --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;      /* menus, readouts */
   /* names on the canvas: technical and cramped. The real 3270 is used where it is installed;
@@ -7,24 +10,10 @@
   --font-math: "STIX Two Math", "Cambria Math", "Latin Modern Math", "Times New Roman", Times, serif;      /* variables, in matrix notation */
   --font-name: "3270 Nerd Font", "3270 Nerd Font Mono", "3270NF", "IBM 3270", "Share Tech Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  --bg: #f6f7f9;            /* the canvas ground */
-  --fg: #1c2230;            /* text */
-  --muted: #6b7385;         /* secondary text, quiet marks */
-  --panel: #ffffff;         /* floating surfaces: menus, readouts */
-  --line: #d9dde6;          /* borders */
-  --hover: #e8ebf1;         /* a control under the pointer */
-  --dot: #a9b0c1;           /* grid dots */
   --shadow: rgba(20, 26, 40, .28);
-  --focus: #1c2230;         /* keyboard focus ring */
-  --fade-to: #ffffff;       /* what everything else fades towards while something is selected */
-  --warn: #c2410c;          /* something that does not hold, such as a definition of the wrong size */
-  --select: #2f7bf0;        /* the ring round a selected block */
-  --select-halo: rgba(47, 123, 240, .28);    /* its soft glow */
-  --measure: #4a5266;       /* dimension lines and their numbers */
+  --select-halo: color-mix(in srgb, var(--select) 28%, transparent);    /* the soft glow round a selected block */
   --on-block: #ffffff;      /* small writing set on a block's own colour */
   /* blocks: one colour per shape, named by the shape's config ("color": "tensor" -> --tensor) */
-  --tensor: #e5534b;        /* a friendly red */
-  --data-in: #ff2e93;       /* a bright pink. Pink is Data in's alone: none of the named-shape colours below is a pink */
   /* a named shape takes one of six colours at random. Those are not here: they are --variable-1 to --variable-6, set by
      the page from .variable_colors (system.js), which a project's .config gives */
   --raise-light: rgba(255, 255, 255, .35);   /* the lit top edge of a raised block */
@@ -34,13 +23,12 @@
   --stripe-deep: rgba(0, 0, 0, .07);          /* the deeper one */              /* the thin rim that separates touching blocks */
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --warn: #fb923c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
-  --tensor: #e0615a; --data-in: #ff4fa3; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark } }
+  --shadow: rgba(0, 0, 0, .5); --select-halo: color-mix(in srgb, var(--select) 32%, transparent);
+  --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark } }
 :root[data-theme="dark"], .theme-dark {      /* .theme-dark: an element that wears the dark colours while the page is light */
-  --bg: #12151c; --fg: #e6e9f0; --muted: #8b93a6; --panel: #1a1e28; --line: #2a3040; --hover: #262c3a;
-  --dot: #414a60; --shadow: rgba(0, 0, 0, .5); --focus: #e6e9f0; --measure: #aab2c5; --fade-to: #12151c; --warn: #fb923c; --select: #5a9bff; --select-halo: rgba(90, 155, 255, .32);
-  --tensor: #e0615a; --data-in: #ff4fa3; --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark }
+  
+  --shadow: rgba(0, 0, 0, .5); --select-halo: color-mix(in srgb, var(--select) 32%, transparent);
+  --raise-light: rgba(255, 255, 255, .22); --raise-dark: rgba(0, 0, 0, .4); --edge: rgba(0, 0, 0, .6); --stripe-light: rgba(255, 255, 255, .11); --stripe-deep: rgba(0, 0, 0, .1); color-scheme: dark }
 
 html, body { height: 100%; }
 ::selection { background: var(--select-halo); }

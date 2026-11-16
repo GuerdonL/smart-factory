@@ -54,10 +54,11 @@ A shape is defined only in its definition space, and only by shapes standing in 
 cover every entry, the shape's entries are theirs. Shapes set anywhere else, in that space or beside the shape on its
 own canvas, are only pieces and define nothing.
 
-The program holds no values for any of these. They are written out, entry by entry, in the Menu's `.config` (the
-default Menu gives every one, light and dark), and that is the only place they are set. A project with no `.config`
-is drawn in the stylesheet's colours, but those are not shown as values anywhere: a blank entry in a `.config` shape
-shows only what a `.config` above it says.
+Neither the program nor the stylesheet holds a value for any of these. They are written out, entry by entry, in the
+Menu's `.config` (the default Menu gives every one, light and dark), and that is the only place they are set. A
+colour no `.config` gives in full does not exist: a project with no `.config` has no canvas colour, no text colour
+and no shape colours, and is drawn in whatever the browser does with none. `.dark_mode` alone has a fallback: left
+blank, it is whatever the computer asks for.
 
 A group named `.config` shadows the program's from its space downwards, and one further down shadows it again. It
 covers only what it gives: a colour shape with one entry filled changes that one entry. It is saved as a file called

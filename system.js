@@ -12,8 +12,7 @@
          .dark_colors                  the same two groups again: the colours used while .dark_mode is 1
 
    No values are written here. What each variable is comes from a project's .config (the default Menu's gives them
-   all); where no .config says, a colour falls back on the stylesheet so the page can still be drawn, and a variable
-   that is not a colour has no value.
+   all); where no .config says, a variable has no value and a colour does not exist: nothing stands in for it.
 
    A .config's reach is the group it is in, or the whole space if it is in none: see "shadowing" in smart-factory.js.
 
