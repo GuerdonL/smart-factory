@@ -141,7 +141,7 @@ function inReach(){
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
-          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: b.rect[dim] / view.unit })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
+          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : +rootSide(b).toFixed(2) })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
         shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
       if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
     } });
@@ -338,7 +338,7 @@ function sidesCalled(name, s){
 /* the length a side called name has in s already, if one at or above s carries it; otherwise undefined */
 function lengthCalled(name, s, not = null){
   const here = above(s), from = sidesCalled(name, s).find(([o, , t]) => o !== not && here.has(t));
-  return from && from[0].rect[from[1]];
+  return from && sideLength(from[0], from[1]);
 }
 /* after b's size has changed: every other use of its variable takes its size, and every side that shares a name
    with one of its sides takes that side's length; then the same for whatever those changed, until nothing moves */
@@ -349,7 +349,9 @@ function agree(b){
     for (const k of kinOf(c)) if (k !== c){ const over = !!k.t !== !!c.t, w = over ? c.rect.h : c.rect.w, h = over ? c.rect.w : c.rect.h;      /* a transpose of it is the other way round */
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = spaceWith(c); if (!s) continue;
-    for (const dim of ['w', 'h']) if (sideName(c, dim)) for (const [o, d] of sidesCalled(sideName(c, dim), s)) if (o.rect[d] !== c.rect[dim]){ o.set({ ...o.rect, [d]: c.rect[dim] }); done.delete(o); todo.push(o); }
+    for (const dim of ['w', 'h']) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o]) => rootSide(o) !== null);      /* a single entry's number settles the length: it is not resized to suit the others */
+      const length = boss ? sideLength(boss[0], boss[1]) : c.rect[dim];
+      for (const [o, d] of group) if (rootSide(o) === null && o.rect[d] !== length){ o.set({ ...o.rect, [d]: length }); done.delete(o); todo.push(o); } }
   }
 }
 /* Runs change(), then puts back together whatever it pulled apart: blocks that were touching side by side, in any
@@ -603,10 +605,16 @@ function hush(){
 }
 /* A single entry (a 1 by 1 block) that holds a number: the number is its area, so each side is the root of it. The
    block still takes one square of the grid and is still one by one in a product; only what is written changes: the
-   number on its face, and its sides as the root of its name (or of the number, where it has no name of its own). */
+   number on its face, and its sides as the root of the number: 9 has sides of 3u. A side elsewhere that carries one of
+   its sides' names is that long (to the nearest whole unit) and follows the number as it changes. */
 const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || b.rect.h !== u) return null; const v = valuesOf(b).get('1,1'); return typeof v === 'number' ? v : null; };
 const asText = v => v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
-const rootOf = b => { const v = scalarOf(b); if (v === null) return {}; const t = '√' + (isNamed(b) ? b.name : asText(v)); return { wText: t, hText: t }; };
+/* the length of each side of such an entry, in units: the root of its number (null where it has none, or none with a root) */
+const rootSide = b => { const v = scalarOf(b); return v !== null && v >= 0 && Number.isFinite(v) ? Math.sqrt(v) : null; };
+const rootOf = b => { const r = rootSide(b); if (r === null) return {}; const t = dim => (sideName(b, dim) ? sideName(b, dim) + ' ' : '') + +r.toFixed(2) + 'u'; return { wText: t('w'), hText: t('h') }; };
+/* a side's length as other sides take it, in world units: a block's own, but for such an entry the root of its
+   number, to the nearest whole unit (a side on the canvas is a whole number of squares) */
+const sideLength = (b, dim) => { const r = rootSide(b); return r === null ? b.rect[dim] : Math.max(1, Math.round(r)) * view.unit; };
 /* The circles on a shape: one over every entry whose number is known, its area in step with the number's size, the
    largest on the shape filling its square. (A single entry has none: its number is written on it.) A negative number is a ring; zero is a speck (known, and nothing). */
 function dotsOf(b){
@@ -1086,7 +1094,8 @@ function clicked(el, e){
   /* a measurement: double-click to type a length in whole units, a name for that side, or both; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
     const b = [...selected][0];
-    if (twice) editText(el, text => { if (text && !text.startsWith('√')) bus.send('side.set', { id: b.id, dim, text }); else shown(); });      /* a root left as it was is no new length */
+    const was = el.textContent.replace(/\s+/g, ' ').trim();
+    if (twice) editText(el, text => { if (text && text !== was) bus.send('side.set', { id: b.id, dim, text }); else shown(); });      /* left as it was: no new length (a single entry's is not its size on the grid) */
     return;                                     /* a click on a measurement never changes the selection */
   }
   const b = blockAt(el);
@@ -1183,7 +1192,8 @@ bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return; b.call(name); renamed(b, color); }, changes);
 bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text === null ? undefined : readEntry(text);      /* nothing typed puts the symbol back; anything that is not a number is not taken */
-  if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v); }
+  if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
+    keepTouching(() => { for (const k of kinOf(o)) agree(k); }); }      /* a single entry's number is its sides' length: whatever shares their names follows */
   write(); shown(); }, changes);
 bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(b, dim, text); shown(); }, changes);
 /* a frame is several shapes held together (in the code, and in projects saved before, a group) */
