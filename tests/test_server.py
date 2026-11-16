@@ -1,5 +1,5 @@
 """server.py: saving and opening projects, and what it will not serve. Run with: python3 -B -m unittest discover tests"""
-import json, os, shutil, sys, unittest, unittest.mock
+import json, os, shutil, subprocess, sys, unittest, unittest.mock
 from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +31,7 @@ class ServerTest(ServerCase):
         return sorted(os.path.relpath(os.path.join(d, f), base).replace(os.sep, '/') for d, _, fs in os.walk(base) for f in fs)
 
     def assert_nothing_left_over(self):
-        self.assertEqual([n for n in os.listdir(server.PROJECTS) if n.startswith('.')], [])
+        self.assertEqual([n for n in os.listdir(server.PROJECTS) if n.startswith('.')] if os.path.isdir(server.PROJECTS) else [], [])
 
     # saving and opening
 
@@ -84,6 +84,13 @@ class ServerTest(ServerCase):
                 self.assertEqual(status, 400, (method, name)); self.assertIn('error', reply)
         self.assertFalse(os.path.exists(server.PROJECTS) and os.listdir(server.PROJECTS))
 
+    def test_a_name_that_ends_in_a_newline_is_refused(self):
+        for name in ['menu\n', 'menu\r\n', 'menu\n\n', '\n', 'me\nnu']:
+            for method, body in (('PUT', [HEAD]), ('GET', None)):
+                status, _, reply = self.ask(method, '/api/projects/' + quote(name, safe=''), body)
+                self.assertEqual(status, 400, (method, name)); self.assertIn('error', reply)
+        self.assertFalse(os.path.exists(server.PROJECTS) and os.listdir(server.PROJECTS))
+
     def test_a_path_that_would_leave_the_project_is_refused_and_nothing_is_written(self):
         self.save('attention', FILES)
         for path in ['../escaped.json', 'a/../../escaped.json', '/etc/escaped.json', 'a//b.json', './a.json', 'a/./b.json', 'a\\..\\b.json',
@@ -109,6 +116,76 @@ class ServerTest(ServerCase):
             self.assertEqual(self.ask('PUT', '/api/projects/attention', body)[0], 400, body)
         self.assertEqual(self.on_disk('attention'), sorted(f['path'] for f in FILES))
         self.assert_nothing_left_over()
+
+    def test_every_save_that_is_no_good_is_answered_with_why(self):
+        self.save('attention', FILES)
+        no_good = [({'a': 1}, 'a list of files'), ('text', 'a list of files'), (5, 'a list of files'), ([1, HEAD], 'each file is'), ([[HEAD]], 'each file is'),
+                   ([HEAD, {'text': 'x'}], 'no path'), ([HEAD, {'path': 'a.json'}], 'no text'),
+                   ([HEAD, {'path': 5, 'text': 'x'}], "path is text"), ([HEAD, {'path': ['a.json'], 'text': 'x'}], "path is text"), ([HEAD, {'path': None, 'text': 'x'}], "path is text"),
+                   ([HEAD, {'path': 'a.json', 'text': 5}], "text is text"), ([HEAD, {'path': 'a.json', 'text': {'name': 'a'}}], "text is text"), ([HEAD, {'path': 'a.json', 'text': None}], "text is text"),
+                   ([HEAD, HEAD], 'two files called'), ([HEAD, {'path': 'a.json', 'text': 'x'}, {'path': 'a.json/b.json', 'text': 'x'}], 'is a file'),
+                   ([HEAD, {'path': 'a.json/b/c.json', 'text': 'x'}, {'path': 'a.json', 'text': 'x'}], 'is a file'), ([HEAD, {'path': 'project.json/b.json', 'text': 'x'}], 'is a file')]
+        for body, why in no_good:
+            status, _, reply = self.save('attention', body)       # an answer at all: these once dropped the connection
+            self.assertEqual(status, 400, body); self.assertIn(why, reply['error'], body)
+        status, _, reply = self.ask('PUT', '/api/projects/attention', b'[' * 100000)      # deeper than Python will read
+        self.assertEqual(status, 400); self.assertIn('error', reply)
+        self.assertEqual(self.on_disk('attention'), sorted(f['path'] for f in FILES))
+        self.assert_nothing_left_over()
+
+    def test_a_save_that_cannot_be_written_is_answered_and_leaves_things_as_they_were(self):
+        self.save('attention', FILES)
+        rename = os.rename
+        for fails in ('.old-', '.saving-', 'none of them'):         # moving the old one aside, moving the new one in, the first write
+            def failing(src, dst):
+                if fails in src or fails in dst:
+                    raise OSError(28, 'No space left on device')
+                return rename(src, dst)
+            patches = [unittest.mock.patch.object(server.os, 'rename', failing)]
+            if fails == 'none of them':
+                patches.append(unittest.mock.patch.object(server.os, 'makedirs', side_effect=OSError(28, 'No space left on device')))
+            for patch in patches: patch.start()
+            try:
+                for name in ('attention', 'new')[:1 if fails == '.old-' else 2]:      # a new project has no old one to move aside
+                    status, _, reply = self.save(name, [HEAD, {'path': 'sub/Other.json', 'text': '{}\n'}])
+                    self.assertEqual((status, reply), (500, {'error': 'could not write the project: No space left on device'}), (fails, name))
+            finally:
+                for patch in patches: patch.stop()
+            self.assertEqual(self.on_disk('attention'), sorted(f['path'] for f in FILES), fails)
+            self.assertFalse(os.path.exists(os.path.join(server.PROJECTS, 'new')), fails)
+            self.assert_nothing_left_over()
+        self.assertEqual(self.save('attention', [HEAD])[0], 200)       # and once it can be written, it is
+
+    def test_a_save_larger_than_the_limit_is_refused(self):
+        self.assertEqual(server.MAX_SAVE, 64 << 20)
+        big = [HEAD, {'path': 'Big.json', 'text': 'x' * 1000}]
+        with unittest.mock.patch.object(server, 'MAX_SAVE', len(json.dumps(big)) - 1):
+            status, _, reply = self.save('attention', big)
+            self.assertEqual(status, 413); self.assertIn('at most', reply['error'])
+            self.assertFalse(os.path.exists(server.PROJECTS))
+            self.assertEqual(self.save('attention', [HEAD])[0], 200)       # under the limit
+        with unittest.mock.patch.object(server, 'MAX_SAVE', len(json.dumps(big))):
+            self.assertEqual(self.save('attention', big)[0], 200)          # exactly the limit
+        for length in ['%d' % ((64 << 20) + 1), '9' * 30, '9' * 5000]:     # only said to be large: answered before any of it is read
+            status, _, text = self.request('PUT', '/api/projects/attention', b'[]', {'Content-Length': length})
+            self.assertEqual(status, 413, length); self.assertIn('error', json.loads(text))
+
+    def test_a_save_whose_length_is_not_a_whole_number_is_refused(self):
+        self.save('attention', FILES)
+        body = json.dumps([HEAD]).encode()
+        for length in ['-1', '-%d' % len(body), 'ten', '1.5', '0x10', '+5', '', '²', '5 5']:
+            status, _, text = self.request('PUT', '/api/projects/attention', body, {'Content-Length': length})
+            self.assertEqual(status, 400, length); self.assertIn('Content-Length', json.loads(text)['error'], length)
+        self.assertEqual(self.on_disk('attention'), sorted(f['path'] for f in FILES))
+        self.assert_nothing_left_over()
+
+    def test_outside_a_git_checkout_no_project_comes_with_the_program(self):
+        self.assertEqual(server.shipped(), set())
+        for name in ['default-menu', 'example']:
+            self.assertEqual(self.save(name, [HEAD])[0], 200, name)
+        with unittest.mock.patch.object(server, 'git', side_effect=FileNotFoundError('git')):      # no git on the machine at all
+            self.assertEqual(server.shipped(), set())
+            self.assertEqual(self.save('example', [HEAD])[0], 200)
 
     def test_nothing_else_is_under_api(self):
         self.assertEqual(self.ask('GET', '/api/other')[0], 404)
@@ -186,6 +263,43 @@ class ServerTest(ServerCase):
         for path in ['/../' + name, '/..%2f' + name, '/%2e%2e/' + name, '/components/../../' + name, '/../../etc/passwd']:
             status, _, text = self.ask('GET', path)
             self.assertEqual(status, 404, path); self.assertNotIn('not secret', text)
+
+
+@unittest.skipUnless(shutil.which('git'), 'needs git')
+class ShippedTest(ServerCase):
+    """The server in a git checkout of its own: default-menu is tracked, as it is in the repository; mine is not."""
+    ask, save, on_disk, assert_nothing_left_over = ServerTest.ask, ServerTest.save, ServerTest.on_disk, ServerTest.assert_nothing_left_over
+    SERVED = {'projects/default-menu/project.json': HEAD['text'], 'projects/default-menu/colors/red.json': '{}\n', 'projects/README.md': 'Projects',
+              'projects/mine/project.json': HEAD['text']}
+
+    def setUp(self):
+        super().setUp()
+        self.git('init', '--quiet')
+        self.git('add', 'projects/default-menu', 'projects/README.md')
+
+    def git(self, *args):
+        return subprocess.run(['git', '-C', self.dir, *args], check=True, capture_output=True, text=True).stdout
+
+    def test_the_projects_that_come_with_the_program_are_the_ones_git_tracks(self):
+        self.assertEqual(server.shipped(), {'default-menu'})          # not mine, and not README.md, which is no directory
+        self.git('add', 'projects/mine')
+        self.assertEqual(server.shipped(), {'default-menu', 'mine'})  # asked each time: right after a pull brings a new one
+
+    def test_a_project_that_comes_with_the_program_is_not_saved_over(self):
+        for name in ['default-menu', 'Default-Menu', 'DEFAULT-MENU']:      # on a disk that ignores capitals these are one directory
+            status, _, reply = self.save(name, [HEAD, {'path': 'Other.json', 'text': '{}\n'}])
+            self.assertEqual((status, reply), (403, {'error': name + ' comes with the program: save under another name'}))
+        self.assertEqual(self.on_disk('default-menu'), ['colors/red.json', 'project.json'])
+        self.assertEqual(self.git('diff', '--name-only'), '')      # nothing tracked has changed: the branch can still be followed
+        self.assert_nothing_left_over()
+
+    def test_it_is_still_opened_and_other_names_are_still_saved(self):
+        self.assertEqual(self.ask('GET', '/api/projects')[2], ['default-menu', 'mine'])
+        self.assertEqual(self.ask('GET', '/api/projects/default-menu')[0], 200)
+        for name in ['mine', 'menu', 'default-menu 2']:
+            self.assertEqual(self.save(name, [HEAD, {'path': 'Other.json', 'text': '{}\n'}])[0], 200, name)
+            self.assertEqual(self.on_disk(name), ['Other.json', 'project.json'])
+        self.assertEqual(self.git('diff', '--name-only'), '')
 
 
 if __name__ == '__main__':

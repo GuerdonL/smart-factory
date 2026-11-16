@@ -14,7 +14,10 @@ The full format is described at the top of [`../project.js`](../project.js).
 
 Run `python3 server.py` in the repository and open the page it serves. Right-click the canvas:
 
-- **Save project** asks for a name and writes `projects/<name>/`, replacing whatever that directory held.
+- **Save project** asks for a name and writes `projects/<name>/`, replacing whatever that directory held. The
+  projects that come with the repository, `default-menu` and `example/` below (any directory here that git tracks
+  files in), are the exception: the server will not save over them, and says to save under another name. Its checkout
+  follows the branch on GitHub, and could not once those files were changed in place.
 - **Open project** lists the projects here; choosing one replaces everything on the canvas.
 
 Opened anywhere without that server (the published artifact, say), Save hands over a zip of the same tree and
@@ -24,7 +27,7 @@ Open takes one back.
 
 The page has one space at the top, the Menu, and a project is what is in it. On opening, the page loads the project
 called `menu` if you have saved one, and otherwise `default-menu`, which comes with the repository. Save offers the
-name `menu`, so your first save makes the Menu your own without touching `default-menu`.
+name `menu`, so your first save makes the Menu your own without touching `default-menu`, which cannot be saved over.
 
 ## Frames
 

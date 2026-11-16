@@ -11,6 +11,11 @@ No build step and nothing to install: the page is plain files, and the server is
 The server also keeps saved projects in `projects/` (see `projects/README.md`) and, when run from a git checkout,
 pulls its branch from GitHub every 30 seconds, so a push shows up on the next reload.
 
+The projects that come with the repository (`default-menu` and `example`: the ones git tracks) are opened but never
+saved over: the server refuses, and the page says to save under another name. A save over them would change tracked
+files, and the checkout could then no longer be pulled. To change one, change its files and push. A save is 64 MB at
+most, and one that is refused for any reason is answered with why and changes nothing.
+
 ## Run it on a server, for good
 
 On the machine, in a checkout of this repository on the branch to follow:

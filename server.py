@@ -9,6 +9,8 @@ What it does:
         GET  /api/projects            -> ["attention", "example"]
         GET  /api/projects/<name>     -> [{"path": "Keys.json", "text": "..."}, ...]
         PUT  /api/projects/<name>     <- the same list; the project's directory becomes exactly these files
+    A save that is no good is answered with why, as {"error": ...}, and changes nothing. A project that comes with the
+    repository (git tracks its files) is not saved over: see shipped().
   - every 30 seconds asks GitHub whether the branch it is on has moved, and if so pulls it. Pages are read from
     disk on each request, so the next reload shows the new version; if this file itself changed, it restarts.
 
@@ -26,7 +28,8 @@ from urllib.parse import unquote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
-NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$')          # a project's name: one plain directory name
+NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}')            # a project's name: one plain directory name. Used with fullmatch: all of the name has to fit ($ lets a last newline by)
+MAX_SAVE = 64 << 20                                                # the most a save's body may be, in bytes
 TRIES, LOCKED_FOR = 5, 600                                         # different wrong PINs allowed from one address within LOCKED_FOR seconds, and the seconds it is then turned away
 SWALLOWED, SWALLOW_FOR = 64 << 20, 10                              # how much of a refused request's body is read and dropped, in bytes, and for how many seconds at most
 clock = time.monotonic                                             # the clock the counting goes by: its own name, so a test can set it and nothing else's
@@ -67,35 +70,80 @@ def project_files(name):
         for f in sorted(files):
             if f.endswith('.json') or f == '.config':
                 full = os.path.join(folder, f)
-                out.append({'path': os.path.relpath(full, base).replace(os.sep, '/'), 'text': open(full, encoding='utf8').read()})
+                with open(full, encoding='utf8') as text:
+                    out.append({'path': os.path.relpath(full, base).replace(os.sep, '/'), 'text': text.read()})
+    return out
+
+
+def checked(files):
+    """What a save sent, as { path: text }, once it is known to be a project's files. A ValueError says what is wrong:
+    nothing is written until all of it is right."""
+    if not isinstance(files, list):
+        raise ValueError('a save is a list of files, each {"path": ..., "text": ...}')
+    out = {}
+    for f in files:
+        if not isinstance(f, dict):
+            raise ValueError('each file is {"path": ..., "text": ...}, not %s' % json.dumps(f)[:60])
+        for key in ('path', 'text'):
+            if key not in f:
+                raise ValueError('a file has no %s' % key)
+            if not isinstance(f[key], str):
+                raise ValueError("a file's %s is text, not %s" % (key, json.dumps(f[key])[:60]))
+        path, parts = f['path'], f['path'].split('/')
+        if not (path.endswith('.json') or parts[-1] == '.config') or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts):
+            raise ValueError('not a path a project may contain: %r' % path)
+        if path in out:
+            raise ValueError('two files called %r' % path)
+        out[path] = f['text']
+    for path in out:                                               # a.json and a.json/b.json: one name cannot be a file and a directory
+        parts = path.split('/')
+        for above in ('/'.join(parts[:i]) for i in range(1, len(parts))):
+            if above in out:
+                raise ValueError('%r is a file, so %r cannot be inside it' % (above, path))
+    if 'project.json' not in out:
+        raise ValueError('no project.json among the files')
     return out
 
 
 def write_project(name, files):
-    """Replaces the project's directory with exactly these files. Written beside it first, then swapped in."""
+    """Replaces the project's directory with exactly these files, { path: text } as checked() gives them. Written
+    beside it first, then swapped in. If that cannot be done (an OSError: the disk is full, say), the project is left
+    as it was and nothing half-written stays behind."""
     os.makedirs(PROJECTS, exist_ok=True)
-    fresh = tempfile.mkdtemp(prefix='.saving-', dir=PROJECTS)
+    fresh, old = tempfile.mkdtemp(prefix='.saving-', dir=PROJECTS), None
     try:
-        for f in files:
-            parts = str(f['path']).split('/')
-            if not (f['path'].endswith('.json') or parts[-1] == '.config') or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts):
-                raise ValueError('not a path a project may contain: %r' % f['path'])
-            full = os.path.join(fresh, *parts)
+        for path, text in files.items():
+            full = os.path.join(fresh, *path.split('/'))
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, 'w', encoding='utf8') as out:
-                out.write(str(f['text']))
-        if not os.path.isfile(os.path.join(fresh, 'project.json')):
-            raise ValueError('no project.json among the files')
-        target, old = os.path.join(PROJECTS, name), None
+                out.write(text)
+        target = os.path.join(PROJECTS, name)
         if os.path.exists(target):
             old = tempfile.mkdtemp(prefix='.old-', dir=PROJECTS)
             os.rename(target, os.path.join(old, 'was'))
-        os.rename(fresh, target)
+        try:
+            os.rename(fresh, target)
+        except OSError:
+            if old:
+                os.rename(os.path.join(old, 'was'), target)        # the new one did not go in: the old one goes back
+            raise
         os.chmod(target, 0o755)
-        if old:
-            shutil.rmtree(old, ignore_errors=True)
     finally:
-        shutil.rmtree(fresh, ignore_errors=True)
+        for left in (fresh, old):
+            if left:
+                shutil.rmtree(left, ignore_errors=True)
+
+
+def shipped():
+    """The projects that come with the repository: the directories under projects/ that git tracks files in. They are
+    not saved over. A save would change tracked files, and from then on the checkout could not follow its branch (see
+    follow): git will not merge a change to a file that has been changed here. Asked of git at each save, so it is
+    right after every pull. Where this is not a git checkout, or there is no git, nothing comes with it."""
+    try:
+        listed = git('ls-files', '-z', '--', 'projects')
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return set() if listed.returncode else {p.split('/')[1] for p in listed.stdout.split('\0') if p.count('/') > 1}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -195,7 +243,7 @@ class Handler(SimpleHTTPRequestHandler):
     def project(self):
         """The project a /api/projects/<name> address names, or None after answering that it is no good."""
         name = unquote(self.path.split('?')[0][len('/api/projects/'):])
-        if NAME.match(name):
+        if NAME.fullmatch(name):
             return name
         self.reply(400, {'error': 'a project name is letters, digits, spaces, _ . and -, up to 64, starting with a letter or digit'})
 
@@ -251,11 +299,23 @@ class Handler(SimpleHTTPRequestHandler):
         name = self.project()
         if name is None:
             return
+        # The length is looked at before anything is read: a negative one would be read until the client hung up.
+        # Where it is no good the body is not read at all, so the answer goes the way a refusal does (see swallow).
+        length = self.headers.get('Content-Length', '').strip()
+        if not (length.isascii() and length.isdigit()):
+            return self.refuse(400, 'a save says how long it is: Content-Length is a whole number of bytes, not %r' % length[:40], {})
+        if len(length) > 18 or int(length) > MAX_SAVE:
+            return self.refuse(413, 'a save may be %d bytes at most, and this one is %s' % (MAX_SAVE, length[:40]), {})
+        sent = self.rfile.read(int(length))
+        if name.casefold() in {n.casefold() for n in shipped()}:   # whatever the capitals: on some disks Example is example's directory
+            return self.reply(403, {'error': '%s comes with the program: save under another name' % name})
         try:
-            files = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)))
+            files = checked(json.loads(sent))
             write_project(name, files)
-        except (ValueError, KeyError, TypeError) as e:
-            return self.reply(400, {'error': str(e)})
+        except (ValueError, RecursionError) as e:                  # RecursionError: lists inside lists, thousands deep
+            return self.reply(400, {'error': str(e) or 'not a list of files'})
+        except OSError as e:                                       # strerror, not all of it: the whole message names the server's directories
+            return self.reply(500, {'error': 'could not write the project: %s' % (e.strerror or type(e).__name__)})
         self.reply(200, {'saved': name, 'files': len(files)})
 
     def log_message(self, fmt, *args):

@@ -1,2 +1,5 @@
 # the server's PIN is set on each machine, never kept here (see README: The PIN)
 .pin
+
+# what Python leaves behind when it runs the server
+__pycache__/
