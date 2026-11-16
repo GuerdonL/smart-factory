@@ -33,6 +33,9 @@
          "order": 3,                             its place among the shapes of its space, back to front
          "tile": true,                           it stands in its owner's matrix: it was dropped onto that matrix, and its place in
                                                  the definition space is its place among the entries
+         "attributes": [ { "name": "heads", "value": "2^(3) + 1" } ],
+                                                 attributes given to the variable by hand: a name, and a value as it was
+                                                 typed (a number, or arithmetic; ^( ) is a power)
          "reference": true,                      it is a reference to its variable (it came from the list), not the shape the
                                                  variable was made as: delete that shape and this goes with it
          "from": { "id": "b3k…", "side": "x" },    it is a measure of the shape with that id (x its width, y its height, m a scalar's mass):
@@ -104,6 +107,7 @@ export function write(project){
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.tile ? { tile: true } : {}), ...(shape.transposed ? { transposed: true } : {}),
+        ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: { id: shape.from.id, side: shape.from.side } } : {}),
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
@@ -145,6 +149,7 @@ export function read(files){
       return { id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
         entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile, transposed: !!c.transposed,
+        attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
         reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' } : null,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });

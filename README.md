@@ -68,3 +68,16 @@ Deleting a reference removes only that reference. Deleting a source removes ever
 space; before it does, a warning lists the variables and how many instances of each would go, and the deletion can be
 cancelled. In a project file a reference carries `"reference": true`, and a length taken from a shape carries
 `"from": { "id": …, "side": "x" | "y" }`.
+
+## Attributes
+
+Select one shape and the panel in the corner shows everything the variable has, together: its name, its two side
+lengths (x and y), a scalar's mass, any attributes added to it, and its value. All of them can be typed over.
+
+The plus button adds an attribute. Its name is whatever is typed; its value is a number or arithmetic with
+`+ - * /`, powers and brackets, in the usual order (brackets, powers, times and divide, plus and minus). The
+variable's other attributes can be used in it by name: `x`, `y`, `mass`, and the added ones. A power is written
+`^( … )`, which is raised as soon as the bracket is closed, or by pressing Ctrl+. (Cmd+.) to go into a raised power
+and again to come out. What the arithmetic comes to is written after it; a result that is not a whole number or a
+fraction is left as it was typed. An attribute emptied of both name and value is removed. Attributes belong to the
+variable, so every reference to it has the same ones; a pasted copy gets its own.

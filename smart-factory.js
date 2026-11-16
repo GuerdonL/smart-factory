@@ -6,6 +6,7 @@ import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
 import { createWarning } from './components/warning.js';
+import { evaluate, written as writtenValue, whole as wholeValue, number as numberValue } from './expression.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds, createBackdrop } from './components/bounds.js';
@@ -168,7 +169,7 @@ function useShape(of, at, transposed = false){      /* transposed: whether the n
   if (!spaceOf.has(of)){ const def = newSpace(of, space); for (const k of kinOf(of)) spaceOf.set(k, def); }
   spaceOf.set(b, spaceOf.get(of));                                                          /* the same definition */
   const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
-  b.ref = true;                                  /* a reference to the variable, not the shape it was made as */
+  b.ref = true; b.attrs = attrsOf(of);           /* a reference to the variable, not the shape it was made as: its attributes are the variable's */
   space.blocks.push(b); view.world.append(b.el); select([b]);
 }
 /* ---- shapes standing in a matrix ----
@@ -252,7 +253,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   for (const t of over(X, Y)) out(t.block);
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
   use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
-  const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.ref = true;
+  const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.ref = true; use.attrs = attrsOf(v);
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
   const left = cols * rows - (tilesOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
@@ -641,7 +642,43 @@ function dotsOf(b){
   const most = Math.max(0, ...known.map(d => Number.isFinite(d.v) ? Math.abs(d.v) : 0));
   return known.map(({ c, r, v }) => ({ c, r, negative: v < 0, size: !Number.isFinite(v) ? 1 : v === 0 || !most ? .12 : Math.max(.2, +Math.sqrt(Math.abs(v) / most).toFixed(3)) }));
 }
-const properties = createProperties();
+/* ---- attributes ----
+   Everything a variable has, together, as the properties panel shows it: the lengths of its two sides (x and y),
+   a scalar's mass (the number it holds), and whatever attributes have been added to it by hand. Each has a value
+   that can be typed over. An added attribute has a name of the user's choosing and a value that is a number or
+   arithmetic (expression.js), in which the variable's other attributes can be used by name: x, y, mass, and the
+   added ones. Added attributes belong to the variable: every reference to it has the same ones. */
+const attrsOf = b => (b.attrs ||= []);
+const asValue = v => isWhole(v) ? numberValue(v) : v === null || v === undefined ? undefined : 'inexact';      /* a root or an infinity is not a whole number or a fraction */
+function lookupFor(b, seen = new Set()){
+  const u = view.unit, r = rootSide(b), names = new Map([['x', asValue(r === null ? Math.round((turned(b) ? b.rect.h : b.rect.w) / u) : r)], ['y', asValue(r === null ? Math.round((turned(b) ? b.rect.w : b.rect.h) / u) : r)]]);
+  if (scalarOf(b) !== null) names.set('mass', asValue(scalarOf(b)));
+  return id => { const k = id.toLowerCase(), short = k.replace(/^.*\./, ''); if (names.has(k)) return names.get(k); if (names.has(short) && k.startsWith(bare(b.name).trim().slice(0, 10).toLowerCase() + '.')) return names.get(short);
+    const a = attrsOf(b).find(a => a.name.trim().toLowerCase() === k); if (!a) return undefined; if (seen.has(a)) return 'inexact';      /* an attribute that is worked out from itself has no value */
+    const got = evaluate(a.text, lookupFor(b, new Set([...seen, a]))); return got.value || (got.inexact ? 'inexact' : undefined); };
+}
+function attributesOf(b){
+  const r = rootSide(b), u = view.unit, len = dim => r === null ? String(Math.round(b.rect[dim] / u)) : valueText(r), v = scalarOf(b), single = b.rect.w === u && b.rect.h === u && !b.members;
+  const fixed = [{ key: 'x', label: sideName(b, 'w') || 'x', text: len('w') }, { key: 'y', label: sideName(b, 'h') || 'y', text: len('h') }];
+  if (single) fixed.push({ key: 'mass', label: massName(b) || 'mass', text: v === null ? '' : valueText(v) });
+  return [...fixed, ...attrsOf(b).map((a, i) => { const got = evaluate(a.text, lookupFor(b, new Set([a])));
+    return { key: 'a' + i, custom: true, label: a.name, text: a.text, error: got.error || null, result: got.value && writtenValue(got.value) !== a.text.trim() ? writtenValue(got.value) : null }; })];
+}
+/* a whole number typed, or arithmetic that comes to one, for a value that has to be whole: null (and a word why) otherwise */
+function wholeTyped(b, text, what){ const got = evaluate(text, lookupFor(b)), n = got.value ? wholeValue(got.value) : null;
+  if (n === null) hud.say(got.error ? `${what}: ${got.error}` : `${what} has to be a whole number`); return n; }
+const properties = createProperties({
+  onName: text => { const b = [...selected][0]; if (b) bus.send('rename', { id: b.id, name: text, color: isNamed(b) ? null : someColour() }); },
+  onAdd: () => { const b = [...selected][0]; if (!b) return; properties.focus('a' + attrsOf(b).length + '.label'); bus.send('attr.add', { id: b.id }); },
+  onLabel: (key, text) => { const b = [...selected][0]; if (b) bus.send('attr.set', { id: b.id, index: +key.slice(1), name: text }); },
+  onEntry: (key, text) => { const b = [...selected][0]; if (b) bus.send('entry.set', { id: b.id, key, text: text === '' ? null : text }); },
+  onValue: (key, text) => { const b = [...selected][0]; if (!b) return;
+    if (key[0] === 'a') return bus.send('attr.set', { id: b.id, index: +key.slice(1), text });
+    if (key === 'mass'){ if (text === '' || readEntry(text) !== undefined) return bus.send('entry.set', { id: b.id, key: '1,1', text: text === '' ? null : text });
+      const n = wholeTyped(b, text, 'mass'); return n === null ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', text: String(n) }); }
+    const n = wholeTyped(b, text, key); if (n === null || n < 1){ if (n !== null) hud.say(`${key} has to be at least 1`); return shown(); }
+    if (rootSide(b) !== null) return bus.send('entry.set', { id: b.id, key: '1,1', text: String(n * n) });      /* a scalar's side is the root of its mass: a side of 3 is a mass of 9 */
+    bus.send('side.set', { id: b.id, dim: key === 'x' ? 'w' : 'h', text: String(n) }); } });
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); configure();
   for (const b of space.blocks) if (b.from){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
@@ -652,8 +689,7 @@ function shown(){                              /* brings what is on screen in li
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
   /* the properties of the one shape selected: its name, its shape, its value */
   if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
-    properties.show({ name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar: cols === 1 && rows === 1 && !one.members,
-      sides: cols === 1 && rows === 1 && !one.members ? ['w', 'h'].map(dim => rootOf(one)[dim + 'Text'] || (sideName(one, dim) ? sideName(one, dim) + ' ' : '') + '1u') : null,      /* a single entry's sides: the root of its number */
+    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar: cols === 1 && rows === 1 && !one.members, attributes: attributesOf(one),
       matrix: { letter: initials(one.name), values: valuesOf(one), transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
   else properties.show(null);
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: sideName(one, 'w'), hName: sideName(one, 'h'), ...rootOf(one) }); }
@@ -782,7 +818,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: b.from ? [...valuesOf(b)] : [...b.values],      /* plain data throughout, so a paste can say what it pasted */
+const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: b.from ? [...valuesOf(b)] : [...b.values],      /* plain data throughout, so a paste can say what it pasted */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -796,7 +832,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); b.turn(pic.t); if (pic.tile && s !== space) b.tile = true;
+    const b = makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); b.turn(pic.t); if (pic.tile && s !== space) b.tile = true;
     if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
     s.blocks.push(b); made.push(b);
     pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, newGroup()); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
@@ -808,7 +844,7 @@ function develop(pictures, s, dx, dy){
 }
 /* a block made from a picture but put in no space: one of those a joined shape was joined from */
 function hidden(pic, s){
-  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.values = new Map(pic.values); b.turn(pic.t);
+  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); b.turn(pic.t);
   if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
   if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   return b;
@@ -958,7 +994,7 @@ function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    tile: !!b.tile, transposed: !!b.t, reference: !!b.ref, from: b.from ? { ...b.from } : null,
+    tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: b.from ? { ...b.from } : null,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   const plain = s => ({
     shapes: s.blocks.map(one),
@@ -980,11 +1016,11 @@ function rebuild(data){
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; if (d.reference) b.ref = true; if (d.from) b.from = { ...d.from }; b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; if (d.reference) b.ref = true; if (d.from) b.from = { ...d.from }; b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
-    if (first){ b.values = first.values; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); return b; }      /* a later use: the first one's entries and definition */
+    if (first){ b.values = first.values; b.attrs = first.attrs; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); return b; }      /* a later use: the first one's entries and definition */
     if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); }
     return b; };
   const fill = (plain, s) => {
@@ -1260,6 +1296,10 @@ bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text ===
   if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
     keepTouching(() => { for (const k of kinOf(o)) agree(k); }); }      /* a single entry's number is its sides' length: whatever shares their names follows */
   write(); shown(); }, changes);
+bus.on('attr.add', ({ id }) => { const b = blockOf(id); if (b){ const list = attrsOf(b); let n = list.length + 1; while (list.some(a => a.name === 'attribute' + n)) n++; list.push({ name: 'attribute' + n, text: '' }); } shown(); }, changes);
+bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b && attrsOf(b)[index]; if (a){ if (name !== undefined) a.name = name; if (text !== undefined) a.text = text;
+    if (!a.name.trim() && !a.text.trim()) attrsOf(b).splice(index, 1); }      /* with neither a name nor a value, it is gone */
+  shown(); }, changes);
 bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(b, dim, text); shown(); }, changes);
 /* a frame is several shapes held together (in the code, and in projects saved before, a group) */
 bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown(); hud.say('Framed: click its name to name it'); }, changes);
@@ -1276,7 +1316,7 @@ bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupName
      reference to the one it was made from, with its entries, its definition and its colour */
   const from = inGroup(frame, s), linked = from.map(b => isNamed(b) && !b.members); pictures.forEach((p, i) => { if (linked[i]) p.inside = null; });
   const made = paste(at, pictures, false) || [];
-  made.forEach((b, i) => { const of = from[i]; if (!linked[i] || !of) return; b.values = of.values; b.ref = true;
+  made.forEach((b, i) => { const of = from[i]; if (!linked[i] || !of) return; b.values = of.values; b.ref = true; b.attrs = attrsOf(of);
     if (!spaceOf.has(of)){ const def = newSpace(of, s); for (const k of kinOf(of)) spaceOf.set(k, def); } spaceOf.set(b, spaceOf.get(of));
     const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set); });
   shown(); }, changes);
