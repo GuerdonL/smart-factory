@@ -6,6 +6,7 @@
      set     fits the lines to rect ({ x, y, w, h } in world coordinates). The width is shown along the bottom
              and the height down the left side, its label turned to run along the side; pass top / right as true to move them to the other side.
              wName / hName are the names of those sides, if they have them: "context 6u" in place of "6u".
+             wText / hText, where given, are written in place of all that (a single entry's side: "√depth").
      mark    picks out one line, 'w' or 'h', in the selection colour, as the one something is about to land on;
              null picks out neither
    Put el in the view's world. The lines and text zoom with the canvas.
@@ -46,10 +47,10 @@ export function createMeasure(unit){
   el.append(w, h);
   const u = n => +(n / unit).toFixed(2) + 'u';
   const labels = { w: w.querySelector('span'), h: h.querySelector('span') };
-  return { el, labels, set(r, { top = false, right = false, wName = null, hName = null } = {}){
+  return { el, labels, set(r, { top = false, right = false, wName = null, hName = null, wText = null, hText = null } = {}){
     Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
-    if (!labels.w.isContentEditable) labels.w.textContent = (wName ? wName + ' ' : '') + u(r.w);        /* a number being typed is left alone */
-    if (!labels.h.isContentEditable) labels.h.textContent = (hName ? hName + ' ' : '') + u(r.h);
+    if (!labels.w.isContentEditable) labels.w.textContent = wText ?? (wName ? wName + ' ' : '') + u(r.w);        /* a number being typed is left alone */
+    if (!labels.h.isContentEditable) labels.h.textContent = hText ?? (hName ? hName + ' ' : '') + u(r.h);
     w.classList.toggle('top', top); h.classList.toggle('right', right); },
     mark(side){ w.classList.toggle('marked', side === 'w'); h.classList.toggle('marked', side === 'h'); } };
 }

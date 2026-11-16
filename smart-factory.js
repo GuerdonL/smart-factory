@@ -277,7 +277,7 @@ function reach(x, y){
   for (const b of within){
     if (!near.has(b)){ near.set(b, createMeasure(view.unit)); view.world.append(near.get(b).el); }
     const s = sides(view, b.rect), a = view.toScreen(b.rect.x, b.rect.y), z = view.toScreen(b.rect.x + b.rect.w, b.rect.y + b.rect.h);
-    near.get(b).set(b.rect, { ...s, wName: b.sides.w, hName: b.sides.h }); near.get(b).mark(null);
+    near.get(b).set(b.rect, { ...s, wName: b.sides.w, hName: b.sides.h, ...rootOf(b) }); near.get(b).mark(null);
     /* where the two lines are drawn on screen (measure.js: a 14px gap, then an 11px line) */
     const wy = s.top ? a.y - 2.4 * 14 - 5.5 : z.y + 14 + 5.5, hx = s.right ? z.x + 14 + 5.5 : a.x - 14 - 5.5;
     const dw = Math.hypot(Math.max(a.x - x, 0, x - z.x), y - wy), dh = Math.hypot(x - hx, Math.max(a.y - y, 0, y - z.y));
@@ -604,12 +604,19 @@ function hush(){
     for (const b of inGroup(id, s)) if (isNamed(b) && low(b.name) !== b.name){ const want = low(b.name); for (const k of kinOf(b)) k.call(want); }
     for (const [g, n] of [...s.groupNames]) if (under(g, id) && low(n) !== n) s.groupNames.set(g, low(n)); }
 }
+/* A single entry (a 1 by 1 block) that holds a number: the number is its area, so each side is the root of it. The
+   block still takes one square of the grid and is still one by one in a product; only what is written changes: the
+   number on its face, and its sides as the root of its name (or of the number, where it has no name of its own). */
+const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || b.rect.h !== u) return null; const v = valuesOf(b).get('1,1'); return typeof v === 'number' ? v : null; };
+const asText = v => v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
+const rootOf = b => { const v = scalarOf(b); if (v === null) return {}; const t = '√' + (isNamed(b) ? b.name : asText(v)); return { wText: t, hText: t }; };
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); configure();
+  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
-  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h }); }
+  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: one.sides.w, hName: one.sides.h, ...rootOf(one) }); }
   else measure?.el.remove();
   /* every frame is drawn, named or not; the one that is the whole selection also carries the tools */
   const oneGroup = groupIs(list), live = new Set();
@@ -1071,7 +1078,7 @@ function clicked(el, e){
   /* a measurement: double-click to type a length in whole units, a name for that side, or both; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
     const b = [...selected][0];
-    if (twice) editText(el, text => { if (text) bus.send('side.set', { id: b.id, dim, text }); else shown(); });
+    if (twice) editText(el, text => { if (text && !text.startsWith('√')) bus.send('side.set', { id: b.id, dim, text }); else shown(); });      /* a root left as it was is no new length */
     return;                                     /* a click on a measurement never changes the selection */
   }
   const b = blockAt(el);
