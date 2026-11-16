@@ -19,7 +19,21 @@ On the machine, in a checkout of this repository on the branch to follow:
     sudo systemctl daemon-reload && sudo systemctl enable --now smart-factory
     journalctl -u smart-factory -f       # "serving … on port 8000", then "updated to …" after each push
 
-There is no password. Anyone who can reach the port can read and overwrite the projects.
+## The PIN
+
+The server's password is a PIN, and it is not kept in the repository. Set it on the machine, in a file called `.pin`
+beside `server.py`, and start the server again:
+
+    echo 1234 > .pin && chmod 600 .pin        # your own digits; any text will do
+    sudo systemctl restart smart-factory      # or stop and start `python3 server.py`
+
+(or give it as `SMART_FACTORY_PIN` in the environment, which comes first). With a PIN set, nothing is answered without
+it: the browser asks once, for a user name and a password. The password is the PIN; the user name can be anything. Five
+wrong PINs from one address and that address is turned away for ten minutes.
+
+It is a PIN, not a lock: over plain `http` it travels as typed and can be read on the way, so it keeps out whoever
+finds the port, not whoever can listen to the network. With no PIN set, the server says so when it starts, and anyone
+who can reach the port can read and overwrite the projects.
 
 ## Where things are
 

@@ -12,14 +12,36 @@ What it does:
   - every 30 seconds asks GitHub whether the branch it is on has moved, and if so pulls it. Pages are read from
     disk on each request, so the next reload shows the new version; if this file itself changed, it restarts.
 
-There is no password: anyone who can reach the port can read and overwrite projects.
+The password is a PIN, kept out of the repository: the SMART_FACTORY_PIN environment variable, or else the one line of
+a file called .pin beside this one. With a PIN set, nothing at all is answered without it: the browser asks for it
+once (any user name) and sends it with every request after. Five wrong PINs from one address and that address is
+turned away for ten minutes. It is sent as it is typed, so over plain http it can be read on the way: it keeps out
+whoever finds the port, not whoever can listen to the network.
+With no PIN set there is no password: anyone who can reach the port can read and overwrite projects.
 """
-import json, os, re, shutil, subprocess, sys, tempfile, threading, time
+import base64, hmac, json, os, re, shutil, subprocess, sys, tempfile, threading, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$')          # a project's name: one plain directory name
+TRIES, LOCKED_FOR = 5, 600                                         # wrong PINs allowed from one address, and the seconds it is then turned away
+wrong, wrong_lock = {}, threading.Lock()                           # address -> [wrong PINs so far, when it may try again]
+
+
+def read_pin():
+    """The PIN, or None where none is set: SMART_FACTORY_PIN, or else the first line of .pin beside this file."""
+    pin = os.environ.get('SMART_FACTORY_PIN', '').strip()
+    if not pin:
+        try:
+            with open(os.path.join(ROOT, '.pin'), encoding='utf8') as f:
+                pin = f.readline().strip()
+        except OSError:
+            pin = ''
+    return pin or None
+
+
+PIN = read_pin()
 PAGE = ('<!doctype html><html><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
         '<style>:root{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>'
         '</head><body>{page}</body></html>')
@@ -70,6 +92,49 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Cache-Control', 'no-cache')              # always ask, so a pulled update shows on reload
         super().end_headers()
+
+    def parse_request(self):
+        """Every request comes through here before anything is done with it: without the PIN it goes no further."""
+        return super().parse_request() and self.allowed()
+
+    def allowed(self):
+        """Whether the request carries the PIN (or none is set). Where it does not, it is answered here: 401, which
+        makes a browser ask for it, or 429 once the address has given too many wrong ones."""
+        if PIN is None:
+            return True
+        who, now, given = self.client_address[0], time.monotonic(), None
+        kind, _, sent = self.headers.get('Authorization', '').partition(' ')
+        if kind.lower() == 'basic':
+            try:
+                given = base64.b64decode(sent.strip(), validate=True).decode('utf8').partition(':')[2]
+            except ValueError:
+                given = ''
+        with wrong_lock:
+            count, until = wrong.get(who, (0, 0))
+            if until > now:                                        # turned away: not even the right PIN is looked at
+                return self.refuse(429, 'too many wrong PINs: try again later', {'Retry-After': str(int(until - now) + 1)})
+            if given is not None and hmac.compare_digest(given.encode(), PIN.encode()):
+                wrong.pop(who, None)
+                return True
+            if given is not None:                                  # a wrong PIN counts; asking without one does not
+                count = count + 1 if until == 0 else 1
+                wrong[who] = (count, now + LOCKED_FOR if count >= TRIES else 0)
+                if count >= TRIES:
+                    print('%d wrong PINs from %s: turned away for %d seconds' % (count, who, LOCKED_FOR), flush=True)
+        return self.refuse(401, 'the PIN is needed', {'WWW-Authenticate': 'Basic realm="Smart Factory PIN (any user name)", charset="UTF-8"'})
+
+    def refuse(self, status, why, headers):
+        data = b'' if self.command == 'HEAD' else json.dumps({'error': why}).encode()
+        self.send_response(status)
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.wfile.write(data)
+        self.close_connection = True                               # whatever body the request had is not read
+        return False
 
     def reply(self, status, body, kind='application/json'):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -156,5 +221,5 @@ if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     threading.Thread(target=follow, args=(float(os.environ.get('FOLLOW_EVERY', 30)),), daemon=True).start()
     ThreadingHTTPServer.allow_reuse_address = True
-    print('serving %s on port %d' % (ROOT, port), flush=True)
+    print('serving %s on port %d, %s' % (ROOT, port, 'behind a PIN' if PIN else 'with no PIN: anyone who can reach the port can read and overwrite projects'), flush=True)
     ThreadingHTTPServer(('', port), Handler).serve_forever()
