@@ -4,6 +4,7 @@ import { editText } from './components/dom.js';
 import { createView } from './components/view.js';
 import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
+import { createProperties } from './components/properties.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds, createBackdrop } from './components/bounds.js';
@@ -623,12 +624,18 @@ function dotsOf(b){
   const most = Math.max(0, ...known.map(d => Number.isFinite(d.v) ? Math.abs(d.v) : 0));
   return known.map(({ c, r, v }) => ({ c, r, negative: v < 0, size: !Number.isFinite(v) ? 1 : v === 0 || !most ? .12 : Math.max(.2, +Math.sqrt(Math.abs(v) / most).toFixed(3)) }));
 }
+const properties = createProperties();
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); configure();
   for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.dots(v === null ? dotsOf(b) : null, Math.round(b.rect.w / view.unit), Math.round(b.rect.h / view.unit)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
+  /* the properties of the one shape selected: its name, its shape, its value */
+  if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
+    properties.show({ name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar: cols === 1 && rows === 1 && !one.members,
+      matrix: { letter: initials(one.name), values: valuesOf(one), transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
+  else properties.show(null);
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: sideName(one, 'w'), hName: sideName(one, 'h'), ...rootOf(one) }); }
   else measure?.el.remove();
   /* every frame is drawn, named or not; the one that is the whole selection also carries the tools */
@@ -1259,5 +1266,5 @@ const view = createView({
   onClick: clicked,                             /* these two read the pointer, and send what it amounts to */
   onDrag: dragged,
 });
-document.body.append(view.el, menu.el, hud.el, crumbs.el, variables.el);
+document.body.append(view.el, menu.el, hud.el, properties.el, crumbs.el, variables.el);
 hud.show(view.camera());
