@@ -28,7 +28,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$')          # a project's name: one plain directory name
 TRIES, LOCKED_FOR = 5, 600                                         # different wrong PINs allowed from one address within LOCKED_FOR seconds, and the seconds it is then turned away
-SWALLOWED = 64 << 20                                               # how much of a refused request's body is read and dropped, in bytes
+SWALLOWED, SWALLOW_FOR = 64 << 20, 10                              # how much of a refused request's body is read and dropped, in bytes, and for how many seconds at most
 clock = time.monotonic                                             # the clock the counting goes by: its own name, so a test can set it and nothing else's
 # address -> { since: when its first wrong PIN came, seen: the different wrong PINs since (as digests), until: when it may try again, 0 if it still may }
 wrong, wrong_lock = {}, threading.Lock()
@@ -170,12 +170,13 @@ class Handler(SimpleHTTPRequestHandler):
     def swallow(self):
         """Reads and drops the body of a request that has been refused. To close on a client still sending is to cut
         it off, and it then sees a broken connection in place of the answer: a save refused for want of the PIN would
-        tell the page nothing. Up to SWALLOWED bytes, and not for long."""
+        tell the page nothing. Up to SWALLOWED bytes, and for SWALLOW_FOR seconds in all: the time is counted from
+        the start, not from the last byte, so a client that sends a little now and then is not waited on for ever."""
         try:
-            left = min(int(self.headers.get('Content-Length') or 0), SWALLOWED)
-            self.connection.settimeout(10)
-            while left > 0:
-                got = self.rfile.read(min(left, 1 << 16))
+            left, until = min(int(self.headers.get('Content-Length') or 0), SWALLOWED), time.monotonic() + SWALLOW_FOR
+            while left > 0 and time.monotonic() < until:
+                self.connection.settimeout(max(until - time.monotonic(), 0.01))
+                got = self.rfile.read1(min(left, 1 << 16))         # read1: whatever has come, without waiting for all that was asked for
                 if not got:
                     break
                 left -= len(got)

@@ -1,5 +1,5 @@
 """server.py: the PIN. Run with: python3 -B -m unittest discover tests"""
-import base64, json, os, sys, unittest
+import base64, json, os, socket, sys, time, unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -129,6 +129,25 @@ class PinTest(ServerCase):
         status, headers, text = self.ask('PUT', '/api/projects/attention', large, basic(self.PIN))
         self.assertEqual((status, json.loads(text)), (429, {'error': 'too many wrong PINs: try again later'}))
         self.assertFalse(os.path.exists(server.PROJECTS))
+
+    def test_a_refused_request_that_goes_on_sending_a_little_at_a_time_is_not_waited_on_for_ever(self):
+        with mock.patch.object(server, 'SWALLOW_FOR', 1):
+            c = socket.create_connection(self.httpd.server_address, timeout=5); self.addCleanup(c.close)
+            c.sendall(b'PUT /api/projects/attention HTTP/1.1\r\nHost: x\r\nContent-Length: 1000000\r\n\r\n')
+            self.assertIn(b' 401 ', c.recv(65536).split(b'\r\n')[0])
+            began, closed = time.monotonic(), None
+            c.settimeout(0.2)
+            while closed is None and time.monotonic() - began < 5:      # a byte every fifth of a second: never silent for long
+                try:
+                    c.sendall(b'x')
+                    if c.recv(65536) == b'':
+                        closed = time.monotonic() - began
+                except socket.timeout:
+                    pass
+                except OSError:
+                    closed = time.monotonic() - began
+            self.assertIsNotNone(closed, 'the server was still reading after 5 seconds')
+            self.assertLess(closed, 3)
 
     def test_a_refusal_has_no_body_for_head(self):
         status, headers, text = self.ask('HEAD', '/')
