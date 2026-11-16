@@ -50,3 +50,21 @@ into decimals along the way.
 Only whole numbers can be a side's length, with no exceptions and no rounding. A length that is not whole cannot be
 dropped or typed onto a side, and a side that was following a scalar's side lets go of the name, keeping its size,
 when the scalar's value stops giving a whole root.
+
+## References and copies
+
+What comes out of the list on the right is never a copy.
+
+- A shape dragged from the list is a reference to its variable: the same entries, size, name, colour and definition
+  as the shape the variable was made as (its source), and every one changes when any is edited.
+- A length dragged from the list onto the canvas is an entry that *is* that side's length, in the source's colour:
+  resize the source and the entry follows. It cannot be typed over; change the source.
+- A named frame dragged from the list is made again with each named shape in it a reference to the original.
+
+Copy and paste (Ctrl/Cmd+C, Ctrl/Cmd+V, or the menu) is how a separate thing is made: a paste is a variable of its
+own, with its own entries, and takes a new colour every time.
+
+Deleting a reference removes only that reference. Deleting a source removes everything that refers to it, in any
+space; before it does, a warning lists the variables and how many instances of each would go, and the deletion can be
+cancelled. In a project file a reference carries `"reference": true`, and a length taken from a shape carries
+`"from": { "id": …, "side": "x" | "y" }`.

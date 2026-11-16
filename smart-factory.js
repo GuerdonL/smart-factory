@@ -5,6 +5,7 @@ import { createView } from './components/view.js';
 import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
+import { createWarning } from './components/warning.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds, createBackdrop } from './components/bounds.js';
@@ -142,9 +143,9 @@ function inReach(){
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
-          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: rootSide(b) === null ? null : valueText(rootSide(b)) + 'u' })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
+          children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', of: originOf(b).id, side: (dim === 'w') !== turned(b) ? 'x' : 'y', name: sideName(b, dim), units: rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: rootSide(b) === null ? null : valueText(rootSide(b)) + 'u' })) };      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
         shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
-      if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
+      if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', of: b.id, side: dim === 'w' ? 'x' : 'y', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
     } });
   const lowest = new Map(); for (const [i] of shapes) lowest.set(bare(i.name).trim(), Math.max(i.depth, lowest.get(bare(i.name).trim()) ?? 0));
   for (const [i, into] of shapes) if (lowest.get(bare(i.name).trim()) === i.depth) into.push(i);
@@ -166,6 +167,7 @@ function useShape(of, at, transposed = false){      /* transposed: whether the n
   if (!spaceOf.has(of)){ const def = newSpace(of, space); for (const k of kinOf(of)) spaceOf.set(k, def); }
   spaceOf.set(b, spaceOf.get(of));                                                          /* the same definition */
   const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
+  b.ref = true;                                  /* a reference to the variable, not the shape it was made as */
   space.blocks.push(b); view.world.append(b.el); select([b]);
 }
 /* ---- shapes standing in a matrix ----
@@ -214,6 +216,7 @@ function pieceValues({ piece, blocks }, depth){
 const turned = b => !!b.t && !b.members;
 const own = (b, plain = false) => turned(b) && !plain ? new Map([...b.values].map(([k, v]) => { const [c, r] = k.split(','); return [r + ',' + c, v]; })) : b.values;
 function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's own way round, whatever this use is */
+  if (b.from){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
   const tiles = depth < 8 && tilesOf(b), u = view.unit;
   if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
     return own(b, plain); }
@@ -248,7 +251,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   for (const t of over(X, Y)) out(t.block);
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
   use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
-  const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set);
+  const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.ref = true;
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
   const left = cols * rows - (tilesOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
@@ -286,7 +289,7 @@ const variables = createVariables({
     if (item.kind === 'frame') return bus.send('replicate', { frame: item.id, at });
     const target = reach(x, y);
     if (target && !isWhole(item.units)) return hud.say(`${item.name} is ${item.label}, not a whole number: it cannot be a side's length`);      /* only whole numbers are side lengths */
-    return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : bus.send('length.add', { name: item.name, units: item.units, at }); },      /* on the canvas: an entry holding it, a root left as a root */
+    return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : bus.send('length.add', { name: item.name, units: item.units, at, of: item.of || null, side: item.side || null }); },      /* on the canvas: an entry that is that length, a root left as a root */
   onEnd: () => bus.send('variable.end'),
 });
 
@@ -636,6 +639,8 @@ function dotsOf(b){
 const properties = createProperties();
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); configure();
+  for (const b of space.blocks) if (b.from){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
+    if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
   for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.dots(v === null ? dotsOf(b) : null, Math.round(b.rect.w / view.unit), Math.round(b.rect.h / view.unit)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
@@ -772,13 +777,13 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: [...b.values],      /* plain data throughout, so a paste can say what it pasted */
+const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, values: b.from ? [...valuesOf(b)] : [...b.values],      /* plain data throughout, so a paste can say what it pasted */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
   members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
 function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
-function cut(){ if (selected.size){ copy(); remove(); } }
+function cut(also){ if (selected.size){ copy(); remove(also); } }
 /* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
 function develop(pictures, s, dx, dy){
   const u = view.unit, groups = new Map(), made = [];
@@ -803,7 +808,7 @@ function hidden(pic, s){
   if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   return b;
 }
-function paste(at, clipboard){                             /* at: a world point; the pasted blocks are centred on it, on the dots */
+function paste(at, clipboard, fresh = true){                             /* at: a world point; the pasted blocks are centred on it, on the dots */
   if (!clipboard?.length) return;
   const u = view.unit, rs = clipboard.map(p => p.rect), x0 = Math.min(...rs.map(r => r.x)), y0 = Math.min(...rs.map(r => r.y));
   const cx = (x0 + Math.max(...rs.map(r => r.x + r.w))) / 2, cy = (y0 + Math.max(...rs.map(r => r.y + r.h))) / 2;
@@ -811,8 +816,9 @@ function paste(at, clipboard){                             /* at: a world point;
   /* pasting twice in one place would hide one copy exactly behind the other: step down and right until it would not */
   while (space.blocks.some(b => clipboard.some(p => b.rect.x === p.rect.x + dx && b.rect.y === p.rect.y + dy))){ dx += u; dy += u; }
   const made = develop(clipboard, space, dx, dy);
+  if (fresh) for (const b of made) if (isNamed(b)) b.paint(someColour(b.shape.color));      /* a copy is a variable of its own: a new colour every time */
   view.world.append(...made.map(b => b.el));
-  select(made);
+  select(made); return made;
 }
 
 /* removes the selected blocks, and with each its definition space */
@@ -895,10 +901,45 @@ function forget(b){                             /* one use fewer of its variable
   spaceOf.delete(b); const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); }
   for (const m of b.members || []) forget(m.block);
 }
-function remove(){
-  const gone = [...selected]; select([]);
-  for (const b of gone){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); forget(b); }
-  tidy(); shown();
+function remove(also = []){                      /* also: blocks anywhere that go with the selection (see doomed) */
+  const gone = [...new Set([...selected, ...also])], lost = new Set(gone), touched = new Set([space]); select([]);
+  /* a length taken from a shape that is going, while another use of that variable stays, is taken from that one instead */
+  for (const d of everyBlock()) if (d.from && !lost.has(d)){ const src = sourceOf(d), stay = src && lost.has(src) && [...kinOf(src)].find(k => !lost.has(k)); if (stay) d.from.id = stay.id; }
+  for (const b of gone){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
+  for (const s of touched) tidy(s); shown();
+}
+/* ---- references ----
+   What comes out of the list is never a copy. A shape from the list is a reference to its variable: the same entries,
+   size, name, colour and definition as the shape the variable was made as (its source), changing with it. A length
+   from the list, set down on the canvas, is an entry that is that side's length, whatever it is now, in the source's
+   colour. Copy and paste is the way to make a separate thing: a paste is a variable of its own, in a new colour.
+   When the source goes, everything that refers to it goes too: doomed(blocks) is what else would be removed with
+   them, here or in any space. Removing a reference removes only that. */
+const originOf = b => [...kinOf(b)].find(k => !k.ref) || b;      /* the shape a variable was made as */
+const sourceOf = b => b.from ? everyKnown().find(o => o.id === b.from.id) || null : null;
+const dimOf = (b, src) => (b.from.side === 'x') !== turned(src) ? 'w' : 'h';      /* which of the source's sides, the way it now lies */
+const derived = b => { const src = sourceOf(b); if (!src || src === b) return null; const dim = dimOf(b, src), r = rootSide(src); return r === null ? Math.round(src.rect[dim] / view.unit) : r; };
+function doomed(blocks){
+  const gone = new Set(blocks), all = everyBlock();
+  for (let more = true; more;){ more = false;
+    for (const set of new Set([...gone].map(b => kin.get(b)).filter(Boolean))){ const origins = [...set].filter(k => !k.ref);      /* every shape the variable was made as is going: its references go */
+      if (origins.length && origins.every(k => gone.has(k))) for (const k of set) if (!gone.has(k)){ gone.add(k); more = true; } }
+    for (const d of all) if (d.from && !gone.has(d)){ const src = sourceOf(d); if (src && gone.has(src) && ![...kinOf(src)].some(k => !gone.has(k))){ gone.add(d); more = true; } }
+  }
+  return [...gone].filter(b => !blocks.includes(b));
+}
+/* deleting or cutting the selection: if that would take other things with it, the user is shown them first, as a table
+   of variables and how many instances of each would go, and can still say no */
+const warning = createWarning();
+function removing(type){
+  if (!selected.size) return;
+  const list = [...selected], also = doomed(list), send = () => bus.send(type, { ids: idsOf(list), also: idsOf(also) });
+  if (!also.length) return send();
+  const count = new Map(); for (const b of also) count.set(bare(b.name), (count.get(bare(b.name)) || 0) + 1);
+  const sources = [...new Set(list.filter(b => also.some(o => [...kinOf(b)].includes(o) || o.from?.id === b.id)).map(b => bare(b.name)))];
+  warning.ask({ title: `${type === 'cut' ? 'Cutting' : 'Deleting'} ${sources.join(', ') || 'this'} also deletes what refers to it`,
+    note: `${also.length} other ${also.length === 1 ? 'instance' : 'instances'} would be removed with it, here or in other spaces.`,
+    head: ['Variable', 'Instances'], rows: [...count].sort((a, b) => b[1] - a[1]), proceed: type === 'cut' ? 'Cut all' : 'Delete all', onProceed: send });
 }
 
 /* ---- saving and opening a project ----
@@ -912,7 +953,7 @@ function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    tile: !!b.tile, transposed: !!b.t,
+    tile: !!b.tile, transposed: !!b.t, reference: !!b.ref, from: b.from ? { ...b.from } : null,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   const plain = s => ({
     shapes: s.blocks.map(one),
@@ -934,7 +975,7 @@ function rebuild(data){
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; if (d.reference) b.ref = true; if (d.from) b.from = { ...d.from }; b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -997,7 +1038,7 @@ addEventListener('keydown', e => {
   /* Ctrl or Cmd with z undoes; with shift and z, or with y, redoes */
   if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')){ e.preventDefault(); return bus.send(e.shiftKey || e.key === 'y' || e.key === 'Y' ? 'redo' : 'undo'); }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy', { ids: idsOf(selected) }); } return; }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); bus.send('cut', { ids: idsOf(selected) }); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); removing('cut'); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); bus.send('paste', { at: { x: view.camera().x, y: view.camera().y }, pasted: clipboard }); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === 'Escape') return bus.send('escape');      /* with nothing selected, Escape steps out of a definition space */
@@ -1010,7 +1051,7 @@ addEventListener('keydown', e => {
     return g !== null ? bus.send('unframe', { frame: g }) : bus.send('frame', { ids: idsOf(list) }); }
   if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose', { ids: idsOf(selected) }); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
-  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); bus.send('delete', { ids: idsOf(selected) }); }
+  if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); removing('delete'); }
 });
 
 /* ---- drags that begin on a block ----
@@ -1202,13 +1243,15 @@ bus.on('add', ({ type, rect, name }) => { const b = makeBlock({ ...typeNamed(typ
 bus.on('place', ({ rects }) => { for (const r of rects) blockOf(r.id)?.set({ x: r.x, y: r.y, w: r.w, h: r.h }); shown(); }, changes);      /* where blocks go, and how big: the end of a move or a resize */
 /* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
 const chosen = fn => ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(); };
-bus.on('cut', chosen(cut), changes); bus.on('delete', chosen(remove), changes);
+const going = fn => ({ ids: list, also = [] }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(also.map(blockOf).filter(Boolean)); };      /* also: what goes with them, in any space */
+bus.on('cut', going(cut), changes); bus.on('delete', going(remove), changes);
 bus.on('transpose', chosen(transpose), changes); bus.on('join', chosen(joinShapes), changes); bus.on('disjoin', chosen(disjoin), changes);
 bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return; b.call(name); renamed(b, color); }, changes);
 bus.on('entry.set', ({ id, key, text }) => { const o = blockOf(id), v = text === null ? undefined : readEntry(text);      /* nothing typed puts the symbol back; anything that is not a number is not taken */
+  if (o?.from){ const src = sourceOf(o); hud.say(`${bare(o.name)} is a length of ${src ? bare(src.name) : 'another shape'}: change it there`); return shown(); }
   if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
     keepTouching(() => { for (const k of kinOf(o)) agree(k); }); }      /* a single entry's number is its sides' length: whatever shares their names follows */
   write(); shown(); }, changes);
@@ -1224,7 +1267,14 @@ bus.on('frame.enter', ({ ids, frame: host }) => { const held = new Set(ids.map(b
 bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupNames.has(frame)); if (!s) return;
   const pictures = inGroup(frame, s).map(b => picture(b, s));
   for (const p of pictures) p.groups = p.groups.slice(0, p.groups.findIndex(g => g.id === frame) + 1);      /* the frame and what is inside it, not the frames it is in */
-  paste(at, pictures); }, changes);
+  /* what comes from the list is the variables themselves, not copies: each named shape in the new frame is a
+     reference to the one it was made from, with its entries, its definition and its colour */
+  const from = inGroup(frame, s), linked = from.map(b => isNamed(b) && !b.members); pictures.forEach((p, i) => { if (linked[i]) p.inside = null; });
+  const made = paste(at, pictures, false) || [];
+  made.forEach((b, i) => { const of = from[i]; if (!linked[i] || !of) return; b.values = of.values; b.ref = true;
+    if (!spaceOf.has(of)){ const def = newSpace(of, s); for (const k of kinOf(of)) spaceOf.set(k, def); } spaceOf.set(b, spaceOf.get(of));
+    const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set); });
+  shown(); }, changes);
 bus.on('frame.leave', ({ id, frame: g }) => { const b = blockOf(id); if (b){ if (g === null) space.groupOf.delete(b); else space.groupOf.set(b, g); } tidy(); shown(); }, changes);      /* pulled free of its group, as far out as g: null is out of them all */
 /* a name given to a frame: a named group is renamed; a group without one is named, and stays, framed; a plain selection folds into a new block of that name */
 bus.on('name', ({ frame: id, ids, name, color }) => { const list = ids.map(blockOf).filter(Boolean);
@@ -1240,9 +1290,11 @@ bus.on('fold', ({ ids, name, color, product = false }) => { const list = ids.map
 bus.on('use', ({ id, at, transposed = false }) => { const v = blockOf(id); if (v) useShape(v, at, transposed); }, changes);
 bus.on('slot', ({ into, id, cx, cy }) => { const a = blockOf(into), v = blockOf(id); if (a && v) slotIn(a, v, cx, cy); }, changes);
 bus.on('summon', ({ name, key, group: all, at }) => { summon({ name, key, group: all }, at); shown(); }, changes);
-bus.on('length.add', ({ name, units, at }) => { const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
-  const b = makeBlock({ ...typeNamed('tensor'), color: someColour() }, { x: on(at.x - u / 2), y: on(at.y - u / 2), w: u, h: u }, name);
-  b.values.set('1,1', units); space.blocks.push(b); view.world.append(b.el); select([b]); }, changes);
+bus.on('length.add', ({ name, units, at, of = null, side = null }) => { const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
+  const src = of ? blockOf(of) : null;      /* from the list: not a copy of the length but the length itself, the source's colour and always what the source's side is */
+  const b = makeBlock({ ...typeNamed('tensor'), color: src ? src.shape.color : someColour() }, { x: on(at.x - u / 2), y: on(at.y - u / 2), w: u, h: u }, name);
+  if (src){ b.from = { id: src.id, side: side === 'y' ? 'y' : 'x' }; b.ref = true; } else b.values.set('1,1', units);
+  space.blocks.push(b); view.world.append(b.el); select([b]); }, changes);
 
 /* shift, held, shows the list's shapes as their transposes */
 let shiftHeld = false;
@@ -1257,13 +1309,13 @@ const menu = createMenu([
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }) })) },
   { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
   { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },
-  { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => bus.send('cut', { ids: idsOf(selected) }) },
+  { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => removing('cut') },
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy', { ids: idsOf(selected) }) },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', { at: menuAt, pasted: clipboard }) },
   { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: () => bus.send('transpose', { ids: idsOf(selected) }) },
   { label: 'Join', disabled: () => !fitsTogether([...selected]), run: () => bus.send('join', { ids: idsOf(selected) }) },
   { label: 'Disjoin', disabled: () => ![...selected].some(b => b.members), run: () => bus.send('disjoin', { ids: idsOf(selected) }) },
-  { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => bus.send('delete', { ids: idsOf(selected) }) },
+  { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => removing('delete') },
   { label: 'Save project', run: () => { const name = kept ? (window.prompt('Save this project as', current || 'untitled') || '').trim() : null;      /* asked here, so the message says what was answered */
     if (kept && !name) return hud.say('Not saved'); bus.send('save', { name }); } },
   { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => bus.send('project.open', { name }) })) : [{ label: 'From a zip', run: () => bus.send('project.pick') }] },
@@ -1276,5 +1328,5 @@ const view = createView({
   onClick: clicked,                             /* these two read the pointer, and send what it amounts to */
   onDrag: dragged,
 });
-document.body.append(view.el, menu.el, hud.el, properties.el, crumbs.el, variables.el);
+document.body.append(view.el, menu.el, hud.el, properties.el, crumbs.el, variables.el, warning.el);
 hud.show(view.camera());
