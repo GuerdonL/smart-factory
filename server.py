@@ -9,10 +9,13 @@ What it does:
         GET  /api/projects            -> ["attention", "example"]
         GET  /api/projects/<name>     -> [{"path": "Keys.json", "text": "..."}, ...]
         PUT  /api/projects/<name>     <- the same list; the project's directory becomes exactly these files
-    A save that is no good is answered with why, as {"error": ...}, and changes nothing. A project that comes with the
-    repository (git tracks its files) is not saved over: see shipped().
+    A save that is no good is answered with why, as {"error": ...}, and changes nothing.
+    A project's own .config is this machine's: it is not kept in the repository. Until a project has one, it is given
+    the file projects/<name>.config, if the repository has that (see project_files).
   - every 30 seconds asks GitHub whether the branch it is on has moved, and if so pulls it. Pages are read from
     disk on each request, so the next reload shows the new version; if this file itself changed, it restarts.
+    A project that comes with the repository can be saved over; where that has changed a file the branch has changed
+    too, the branch's is taken (see update). What is not in the repository, a .config above all, is never touched.
 
 The password is a PIN, kept out of the repository: the SMART_FACTORY_PIN environment variable, or else the one line of
 a file called .pin beside this one. With a PIN set, nothing at all is answered without it: the browser asks for it
@@ -64,8 +67,15 @@ PAGE = ('<!doctype html><html><head><meta charset="utf8"><meta name="viewport" c
 
 
 def project_files(name):
-    """Every .json and .config file of a project, as [{path, text}], paths relative to the project's directory."""
+    """Every .json and .config file of a project, as [{path, text}], paths relative to the project's directory.
+    A project's top .config is set on each machine and is not in the repository. One that has none yet (a project that
+    came with the repository and has not been saved here) is given the one the repository has for it: the file
+    <name>.config beside its directory. The first save writes a .config of the project's own, and that is used after."""
     base, out = os.path.join(PROJECTS, name), []
+    given = os.path.join(PROJECTS, name + '.config')
+    if not os.path.isfile(os.path.join(base, '.config')) and os.path.isfile(given):
+        with open(given, encoding='utf8') as text:
+            out.append({'path': '.config', 'text': text.read()})
     for folder, _, files in os.walk(base):
         for f in sorted(files):
             if f.endswith('.json') or f == '.config':
@@ -132,18 +142,6 @@ def write_project(name, files):
         for left in (fresh, old):
             if left:
                 shutil.rmtree(left, ignore_errors=True)
-
-
-def shipped():
-    """The projects that come with the repository: the directories under projects/ that git tracks files in. They are
-    not saved over. A save would change tracked files, and from then on the checkout could not follow its branch (see
-    follow): git will not merge a change to a file that has been changed here. Asked of git at each save, so it is
-    right after every pull. Where this is not a git checkout, or there is no git, nothing comes with it."""
-    try:
-        listed = git('ls-files', '-z', '--', 'projects')
-    except (OSError, subprocess.SubprocessError):
-        return set()
-    return set() if listed.returncode else {p.split('/')[1] for p in listed.stdout.split('\0') if p.count('/') > 1}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -307,8 +305,6 @@ class Handler(SimpleHTTPRequestHandler):
         if len(length) > 18 or int(length) > MAX_SAVE:
             return self.refuse(413, 'a save may be %d bytes at most, and this one is %s' % (MAX_SAVE, length[:40]), {})
         sent = self.rfile.read(int(length))
-        if name.casefold() in {n.casefold() for n in shipped()}:   # whatever the capitals: on some disks Example is example's directory
-            return self.reply(403, {'error': '%s comes with the program: save under another name' % name})
         try:
             files = checked(json.loads(sent))
             write_project(name, files)
@@ -327,6 +323,50 @@ def git(*args):
     return subprocess.run(['git', '-C', ROOT, *args], capture_output=True, text=True, timeout=120)
 
 
+def update():
+    """Brings the checkout up to what was last fetched (FETCH_HEAD). -> None, or why it could not be done.
+    A save over a project that comes with the repository changes files git tracks, and git will not bring in a change
+    to a file that has been changed here. Where that is all that stands in the way, the branch's files are taken: each
+    file under projects/ changed both here and on the branch is put back as it was, and the update goes in. Nothing
+    outside projects/ is ever put back: if a file changed here stands in the way there, the update waits, as before.
+    A file the branch no longer keeps (a .config, from when they were kept in the repository) stays as it is here."""
+    merged = git('merge', '--ff-only', 'FETCH_HEAD')
+    if not merged.returncode:
+        return None
+    why = merged.stderr.strip() or merged.stdout.strip() or 'git would not merge'
+    names = lambda *args: {p for p in git(*args, '-z').stdout.split('\0') if p}
+    theirs = names('diff', '--name-only', 'HEAD', 'FETCH_HEAD')
+    way = (names('diff', '--name-only', 'HEAD') | names('ls-files', '--others', '--exclude-standard')) & theirs      # changed here, or made here, and changed there
+    if not way or not all(p.startswith('projects/') for p in way):
+        return why
+    kept = {}                                                      # what the branch has let go of: put back afterwards, as it is here
+    for p in way:
+        full = os.path.join(ROOT, *p.split('/'))
+        if os.path.isfile(full) and git('cat-file', '-e', 'FETCH_HEAD:' + p).returncode:
+            with open(full, 'rb') as f:
+                kept[full] = f.read()
+    tracked = sorted(p for p in way if not git('cat-file', '-e', 'HEAD:' + p).returncode)
+    if tracked and git('checkout', 'HEAD', '--', *tracked).returncode:
+        return why
+    for p in way - set(tracked):                                   # made here where the branch now has a file of its own: the branch's is taken
+        full = os.path.join(ROOT, *p.split('/'))
+        if os.path.isfile(full):
+            os.remove(full)
+    merged = git('merge', '--ff-only', 'FETCH_HEAD')
+    for full, data in kept.items():
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, 'wb') as f:
+            f.write(data)
+    if merged.returncode:
+        return merged.stderr.strip() or why
+    taken = sorted(p for p in way if os.path.join(ROOT, *p.split('/')) not in kept)
+    if taken:
+        print('changed here and on the branch, under projects/: the branch\'s taken (%s)' % ', '.join(taken), flush=True)
+    if kept:
+        print('no longer kept on the branch, and left as it is here: %s' % ', '.join(sorted(os.path.relpath(full, ROOT) for full in kept)), flush=True)
+    return None
+
+
 def follow(every=30):
     """Keeps this checkout level with its branch on GitHub."""
     if git('rev-parse', '--is-inside-work-tree').returncode:
@@ -342,9 +382,9 @@ def follow(every=30):
             here, there = git('rev-parse', 'HEAD').stdout.strip(), git('rev-parse', 'FETCH_HEAD').stdout.strip()
             if not there or here == there:
                 continue
-            merged = git('merge', '--ff-only', 'FETCH_HEAD')
-            print(('updated to ' + there[:7]) if not merged.returncode else ('could not update: ' + merged.stderr.strip()), flush=True)
-            if not merged.returncode and os.path.getmtime(__file__) != me:
+            failed = update()
+            print(('could not update: ' + failed) if failed else ('updated to ' + there[:7]), flush=True)
+            if not failed and os.path.getmtime(__file__) != me:
                 print('the server itself changed: restarting', flush=True)
                 os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
         except Exception as e:                                     # a lost connection, a slow fetch: try again next time

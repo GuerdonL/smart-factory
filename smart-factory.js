@@ -1087,7 +1087,10 @@ const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(l
    one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
 ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
   if (first) bus.send('project.open', { name: first }).then(() => { current = 'menu'; });
-  else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => Promise.all(list.map(path => fetch('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e)))))
+  else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => { const text = url => fetch(url).then(r => r.ok ? r.text() : Promise.reject());
+      /* its .config is not among its files (each machine has its own): it is the one beside the directory, projects/default-menu.config */
+      return Promise.all([...list.filter(path => path !== '.config').map(path => text('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e))),
+        text('projects/default-menu.config').then(text => ({ path: '.config', text }), () => null)]); })
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(name){

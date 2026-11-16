@@ -3,3 +3,6 @@
 
 # what Python leaves behind when it runs the server
 __pycache__/
+
+# a project's own .config is each machine's: the one that comes with a project is projects/<name>.config (see projects/README.md)
+projects/*/.config

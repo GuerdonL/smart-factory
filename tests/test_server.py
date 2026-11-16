@@ -179,13 +179,18 @@ class ServerTest(ServerCase):
         self.assertEqual(self.on_disk('attention'), sorted(f['path'] for f in FILES))
         self.assert_nothing_left_over()
 
-    def test_outside_a_git_checkout_no_project_comes_with_the_program(self):
-        self.assertEqual(server.shipped(), set())
-        for name in ['default-menu', 'example']:
-            self.assertEqual(self.save(name, [HEAD])[0], 200, name)
-        with unittest.mock.patch.object(server, 'git', side_effect=FileNotFoundError('git')):      # no git on the machine at all
-            self.assertEqual(server.shipped(), set())
-            self.assertEqual(self.save('example', [HEAD])[0], 200)
+    def test_a_project_with_no_config_of_its_own_is_given_the_one_beside_its_directory(self):
+        given = {'path': '.config', 'text': '{"format": "smart-factory/frame", "name": ".config"}\n'}
+        self.save('attention', [HEAD, {'path': 'Keys.json', 'text': '{}\n'}, {'path': 'Keys/.config', 'text': '{}\n'}])
+        with open(os.path.join(server.PROJECTS, 'attention.config'), 'w') as f:
+            f.write(given['text'])
+        self.assertEqual(self.ask('GET', '/api/projects')[2], ['attention'])                 # the file is no project
+        self.assertIn(given, self.ask('GET', '/api/projects/attention')[2])
+        mine = {'path': '.config', 'text': '{"format": "smart-factory/frame", "name": ".config", "mine": true}\n'}
+        self.assertEqual(self.save('attention', [HEAD, mine])[0], 200)                       # saved: it has its own now
+        self.assertEqual(by_path(self.ask('GET', '/api/projects/attention')[2]), by_path([HEAD, mine]))
+        with open(os.path.join(server.PROJECTS, 'attention.config')) as f:
+            self.assertEqual(f.read(), given['text'])                                        # and the one it was given is as it was
 
     def test_nothing_else_is_under_api(self):
         self.assertEqual(self.ask('GET', '/api/other')[0], 404)
@@ -266,40 +271,80 @@ class ServerTest(ServerCase):
 
 
 @unittest.skipUnless(shutil.which('git'), 'needs git')
-class ShippedTest(ServerCase):
-    """The server in a git checkout of its own: default-menu is tracked, as it is in the repository; mine is not."""
-    ask, save, on_disk, assert_nothing_left_over = ServerTest.ask, ServerTest.save, ServerTest.on_disk, ServerTest.assert_nothing_left_over
-    SERVED = {'projects/default-menu/project.json': HEAD['text'], 'projects/default-menu/colors/red.json': '{}\n', 'projects/README.md': 'Projects',
-              'projects/mine/project.json': HEAD['text']}
+@unittest.skipUnless(shutil.which('git'), 'git is not installed')
+class FollowTest(ServerCase):
+    """The server in a git checkout of its own, following a branch: default-menu comes with the repository, as it does
+    in the real one, and its .config does not (it is beside the directory, as default-menu.config)."""
+    ask, save, on_disk = ServerTest.ask, ServerTest.save, ServerTest.on_disk
+    SERVED = {'projects/default-menu/project.json': HEAD['text'], 'projects/default-menu/Start.frame.json': '{"was": 1}\n', 'projects/default-menu.config': '{"given": true}\n',
+              'projects/README.md': 'Projects', 'server.py': '# the server\n', '.gitignore': 'projects/*/.config\n'}
+    MINE = {'path': '.config', 'text': '{"mine": true}\n'}
 
     def setUp(self):
         super().setUp()
-        self.git('init', '--quiet')
-        self.git('add', 'projects/default-menu', 'projects/README.md')
+        self.git('init', '--quiet'); self.git('add', '-A'); self.commit('first')
+        self.there = self.dir + '-origin'                          # the branch as it is on GitHub: another checkout, which moves on
+        subprocess.run(['git', 'clone', '--quiet', self.dir, self.there], check=True, capture_output=True)
+        self.addCleanup(shutil.rmtree, self.there, True)
 
-    def git(self, *args):
-        return subprocess.run(['git', '-C', self.dir, *args], check=True, capture_output=True, text=True).stdout
+    def git(self, *args, at=None):
+        return subprocess.run(['git', '-C', at or self.dir, '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', *args], check=True, capture_output=True, text=True).stdout
 
-    def test_the_projects_that_come_with_the_program_are_the_ones_git_tracks(self):
-        self.assertEqual(server.shipped(), {'default-menu'})          # not mine, and not README.md, which is no directory
-        self.git('add', 'projects/mine')
-        self.assertEqual(server.shipped(), {'default-menu', 'mine'})  # asked each time: right after a pull brings a new one
+    def commit(self, what, at=None):
+        self.git('add', '-A', at=at); self.git('commit', '--quiet', '-m', what, at=at)
 
-    def test_a_project_that_comes_with_the_program_is_not_saved_over(self):
-        for name in ['default-menu', 'Default-Menu', 'DEFAULT-MENU']:      # on a disk that ignores capitals these are one directory
-            status, _, reply = self.save(name, [HEAD, {'path': 'Other.json', 'text': '{}\n'}])
-            self.assertEqual((status, reply), (403, {'error': name + ' comes with the program: save under another name'}))
-        self.assertEqual(self.on_disk('default-menu'), ['colors/red.json', 'project.json'])
-        self.assertEqual(self.git('diff', '--name-only'), '')      # nothing tracked has changed: the branch can still be followed
-        self.assert_nothing_left_over()
+    def pushed(self, files, gone=()):
+        """The branch moves: these files are written there ({ path: text }), those are deleted, and it is fetched here."""
+        for path, text in files.items():
+            with open(os.path.join(self.there, path), 'w') as f:
+                f.write(text)
+        for path in gone:
+            os.remove(os.path.join(self.there, path))
+        self.commit('more', at=self.there)
+        self.git('fetch', '--quiet', self.there, 'HEAD')
 
-    def test_it_is_still_opened_and_other_names_are_still_saved(self):
-        self.assertEqual(self.ask('GET', '/api/projects')[2], ['default-menu', 'mine'])
-        self.assertEqual(self.ask('GET', '/api/projects/default-menu')[0], 200)
-        for name in ['mine', 'menu', 'default-menu 2']:
-            self.assertEqual(self.save(name, [HEAD, {'path': 'Other.json', 'text': '{}\n'}])[0], 200, name)
-            self.assertEqual(self.on_disk(name), ['Other.json', 'project.json'])
-        self.assertEqual(self.git('diff', '--name-only'), '')
+    def read(self, path):
+        with open(os.path.join(self.dir, path)) as f:
+            return f.read()
+
+    def test_a_project_that_comes_with_the_program_is_saved_over_and_its_config_is_this_machines(self):
+        self.assertIn({'path': '.config', 'text': '{"given": true}\n'}, self.ask('GET', '/api/projects/default-menu')[2])
+        self.assertEqual(self.save('default-menu', [HEAD, {'path': 'Start.frame.json', 'text': '{"was": 1}\n'}, self.MINE])[0], 200)
+        self.assertIn(self.MINE, self.ask('GET', '/api/projects/default-menu')[2])
+        self.assertEqual(self.git('status', '--porcelain'), '')    # the .config is not git's: with nothing else changed, nothing is
+
+    def test_a_save_over_it_does_not_stop_the_branch_being_followed(self):
+        self.save('default-menu', [{'path': 'project.json', 'text': '{"format": "smart-factory/project", "version": 2, "saved": "now"}\n'},
+                                   {'path': 'Start.frame.json', 'text': '{"mine": 1}\n'}, {'path': 'Mine.json', 'text': '{}\n'}, self.MINE])
+        self.pushed({'projects/default-menu/Start.frame.json': '{"theirs": 2}\n', 'server.py': '# the server, later\n'})
+        self.assertIsNone(server.update())
+        self.assertEqual(self.read('server.py'), '# the server, later\n')
+        self.assertEqual(self.read('projects/default-menu/Start.frame.json'), '{"theirs": 2}\n')      # changed here and there: the branch's
+        self.assertEqual(self.read('projects/default-menu/.config'), self.MINE['text'])                # not the repository's: untouched
+        self.assertIn('"saved": "now"', self.read('projects/default-menu/project.json'))               # changed only here: left
+        self.assertEqual(self.read('projects/default-menu/Mine.json'), '{}\n')
+
+    def test_a_change_outside_projects_still_waits_and_nothing_is_put_back(self):
+        self.save('default-menu', [HEAD, {'path': 'Start.frame.json', 'text': '{"mine": 1}\n'}, self.MINE])
+        with open(os.path.join(self.dir, 'server.py'), 'w') as f:
+            f.write('# work in hand\n')
+        self.pushed({'projects/default-menu/Start.frame.json': '{"theirs": 2}\n', 'server.py': '# the server, later\n'})
+        self.assertIsInstance(server.update(), str)
+        self.assertEqual(self.read('server.py'), '# work in hand\n')
+        self.assertEqual(self.read('projects/default-menu/Start.frame.json'), '{"mine": 1}\n')
+
+    def test_a_config_the_branch_stops_keeping_stays_as_it_is_here(self):
+        with open(os.path.join(self.dir, '.gitignore'), 'w') as f:      # as it was before: the .config kept in the repository, and changed here
+            f.write('')
+        with open(os.path.join(self.dir, 'projects/default-menu/.config'), 'w') as f:
+            f.write('{"theirs": true}\n')
+        self.commit('the config is kept'); self.git('pull', '--quiet', self.dir, 'HEAD', at=self.there)
+        with open(os.path.join(self.dir, 'projects/default-menu/.config'), 'w') as f:
+            f.write(self.MINE['text'])
+        self.pushed({'.gitignore': 'projects/*/.config\n'}, gone=['projects/default-menu/.config'])
+        self.assertIsNone(server.update())
+        self.assertEqual(self.read('projects/default-menu/.config'), self.MINE['text'])
+        self.assertEqual(self.git('status', '--porcelain'), '')
 
 
 if __name__ == '__main__':
