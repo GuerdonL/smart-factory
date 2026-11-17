@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -35,6 +35,25 @@ test('a count that is a formula comes to a whole number from sizes alone', () =>
   assert.match(count({ expr: '@[keys:g]' }, lookup).refused, /not a gap/);
   assert.match(count({ expr: 'heads' }, lookup).refused, /unknown name: heads/);
   assert.match(count({ expr: '@[keys:x] > 2' }, lookup).refused, /at least 1/);                      /* true is no number of times */
+});
+
+test('a count that depends on its own tile\'s size is refused, whatever it would come to', () => {
+  /* the tile t; an arrow a that reads it; B seated on a; C a reference to B; D sharing a side's name with C; another tile u whose count reads D */
+  const next = id => ({ t: ['keys'], a: ['t'], B: ['a'], C: ['B'], D: ['C'], u: ['D'], keys: [], free: ['keys'] })[id] || [];
+  assert.equal(circular('t', ['B'], next), true);            /* directly: the block seated on the tile's own arrow */
+  assert.equal(circular('t', ['D'], next), true);            /* through a reference and a shared side */
+  assert.equal(circular('t', ['u'], next), true);            /* through another tile's count */
+  assert.equal(circular('t', ['t'], next), true);
+  assert.equal(circular('t', ['keys'], next), false);        /* what the tile itself reads is not the tile */
+  assert.equal(circular('t', ['free', 'keys'], next), false); assert.equal(circular('t', [], next), false);
+  assert.equal(circular('u', ['B'], next), false);           /* B follows t, and t does not follow u */
+  assert.equal(circular('t', ['x'], id => id === 'x' ? ['y'] : id === 'y' ? ['x'] : []), false);      /* a loop elsewhere is walked once and is not this tile's */
+  assert.match(count({ expr: '@[keys:y]' }, lookup, { loops: true }).refused, /^it depends on itself/);
+  assert.deepEqual(count({ expr: '@[keys:y]' }, lookup, { loops: false }), { count: 3, formula: true });
+  assert.deepEqual(count(3, lookup, { loops: true }), { count: 3, formula: false });      /* a number reads nothing */
+  /* kept in a project all the same: it is 1, with the reason, and the other count stands */
+  const c = counts(rep(2, 1, { expr: '@[keys:x]' }, { expr: '@[keys:y]' }), lookup, { across: { loops: true } });
+  assert.equal(c.across, 1); assert.equal(c.down, 3); assert.match(c.warn, /^across: it depends on itself/);
 });
 
 test('what typing a count stores: a number, or a formula where it names a size', () => {

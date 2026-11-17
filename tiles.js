@@ -20,7 +20,15 @@
    LIMIT                         -> 64: the most cells that are drawn
 
    Counts
-   count(stored, lookup)         -> { count, formula } | { refused: a sentence }: what a stored count comes to.
+   circular(tile, reads, next)   -> whether a count depends on its own tile's size: whether tile (an id) is reached
+                                    from any of reads (the ids the count's formula names), going on through
+                                    next(id), the ids whose size that one's size follows. A tile's size follows
+                                    what its counts read; an arrow's output its input (a tile it reads, a tile it
+                                    is repeated in); a seated block its arrow; a reference its variable; a side
+                                    the sides that share its name. The page gathers next; this walks it, once.
+   count(stored, lookup, { loops }) -> { count, formula } | { refused: a sentence }: what a stored count comes to.
+                                    loops: the formula depends on the tile's own size (circular): it is refused
+                                    with "it depends on itself", whatever it would come to.
                                     A number has to be whole and at least 1. A formula is worked out
                                     (expression.js) and has to come to such a number from sizes alone: the only
                                     capsules it may hold are a variable's width and height (x, y). lookup is
@@ -28,8 +36,11 @@
    typed(text, lookup)           -> { value } | { refused }: what typing text for a count stores: a whole number, or
                                     { expr } where it names a size. Arithmetic on numbers alone is kept as what it
                                     comes to. Refused where count would refuse it, or nothing was typed.
-   counts(repeat, lookup)        -> { across, down, formula: { across, down }, warn }: both counts as numbers. One
-                                    that cannot be worked out is 1, and warn says why (null where both can)
+   counts(repeat, lookup, { across, down }) -> { across, down, formula: { across, down }, warn }: both counts as
+                                    numbers. One that cannot be worked out is 1, and warn says why (null where
+                                    both can). The third argument is count's, for each of the two: a count that
+                                    depends on its own tile is 1 with that warning, so a project saved with one
+                                    opens, and nothing is worked out round the loop
    filled(repeat, across, down)  -> { cols, rows }: the filled size in units
    settable(repeat, patch)       -> { repeat } | { refused }: the repeat with x, y, cols or rows changed as typed.
                                     The pattern's sides are whole numbers of at least 1 and its place is on whole
@@ -111,9 +122,15 @@ export function kept(repeat){
 }
 
 const NOT = v => `a count is a whole number, at least 1, and that comes to ${isError(v) ? 'an error (' + v.err + ')' : v === null || v === undefined ? 'nothing yet' : valueText(v)}`;
-export function count(stored, lookup = () => undefined){
+export function circular(tile, reads, next){
+  const seen = new Set(), todo = [...reads];
+  while (todo.length){ const id = todo.pop(); if (id === tile) return true; if (seen.has(id)) continue; seen.add(id); todo.push(...next(id)); }
+  return false;
+}
+export function count(stored, lookup = () => undefined, { loops = false } = {}){
   if (typeof stored === 'number') return whole1(stored) ? { count: stored, formula: false } : { refused: NOT(stored) };
   if (!stored || typeof stored !== 'object' || typeof stored.expr !== 'string') return { refused: NOT(stored) };
+  if (loops) return { refused: 'it depends on itself: what it reads follows this tile\'s own size' };
   const other = refs(stored.expr).find(r => r.measure !== 'x' && r.measure !== 'y');
   if (other) return { refused: 'a count comes from sizes alone: a width or a height, not ' + (other.measure === 'm' ? 'a mass' : other.measure === 'a' ? 'an attribute' : other.measure === 'g' ? 'a gap' : 'a whole shape') };
   const got = evaluate(stored.expr, lookup);
@@ -127,8 +144,8 @@ export function typed(text, lookup = () => undefined){
   const c = count(got.value, lookup);
   return c.refused ? c : { value: c.formula ? { expr: got.value.expr } : c.count };
 }
-export function counts(repeat, lookup = () => undefined){
-  const a = count(repeat.across, lookup), d = count(repeat.down, lookup);
+export function counts(repeat, lookup = () => undefined, each = {}){
+  const a = count(repeat.across, lookup, each.across), d = count(repeat.down, lookup, each.down);
   return { across: a.refused ? 1 : a.count, down: d.refused ? 1 : d.count, formula: { across: !!a.formula, down: !!d.formula },
     warn: a.refused ? 'across: ' + a.refused : d.refused ? 'down: ' + d.refused : null };
 }

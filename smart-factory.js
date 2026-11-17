@@ -1420,11 +1420,29 @@ const tileOf = (b, s = space) => chain(b, s).find(g => s.repeats.has(g));      /
 const repeatCopy = r => ({ ...r, across: typeof r.across === 'object' ? { expr: r.across.expr } : r.across, down: typeof r.down === 'object' ? { expr: r.down.expr } : r.down });
 /* what a capsule in a count's formula stands for: a measure of a variable, by its block's id (tiles.js lets only sizes through) */
 const sizeLookup = token => { if (typeof token === 'string') return undefined; const of = blockOf(token.id); return of ? measured(of, token.measure, token.name) : undefined; };
+/* what the size of a thing follows, by id, for tiles.js (circular): a tile, what its counts read; an arrow, what it
+   reads and the tile it is repeated in; a seated block, its arrow; a part, a measure or an index matrix, its source;
+   any use of a variable, the other uses; a function's input block, its arrow; a named side, the sides of that name;
+   a single entry whose number is a formula, what that reads */
+function sizeDeps(id){
+  for (const s of everySpace()) if (s.repeats.has(id)){ const r = s.repeats.get(id); return ['across', 'down'].flatMap(k => typeof r[k] === 'object' ? refs(r[k].expr).map(c => c.id) : []); }
+  const k = blockOf(id); if (!k) return [];
+  const s = spaceWith(k), out = [...depsOf(id)];
+  if (isArrow(k) && s){ const g = tileOf(k, s); if (g !== undefined && mapsIn(s, k, g)) out.push(g); if (k.arrow.input.as === 'tile') out.push(k.arrow.input.id); }      /* the tile it reads, and the tile it is repeated in */
+  if (k.from) out.push(k.from.id);
+  for (const o of kinOf(k)) if (o !== k) out.push(o.id);
+  if (k.in && s?.owner) out.push(s.owner.id, originOf(s.owner).id);
+  if (s) for (const dim of ['w', 'h']) if (k.sides[dim]) for (const [o] of sidesCalled(k.sides[dim], s)) if (o !== k) out.push(o.id);
+  const one = !isArrow(k) && k.values.get('1,1'); if (isFormula(one)) out.push(...refs(one.expr).map(c => c.id));
+  return out;
+}
+/* whether a stored count of tile g depends on that tile's own size: such a count is refused, and one met in a project is 1 with a warning */
+const loopsOf = (g, stored) => ({ loops: !!stored && typeof stored === 'object' && tiles.circular(g, refs(stored.expr || '').map(c => c.id), sizeDeps) });
 /* a tile as it stands: its repeat, what its counts come to, what is drawn of it, its blocks and its matrix. Worked out once for every time the screen is brought up to date. */
 function tileInfo(s, g){
   const rep = s.repeats.get(g); if (!rep) return null;
   if (memo?.has(rep)) return memo.get(rep);
-  const c = tiles.counts(rep, sizeLookup), lay = tiles.layout(rep, c.across, c.down, c.formula);
+  const c = tiles.counts(rep, sizeLookup, { across: loopsOf(g, rep.across), down: loopsOf(g, rep.down) }), lay = tiles.layout(rep, c.across, c.down, c.formula);
   const blocks = inGroup(g, s).filter(b => !isArrow(b) && !isOff(b) && !hollowSeat(b));
   const info = { g, rep, ...c, lay, rect: { x: rep.x, y: rep.y, w: lay.w, h: lay.h }, blocks, matrix: tiles.matrix(rep, c.across, c.down, blocks.map(unitsOf)), values: null };
   memo?.set(rep, info); return info;
@@ -1493,8 +1511,8 @@ function setTile({ frame, ...patch }){
   const geo = {}; for (const k of ['x', 'y', 'cols', 'rows']) if (k in patch) geo[k] = patch[k];
   const got = tiles.settable(rep, geo); if (got.refused){ hud.say(got.refused); return shown(); }
   const next = got.repeat;
-  for (const k of ['across', 'down']) if (k in patch){ const c = tiles.count(patch[k], sizeLookup); if (c.refused){ hud.say(`${cap(k)}: ${c.refused}`); return shown(); } next[k] = c.formula ? { expr: patch[k].expr } : c.count; }
-  const cs = tiles.counts(next, sizeLookup), clear = tiles.makable(tiles.footprint(next, cs.across, cs.down, cs.formula), [...space.repeats.keys()].filter(g => g !== frame).map(g => tileInfo(space, g).rect));
+  for (const k of ['across', 'down']) if (k in patch){ const c = tiles.count(patch[k], sizeLookup, loopsOf(frame, patch[k])); if (c.refused){ hud.say(`${cap(k)}: ${c.refused}`); return shown(); } next[k] = c.formula ? { expr: patch[k].expr } : c.count; }
+  const cs = tiles.counts(next, sizeLookup, { across: loopsOf(frame, next.across), down: loopsOf(frame, next.down) }), clear = tiles.makable(tiles.footprint(next, cs.across, cs.down, cs.formula), [...space.repeats.keys()].filter(g => g !== frame).map(g => tileInfo(space, g).rect));
   if (clear.refused){ hud.say(clear.refused); return shown(); }
   const dx = next.x - rep.x, dy = next.y - rep.y;
   Object.assign(rep, next, { x: rep.x, y: rep.y }); if (dx || dy) shiftTile(space, frame, dx, dy);
