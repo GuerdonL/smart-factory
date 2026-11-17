@@ -27,6 +27,7 @@ import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, passed, worked as entryWise, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
+import { SOURCES, kept as sourceKept, faceOf, values as sourceValues, typable, holds } from './sources.js';
 import { squares } from './components/matrix.js';
 
 /* everything the user does takes effect as a message on the bus (bus.js); what each message does is set out under
@@ -79,7 +80,7 @@ function write(){
   flow(space.owner);
   const o = space.owner, r = o.rect, over = turned(o);      /* opened through a transpose, it is still the variable's own definition: the right way round */
   space.definition = createDefinition({ cols: Math.round((over ? r.h : r.w) / view.unit), rows: Math.round((over ? r.w : r.h) / view.unit), unit: view.unit,
-    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: valuesOf(o, 0, true), inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
+    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: valuesOf(o, 0, true), inherited: inheritedBy(o, space.parent), editable: isNamed(o) && !o.source,      /* a named block's matrix is written in its colour */
     colsName: over ? o.sides.h : o.sides.w, rowsName: over ? o.sides.w : o.sides.h, standing: standingLook(o) });
   space.definition.wrote = defKey(o);
   view.world.prepend(space.definition.el);     /* beneath the blocks */
@@ -184,7 +185,7 @@ const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: '
 function useShape(of, at, transposed = false){      /* transposed: whether the new use is to be the variable's transpose */
   const u = view.unit, on = v => Math.round(v / u) * u, over = !of.members && !!of.t !== !!transposed, r = over ? { w: of.rect.h, h: of.rect.w } : of.rect;
   const b = makeBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
-  b.sides = over ? { w: of.sides.h, h: of.sides.w } : { ...of.sides }; b.values = of.values; b.turn(of.members ? of.t : transposed); if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
+  b.sides = over ? { w: of.sides.h, h: of.sides.w } : { ...of.sides }; b.values = of.values; if (of.source) b.source = of.source; b.turn(of.members ? of.t : transposed); if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
   if (!spaceOf.has(of)){ const def = newSpace(of, space); for (const k of kinOf(of)) spaceOf.set(k, def); }
   spaceOf.set(b, spaceOf.get(of));                                                          /* the same definition */
   const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set);
@@ -238,6 +239,7 @@ const flipped = values => new Map([...values].map(([k, v]) => { const [c, r] = k
 const working = guard();
 const workedAt = (b, key) => { const v = b.values.get(key); return isFormula(v) ? working(originOf(b).id + ' ' + key, () => evaluate(v.expr, lookupFor(b)).value ?? null) : v; };
 function worked(b){
+  if (b.source){ const u = view.unit, w = Math.round(b.rect.w / u), h = Math.round(b.rect.h / u); return sourceValues(b.source, turned(b) ? h : w, turned(b) ? w : h); }      /* a source stores no entries: they follow from its kind and its size (sources.js), the variable's own way round */
   let any = false; for (const v of b.values.values()) if (isFormula(v)){ any = true; break; }
   if (!any) return b.values;
   const out = new Map(); for (const [k, v] of b.values){ const w = isFormula(v) ? workedAt(b, k) : v; if (w !== null && w !== undefined) out.set(k, w); }
@@ -268,7 +270,8 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   const u = view.unit, home = a === space.owner ? space.parent : space, cols = Math.round(a.rect.w / u), rows = Math.round(a.rect.h / u), w = Math.round(v.rect.w / u), h = Math.round(v.rect.h / u);
   if (rangedOf(a)) return hud.say(`${bare(a.name)} is part of ${partOf(a)}: change it there`);      /* its entries are its source's */
   if (isArrow(a) || givenOf(a) || seatedOf(a)) return hud.say(isArrow(a) ? 'An arrow\'s output is what its function comes to: nothing stands in it' : `${bare(a.name)} ${givenOf(a) ? 'is the function\'s input' : 'is seated'}: its entries are not its own`);
-  if (kinOf(a).includes(v)) return hud.say('A shape cannot go into its own matrix');
+  if ([...kinOf(a)].includes(v)) return hud.say('A shape cannot go into its own matrix');
+  if (holds(a.source, bare(a.name)).refused) return hud.say(holds(a.source, bare(a.name)).refused);
   if (w > cols || h > rows) return hud.say(`Snap to matrix: ${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
@@ -287,7 +290,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   for (const t of over(X, Y)) out(t.block);
   pruneOps();                                  /* what was cut in the definition went with it */
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
-  use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.standing = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
+  use.sides = { ...v.sides }; use.values = v.values; if (v.source) use.source = v.source; use.turn(v.t); use.standing = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
   const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.ref = true; use.attrs = attrsOf(v);
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
@@ -458,6 +461,7 @@ function typedNow(b, dim, text){
      length squared, and the block keeps its one square */
   const single = isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit;
   if (single && measures(b)){ hud.say(`${bare(b.name)} is a measure of another shape: change it there`); return; }
+  if (single && b.source && n !== null){ hud.say(`${bare(b.name)} is a source: a length typed on a single entry sets its number, and a source's is not typed. Pull it larger by an edge`); return; }
   const size = length => single ? b.values.set('1,1', (length / view.unit) ** 2) : b.set({ ...b.rect, [dim]: length });
   if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) size(n * view.unit); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
   if (name && sidesCalled(name, space).some(([o, d]) => o !== b && sideLength(o, d) === null)){ hud.say(`${name} is not a whole number: it cannot be a side's length`); return; }
@@ -809,7 +813,8 @@ function paint(){
   hush(); follow(); if (arrangeAll()) memo?.clear(); configure();
   for (const b of space.blocks) if (measures(b)){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
-  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b)); b.sit(!!b.seat); b.given(!!b.in);      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
+  for (const b of space.blocks){ const v = scalarOf(b); b.face(b.source ? faceOf(b.source) : v === null ? null : asText(v));      /* a source says what it is on its face: 0, 1 or I */
+    b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b)); b.sit(!!b.seat); b.given(!!b.in);      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
     if (isArrow(b)) b.el.classList.toggle('anon', !isNamed(b)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
@@ -822,7 +827,8 @@ function paint(){
       matrix: t ? { letter: initials((seat || one).name), values: o.values || new Map(), colsName: t.colsName, rowsName: t.rowsName } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
     const values = valuesOf(one), scalar = cols === 1 && rows === 1 && !one.members, wrong = scalar ? [] : [...values].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
-    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar, attributes: attributesOf(one),
+    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar, attributes: attributesOf(one), fixed: !!one.source,
+      shape: one.source ? `${SOURCES.find(s => s.kind === one.source).label.toLowerCase()}: ${cols} wide × ${rows} tall` : undefined,
       notes: [...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values, transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
   else properties.show(null);
@@ -899,7 +905,7 @@ function paint(){
   const world = r => ({ x: r.x * u, y: r.y * u, w: r.w * u, h: r.h * u });
   /* a product, a sum or an elementwise result can be named, folding its blocks into one; a block on its own already is one, and has its own name */
   const writ = writtenIn(space, { active, rects, all }).map(w => ({ ...w, look: lookOf(w.piece), nameable: w.piece.members.length > 1, hollows: w.drawn.map(h => ({ n: h.n, ...world(h) })),
-    editable: w.piece.members.length === 1 && isNamed(w.blocks[0]),      /* a named shape on its own: its entries can be typed where they are written */
+    editable: w.piece.members.length === 1 && isNamed(w.blocks[0]) && !w.blocks[0].source,      /* a named shape on its own: its entries can be typed where they are written */
     box: world(w.piece.box) }));
   writ.forEach(({ blocks, type, look, nameable, editable, box, hollows, where, whole }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     const at = r.set(box, type, { ...(hollows.length ? { hollows } : { side: where.side, drop: where.drop, whole }), look, nameable, editable });
@@ -978,7 +984,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
 const picture = (b, s) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
-  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
+  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -992,7 +998,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = pic.arrow ? makeArrow(name) : makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); b.turn(pic.t); if (pic.standing && s !== space) b.standing = true;
+    const b = pic.arrow ? makeArrow(name) : makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); if (pic.source) b.source = pic.source; b.turn(pic.t); if (pic.standing && s !== space) b.standing = true;
     if (pic.arrow){ const { formula, ...geo } = pic.arrow; b.set(r); b.arrow = { ...geo, input: { ...geo.input }, output: geo.output ? { ...geo.output } : null }; b.fn = { formula }; if (pic.use) b.ref = true; }
     if (pic.seat) b.seat = typeof pic.seat === 'string' ? pic.seat : { hollow: [...pic.seat.hollow] };
     if (pic.in && s.owner && isArrow(s.owner) && !s.blocks.some(k => k.in)) b.in = true;      /* a function's input, copied with its function */
@@ -1016,7 +1022,7 @@ function develop(pictures, s, dx, dy){
 }
 /* a block made from a picture but put in no space: one of those a joined shape was joined from */
 function hidden(pic, s){
-  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); b.turn(pic.t);
+  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); if (pic.source) b.source = pic.source; b.turn(pic.t);
   if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
   if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   return b;
@@ -1626,7 +1632,7 @@ function setArrow({ id, ...patch }){
 }
 /* what arrows.js needs to know of a block to say whether it can be seated */
 const seatFacts = b => ({ name: bare(b.name), named: isNamed(b), arrow: isArrow(b), input: !!givenOf(b), reference: !!b.ref, uses: [...kinOf(b)].length, defined: !!spaceOf.get(b)?.blocks.some(k => !isOff(k)),
-  standing: !!b.standing, seated: !!seatedOf(b), part: !!rangedOf(b), measure: measures(b), fused: !!b.members });
+  standing: !!b.standing, seated: !!seatedOf(b), part: !!rangedOf(b), measure: measures(b), fused: !!b.members, source: b.source || null });
 /* whether an arrow reads a block, directly or through other arrows and seats (arrows.js: dependsOn): its output cannot be seated with that block */
 const feeds = (b, a) => dependsOn([a.id], b.id, depsOf);
 function seatBlock({ arrow = null, hollow = null, id = null, name = null, color = null }){
@@ -1719,8 +1725,8 @@ const fromOf = f => !f ? null : f.range ? { id: f.id, range: { ...f.range, toEnd
 function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    standing: !!b.standing, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members || b.source ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
     arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
     seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in,
@@ -1749,7 +1755,7 @@ function rebuild(data){
     if (d.arrow){ const { formula, ...use } = d.arrow; b.arrow = { ...use, input: { ...use.input }, output: use.output ? { ...use.output } : null }; b.fn = { formula: formula || null }; }
     if (d.seat) b.seat = typeof d.seat === 'string' ? d.seat : { hollow: [...d.seat.hollow] };
     if (d.in) b.in = true;
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (sourceKept(d.source)) b.source = sourceKept(d.source); if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -1977,9 +1983,9 @@ function clicked(el, e){
 
 /* what choosing a shape from "New" does, by the shape's "draw" */
 const draw = {
-  rectangle: shape => { select([]); const name = freeName();
+  rectangle: (shape, source = null) => { select([]); const name = freeName();
     return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (!block) return; block.el.remove();      /* what was drawn was a sketch: the message makes the block */
-      bus.send('add', { type: shape.name, rect: block.rect, name }); }); },
+      bus.send('add', { type: shape.name, rect: block.rect, name, ...(source ? { source } : {}) }); }); },
   /* a function: the next click, on a free edge of a block or of a written result, sets an arrow there, with a span of 1 at the row or column clicked and a gap of 2 */
   arrow: () => { select([]); hud.say('Click a free edge of a block or of a written result');
     return new Promise(resolve => {
@@ -2039,13 +2045,13 @@ bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); if (b && !s
   menuAt = view.toWorld(x, y); menu.openAt(x, y); });
 bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size && !openField) select([]); if (kind === 'length' && !openField?.over(x, y)) reach(x, y); });      /* while a formula is being typed the selection stays, and with it the panel the formula is in */
 bus.on('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); });
-bus.on('new', ({ type }) => { const shape = typeNamed(type); return draw[shape.draw]?.(shape); });      /* begins drawing; 'add' is the block */
+bus.on('new', ({ type, source = null }) => { const shape = typeNamed(type); return draw[shape.draw]?.(shape, sourceKept(source)); });      /* begins drawing; 'add' is the block. source: the kind of source to draw (sources.js), for a tensor */
 bus.on('copy', ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
 bus.on('save', ({ name = null }) => save(name));      /* name: what was typed when asked what to save it as */
 bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () => zipPicker.click());
 /* changing the project */
 bus.on('project.load', ({ files, name = null }) => openFrom(files, name), changes);
-bus.on('add', ({ type, rect, name }) => { const b = makeBlock({ ...typeNamed(type) }, rect, name); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
+bus.on('add', ({ type, rect, name, source = null }) => { const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 bus.on('place', ({ rects }) => { for (const r of rects) blockOf(r.id)?.set({ x: r.x, y: r.y, w: r.w, h: r.h }); shown(); }, changes);      /* where blocks go, and how big: the end of a move or a resize */
 /* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
 const chosen = fn => ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(); };
@@ -2083,6 +2089,7 @@ bus.on('unseat', ({ id }) => { const b = blockOf(id); if (b && b.seat) b.seat = 
 bus.on('entry.set', ({ id, key, text = null, settle = false }) => { const o = blockOf(id);
   if (o && measures(o)){ const src = sourceOf(o); hud.say(`${bare(o.name)} is a length of ${src ? bare(src.name) : 'another shape'}: change it there`); return shown(); }
   if (o && rangedOf(o)){ hud.say(`${bare(o.name)} is part of ${partOf(o)}: change it there`); return shown(); }      /* a part has no entries of its own */
+  if (o && typable(o.source, bare(o.name)).refused){ hud.say(typable(o.source, bare(o.name)).refused); return shown(); }      /* nor has a source */
   if (o && (isArrow(o) || givenOf(o) || seatedOf(o))){ hud.say(isArrow(o) ? 'An arrow\'s output is worked out: change its input or its formula' : givenOf(o) ? 'in is whatever the arrow is given: change the arrow\'s input' : `${bare(o.name)} is seated: its value is the arrow's output`); return shown(); }
   if (o){ const t = text === null ? { text: '' } : bound(text, reachList()), got = t.refused ? t : entered(t.text, lookupFor(o), { settle });
     if (got.refused) hud.say(`Not kept: ${got.refused}`);
@@ -2110,7 +2117,7 @@ bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupName
      reference to the one it was made from, with its entries, its definition and its colour */
   const from = inGroup(frame, s), linked = from.map(b => isNamed(b) && !b.members); pictures.forEach((p, i) => { if (linked[i]) p.inside = null; });
   const made = paste(at, pictures, false) || [];
-  made.forEach((b, i) => { const of = from[i]; if (!linked[i] || !of) return; b.values = of.values; b.ref = true; b.attrs = attrsOf(of); if (isArrow(of)) b.fn = of.fn;
+  made.forEach((b, i) => { const of = from[i]; if (!linked[i] || !of) return; b.values = of.values; if (of.source) b.source = of.source; b.ref = true; b.attrs = attrsOf(of); if (isArrow(of)) b.fn = of.fn;
     if (!spaceOf.has(of)){ const def = newSpace(of, s); for (const k of kinOf(of)) spaceOf.set(k, def); } spaceOf.set(b, spaceOf.get(of));
     const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set); });
   shown(); }, changes);
@@ -2145,7 +2152,9 @@ addEventListener('blur', () => { if (shiftHeld){ shiftHeld = false; relist(); } 
 let menuAt = { x: 0, y: 0 };
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
-  { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }) })) },
+  /* New: a kind of block to draw. Tensor is drawn by clicking it, as before; resting on it opens the sources (sources.js), each drawn the same way */
+  { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }),
+    ...(shape.name === 'tensor' ? { items: SOURCES.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind }) })) } : {}) })) },
   { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
   { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },
   { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => removing('cut') },

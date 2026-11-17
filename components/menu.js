@@ -10,6 +10,7 @@
                        the menu and hands the sentence to onWhy, so that the user is told why not.
                items   a list of the same kind, or a function returning one: makes the item open a submenu
                        on hover or click. A function is asked each time the menu opens, so the list can change.
+                       An item with both items and run opens its submenu on hover and is chosen by a click.
    It closes itself on a click elsewhere, Escape, or the window losing focus. */
 import { html, style } from './dom.js';
 
@@ -49,7 +50,7 @@ export function createMenu(items = [], { onWhy = () => {} } = {}){
           const sub = html`<ul role="menu"></ul>`; fill(sub, typeof it.items === 'function' ? it.items() : it.items);
           li.classList.add('open'); li.append(sub);
           const r = li.getBoundingClientRect(); place(sub, r.right + 6, r.top - 5, r.left - 6); };
-        b.addEventListener('pointerenter', open); b.addEventListener('click', open);
+        b.addEventListener('pointerenter', open); b.addEventListener('click', it.run ? () => { close(); it.run(); } : open);
       } else {
         if (it.hint) b.append(html`<span class="menu-hint"></span>`), b.lastChild.textContent = it.hint;
         b.disabled = !!(typeof it.disabled === 'function' ? it.disabled() : it.disabled);

@@ -246,6 +246,8 @@ test('what can be seated', () => {
   assert.deepEqual(seatable({ ...plain, named: false, name: 'Shape 2' }), { ok: true });      /* unnamed */
   assert.deepEqual(seatable(plain), { ok: true });                                              /* the only use of a variable nothing defines */
   assert.match(seatable({ ...plain, reference: true, uses: 2 }).refused, /H is a reference/);
+  assert.match(seatable({ ...plain, source: 'zeros' }).refused, /H is a source: its kind is what defines it/);      /* a source is defined already */
+  assert.deepEqual(seatable({ ...plain, source: null }), { ok: true });
   assert.match(seatable({ ...plain, reference: true, uses: 2, seated: true }).refused, /H is a reference/);      /* a reference to a seated variable: it is the reference that is in the way */
   assert.match(seatable({ ...plain, uses: 2 }).refused, /used in 2 places/);
   assert.match(seatable({ ...plain, defined: true }).refused, /defined in its definition space/);

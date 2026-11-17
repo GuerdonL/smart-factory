@@ -9,7 +9,7 @@ import { pieces } from '../algebra.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
-  entries: {}, inside: null, variable: null, standing: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
+  entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
 const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
@@ -271,6 +271,28 @@ test('a standing shape is written "standing": true, and a file that says "tile":
   assert.equal(now.top.shapes[0].inside.shapes[0].standing, true);
   const loose = now.top.shapes.find(d => d.name === 'Loose'); assert.equal(loose.standing, false);
   const written = JSON.parse(write(now).find(f => f.path === 'Loose.json').text); assert.equal('standing' in written, false); assert.equal('tile' in written, false);
+});
+
+test('a source is kept by its kind, with no entries; a kind this program has not got is no source', () => {
+  const p = project(space([shape('Eye', { cols: 3, rows: 3, source: 'identity', entries: { '1,1': 9 } }), shape('Bias', { cols: 4, rows: 1, source: 'zeros' }), shape('One', { source: 'ones' }), shape('Plain', { entries: { '1,1': 9 } })]));
+  const files = write(p), eye = json(files, 'Eye.json');
+  assert.equal(eye.source, 'identity'); assert.deepEqual(eye.value, { as: 'resolved', entries: {} });      /* whatever entries it was handed, none are written */
+  assert.equal(json(files, 'Bias.json').source, 'zeros'); assert.equal(json(files, 'One.json').source, 'ones');
+  assert.equal('source' in json(files, 'Plain.json'), false);
+  const back = read(files).top.shapes;
+  assert.deepEqual(back.map(d => [d.name, d.source, d.entries]), [['Eye', 'identity', {}], ['Bias', 'zeros', {}], ['One', 'ones', {}], ['Plain', null, { '1,1': 9 }]]);
+  /* a source of a later phase, or anything else: dropped, and the shape keeps the entries its file has */
+  for (const source of [{ noise: { seed: 1, dist: 'uniform' } }, { file: 'data/a.csv' }, 'Zeros', 7, true]){
+    const got = read([head(3), file('S.json', at('S', 0, 0, 2, 1, { source, value: { entries: { '1,1': 5 } } }))]).top.shapes[0];
+    assert.equal(got.source, null); assert.deepEqual(got.entries, { '1,1': 5 }); }
+  assert.equal(read([head(2), file('S.json', at('S', 0, 0, 2, 1))]).top.shapes[0].source, null);      /* format 2 has none */
+});
+
+test('a definition space with nothing in it has no directory, so its shape does not name one: saved and reopened, the files are the same', () => {
+  const p = project(space([shape('Empty', { inside: space() }), shape('Full', { inside: space([shape('In')]) })]));
+  const files = write(p);
+  assert.equal('definition' in json(files, 'Empty.json'), false); assert.equal(json(files, 'Full.json').definition, 'Full/');
+  assert.deepEqual(write(read(files)).map(f => f.text), files.map(f => f.text));
 });
 
 /* the projects that come with the repository */

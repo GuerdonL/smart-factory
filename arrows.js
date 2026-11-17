@@ -140,7 +140,7 @@
    seatable(block)              -> { ok: true } | { refused: a sentence }. A seat gives a variable its value, so a
                                    block can be seated if it is unnamed, or the only use of its variable where
                                    nothing else defines that. block: { name, named, uses, reference, defined,
-                                   standing, seated, part, measure, fused, arrow, input, feeds }. feeds: the arrow
+                                   standing, seated, part, measure, fused, source, arrow, input, feeds }. feeds: the arrow
                                    reads this block, directly or through other arrows (dependsOn): its output
                                    cannot be the block it is made from.
    definable(block)             -> { ok: true } | { refused }: whether a variable's definition space can be gone into
@@ -319,6 +319,7 @@ export function seatable(b){
   if (b.part) return { refused: `${name} is part of another shape, which is what defines it` };
   if (b.measure) return { refused: `${name} is a measure of another shape, which is what defines it` };
   if (b.fused) return { refused: `${name} is fused from other shapes, which are what define it` };
+  if (b.source) return { refused: `${name} is a source: its kind is what defines it` };
   if (b.standing) return { refused: `${name} stands in a matrix: it is an entry there` };
   if (b.reference) return { refused: `${name} is a reference: seat the shape the variable was made as` };
   if (b.seated) return { refused: `${name} is seated already: a variable has only one seat` };
