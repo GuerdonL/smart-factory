@@ -18,6 +18,11 @@
                                     count a whole number of at least 1 or { expr: text }. null for what is no repeat
                                     (a frame without one is an ordinary frame)
    LIMIT                         -> 64: the most cells that are drawn
+   MOST                          -> 4096: the most entries a matrix that comes of a tile is worked out for here (a
+                                    tile's matrix, or the one output of an arrow repeated in a tile). It is the
+                                    number phase 6 gives its evaluator for what the browser works out (maxEntries)
+   small(cols, rows)             -> whether a matrix that size is worked out: no more than MOST entries
+   tooLarge(cols, rows)          -> the reason given where it is not: its size is shown, and its numbers are not
 
    Counts
    circular(tile, reads, next)   -> whether a count depends on its own tile's size: whether tile (an id) is reached
@@ -89,7 +94,8 @@
                                     its pattern is covered exactly by blocks (rects, in units on the canvas), with
                                     no gap and no overlap: every cell's blocks set in their places, the filled size.
                                     error says what is wrong: a block outside the pattern, two that overlap, a gap.
-   entries(repeat, across, down, rects, valuesIn) -> a Map from "column,row": that matrix's entries.
+   entries(repeat, across, down, rects, valuesIn) -> a Map from "column,row": that matrix's entries; none where the
+                                    filled tile is not small (nothing is then asked of any cell).
                                     valuesIn(n, cx, cy) gives the entries (a Map) of the n-th rect's block as it is
                                     in cell (cx, cy): a block differs from cell to cell only through the index.
    whole(arrow, size)            -> the arrow as it reads a tile: all of the tile's matrix, start 1 and the whole
@@ -109,7 +115,9 @@
 import { evaluate, entered, refs } from './expression.js';
 import { isWhole, isError, valueText } from './algebra.js';
 
-export const LIMIT = 64;
+export const LIMIT = 64, MOST = 4096;
+export const small = (cols, rows) => cols * rows <= MOST;
+export const tooLarge = (cols, rows) => `it has ${cols} × ${rows} entries, more than the ${MOST} that are worked out here: its size is shown, and its numbers are not`;
 export const NO_INDEX = { err: 'not in a tile: there is no index' };
 const whole1 = v => Number.isInteger(v) && v >= 1;
 const along = side => side === 'e' || side === 'w' ? 'rows' : 'cols';
@@ -202,7 +210,7 @@ export function matrix(repeat, across, down, rects){
   return filled(repeat, across, down);
 }
 export function entries(repeat, across, down, rects, valuesIn){
-  const out = new Map();
+  const out = new Map(); if (!small(repeat.cols * across, repeat.rows * down)) return out;
   for (let cy = 1; cy <= down; cy++) for (let cx = 1; cx <= across; cx++) rects.forEach((rect, n) => {
     const ox = (cx - 1) * repeat.cols + rect.x - repeat.x, oy = (cy - 1) * repeat.rows + rect.y - repeat.y;
     for (const [key, v] of valuesIn(n, cx, cy)){ const [c, r] = key.split(',').map(Number); if (c >= 1 && c <= rect.w && r >= 1 && r <= rect.h) out.set((ox + c) + ',' + (oy + r), v); } });

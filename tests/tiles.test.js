@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -216,6 +216,19 @@ test('the entries of a tile\'s matrix are every cell\'s blocks set in their plac
   assert.deepEqual(two, M({ '1,1': 7, '2,1': 10, '3,1': 7, '4,1': 20 }));
   /* an entry a block has not been given is not in the matrix, and one outside the block's size is not taken */
   assert.deepEqual(entries(rep(2, 1), 1, 1, [rect(0, 0, 2, 1)], () => M({ '2,1': 5, '3,1': 9 })), M({ '2,1': 5 }));
+});
+
+test('a matrix that comes of a tile is worked out up to 4096 entries, and past that only its size is known', () => {
+  assert.equal(MOST, 4096);
+  assert.equal(small(64, 64), true); assert.equal(small(4096, 1), true); assert.equal(small(1, 1), true);      /* exactly the limit */
+  assert.equal(small(4097, 1), false); assert.equal(small(65, 64), false); assert.equal(small(1e9, 2), false);
+  assert.match(tooLarge(4097, 1), /^it has 4097 × 1 entries, more than the 4096 that are worked out here: its size is shown/);
+  /* at the limit every cell is asked; one pattern more and none is, however many there are */
+  let asked = 0; const one = () => { asked++; return M({ '1,1': 7 }); };
+  assert.equal(entries(rep(1, 1), 4096, 1, [rect(0, 0, 1, 1)], one).size, 4096); assert.equal(asked, 4096);
+  asked = 0; assert.equal(entries(rep(1, 1), 4097, 1, [rect(0, 0, 1, 1)], one).size, 0); assert.equal(asked, 0);
+  assert.equal(entries(rep(2, 1), 1e9, 1e9, [rect(0, 0, 2, 1)], one).size, 0); assert.equal(asked, 0);
+  assert.deepEqual(matrix(rep(2, 1), 1e9, 1, [rect(0, 0, 2, 1)]), { cols: 2e9, rows: 1 });      /* its size is still said */
 });
 
 test('an arrow that reads a tile reads all of it', () => {

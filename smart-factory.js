@@ -853,7 +853,7 @@ function paint(){
   else if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), wrong = [...(o.values || [])].filter(([, v]) => isError(v));
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: t?.cols || 1, rows: t?.rows || 1, scalar: false, plain: true, fixed: true,
       shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` : ''), attributes: arrowRows(one, fn),
-      notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: t ? { letter: initials((seat || one).name), values: o.values || new Map(), colsName: t.colsName, rowsName: t.rowsName } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
     const values = valuesOf(one), scalar = cols === 1 && rows === 1 && !one.members, wrong = scalar ? [] : [...values].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
@@ -1602,7 +1602,9 @@ function readOf(s, inp){
   /* a tile: its matrix, where its pattern is covered exactly; where it is not, it is there and has no value (arrows.js: standing) */
   if (inp.as === 'tile'){ const t = s && tileInfo(s, inp.id); if (!t) return null;
     if (t.matrix.error) return { rect: t.rect, error: 'its tile has no matrix: ' + t.matrix.error };
-    return { rect: t.rect, cols: t.matrix.cols, rows: t.matrix.rows, colsName: null, rowsName: null, get values(){ return t.values ||= tileValues(s, inp.id); } }; }
+    /* past tiles.js's limit its numbers are not worked out here: the size is all there is, and the arrow says why */
+    return { rect: t.rect, cols: t.matrix.cols, rows: t.matrix.rows, colsName: null, rowsName: null, note: tiles.small(t.matrix.cols, t.matrix.rows) ? null : tiles.tooLarge(t.matrix.cols, t.matrix.rows),
+      get values(){ return t.values ||= tileValues(s, inp.id); } }; }
   const blk = s && s.blocks.find(k => k.id === inp.id);
   if (!blk || isOff(blk)) return null;
   if (isArrow(blk)){ if (inp.as !== 'result') return null; const o = outputOf(blk); return o.place && o.type ? { rect: o.place, ...o.type, values: o.values || new Map() } : null; }      /* another arrow's output */
@@ -1679,7 +1681,9 @@ function outputOf(a){
     /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
     const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map });
     let values = null;
-    if (st.part && !defined && (!arrow.output || (arrow.output.cols === st.came.cols && arrow.output.rows === st.came.rows))){
+    const large = map && st.came && !st.came.error && !tiles.small(st.came.cols, st.came.rows), note = large ? tiles.tooLarge(st.came.cols, st.came.rows) : sized(input)?.note || null;      /* an output of every cell that is too large to work out: its size, and why */
+    if (large) values = new Map();
+    else if (st.part && !defined && (!arrow.output || (arrow.output.cols === st.came.cols && arrow.output.rows === st.came.rows))){
       const matrix = id => { const m = blockOf(id); if (!m || isArrow(m)) return undefined; const r = unitsOf(m); return { cols: r.w, rows: r.h, values: lost(m) ? new Map() : valuesOf(m) }; }, base = lookupFor(a);
       /* one cell's output: the covered part passed through, or the formula worked out for each entry, which may read the index of its cell */
       const cell = k => { const part = covered(k === 1 ? arrow : { ...arrow, start: tiles.startIn(arrow, k) }, input); if (!part) return null; const x = passed(input.values, part);
@@ -1687,7 +1691,7 @@ function outputOf(a){
       if (!map) values = cell(1);
       else { values = new Map();      /* every cell's output, set beside the last in the direction of repeating */
         for (let k = 1; k <= map.count; k++) for (const [key, v] of cell(k) || []){ const [c, r] = key.split(',').map(Number); values.set(rows ? c + ',' + (r + (k - 1) * st.part.rows) : (c + (k - 1) * st.part.cols) + ',' + r, v); } } }
-    const out = { ...st, values, defined: !!defined, mapWarn: map?.warn || null };
+    const out = { ...st, values, defined: !!defined, mapWarn: map?.warn || null, note };
     if (firstCell()) memo?.set(a, out);
     return out;
   } finally { busy.delete(a); }
