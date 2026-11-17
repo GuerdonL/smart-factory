@@ -452,10 +452,11 @@ test('difference: fuses what fits together, cuts two that overlap, and says why 
 });
 
 test('intersection: exactly two shapes that overlap, however they do', () => {
-  assert.deepEqual(intersection([R(0, 0, 6, 4), R(2, 0, 2, 4)]), { overlap: R(2, 0, 2, 4) });
-  assert.deepEqual(intersection([R(0, 0, 8, 6), R(3, 2, 2, 2)]), { overlap: R(3, 2, 2, 2) });      /* where a difference is refused */
-  assert.deepEqual(intersection([R(0, 0, 4, 4), R(2, 2, 4, 4)]), { overlap: R(2, 2, 2, 2) });
-  assert.deepEqual(intersection([R(0, 0, 2, 2), R(0, 0, 2, 2)]), { overlap: R(0, 0, 2, 2) });      /* the same rectangle: all of it */
+  assert.deepEqual(intersection([R(0, 0, 6, 4), R(2, 0, 2, 4)]), { overlap: R(2, 0, 2, 4), from: 0 });
+  assert.deepEqual(intersection([R(0, 0, 8, 6), R(3, 2, 2, 2)]), { overlap: R(3, 2, 2, 2), from: 0 });      /* where a difference is refused */
+  assert.deepEqual(intersection([R(0, 0, 4, 4), R(2, 2, 4, 4)]), { overlap: R(2, 2, 2, 2), from: 0 });
+  assert.deepEqual(intersection([R(0, 0, 2, 2), R(0, 0, 2, 2)]), { overlap: R(0, 0, 2, 2), from: 0 });      /* the same rectangle: all of it */
+  assert.equal(intersection([R(2, 0, 2, 4), R(0, 0, 6, 4)]).from, 0);      /* the part is of the lower shape, the first given, whichever is the larger */
   assert.deepEqual(intersection([R(0, 0, 3, 2), R(3, 0, 2, 2)]), { refused: 'The shapes do not overlap' });
   assert.deepEqual(intersection([R(0, 0, 3, 2)]), { refused: 'Intersect takes exactly two shapes' });
   assert.deepEqual(intersection([R(0, 0, 6, 4), R(2, 0, 2, 4), R(1, 0, 2, 4)]), { refused: 'Intersect takes exactly two shapes' });

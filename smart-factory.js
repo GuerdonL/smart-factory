@@ -1010,7 +1010,7 @@ function differenceOf(){
 function intersectOf(){
   const list = inOrder([...selected]), d = intersection(list.map(unitsOf));
   if (d.refused) return hud.say(d.refused);
-  operate('intersect', list, [[list[0], d.overlap]]);      /* the lower of the two gives the entries */
+  operate('intersect', list, [[list[d.from], d.overlap]]);      /* a part of the lower of the two, as algebra.js has it */
 }
 function fuse(){
   const list = [...selected].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
@@ -1389,7 +1389,8 @@ const draw = {
 };
 
 /* the right-click menu. A right click on a block that is not selected selects it first, so Cut, Copy and Delete mean that block.
-   Paste puts the copy where the click was. */
+   Paste puts the copy where the click was. Difference, Intersect and Revert (the boolean tool) are greyed where the
+   selection does not allow them, and chosen all the same say why in the readout. */
 /* ---- messages ----
    What each message does. Its payload is plain data; blocks are named by id. The ones marked `changes` can alter the
    project; the rest look at it, move about in it, or change what is selected. */

@@ -80,7 +80,10 @@
    difference(rects) -> { fuse: true } | { cut: what cut gives } | { refused: a sentence }
        what Difference does with a selection: shapes that fit together are fused; exactly two that overlap are cut;
        anything else is refused, and the sentence says why (three or more of which some overlap: a cut takes exactly two).
-   intersection(rects) -> { overlap } | { refused: a sentence }      exactly two rects whose insides overlap
+   intersection(rects) -> { overlap, from } | { refused: a sentence }
+       exactly two rects whose insides overlap, given back to front as they are drawn. The shape made is a part of
+       the lower one, the first given: from is its place in rects, 0. The upper one is only a stencil.
+       (For a cut the order says only which leftovers are whose: difference's cut.a is what is left of rects[0].)
    A shape made by a cut or an intersection is a range of its source: whole columns and rows, counted from 0.
    rangeOf(source, part) -> { col, row, cols, rows, toEnd: { cols, rows } }
        the range of source (a rect) that part (a rect inside it) covers. toEnd.cols is true where the part reaches the
@@ -243,7 +246,7 @@ export function difference(rects){
 export function intersection(rects){
   if (rects.length !== 2) return { refused: 'Intersect takes exactly two shapes' };
   const overlap = lap(rects[0], rects[1]);
-  return overlap ? { overlap } : { refused: 'The shapes do not overlap' };
+  return overlap ? { overlap, from: 0 } : { refused: 'The shapes do not overlap' };
 }
 export const rangeOf = (source, part) => ({ col: part.x - source.x, row: part.y - source.y, cols: part.w, rows: part.h,
   toEnd: { cols: part.x + part.w === source.x + source.w, rows: part.y + part.h === source.y + source.h } });
