@@ -45,6 +45,8 @@ who can reach the port can read and overwrite the projects.
 - `components/`: one file per thing on screen, each carrying its own markup, styles and behaviour.
 - `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules; what a cut leaves, and what
   a part of a shape is), how a project is written to files, and zip; no drawing.
+- `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
+  to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
 - `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
   and worked out. No drawing. `algebra.js` gives `combine` and the value helpers from `values.js` too.
 - `bus.js`: the message bus. Everything the user does takes effect as a named message of plain data (blocks by id)
@@ -54,14 +56,14 @@ who can reach the port can read and overwrite the projects.
 - `ids.js`: a seeded source of ids and of chance, kept with each project, so groups keep their ids and the same
   messages make the same choices.
 - `system.js`: the program's own variables, the tree a `.config` shadows.
-- `shapes/`: the kinds of block, one config each, listed in `shapes/index.json`.
+- `shapes/`: the kinds of block, one config each, listed in `shapes/index.json`: `tensor`, `data-in` and `arrow`.
 - `projects/`: saved projects, including `default-menu`, what the page opens on until you save a `menu` of your own.
 - `server.py`, `smart-factory.service`: the server and the unit that keeps it running.
 - `tests/`: tests of everything that does no drawing, one file to each file tested.
 
 ## Tests
 
-    node --test                                # the JavaScript: values, expression, algebra, project, bus, history, ids, zip
+    node --test                                # the JavaScript: values, expression, algebra, arrows, project, bus, history, ids, zip
     python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, and the PIN
 
 Nothing to install: the tests use Node's own test runner (Node 20 or later) and Python's unittest. `tests/solver.js`
@@ -102,14 +104,16 @@ A touch that is not defined draws its mark in the warning colour with what does 
 **One rule per piece.** Shapes joined by touching are a piece, and a piece is all products, all one sum, or all
 times and over. A piece that mixes them is `mixed rules`, and every mark in it turns to the warning colour. To use
 one result inside another rule, name it first (click its matrix and type a name: its shapes fold into a new shape of
-the result's size), then touch that. So `x · W + b` is two steps.
+the result's size), then touch that; or carry it out with an arrow (see "Arrows") and touch the block seated on the
+arrow's output. So `x · W + b` is two steps.
 
 **Where a result is written.** Beside its piece, after an `=`. A Times or Over pair is different: the two shapes
 enclose two empty rectangles, and the result is written in one of them, on the bare canvas (the lower right one for
 Times, the lower one for Over). `.show_hadamard_copies` in the `.config` chooses: `1` (the default) writes it in one,
 `2` in both, `0` beside the piece like any other result. Only a rectangle the size of the result is used, so with a
 repeated operand there may be one, or none, and the result goes beside the piece. Clicking the matrix names the
-result, wherever it is written.
+result, wherever it is written. Named in a hollow, the result is not folded away: a block of that name is seated in
+the hollow and the two shapes stay where they are (see "Arrows").
 
 The result of a sum, or of times and over, is written as its size and its entries in symbols (`a₁₁+b₁₁`), as a
 product's is; it is not worked out in numbers yet.
@@ -235,6 +239,112 @@ Deleting a variable that formulas refer to warns first, saying how many; going a
 place, each showing the error mark with "missing variable". Undo brings the variable back and they work again.
 
 `projects/entries-and-values` shows each of these.
+
+## Arrows
+
+An arrow is a function, drawn as a triangle. Its base lies against rows or columns of an input, it points away, and
+its output is written on the far side, as a matrix on the bare canvas. With nothing defined it passes its input
+through unchanged, which makes it the way to carry a result somewhere else.
+
+                gap
+              |<---->|
+    +---------+      +---------+
+    |         |\     |         |
+    |  input  | >    | output  |      side: e     start: 1     span: 3 (all rows)
+    |         |/     |         |
+    +---------+      +---------+
+
+**Making one.** Right-click, New, Function, then click a free edge of a block, of a written result (beside a piece
+of several shapes, or in a hollow) or of another arrow's output. The arrow appears there covering the one row or
+column clicked, with a gap of 2. The edge under its base has to be free: no other block may lie against that part of
+it. A click anywhere else makes nothing, and the readout says so.
+
+**What it is made of.** Its input; the side of the input it is on (`n`, `e`, `s`, `w`: on `e` and `w` the base runs
+along rows, on `n` and `s` along columns); the first row or column it covers and how many (start and span); the gap,
+in units, from the input's edge to the output; an output size it promises, or none; and its function. The output's
+place is never stored: it starts the gap away from the edge, level with the first row or column covered, always on
+whole units. Move the input and the arrow and its output go with it. One arrow over twenty rows is one function
+applied once to those twenty rows, and gives one output.
+
+**Changing it.** Click the triangle to select it: a frame goes round it and its output. Drag it along its line to
+change the gap, along the input's edge to change the start, and pull the knob at either end of its base to change
+the span. Or type in the properties panel: name, side, start, span, gap, a name for the gap, the output size
+(`4 × 3`, or empty for no promise) and the formula. Start, span and gap take a formula that comes to a whole number
+of at least 1, worked out once. A gap given a name is listed at the right edge and can be dragged into a formula as
+a measure; it never means anything but layout. What is refused (a span past the input, a gap of 0, an edge that is
+not free) is said in the readout, and the arrow stays as it was.
+
+**What the function is.** One of three things:
+
+- *Nothing.* The covered rows or columns pass through unchanged.
+- *An entry formula*, typed in the panel, worked out once for every entry of the output, in the language of
+  "Entries, values and formulas". In it `x` is the input's entry at this place; `i` and `j` are this entry's column
+  and row, from 1; a capsule for a whole matrix the size of the output (type `@`, choose the variable, then "all of
+  it"; or drag the shape from the list onto the formula) is that matrix's entry at this place; and a capsule for a
+  measure is that number. So ReLU is `max(x, 0)`, a causal mask is `select(i > j, -inf, x)`, an identity is
+  `i == j`, and the larger of two matrices is `max(x, @B)`. A matrix that is not the size of the output is an
+  error in every entry, and the panel says why. Nowhere else can a formula refer to a whole matrix.
+- *A definition space.* Click an arrow that is selected to open it, as for a block. The space holds one block that
+  cannot be deleted, renamed or resized, called `in`, drawn pale with a dashed edge: it is the covered part of the
+  input, in size, side names and entries. `= [output]` stands at the centre. What the space comes to is the
+  function's result: touch `in` against a 4-row block and the arrow gives that product. Any variable in reach can
+  be used there, `in` itself more than once (drag it from the list). Where the space holds arrows of its own, its
+  result is the one thing in it nothing reads from.
+
+A formula comes first; with none, the definition space; and where that holds only `in`, the input passes through. A
+function never changes its input.
+
+**What the output shows.** A pass-through and an entry formula show their numbers, worked out exactly. An arrow
+defined in its space shows its size and its entries as symbols; so does one whose input is a product, a sum or an
+elementwise result, which are not worked out in numbers yet.
+
+**Checking.** With no output size set, the output is whatever size the function comes to. With one set, an arrow
+whose function does not come to it is drawn in the warning colour, with its output, and its definition space shows
+`≠`; where a block is seated on the output and both it and the result name a side, the names must agree too. An
+arrow is also drawn in the warning colour when its input is gone, when its span runs past its input, and when
+another block has been set against the edge under its base. Select it and the panel says which.
+
+**The seat.** The output is not a block, so it touches nothing. To use it in a product, a sum or on a diagonal it
+needs a block, and a block that sits on an output is seated:
+
+- Click the output and type a name: a block of that name is made, seated on it.
+- Or drag a block onto the output. The arrow's output size becomes the block's size.
+- A seated block is drawn inside the output's brackets, a little inset. Its value is the arrow's output; nothing can
+  be typed into it, and the entries it held before are kept in the file and not used. It is the size of the output
+  and follows it.
+- It is an ordinary block for touching: set a 4-row block against the right edge of a 4-wide seated block and that
+  is a product.
+- Drag it along the arrow's line to change the gap. Drag it off the line and it stays seated, and a reference to it
+  is set down where it was dropped. References to a seated variable show the arrow's output.
+- Only an unnamed block, or the one use of a variable that nothing else defines, can be seated: a reference, a
+  variable used in several places, one with shapes in its definition space, a part of another shape, a fused shape
+  and a block that is seated already are each refused, with the reason.
+- Unseat, in the right-click menu, takes a block off its seat and leaves it where it is, with the entries it had.
+- An arrow, the block `in` and a seated block are not cut, fused, folded away or transposed; the readout says why.
+
+**In a hollow.** Naming the result of a Times or Over pair in its hollow seats a block there in the same way, and
+leaves the pair alone. A block in a hollow lies between the two shapes and takes no part in touching: drag it
+straight out along its row or its column, at least a unit clear, and a pass-through arrow is made from the hollow's
+result to it, with the block seated on that arrow. Where `.show_hadamard_copies` is 1, the hollow the result is
+written in is the one an arrow reads from.
+
+**Deleting.** Deleting an arrow's input deletes the arrow, and deleting an arrow deletes the block seated on it and
+any arrow that reads its output, after the usual warning. Deleting a seated block leaves the arrow.
+
+**Named arrows.** An arrow given a name is a variable, listed at the right edge with a small triangle. Drag it from
+the list onto a free edge and it is the same function on a new input: change the formula through either and both
+change. The new input has to fit the function's own input: each side of `in` that has a name must meet a side of
+that name, and each side without one a side of the same length. Dropped anywhere but an edge it is refused with
+"set it against rows or columns".
+
+**The program's functions.** Seven come with the program, behind the plus in the list with the other dotted names:
+`.recip` (`1/x`), `.sqrt`, `.exp`, `.ln`, `.abs`, `.tanh` and `.erf`. Each is an ordinary entry formula, read in the
+panel of an arrow that uses it. Dragged onto a free edge, one makes an arrow there over the whole side that refers
+to it by name; it cannot be changed from there. An arrow of your own given one of those names shadows it, from its
+space downwards, as a shape shadows a variable of the `.config`: every use of that name then applies yours. ReLU,
+softmax and layer norm are not shipped: they are built from these, touching and `max`.
+
+`projects/arrows` shows each of these.
 
 ## How results are written
 
