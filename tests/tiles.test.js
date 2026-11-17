@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -30,7 +30,7 @@ test('a count that is a formula comes to a whole number from sizes alone', () =>
   assert.match(count({ expr: '@[keys:x] - 4' }, lookup).refused, /comes to 0/);                      /* and one less */
   assert.match(count({ expr: '@[keys:x] / 3' }, lookup).refused, /comes to 4\/3/);
   assert.match(count({ expr: '@[gone:x]' }, lookup).refused, /an error \(missing variable\)/);
-  assert.match(count({ expr: '@[keys:m]' }, lookup).refused, /sizes alone: a width or a height, not a mass/);
+  assert.match(count({ expr: '@[keys:m]' }, lookup).refused, /not a mass that is unknown or worked out/);      /* no entryOf: nothing is known of it */
   assert.match(count({ expr: '@[keys:a:heads]' }, lookup).refused, /not an attribute/);
   assert.match(count({ expr: '@[keys:g]' }, lookup).refused, /not a gap/);
   assert.match(count({ expr: 'heads' }, lookup).refused, /unknown name: heads/);
@@ -56,6 +56,24 @@ test('a count that depends on its own tile\'s size is refused, whatever it would
   assert.equal(c.across, 1); assert.equal(c.down, 3); assert.match(c.warn, /^across: it depends on itself/);
 });
 
+test('a count may read the mass of a scalar whose entry is a literal number, or a formula of sizes and such masses', () => {
+  /* n holds 3; half holds 3/2; k holds a formula of a size; deep a formula of k's mass; own a formula of its own x;
+     attr a formula of an attribute; loop reads itself; seated is worked out some other way */
+  const held = { n: 3, half: { n: 3, d: 2, k: 0 }, k: { expr: '@[keys:y] + 1' }, deep: { expr: '2 * @[k:m]' }, own: { expr: 'x * 2' }, attr: { expr: '@[keys:a:heads]' }, loop: { expr: '@[loop:m] + 1' }, fn: { expr: 'max(@[keys:x], 2)' } };
+  const entryOf = id => held[id];
+  for (const ok of ['@[n:m]', '@[k:m]', '@[deep:m]', '@[fn:m]', '@[keys:x] * @[n:m]', '@[half:m] * 2']) assert.deepEqual(settled(ok, entryOf), { ok: true }, ok);
+  assert.match(settled('@[own:m]', entryOf).refused, /not a mass worked out from the scalar's own measures/);
+  assert.match(settled('@[attr:m]', entryOf).refused, /not an attribute/);
+  assert.match(settled('@[seated:m]', entryOf).refused, /not a mass that is unknown or worked out/);      /* entryOf knows nothing of it */
+  assert.match(settled('@[loop:m]', entryOf).refused, /not a mass that depends on itself/);
+  assert.match(settled('@[keys:x] + @[keys]', entryOf).refused, /not a whole shape/);
+  /* and what the count then comes to is still to be a whole number of at least 1 */
+  const look = t => typeof t === 'string' ? undefined : t.id === 'n' ? 3 : t.id === 'half' ? { n: 3, d: 2, k: 0 } : lookup(t);
+  assert.deepEqual(count({ expr: '@[n:m]' }, look, { entryOf }), { count: 3, formula: true });
+  assert.deepEqual(count({ expr: '@[half:m] * 2' }, look, { entryOf }), { count: 3, formula: true });
+  assert.match(count({ expr: '@[half:m]' }, look, { entryOf }).refused, /comes to 3\/2/);
+});
+
 test('what typing a count stores: a number, or a formula where it names a size', () => {
   assert.deepEqual(typed('3', lookup), { value: 3 });
   assert.deepEqual(typed('2 * 3', lookup), { value: 6 });                    /* numbers alone: what it comes to */
@@ -63,7 +81,8 @@ test('what typing a count stores: a number, or a formula where it names a size',
   assert.deepEqual(typed('@[keys:y] + 1', lookup), { value: { expr: '@[keys:y] + 1' } });
   assert.match(typed('', lookup).refused, /nothing was typed/);
   assert.match(typed('0', lookup).refused, /at least 1/); assert.match(typed('3/2', lookup).refused, /at least 1/);
-  assert.match(typed('@[keys:m]', lookup).refused, /sizes alone/);
+  assert.match(typed('@[keys:m]', lookup).refused, /settled before anything is worked out/);
+  assert.deepEqual(typed('@[keys:m]', lookup, { entryOf: () => 9 }), { value: { expr: '@[keys:m]' } });
   assert.match(typed('2 +', lookup).refused, /cannot be read/);
 });
 

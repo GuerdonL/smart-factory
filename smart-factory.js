@@ -1436,8 +1436,10 @@ function sizeDeps(id){
   const one = !isArrow(k) && k.values.get('1,1'); if (isFormula(one)) out.push(...refs(one.expr).map(c => c.id));
   return out;
 }
+/* what a scalar's one entry holds as it is stored, for tiles.js (settled): undefined where it is no scalar, or its number is worked out some other way */
+const entryOf = id => { const b = blockOf(id); return !b || !single(b) || b.source || seatedOf(b) || givenOf(b) || b.from || rangedOf(b) || standingOf(b) ? undefined : b.values.get('1,1'); };
 /* whether a stored count of tile g depends on that tile's own size: such a count is refused, and one met in a project is 1 with a warning */
-const loopsOf = (g, stored) => ({ loops: !!stored && typeof stored === 'object' && tiles.circular(g, refs(stored.expr || '').map(c => c.id), sizeDeps) });
+const loopsOf = (g, stored) => ({ entryOf, loops: !!stored && typeof stored === 'object' && tiles.circular(g, refs(stored.expr || '').map(c => c.id), sizeDeps) });
 /* a tile as it stands: its repeat, what its counts come to, what is drawn of it, its blocks and its matrix. Worked out once for every time the screen is brought up to date. */
 function tileInfo(s, g){
   const rep = s.repeats.get(g); if (!rep) return null;
@@ -1521,7 +1523,7 @@ function setTile({ frame, ...patch }){
 /* what was typed in the panel of a tile: a count takes a whole number or a formula of sizes; the pattern's sides a whole number, worked out once, now */
 function tileTyped(g, key, text){
   const t = bound(text, reachList());
-  if (key === 'across' || key === 'down'){ const got = t.refused ? t : tiles.typed(t.text, sizeLookup);
+  if (key === 'across' || key === 'down'){ const got = t.refused ? t : tiles.typed(t.text, sizeLookup, { entryOf });
     if (got.refused){ hud.say(`${cap(key)}: ${got.refused}`); return shown(); }
     return bus.send('tile.set', { frame: g, [key]: got.value }); }
   const got = t.refused ? t : evaluate(t.text, sizeLookup), side = got.refused ? got : got.empty ? { refused: 'nothing was typed' } : sideOf(got.value);

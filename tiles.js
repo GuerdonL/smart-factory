@@ -31,16 +31,25 @@
                                     what its counts read; an arrow's output its input (a tile it reads, a tile it
                                     is repeated in); a seated block its arrow; a reference its variable; a side
                                     the sides that share its name. The page gathers next; this walks it, once.
-   count(stored, lookup, { loops }) -> { count, formula } | { refused: a sentence }: what a stored count comes to.
+   count(stored, lookup, { loops, entryOf }) -> { count, formula } | { refused: a sentence }: what a stored count comes to.
                                     loops: the formula depends on the tile's own size (circular): it is refused
                                     with "it depends on itself", whatever it would come to.
                                     A number has to be whole and at least 1. A formula is worked out
-                                    (expression.js) and has to come to such a number from sizes alone: the only
-                                    capsules it may hold are a variable's width and height (x, y). lookup is
-                                    expression.js's. formula says whether it was one.
-   typed(text, lookup)           -> { value } | { refused }: what typing text for a count stores: a whole number, or
+                                    (expression.js) and has to come to such a number from what is settled before
+                                    anything is worked out (settled): lookup is expression.js's. formula says
+                                    whether it was one.
+   settled(text, entryOf)        -> { ok: true } | { refused }: whether a formula reads only what is settled when
+                                    the model is built: a variable's width or height (x, y), or the mass of a
+                                    scalar whose own entry is a literal number or such a formula in its turn.
+                                    entryOf(id) gives what that scalar's entry holds as it is stored (a number,
+                                    { n, d, k }, or { expr }), or undefined where it is no scalar or its number is
+                                    worked out some other way (seated, a part, a measure, defined in its space).
+                                    An attribute, a gap, a whole shape, a bare name in a scalar's formula (its own
+                                    x or mass), and a mass that is unknown or worked out are refused.
+   typed(text, lookup, options)  -> { value } | { refused }: what typing text for a count stores: a whole number, or
                                     { expr } where it names a size. Arithmetic on numbers alone is kept as what it
-                                    comes to. Refused where count would refuse it, or nothing was typed.
+                                    comes to. Refused where count would refuse it (options are count's), or nothing
+                                    was typed.
    counts(repeat, lookup, { across, down }) -> { across, down, formula: { across, down }, warn }: both counts as
                                     numbers. One that cannot be worked out is 1, and warn says why (null where
                                     both can). The third argument is count's, for each of the two: a count that
@@ -135,21 +144,35 @@ export function circular(tile, reads, next){
   while (todo.length){ const id = todo.pop(); if (id === tile) return true; if (seen.has(id)) continue; seen.add(id); todo.push(...next(id)); }
   return false;
 }
-export function count(stored, lookup = () => undefined, { loops = false } = {}){
+const WORDS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf', 'inf', 'infinity', 'true', 'false']);
+const NOT_SETTLED = 'a count comes from what is settled before anything is worked out: a width, a height, or the mass of a scalar that holds a number or a formula of those; not ';
+export function settled(text, entryOf = () => undefined, depth = 0, inner = false){
+  if (depth > 16) return { refused: NOT_SETTLED + 'a mass that depends on itself' };
+  /* a bare name in a scalar's own formula is one of its own measures, each of which is its mass again */
+  if (inner && (String(text).replace(/@\[[^\]]*\]/g, ' ').match(/[A-Za-z_][\w.]*/g) || []).some(name => !WORDS.has(name.toLowerCase()))) return { refused: NOT_SETTLED + 'a mass worked out from the scalar\'s own measures' };
+  for (const r of refs(text)){
+    if (r.measure === 'x' || r.measure === 'y') continue;
+    if (r.measure !== 'm') return { refused: NOT_SETTLED + (r.measure === 'a' ? 'an attribute' : r.measure === 'g' ? 'a gap' : 'a whole shape') };
+    const held = entryOf(r.id);
+    if (typeof held === 'number' || (held && typeof held === 'object' && Number.isInteger(held.n))) continue;      /* a literal number */
+    if (!held || typeof held.expr !== 'string') return { refused: NOT_SETTLED + 'a mass that is unknown or worked out' };
+    const within = settled(held.expr, entryOf, depth + 1, true); if (within.refused) return within; }
+  return { ok: true };
+}
+export function count(stored, lookup = () => undefined, { loops = false, entryOf = () => undefined } = {}){
   if (typeof stored === 'number') return whole1(stored) ? { count: stored, formula: false } : { refused: NOT(stored) };
   if (!stored || typeof stored !== 'object' || typeof stored.expr !== 'string') return { refused: NOT(stored) };
   if (loops) return { refused: 'it depends on itself: what it reads follows this tile\'s own size' };
-  const other = refs(stored.expr).find(r => r.measure !== 'x' && r.measure !== 'y');
-  if (other) return { refused: 'a count comes from sizes alone: a width or a height, not ' + (other.measure === 'm' ? 'a mass' : other.measure === 'a' ? 'an attribute' : other.measure === 'g' ? 'a gap' : 'a whole shape') };
+  const from = settled(stored.expr, entryOf); if (from.refused) return from;
   const got = evaluate(stored.expr, lookup);
   if (got.empty) return { refused: 'nothing was typed' };
   return whole1(got.value) && isWhole(got.value) ? { count: got.value, formula: true } : { refused: NOT(got.value) };
 }
-export function typed(text, lookup = () => undefined){
+export function typed(text, lookup = () => undefined, options = {}){
   const got = entered(text, lookup, { settle: true });
   if (got.clear) return { refused: 'nothing was typed' };
   if (got.refused) return got;
-  const c = count(got.value, lookup);
+  const c = count(got.value, lookup, options);
   return c.refused ? c : { value: c.formula ? { expr: got.value.expr } : c.count };
 }
 export function counts(repeat, lookup = () => undefined, each = {}){
