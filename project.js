@@ -14,6 +14,7 @@
            Key Weights.json
          Pair.frame.json           a frame: several shapes in one file
          .config                   the frame called .config, under exactly that name (see below)
+         operations.json           what Difference and Intersect have cut in this space, if anything (see below)
 
    The project's own directory is the top space, the Menu.
 
@@ -40,6 +41,13 @@
                                                  variable was made as: delete that shape and this goes with it
          "from": { "id": "b3k…", "side": "x" },    it is a measure of the shape with that id (x its width, y its height, m a scalar's mass):
                                                  its one entry is that length, whatever it is now, and is not written here
+         "from": { "id": "b3k…", "range": { "col": 2, "row": 0, "cols": 2, "rows": 4, "toEnd": { "cols": false, "rows": true } } },
+                                                 or, with a range in place of a side: it was made by a cut or an intersection,
+                                                 and is that part of the shape with that id (its source, kept in the
+                                                 space's operations): cols columns from column col and rows rows from row
+                                                 row, counted from 0. Where toEnd.cols is true it runs to the source's
+                                                 last column whatever size the source now is, and cols is not looked at;
+                                                 toEnd.rows likewise. Its entries are the source's, and are not written here.
          "transposed": true,                     it is the transpose of its variable: its columns and rows here are the
                                                  transpose's, and its entries are written as the variable's own
          "joined": [ { "at": { "x": 0, "y": 0, "w": 0.5, "h": 1 }, "shape": { a shape's config } }, … ],
@@ -62,6 +70,18 @@
    A frame named .config is written as the file .config in its space's directory, in the same form as any frame.
    The page reads it for root variables: see configure in smart-factory.js. There may be one at every level.
 
+   A space's operations, the file operations.json in its directory (there only when the space has any):
+       { "format": "smart-factory/operations", "version": 3,
+         "operations": [ { "id": "o4k09zq",                    the operation's id
+                           "op": "difference",                 or "intersect"
+                           "sources": [ { a shape's config }, { a shape's config } ],
+                                                               the two shapes it was done to, whole, as they were and
+                                                               where they were: they are off the canvas, kept for
+                                                               Revert and for the shapes made of them to read
+                           "results": [ "b0x7m2c", … ] } ] }   the ids of the shapes it made
+   A source is written as any shape is, its definition directory (if it has one) beside the file. A shape fused
+   from several keeps them in its own "joined", as before; no operation is written for that.
+
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
    project: { top: space, saved: an ISO date, ids: where the project's source of ids has got to (ids.js), kept in project.json }
@@ -69,7 +89,8 @@
    read's project also carries converted: how many old stacks were fused on the way in, and changed: how many other
    pieces of an old project now read differently (see below for both); each 0 for a project of this format.
 
-   The format is 3. Format 3 adds no field to format 2. What changed is what a file means: shapes of one width set one
+   The format is 3. Format 3 adds to format 2 a space's operations and a shape's from.range, both set out above; a
+   format 2 project has neither, and is read as having no operations. What else changed is what a file means: shapes of one width set one
    directly on the next were a stack in format 2, its rows theirs (rows appended), and are a sum in format 3. Nothing
    in a file marks a stack, so the format number is all that tells the two apart. Reading format 2 or lower, every
    stack as it was then (lone shapes of one width, one directly on the next, in a space whose shapes are worked out:
@@ -88,10 +109,11 @@
    Format 1 had two spaces at the top: the top level, in the project's directory, and the settings, in _settings/.
    Now there is one, the Menu, which is what the settings were. Reading a format 1 project, _settings/ becomes the
    top; if the old top level had shapes too, they are kept inside one block called "Top level", set beside it.
-   space:   { shapes: [shape], groups: [group] }
+   space:   { shapes: [shape], groups: [group], operations: [{ id, op: 'difference' | 'intersect', sources: [shape, shape], results: [shape ids] }] }
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
               variable: a number shared by shapes that are one variable, or null,
+              from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | null,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
 
 import { stacks, pieces } from './algebra.js';
@@ -103,10 +125,14 @@ export const isNamed = name => !/^Shape \d+$/.test(bare(name));
 const out = v => v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v;
 const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v;
 
+/* a range as it is kept: whole numbers, a start not before 0, at least one column and one row, and toEnd's two fields true or false */
+const rangeOf = r => { const n = (v, least) => Math.max(least, Math.round(+v || 0));
+  return { col: n(r.col, 0), row: n(r.row, 0), cols: n(r.cols, 1), rows: n(r.rows, 1), toEnd: { cols: !!r.toEnd?.cols, rows: !!r.toEnd?.rows } }; };
+
 /* a name made safe to be a file's name, and different from every other in its directory */
 function stem(name, taken){
   let s = bare(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/^\.+/, '').trim().slice(0, 80) || 'shape';
-  if (/^(project|_settings)$/i.test(s)) s += ' shape';
+  if (/^(project|_settings|operations)$/i.test(s)) s += ' shape';
   let t = s; for (let n = 2; taken.has(t.toLowerCase()); n++) t = `${s} (${n})`;
   taken.add(t.toLowerCase()); return t;
 }
@@ -129,7 +155,7 @@ export function write(project){
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.tile ? { tile: true } : {}), ...(shape.transposed ? { transposed: true } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
-        ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: { id: shape.from.id, side: shape.from.side } } : {}),
+        ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: shape.from.range ? { id: shape.from.id, range: rangeOf(shape.from.range) } : { id: shape.from.id, side: shape.from.side } } : {}),
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
@@ -137,6 +163,9 @@ export function write(project){
     s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken);
       if (own) hasConfig = true;
       files.push({ path: own ? dir + '.config' : dir + name + '.frame.json', text: JSON.stringify({ format: 'smart-factory/frame', version: FORMAT, ...body }, null, 2) + '\n' }); });
+    /* what was cut here: each operation with its two sources whole, written as shapes are (a definition goes in a directory beside) */
+    if (s.operations?.length) files.push({ path: dir + 'operations.json', text: JSON.stringify({ format: 'smart-factory/operations', version: FORMAT,
+      operations: s.operations.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(shape => config(shape, 0)[1]), results: [...o.results] })) }, null, 2) + '\n' });
   };
   files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, ...(project.ids ? { ids: project.ids } : {}) }, null, 2) + '\n' });
   space(project.top, '');
@@ -155,7 +184,7 @@ export function read(files){
   if (meta.version > FORMAT) throw new Error('this project was saved by a newer version (format ' + meta.version + ')');
 
   const space = dir => {
-    const found = [], groups = [];                       /* found: [config, the group it is directly in, or null] */
+    const found = [], groups = [], cuts = [];            /* found: [config, the group it is directly in, or null]; cuts: the operations as written */
     const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take) };
       for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
@@ -163,6 +192,7 @@ export function read(files){
       let c; try { c = JSON.parse(text); } catch (e) { throw new Error(path + ' is not valid JSON'); }
       if (c.format === 'smart-factory/shape') found.push([c, null]);
       else if (c.format === 'smart-factory/frame' || c.format === 'smart-factory/group') groups.push(take(c));      /* 'group' is what a frame was called in projects saved before */
+      else if (c.format === 'smart-factory/operations' && Array.isArray(c.operations)) cuts.push(...c.operations);
     }
     found.sort((a, b) => (a[0].order ?? 0) - (b[0].order ?? 0));
     const make = c => {
@@ -171,10 +201,13 @@ export function read(files){
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
         entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile, transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
-        reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' } : null,
+        reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? (c.from.range && typeof c.from.range === 'object' ? { id: c.from.id, range: rangeOf(c.from.range) } : { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' }) : null,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });
-    return { shapes, groups };
+    /* an operation that is not one (no such op, not two sources, nothing made) is passed over */
+    const operations = cuts.filter(o => o && (o.op === 'difference' || o.op === 'intersect') && Array.isArray(o.sources) && o.sources.length === 2 && Array.isArray(o.results) && o.results.some(id => typeof id === 'string'))
+      .map(o => ({ id: typeof o.id === 'string' ? o.id : null, op: o.op, sources: o.sources.map(c => make(c || {})), results: o.results.filter(id => typeof id === 'string') }));
+    return { shapes, groups, operations };
   };
   const top = space('');
   let project = { top, saved: meta.saved || null, ids: meta.ids || null };

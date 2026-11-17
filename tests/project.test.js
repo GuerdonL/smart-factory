@@ -10,7 +10,7 @@ import { pieces } from '../algebra.js';
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
   entries: {}, inside: null, variable: null, tile: false, transposed: false, attributes: [], reference: false, from: null, joined: null, ...more });
-const space = (shapes = [], groups = []) => ({ shapes, groups });
+const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
 const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 const paths = files => files.map(f => f.path).sort();
@@ -269,4 +269,74 @@ for (const name of ['default-menu', 'example', 'touch-algebra']) test(`projects/
   const again = read(write(p));
   assert.deepEqual(again, read(write(again)));
   assert.equal(count(again.top), count(p.top));
+});
+
+/* ---- operations and ranges (format 3) ---- */
+const range = (col, row, cols, rows, toCols = false, toRows = false) => ({ col, row, cols, rows, toEnd: { cols: toCols, rows: toRows } });
+/* a 6 by 4 shape cut by a 2 by 4 one laid over its columns 3 and 4: two shapes are left, and the two sources are kept */
+const cutSpace = () => space([
+  shape('Shape 3', { id: 'bleft00', x: 0, cols: 2, rows: 4, from: { id: 'bwide00', range: range(0, 0, 2, 4, false, true) } }),
+  shape('Tail', { id: 'bright0', x: 4, cols: 2, rows: 4, color: 'variable-2', from: { id: 'bwide00', range: range(4, 0, 2, 4, true, true) } }),
+  shape('Keys', { id: 'bkeys00', x: 20, cols: 6, rows: 4, variable: 1, entries: { '3,1': 7 } }),
+], [], [{ id: 'o000001', op: 'difference', results: ['bleft00', 'bright0'], sources: [
+  shape('Keys', { id: 'bwide00', cols: 6, rows: 4, variable: 1, reference: true, entries: { '3,1': 7 }, inside: space([shape('Inner', { id: 'binner0' })]) }),
+  shape('Shape 2', { id: 'bband00', x: 2, cols: 2, rows: 4 })] }]);
+
+test('operations and ranges come back as they went, in every space', () => {
+  const inner = space([shape('Shape 1', { id: 'bpart00', cols: 2, rows: 2, from: { id: 'bunder0', range: range(1, 1, 2, 2) } })], [],
+    [{ id: 'o000002', op: 'intersect', results: ['bpart00'], sources: [shape('Under', { id: 'bunder0', cols: 5, rows: 5 }),
+      shape('Fused', { id: 'bfused0', x: 1, y: 1, cols: 2, rows: 2, joined: [{ fx: 0, fy: 0, fw: 0.5, fh: 1, shape: shape('L', { cols: 1, rows: 2 }) }, { fx: 0.5, fy: 0, fw: 0.5, fh: 1, shape: shape('R', { cols: 1, rows: 2 }) }] })] }]);
+  const top = cutSpace(); top.shapes.push(shape('Holder', { id: 'bhold00', x: 40, inside: inner }));
+  const p = project(top);
+  assert.deepEqual(read(write(p)), p);
+  assert.deepEqual(write(read(write(p))), write(p));
+});
+
+test('a space that was cut has operations.json, holding each operation with its two sources whole; a space that was not has none', () => {
+  const files = write(project(cutSpace()));
+  assert.deepEqual(paths(files), ['Keys (2)/Inner.json', 'Keys.json', 'Shape 3.json', 'Tail.json', 'operations.json', 'project.json'].sort());      /* a source has no file of its own; its definition is a directory, as any shape's, under a name no other has */
+  const ops = json(files, 'operations.json');
+  assert.equal(ops.format, 'smart-factory/operations'); assert.equal(ops.version, FORMAT); assert.equal(ops.operations.length, 1);
+  const [o] = ops.operations;
+  assert.deepEqual([o.id, o.op, o.results], ['o000001', 'difference', ['bleft00', 'bright0']]);
+  assert.deepEqual(o.sources.map(c => [c.format, c.id, c.name, c.position, c.size]), [['smart-factory/shape', 'bwide00', 'Keys', { x: 0, y: 0 }, { cols: 6, rows: 4 }], ['smart-factory/shape', 'bband00', 'Shape 2', { x: 2, y: 0 }, { cols: 2, rows: 4 }]]);
+  assert.equal(o.sources[0].definition, 'Keys (2)/');
+  assert.deepEqual(json(files, 'Shape 3.json').from, { id: 'bwide00', range: { col: 0, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } } });
+  assert.deepEqual(json(files, 'Shape 3.json').value.entries, {});      /* its entries are its source's: none are written */
+  assert.ok(!paths(write(project(space([shape('A')])))).includes('operations.json'));
+  assert.deepEqual(read(write(project(space([shape('A')])))).top.operations, []);
+});
+
+test('a measure keeps its side and a range its range: from holds one or the other', () => {
+  const files = write(project(space([shape('W', { cols: 1, rows: 1, from: { id: 'b1', side: 'y' } }), shape('P', { from: { id: 'b1', range: range(1, 0, 2, 3, true, false) } })])));
+  assert.deepEqual(json(files, 'W.json').from, { id: 'b1', side: 'y' });
+  assert.deepEqual(json(files, 'P.json').from, { id: 'b1', range: { col: 1, row: 0, cols: 2, rows: 3, toEnd: { cols: true, rows: false } } });
+});
+
+test('a shape called operations does not take the operations file, and a shape file of that name is still a shape', () => {
+  const p = project(cutSpace()); p.top.shapes.push(shape('operations', { id: 'bnamed0' }));
+  const files = write(p);
+  assert.ok(paths(files).includes('operations shape.json')); assert.equal(json(files, 'operations.json').format, 'smart-factory/operations');
+  assert.deepEqual(read(files), p);
+  const old = read([head(2), file('operations.json', config('operations', { size: { cols: 2, rows: 2 } }))]);      /* as a format 2 project could have had it */
+  assert.deepEqual(old.top.shapes.map(s => s.name), ['operations']); assert.deepEqual(old.top.operations, []);
+});
+
+test('format 2 has no operations and no ranges: it reads as none', () => {
+  const p = read([head(2), file('A.json', config('A', { id: 'baaaaaa', from: { id: 'bbbbbbb', side: 'x' } })), file('B.json', config('B'))]);
+  assert.deepEqual(p.top.operations, []); assert.deepEqual(p.top.shapes[0].from, { id: 'bbbbbbb', side: 'x' });
+});
+
+test('operations and ranges with things missing or wrong are read with safe values, or passed over', () => {
+  const src = n => config(n, { id: 'b' + n });
+  const p = read([head(), file('P.json', config('P', { from: { id: 'bA', range: { col: -2, row: 1.4, cols: 0, toEnd: { cols: 1 } } } })), file('Q.json', config('Q', { from: { id: 'bA', range: 'all' } })),
+    file('operations.json', { format: 'smart-factory/operations', version: FORMAT, operations: [
+      { id: 'o1', op: 'difference', sources: [src('A'), src('B')], results: ['bP', 7, null] },
+      { id: 'o2', op: 'union', sources: [src('C'), src('D')], results: ['bQ'] },            /* no such operation */
+      { id: 'o3', op: 'intersect', sources: [src('E')], results: ['bQ'] },                  /* not two sources */
+      { id: 'o4', op: 'intersect', sources: [src('F'), src('G')], results: [] },            /* it made nothing */
+      { op: 'intersect', sources: [src('H'), null], results: ['bR'] }, null, 'x'] })]);
+  assert.deepEqual(p.top.shapes.map(s => s.from), [{ id: 'bA', range: { col: 0, row: 1, cols: 1, rows: 1, toEnd: { cols: true, rows: false } } }, { id: 'bA', side: 'x' }]);
+  assert.deepEqual(p.top.operations.map(o => [o.id, o.op, o.sources.map(s => s.name), o.results]), [['o1', 'difference', ['A', 'B'], ['bP']], [null, 'intersect', ['H', 'Shape'], ['bR']]]);
+  assert.deepEqual(read([head(), file('operations.json', { format: 'smart-factory/operations', operations: 'none' })]).top.operations, []);
 });
