@@ -224,7 +224,8 @@ decimal; an error; or nothing yet. An entry not given a value is unknown and sta
 whatever uses it is unknown too, so an entry using the mass of a scalar that has no number shows as a symbol. An
 error is written `!` in the warning colour, and the properties panel says why: `divide by zero` (for that entry
 only, not the whole matrix), `missing variable`, `depends on itself` (a formula that refers to itself, directly or
-through others), `cannot be compared exactly` (two symbolic values so close that their order cannot be told), and
+through others), `cannot be compared exactly` (two symbolic values so close that their order cannot be told), `too large to work out`
+(a number of more than some 1,200 digits, or a very large one mixed with something that is not a single root), and
 `∞ − ∞`, `0 × ∞` and `∞ / ∞`, which have no value. In a comparison infinity is larger than every number.
 
 A matrix's sides are still whole numbers. A formula typed for one is worked out once, there and then, and has to
