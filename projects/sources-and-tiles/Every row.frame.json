@@ -1,14 +1,14 @@
 {
   "format": "smart-factory/frame",
   "version": 3,
-  "id": "g0j9j47",
+  "id": "gp77dz5",
   "name": "Every row",
   "named": true,
   "shapes": [
     {
       "format": "smart-factory/shape",
       "version": 3,
-      "id": "bbapytc",
+      "id": "bgxx2pd",
       "type": "tensor",
       "name": "Bias",
       "named": true,
@@ -47,7 +47,7 @@
     "rows": 1,
     "across": 1,
     "down": {
-      "expr": "@[bzi0hpf:y]"
+      "expr": "@[b9d05wp:y]"
     }
   }
 }

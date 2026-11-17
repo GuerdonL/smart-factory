@@ -1,14 +1,14 @@
 {
   "format": "smart-factory/frame",
   "version": 3,
-  "id": "g05giai",
+  "id": "gkrvbfq",
   "name": "Index of two",
   "named": true,
   "shapes": [
     {
       "format": "smart-factory/shape",
       "version": 3,
-      "id": "bl34ofk",
+      "id": "bv6vftu",
       "type": "tensor",
       "name": "Pair",
       "named": true,

@@ -32,7 +32,7 @@ has no arrows. For sources and tiles it adds: on a shape, `"source"` (`"zeros"`,
 `entries` are empty, since its values follow from its kind and its size); on a standing shape, `"standing": true`,
 which was `"tile": true` and is still read under that word; on a frame that is a tile, `"repeat"`
 (`{ x, y, cols, rows, across, down }`: where the pattern is and how large, in units, and how many times it repeats
-each way, a whole number or `{ "expr": "@[id:y]" }`); `"as": "tile"` in an arrow's `input`, whose `id` is then the
+each way, a whole number or `{ "expr": "@[id:y]" }`, a formula of widths, heights and settled masses); `"as": "tile"` in an arrow's `input`, whose `id` is then the
 tile's frame; and `"from": { id, index: "x" }` on an index matrix in the definition space of a block that is in a
 tile. The copies a tile draws, and what a count comes to, are never in a file. What else changed is what a stack means. Shapes of one width set one
 directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each

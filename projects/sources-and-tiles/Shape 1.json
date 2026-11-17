@@ -1,7 +1,7 @@
 {
   "format": "smart-factory/shape",
   "version": 3,
-  "id": "b921vpi",
+  "id": "bnxhkiv",
   "type": "arrow",
   "name": "Shape 1",
   "named": false,
@@ -13,7 +13,7 @@
   },
   "size": {
     "cols": 8,
-    "rows": 3
+    "rows": 2
   },
   "sides": {
     "cols": null,
@@ -27,7 +27,7 @@
   "order": 43,
   "arrow": {
     "input": {
-      "id": "g0j9j47",
+      "id": "gp77dz5",
       "as": "tile"
     },
     "side": "e",

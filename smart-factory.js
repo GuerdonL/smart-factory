@@ -1404,7 +1404,7 @@ function reverting(){
 
    A tile is a frame with a repeat: space.repeats, frame id -> { x, y, cols, rows, across, down }, the pattern's
    place and size in units and its two counts, each a whole number or a formula { expr } that comes to one from
-   sizes alone. What is in it is what is in the frame, so it is dragged into and out of (with shift), named and
+   what is settled before anything is worked out (tiles.js: settled) and does not depend on the tile's own size. What is in it is what is in the frame, so it is dragged into and out of (with shift), named and
    listed as a frame is. A tile may hold nothing, so its frame stays when its last block leaves.
    Only the blocks of the first cell exist. The other cells are drawn copies (components/tile.js), which take no
    press. A block of a tile is a different matrix in each cell only through the index: index.x and index.y in an
@@ -2348,7 +2348,10 @@ bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) retur
        in it; with none it is empty. Counts start at 1. Refused over another tile.
    tile.set { frame, x, y, cols, rows, across, down }: whichever are given, changed. x, y move the tile and its blocks;
        cols, rows are the pattern's size; across, down a count: a whole number of at least 1, or { expr } that comes
-       to one from sizes alone. Refused, with a sentence, where a count is no such number or the tile would lie over another.
+       to one from what is settled (a width, a height, a settled scalar's mass). Refused, with a sentence, where a
+       count is no such number or depends on the tile's own size, the tile would lie over another, or it is to be
+       moved and an arrow is repeated in it.
+   frame.leave { id, frame, also }, tile.remove { frame, also }: also carries the index matrices of a block that leaves its tile.
    tile.remove { frame, also }: the tile is taken off. Its blocks stay; also: the arrows that read it, and what goes with them.
    index.add { of, axis, at, stand }: the index of the block `of` (which is in a tile) as a matrix, index.x or
        index.y, set down in that block's definition space at a point; with stand, standing in the definition's matrix. */

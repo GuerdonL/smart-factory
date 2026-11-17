@@ -1,7 +1,7 @@
 {
   "format": "smart-factory/shape",
   "version": 3,
-  "id": "b9zdsso",
+  "id": "bq6pf0r",
   "type": "tensor",
   "name": "R",
   "named": true,
@@ -24,5 +24,5 @@
     "entries": {}
   },
   "order": 49,
-  "seat": "bb3rlna"
+  "seat": "beevh8w"
 }

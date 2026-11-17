@@ -1,14 +1,14 @@
 {
   "format": "smart-factory/frame",
   "version": 3,
-  "id": "gwc82co",
+  "id": "gpr6cwa",
   "name": "Index",
   "named": true,
   "shapes": [
     {
       "format": "smart-factory/shape",
       "version": 3,
-      "id": "b4yq95z",
+      "id": "bd82d28",
       "type": "tensor",
       "name": "Place",
       "named": true,
