@@ -1,10 +1,13 @@
 /* A pop-up menu, with submenus.
 
-   createMenu(items) -> { el, openAt(x, y), close() }
-     items   [{ label, run, items, hint, disabled }]
+   createMenu(items, { onWhy }) -> { el, openAt(x, y), close() }
+     items   [{ label, run, items, hint, disabled, why }]
                run     called when the item is chosen; the menu then closes
                hint    a few characters shown at the item's right, such as its keyboard shortcut
                disabled  true, or a function returning true, greys the item out; it is asked each time the menu opens
+               why     a function giving a sentence where the item cannot be done now, and nothing where it can;
+                       asked each time the menu opens. With a sentence the item is greyed, and choosing it closes
+                       the menu and hands the sentence to onWhy, so that the user is told why not.
                items   a list of the same kind, or a function returning one: makes the item open a submenu
                        on hover or click. A function is asked each time the menu opens, so the list can change.
    It closes itself on a click elsewhere, Escape, or the window losing focus. */
@@ -18,12 +21,12 @@ style('menu', `
   background: none; border: 0; border-radius: 4px; padding: 5px 10px; text-align: left; cursor: default; }
 .menu button:hover, .menu button:focus-visible, .menu li.open > button { background: var(--hover); outline: none; }
 .menu-more, .menu-empty, .menu-hint { color: var(--muted); }
-.menu button:disabled { color: var(--muted); }
-.menu button:disabled:hover { background: none; }
+.menu button:disabled, .menu button[aria-disabled="true"] { color: var(--muted); }
+.menu button:disabled:hover, .menu button[aria-disabled="true"]:hover { background: none; }
 .menu-empty { padding: 5px 10px; }
 `);
 
-export function createMenu(items = []){
+export function createMenu(items = [], { onWhy = () => {} } = {}){
   const el = html`<ul class="menu" role="menu" hidden></ul>`;
   const close = () => { el.hidden = true; el.replaceChildren(); };
 
@@ -50,8 +53,10 @@ export function createMenu(items = []){
       } else {
         if (it.hint) b.append(html`<span class="menu-hint"></span>`), b.lastChild.textContent = it.hint;
         b.disabled = !!(typeof it.disabled === 'function' ? it.disabled() : it.disabled);
+        const why = it.why ? it.why() : null;
+        if (why) b.setAttribute('aria-disabled', 'true');      /* greyed, but it can still be chosen, to be told why not */
         li.addEventListener('pointerenter', shut);
-        b.addEventListener('click', () => { if (it.run){ close(); it.run(); } });
+        b.addEventListener('click', () => { if (why){ close(); onWhy(why); } else if (it.run){ close(); it.run(); } });
       }
       ul.append(li);
     }

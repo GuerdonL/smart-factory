@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), call(name), rename(after) }
+   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
      id       a name for this block that nothing else has: how messages say which block they mean. null until whoever
               made the block gives it one.
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
@@ -25,6 +25,8 @@
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
      off      shows it as commented out: washed out, with a dashed edge
+     warn     draws it in the warning colour (--warn), or puts its own back: for a shape that cannot be what it
+              is meant to be just now
      paint    changes its colour to another theme variable's ("lazuli" -> --lazuli)
      call     gives it a name outright
      join     draws it as a block joined from several: join(parts, cols, rows), where parts is [{ x, y, w, h, color }],
@@ -59,6 +61,9 @@ style('block', `
 /* commented out: there, but taking no part. (Before .selected, so a selected one still shows its ring.) */
 .block.off { --face: color-mix(in srgb, var(--block) 16%, var(--fade-to)); --ink: var(--muted); --rim: transparent; --lit: transparent; --shade: transparent; --cast: transparent;
   outline: calc(1.5 * var(--px)) dashed var(--muted); outline-offset: calc(-1.5 * var(--px)); }
+/* in the warning colour, whatever its own, and whatever parts it was joined from */
+.block.warned { --face: var(--warn); }
+.block.warned .block-parts { display: none; }
 .block.selected { outline: calc(2 * var(--px)) solid var(--select); outline-offset: calc(2 * var(--px));
   --halo: 0 0 0 calc(7 * var(--px)) var(--select-halo); cursor: move; z-index: 1; }
 /* faded: every colour mixed most of the way to --fade-to (or to nothing, for the see-through ones), not made transparent,
@@ -119,6 +124,7 @@ export function createBlock(shape, rect, name = ''){
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
     off(on){ el.classList.toggle('off', on); },
+    warn(on){ el.classList.toggle('warned', !!on); },
     grips(on){ el.classList.toggle('no-grips', !on); },
     inset(on){ el.classList.toggle('name-inside', on); },
     face(text){ if (text === null || text === undefined || text === ''){ valueEl?.remove(); valueEl = null; return; }      /* a single entry's value, written on the block itself */
