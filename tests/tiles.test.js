@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { held, settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { movable, held, settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -107,6 +107,11 @@ test('the pattern is resized and the tile moved only to whole units', () => {
   assert.match(settable(rep(3, 2), { rows: 1.5 }).refused, /height/);
   assert.match(settable(rep(3, 2), { x: .5 }).refused, /whole units/);
   assert.deepEqual(settable(rep(3, 2), { rows: 1 }).repeat.rows, 1);      /* the least */
+});
+
+test('a tile moves on its own unless an arrow is repeated in it', () => {
+  assert.deepEqual(movable(false), { ok: true });
+  assert.match(movable(true).refused, /lies along that arrow's input: move the input/);
 });
 
 test('an edge dragged changes the count by the whole patterns moved, from the count it had, never to less than 1', () => {

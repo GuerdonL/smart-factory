@@ -59,6 +59,9 @@
    settable(repeat, patch)       -> { repeat } | { refused }: the repeat with x, y, cols or rows changed as typed.
                                     The pattern's sides are whole numbers of at least 1 and its place is on whole
                                     units. (Counts are changed through typed, or by dragging: dragged.)
+   movable(mapped)               -> { ok: true } | { refused }: whether a tile can be moved on its own. Not one that
+                                    an arrow is repeated in (mapped): it lies along that arrow's input, and moves
+                                    when the input moves. Any other moves with everything in it.
    dragged(count, size, moved)   -> the count after an edge has been pulled `moved` units (outwards is more), for
                                     a pattern `size` units long that way: the count it had (what it comes to,
                                     where it is a formula), changed by the whole patterns moved, at least 1.
@@ -195,6 +198,7 @@ export function settable(repeat, patch){
   for (const k of ['x', 'y']) if (k in patch){ if (!Number.isInteger(patch[k])) return { refused: 'A tile stands on whole units' }; next[k] = patch[k]; }
   return { repeat: next };
 }
+export const movable = mapped => mapped ? { refused: 'An arrow is repeated in this tile, so the tile lies along that arrow\'s input: move the input, and the tile goes with it' } : { ok: true };
 export const dragged = (count, size, moved) => Math.max(1, count + Math.round(moved / size));
 
 export function slots(across, down, formula = {}){

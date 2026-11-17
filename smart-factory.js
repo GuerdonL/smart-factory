@@ -1491,6 +1491,7 @@ const writtenOn = (t, list) => list.filter(b => !isArrow(b) && !single(b) && rea
 const frameBox = id => { const r = space.repeats.get(id), u = view.unit; return r ? { x: r.x * u, y: r.y * u, w: r.cols * u, h: r.rows * u } : boxOf(inGroup(id)); };
 /* whether an arrow in tile g is repeated there: its input is outside the tile */
 const mapsIn = (s, a, g) => { const inp = a.arrow.input, blk = inp.as === 'tile' ? null : s.blocks.find(k => k.id === inp.id); return !!blk && !chain(blk, s).includes(g); };
+const mapsAny = (s, g) => inGroup(g, s).some(a => isArrow(a) && mapsIn(s, a, g));      /* whether any arrow is repeated in the tile */
 /* moves a tile and its blocks (dx, dy in units). Arrows and seated blocks are placed by what they read, so they are left to that. */
 function shiftTile(s, g, dx, dy){
   const rep = s.repeats.get(g), u = view.unit; rep.x += dx; rep.y += dy;
@@ -1513,6 +1514,7 @@ function setTile({ frame, ...patch }){
   const geo = {}; for (const k of ['x', 'y', 'cols', 'rows']) if (k in patch) geo[k] = patch[k];
   const got = tiles.settable(rep, geo); if (got.refused){ hud.say(got.refused); return shown(); }
   const next = got.repeat;
+  if (next.x !== rep.x || next.y !== rep.y){ const can = tiles.movable(mapsAny(space, frame)); if (can.refused){ hud.say(can.refused); return shown(); } }
   for (const k of ['across', 'down']) if (k in patch){ const c = tiles.count(patch[k], sizeLookup, loopsOf(frame, patch[k])); if (c.refused){ hud.say(`${cap(k)}: ${c.refused}`); return shown(); } next[k] = c.formula ? { expr: patch[k].expr } : c.count; }
   const cs = tiles.counts(next, sizeLookup, { across: loopsOf(frame, next.across), down: loopsOf(frame, next.down) }), clear = tiles.makable(tiles.footprint(next, cs.across, cs.down, cs.formula), [...space.repeats.keys()].filter(g => g !== frame).map(g => tileInfo(space, g).rect));
   if (clear.refused){ hud.say(clear.refused); return shown(); }
@@ -1539,6 +1541,7 @@ function untiling(g){
 function dragTile(g, edge, from){
   const u = view.unit, rep = space.repeats.get(g), was = repeatCopy(rep), rects = inGroup(g).map(b => [b, b.rect]), had = tileInfo(space, g);      /* had: what its counts came to when the drag began */
   if (pickedTile !== g) bus.send('tile.pick', { frame: g });
+  if (!edge && tiles.movable(mapsAny(space, g)).refused){ hud.say(tiles.movable(true).refused); return { move(){}, end(){} }; }
   return { move(p){
       if (edge) rep[edge] = edge === 'across' ? tiles.dragged(had.across, rep.cols, (p.x - from.x) / u) : tiles.dragged(had.down, rep.rows, (p.y - from.y) / u);      /* by the patterns the pointer has moved, whatever is drawn */
       else { const dx = Math.round((p.x - from.x) / u), dy = Math.round((p.y - from.y) / u); rep.x = was.x + dx; rep.y = was.y + dy;
