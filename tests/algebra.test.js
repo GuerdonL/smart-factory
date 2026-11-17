@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { touches, joins, pieces, hollows, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials } from '../algebra.js';
+import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -143,9 +143,9 @@ test('times and over: equal sizes, or one of exactly three broadcasts', () => {
     assert.deepEqual([pair(kind, [4, 3], [5, 3]).ok, pair(kind, [4, 3], [5, 3]).note], [false, '4 ≠ 5']);          /* the boundary: one column out */
     assert.deepEqual([pair(kind, [4, 3], [4, 2]).ok, pair(kind, [4, 3], [4, 2]).note], [false, '3 ≠ 2']);
     assert.deepEqual([pair(kind, [4, 3], [5, 2]).ok, pair(kind, [4, 3], [5, 2]).note], [false, '4×3 ≠ 5×2']);
-    assert.deepEqual([pair(kind, [3, 1], [4, 3]).ok, pair(kind, [3, 1], [4, 3]).note], [false, '3×1 ≠ 4×3']);      /* a row, but not of the other's columns */
-    assert.equal(pair(kind, [1, 2], [4, 3]).ok, false);      /* a column, but not of the other's rows */
-    assert.equal(pair(kind, [4, 1], [1, 3]).ok, false);      /* a row against a column is none of the three */
+    assert.deepEqual([pair(kind, [3, 1], [4, 3]).ok, pair(kind, [3, 1], [4, 3]).note], [false, '3 ≠ 4']);          /* a row, but not of the other's columns: the columns are what fail */
+    assert.deepEqual([pair(kind, [1, 2], [4, 3]).ok, pair(kind, [1, 2], [4, 3]).note], [false, '2 ≠ 3']);          /* a column, but not of the other's rows: the rows are what fail */
+    assert.deepEqual([pair(kind, [4, 1], [1, 3]).ok, pair(kind, [4, 1], [1, 3]).note], [false, '4×1 ≠ 1×3']);      /* a row against a column is none of the three */
     assert.equal(pair(kind, [2, 2], [4, 4]).ok, false);      /* nothing repeats but a single entry, row or column */
   }
 });
@@ -157,6 +157,20 @@ test('times and over: names decide as they do for a sum, on the sides that are m
   assert.equal(times({ w: 3, h: 2, wName: 'embed' }, { w: 3, h: 1, wName: 'key' }).ok, false);          /* a row is matched on its columns */
   assert.equal(times({ w: 3, h: 2, hName: 'context' }, { w: 3, h: 1, hName: 'one' }).ok, true);         /* and not on its rows */
   assert.equal(times({ w: 3, h: 2, wName: 'embed', hName: 'context' }, { w: 1, h: 1, wName: 'a', hName: 'b' }).ok, true);      /* a single entry is matched on nothing */
+});
+
+test('a refused broadcast names the side that fails, not the one that was free to differ', () => {
+  /* one column against four is the column broadcast; what is wrong is the rows' names */
+  const column = [{ x: 0, y: 3, w: 1, h: 3, hName: 'ctx' }, { x: 1, y: 0, w: 4, h: 3, hName: 'batch' }];
+  assert.deepEqual(only(column), { kind: 'times', a: 0, b: 1, x: 1, y: 3, ok: false, note: 'ctx ≠ batch' });
+  assert.equal(only([{ ...column[0], hName: 'batch' }, column[1]]).ok, true);                                    /* the same names: defined */
+  assert.equal(only([{ x: 0, y: 3, w: 1, h: 2 }, { x: 1, y: 0, w: 4, h: 3 }]).note, '2 ≠ 3');                    /* a column of the wrong height */
+  /* one row against three is the row broadcast; what is wrong is the columns */
+  const row = [{ x: 0, y: 0, w: 4, h: 1, wName: 'embed' }, { x: 4, y: 1, w: 4, h: 3, wName: 'key' }];
+  assert.deepEqual(only(row), { kind: 'over', a: 0, b: 1, x: 4, y: 1, ok: false, note: 'embed ≠ key' });
+  assert.equal(only([{ x: 0, y: 0, w: 5, h: 1 }, { x: 5, y: 1, w: 4, h: 3 }]).note, '5 ≠ 4');
+  /* neither a row nor a column: both lengths differ, and both sizes are given */
+  assert.equal(only([{ x: 0, y: 0, w: 2, h: 2 }, { x: 2, y: 2, w: 4, h: 4 }]).note, '2×2 ≠ 4×4');
 });
 
 /* ---- pieces: one rule each ---- */
@@ -232,6 +246,53 @@ test('the hollows of a times or over pair: where its result is read', () => {
   assert.deepEqual(hollows(touches(row)[0], row), [{ x: 4, y: 1, w: 4, h: 3 }, { x: 0, y: 0, w: 4, h: 1 }]);
   const product = [rect(0, 0, 3, 2), rect(3, 0, 2, 3)];
   assert.deepEqual(hollows(touches(product)[0], product), []);
+});
+
+/* ---- which hollows a result is written in ---- */
+const used = (rects, copies, written) => resultHollows(rects, pieces(rects)[0], copies, written);
+const timesPair = [rect(0, 2, 3, 2), rect(3, 0, 3, 2)], overPair = [rect(0, 0, 3, 2), rect(3, 2, 3, 2)];
+const lowerRight = { x: 3, y: 2, w: 3, h: 2 }, upperLeft = { x: 0, y: 0, w: 3, h: 2 };
+
+test('.show_hadamard_copies: 0 is no hollow, 1 the first, 2 both; left out it is 1', () => {
+  assert.deepEqual(used(timesPair, 0), []);
+  assert.deepEqual(used(timesPair, 1), [lowerRight]);
+  assert.deepEqual(used(timesPair, 2), [lowerRight, upperLeft]);
+  assert.deepEqual(used(timesPair), [lowerRight]);
+  assert.deepEqual(used(overPair, 1), [{ x: 0, y: 2, w: 3, h: 2 }]);                                   /* over: the lower one */
+  assert.deepEqual(used(overPair, 2), [{ x: 0, y: 2, w: 3, h: 2 }, { x: 3, y: 0, w: 3, h: 2 }]);
+});
+
+test('.show_hadamard_copies: anything not above 0 is none, 2 or more is both, anything between is one', () => {
+  for (const none of [-1, -0.5, 0, NaN, null, 'two', -Infinity]) assert.deepEqual(used(timesPair, none), [], String(none));
+  for (const one of [0.5, 1, 1.5, 1.999]) assert.equal(used(timesPair, one).length, 1, String(one));
+  for (const both of [2, 2.5, 3, 100, Infinity]) assert.equal(used(timesPair, both).length, 2, String(both));
+});
+
+test('only a hollow of the result\'s size is used', () => {
+  const row = [rect(0, 1, 4, 3), rect(4, 0, 4, 1)];                      /* a row over every row: the hollow above a is 4 by 1, the one beside it 4 by 3 */
+  assert.deepEqual(used(row, 2), [{ x: 4, y: 1, w: 4, h: 3 }]);
+  const under = [rect(0, 0, 4, 3), rect(4, 3, 4, 1)];                    /* over, with the row: the first hollow (under a) is the wrong size, so one copy is the other */
+  assert.deepEqual(used(under, 1), [{ x: 4, y: 0, w: 4, h: 3 }]);
+  assert.deepEqual(used(under, 2), [{ x: 4, y: 0, w: 4, h: 3 }]);
+  assert.deepEqual(used([rect(0, 0, 1, 1), rect(1, 1, 4, 4)], 2), []);   /* a single entry: neither hollow is 4 by 4 */
+  assert.deepEqual(used([rect(0, 1, 1, 1), rect(1, 0, 1, 1)], 2), [{ x: 1, y: 1, w: 1, h: 1 }, { x: 0, y: 0, w: 1, h: 1 }]);      /* two single entries: both are */
+});
+
+test('a chain of three or more, a piece of another rule, and an undefined pair have no hollow', () => {
+  assert.deepEqual(used([rect(0, 4, 3, 2), rect(3, 2, 3, 2), rect(6, 0, 3, 2)], 2), []);      /* three along the diagonal */
+  assert.deepEqual(used([rect(0, 0, 3, 2), rect(0, 2, 3, 2)], 2), []);                         /* a sum */
+  assert.deepEqual(used([rect(0, 0, 3, 2), rect(3, 0, 2, 3)], 2), []);                         /* a product */
+  assert.deepEqual(used([rect(0, 0, 3, 2)], 2), []);                                           /* a shape on its own */
+  assert.deepEqual(used([rect(0, 2, 3, 2), rect(3, 0, 4, 2)], 2), []);                         /* times, not defined */
+  assert.deepEqual(used([rect(0, 2, 2, 2), rect(2, 0, 4, 2), rect(0, 4, 2, 2)], 2), []);       /* mixed rules */
+});
+
+test('a hollow is used only where the matrix as it is written is no larger than it', () => {
+  assert.deepEqual(used(timesPair, 2, { cols: 3, rows: 2 }), [lowerRight, upperLeft]);      /* written in full: exactly fits */
+  assert.deepEqual(used(timesPair, 2, { cols: 4, rows: 2 }), []);                           /* one square too wide (a short named side is written as five) */
+  assert.deepEqual(used(timesPair, 2, { cols: 3, rows: 3 }), []);                           /* one too tall */
+  const long = [rect(0, 2, 12, 2), rect(12, 0, 12, 2)];                                     /* a long side is written elided, as five squares: smaller, and it fits */
+  assert.equal(used(long, 2, { cols: 5, rows: 2 }).length, 2);
 });
 
 /* ---- what a stack was, kept to convert old projects ---- */

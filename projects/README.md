@@ -13,7 +13,8 @@ The full format is described at the top of [`../project.js`](../project.js).
 The format is 3. It has the same fields as format 2; what changed is what a stack means. Shapes of one width set one
 directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each
 of its stacks is fused into one joined shape on the way in, so it comes to what it did, and the readout says how many
-were fused. Saved again, it is format 3.
+were fused. Shapes that met at a corner, or stood directly under a shape in a product, did not touch in format 2 and
+do now: they are not moved, and the readout says how many pieces read differently. Saved again, it is format 3.
 
 ## Saving and opening
 

@@ -114,6 +114,9 @@ product's is; it is not worked out in numbers yet.
 
 Projects saved before this (format 2) took a stack to mean rows appended. Opening one, each such stack is fused into
 one joined shape, which still appends, so the project means what it did; the readout says how many were fused.
+Two other arrangements meant nothing then and mean something now: shapes that meet at a corner, and a shape directly
+under one that is in a product. Those are left exactly where they are, and the readout says how many pieces read
+differently, so that you can look for them.
 
 ## How results are written
 

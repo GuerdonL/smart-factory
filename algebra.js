@@ -51,6 +51,15 @@
        the two empty rectangles a times or over pair encloses, where its result can be read; the first is the one to
        use when only one is used. For times: beside a under b (the lower right), then above a. For over: under a
        beside b (the lower one), then beside a above b. [] for any other touch.
+   resultHollows(rects, piece, copies, written) -> [{ x, y, w, h }]
+       the hollows a piece's result is written in: none, one or two. piece is one of pieces(rects); copies is what
+       .show_hadamard_copies says (not above 0, or not a number: none; 2 or more: both; anything between: one; left
+       out: one); written is { cols, rows }, how many squares the result's matrix takes as it is written (a named or
+       a long side is written elided), left out where it is written in full. Only a defined piece of exactly two
+       shapes, times or over, has any: a chain of three or more is written beside the piece. Only a hollow of the
+       result's size is used (with a broadcast operand one or both are not), and only one the matrix as written is
+       no larger than. With one copy asked for it is the first of hollows() that can be used, else the other.
+       [] means: beside the piece, as any other result.
    stacks(rects) -> see below: what a stack was in projects saved before format 3. Not used to work anything out now.
    typeOf(rects) -> null | { cols, rows, colsName, rowsName } | { error }
        what everything comes to: nothing is null, one piece is that piece's type, and several pieces are not one
@@ -73,7 +82,12 @@ function together(A, B, broadcast){
   const c = differ(A.cols, A.colsName, B.cols, B.colsName), r = differ(A.rows, A.rowsName, B.rows, B.rowsName);
   const one = t => t.cols === 1 && t.rows === 1;
   const ok = (!c && !r) || (broadcast && (one(A) || one(B) || (!c && (A.rows === 1 || B.rows === 1)) || (!r && (A.cols === 1 || B.cols === 1))));
-  if (!ok) return { ok, note: c && r && A.cols !== B.cols && A.rows !== B.rows ? `${A.cols}×${A.rows} ≠ ${B.cols}×${B.rows}` : c || r };
+  if (!ok){
+    /* what to say: the side that fails. One of the two being a single column, the columns were free to differ and it is
+       the rows that do not agree; a single row likewise leaves the columns to blame. Otherwise whichever side differs,
+       and both sizes where both lengths do. */
+    const column = broadcast && (A.cols === 1 || B.cols === 1), row = broadcast && (A.rows === 1 || B.rows === 1);
+    return { ok, note: column && !row ? r : row && !column ? c : c && r && A.cols !== B.cols && A.rows !== B.rows ? `${A.cols}×${A.rows} ≠ ${B.cols}×${B.rows}` : c || r }; }
   const cols = Math.max(A.cols, B.cols), rows = Math.max(A.rows, B.rows);
   return { ok, note: '', type: { cols, rows, colsName: (A.cols === cols && A.colsName) || (B.cols === cols && B.colsName) || null, rowsName: (A.rows === rows && A.rowsName) || (B.rows === rows && B.rowsName) || null } };
 }
@@ -134,6 +148,12 @@ export function hollows(touch, rects){
   if (touch.kind !== 'times' && touch.kind !== 'over') return [];
   const besideA = { x: b.x, y: a.y, w: b.w, h: a.h }, besideB = { x: a.x, y: b.y, w: a.w, h: b.h };      /* level with a, in b's columns; level with b, in a's columns */
   return [touch.kind === 'times' ? besideA : besideB, touch.kind === 'times' ? besideB : besideA];
+}
+export function resultHollows(rects, piece, copies = 1, written = null){
+  const type = piece.type, n = !(copies > 0) ? 0 : copies >= 2 ? 2 : 1;
+  if (!n || piece.rule !== 'elementwise' || piece.members.length !== 2 || type.error) return [];
+  const touch = touches(rects).find(t => t.a === piece.members[0] && t.b === piece.members[1]), size = written || type;
+  return hollows(touch, rects).filter(h => h.w === type.cols && h.h === type.rows && size.cols <= h.w && size.rows <= h.h).slice(0, n);
 }
 
 /* In projects saved before format 3, shapes of one width set one directly on top of the next were a stack: one

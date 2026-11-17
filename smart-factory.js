@@ -17,7 +17,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { touches, joins, pieces, hollows, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
+import { touches, joins, pieces, resultHollows, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -533,8 +533,8 @@ function systemValue(key, path, mode = 'light', said_only = false){      /* said
   return v;
 }
 const modeIn = path => systemValue('dark-mode', path)[0] ? 'dark' : 'light';
-/* .show_hadamard_copies, as it stands for a block of this space: in how many of a times or over pair's hollows the result is written (0, 1 or 2) */
-const hadamardCopies = b => { const n = systemValue('show-hadamard-copies', pathOf(chain(b)))[0]; return !(n > 0) ? 0 : n >= 2 ? 2 : 1; };
+/* .show_hadamard_copies, as it stands for a block of this space: what it means is algebra.js's to say (resultHollows) */
+const hadamardCopies = b => systemValue('show-hadamard-copies', pathOf(chain(b)))[0];
 function configure(){
   configs = null;
   const spaces = pathOf(), mode = modeIn(spaces), base = programDefaults()[mode], byte = n => Math.max(0, Math.min(255, n));
@@ -761,14 +761,11 @@ function shown(){                              /* brings what is on screen in li
   const taken = space.blocks.map(b => b.rect),      /* commented-out blocks are still in the way */
      hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   /* A times or over pair encloses two empty rectangles, its hollows, and its result is written in them, on the bare
-     canvas, in place of the "= …" beside the piece: in neither, one or both, as .show_hadamard_copies says (0, 1, 2).
-     Only a hollow the size of the result is used (with a broadcast operand one or both are not), and only where the
-     matrix as it is written fits it (a named side is written elided, as if long, and may not). With none to use,
-     and for a chain of three or more, the result goes beside the piece as any other does. */
-  const hollowsOf = piece => { if (piece.rule !== 'elementwise' || piece.members.length !== 2 || piece.type.error) return [];
-    const t = ts.find(t => t.a === piece.members[0] && t.b === piece.members[1]), type = piece.type;
-    return hollows(t, rects).filter(h => h.w === type.cols && h.h === type.rows && squares(type.cols, type.colsName) <= h.w && squares(type.rows, type.rowsName) <= h.h)
-      .slice(0, hadamardCopies(active[piece.members[0]])).map(h => ({ x: h.x * u, y: h.y * u, w: h.w * u, h: h.h * u })); };
+     canvas, in place of the "= …" beside the piece: in neither, one or both, as .show_hadamard_copies says. Which
+     hollows, if any, is worked out in algebra.js (resultHollows); the page says only how many squares the matrix
+     takes as it is written, and draws. With none, the result goes beside the piece as any other does. */
+  const hollowsOf = piece => piece.type.error ? [] : resultHollows(rects, piece, hadamardCopies(active[piece.members[0]]), { cols: squares(piece.type.cols, piece.type.colsName), rows: squares(piece.type.rows, piece.type.rowsName) })
+    .map(h => ({ x: h.x * u, y: h.y * u, w: h.w * u, h: h.h * u }));
   /* a product, a sum or an elementwise result can be named, folding its blocks into one; a block on its own already is one, and has its own name */
   const writ = ps.map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1, hollows: hollowsOf(piece),
     box: { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u } }));
@@ -1080,7 +1077,9 @@ async function save(name){
 /* opening replaces everything on the page */
 function openFrom(files, name = null){ const data = project.read(files); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
-  hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')); }
+  hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
+    /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
+    + (data.changed ? `. ${data.changed === 1 ? '1 piece reads' : data.changed + ' pieces read'} differently now: shapes that meet at a corner, or stand under one in a product, touch` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
 const zipPicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true });
