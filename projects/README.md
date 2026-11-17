@@ -7,10 +7,17 @@ A saved project is a directory in here. Shapes and files are the same tree:
 - a shape with a definition space has a directory of the same name beside its file, holding that space the same way;
 - a group is one combined `.group.json` file holding all of its shapes.
 
+- a space where Difference or Intersect has cut something has one more file, `operations.json`, holding each cut
+  with the two shapes it took off the canvas, whole.
+
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 3. It has the same fields as format 2; what changed is what a stack means. Shapes of one width set one
+The format is 3. It adds two things to format 2, both for the boolean tool: a space's `operations.json`, and on a
+shape made by a cut or an intersection `from.range`, the columns and rows of its source that it is
+(`{ col, row, cols, rows, toEnd: { cols, rows } }`, counted from 0; `toEnd` marks a range that runs to the source's
+last column or row whatever size the source becomes). Such a shape's entries are its source's and are not written.
+A format 2 project has neither and opens with no operations. What else changed is what a stack means. Shapes of one width set one
 directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each
 of its stacks is fused into one joined shape on the way in, so it comes to what it did, and the readout says how many
 were fused. Shapes that met at a corner, or stood directly under a shape in a product, did not touch in format 2 and
@@ -92,3 +99,13 @@ shape holding 1 (the reciprocal of `Scale`, written beside the piece since neith
 single row (`Logits` over `Norm`, in the one hollow that is the result's size); and a product with a third shape
 stacked under it, which is `mixed rules`. Change `.show_hadamard_copies` in its `.config` to 2 or 0 to see the result
 of `Mask` and `Weights` move.
+
+## boolean-tool/
+
+Difference and Intersect, beside a copy of the default Menu's `.config`. At the top left, `Left` and `Right` fused
+into one shape (Revert takes it apart). Below it, `Keys` (6 by 4, its columns named `embed`) was used twice, and one
+use was cut by `Head`, a 2 by 4 shape laid over its columns 3 and 4: the two shapes left are columns 1 to 2 and
+5 to 6 of `Keys`. Open the `Keys` that is still on the canvas and type a number into its first or last two columns:
+the matching part shows it at once. Select a part to see its side's label (`embed-Head.x.1`). At the top right,
+`Window` (2 by 2) lay in the middle of `Table` (8 by 6), touching no edge, where a Difference is refused; Intersect
+made the one 2 by 2 shape that is there now. Revert on any of these puts the original shapes back.

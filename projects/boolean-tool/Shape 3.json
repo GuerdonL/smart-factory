@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "byku68g",
+  "type": "tensor",
+  "name": "Shape 3",
+  "named": false,
+  "commented": false,
+  "color": null,
+  "position": {
+    "x": -22,
+    "y": -10
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 40,
+  "from": {
+    "id": "b9q5a7a",
+    "range": {
+      "col": 4,
+      "row": 0,
+      "cols": 2,
+      "rows": 4,
+      "toEnd": {
+        "cols": true,
+        "rows": true
+      }
+    }
+  }
+}

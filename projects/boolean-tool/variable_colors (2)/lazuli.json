@@ -1,0 +1,32 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b1e1bub",
+  "type": "tensor",
+  "name": ".lazuli",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": -4,
+    "y": -1
+  },
+  "size": {
+    "cols": 3,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 74,
+      "2,1": 122,
+      "3,1": 240
+    }
+  },
+  "order": 2,
+  "tile": true
+}

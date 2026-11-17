@@ -1,0 +1,103 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bvkggx8",
+  "type": "tensor",
+  "name": "Shape 1",
+  "named": false,
+  "commented": false,
+  "color": null,
+  "position": {
+    "x": -26,
+    "y": -16
+  },
+  "size": {
+    "cols": 5,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 37,
+  "joined": [
+    {
+      "at": {
+        "x": 0,
+        "y": 0,
+        "w": 0.6,
+        "h": 1
+      },
+      "shape": {
+        "format": "smart-factory/shape",
+        "version": 3,
+        "id": "blm1nix",
+        "type": "tensor",
+        "name": "Left",
+        "named": true,
+        "commented": false,
+        "color": "variable-1",
+        "position": {
+          "x": -26,
+          "y": -16
+        },
+        "size": {
+          "cols": 3,
+          "rows": 2
+        },
+        "sides": {
+          "cols": null,
+          "rows": null
+        },
+        "value": {
+          "as": "variable",
+          "entries": {
+            "1,1": 1
+          }
+        },
+        "order": 0
+      }
+    },
+    {
+      "at": {
+        "x": 0.6,
+        "y": 0,
+        "w": 0.4,
+        "h": 1
+      },
+      "shape": {
+        "format": "smart-factory/shape",
+        "version": 3,
+        "id": "bvsavk6",
+        "type": "tensor",
+        "name": "Right",
+        "named": true,
+        "commented": false,
+        "color": "variable-2",
+        "position": {
+          "x": -23,
+          "y": -16
+        },
+        "size": {
+          "cols": 2,
+          "rows": 2
+        },
+        "sides": {
+          "cols": null,
+          "rows": null
+        },
+        "value": {
+          "as": "variable",
+          "entries": {
+            "2,2": 2
+          }
+        },
+        "order": 0
+      }
+    }
+  ]
+}

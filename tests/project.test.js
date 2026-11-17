@@ -262,7 +262,7 @@ test('format 2: shapes standing in their owner\'s matrix were its entries, not a
 const here = fileURLToPath(new URL('../projects/', import.meta.url));
 const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const count = s => s.shapes.reduce((n, sh) => n + 1 + (sh.inside ? count(sh.inside) : 0), 0);
-for (const name of ['default-menu', 'example', 'touch-algebra']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
+for (const name of ['default-menu', 'example', 'touch-algebra', 'boolean-tool']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
   const p = read(tree(join(here, name)));
   assert.equal(p.converted, 0); assert.equal(p.changed, 0);
   assert.ok(count(p.top) > 0, 'it has shapes');
@@ -339,4 +339,20 @@ test('operations and ranges with things missing or wrong are read with safe valu
   assert.deepEqual(p.top.shapes.map(s => s.from), [{ id: 'bA', range: { col: 0, row: 1, cols: 1, rows: 1, toEnd: { cols: true, rows: false } } }, { id: 'bA', side: 'x' }]);
   assert.deepEqual(p.top.operations.map(o => [o.id, o.op, o.sources.map(s => s.name), o.results]), [['o1', 'difference', ['A', 'B'], ['bP']], [null, 'intersect', ['H', 'Shape'], ['bR']]]);
   assert.deepEqual(read([head(), file('operations.json', { format: 'smart-factory/operations', operations: 'none' })]).top.operations, []);
+});
+
+test('projects/boolean-tool holds a fused shape, a cut and an intersection, each part a range of a kept source', () => {
+  const dir = fileURLToPath(new URL('../projects/boolean-tool/', import.meta.url)), files = [];
+  const walk = at => { for (const n of readdirSync(join(dir, at))){ const p = at ? at + '/' + n : n; if (statSync(join(dir, p)).isDirectory()) walk(p); else files.push({ path: p, text: readFileSync(join(dir, p), 'utf8') }); } };
+  walk('');
+  const top = read(files).top, byId = new Map(top.operations.flatMap(o => o.sources).map(s => [s.id, s]));
+  assert.deepEqual(top.operations.map(o => [o.op, o.sources.map(s => s.name), o.results.length]), [['difference', ['Keys', 'Head'], 2], ['intersect', ['Table', 'Window'], 1]]);
+  const parts = top.shapes.filter(s => s.from?.range);
+  assert.equal(parts.length, 3);
+  for (const p of parts){ assert.ok(byId.has(p.from.id), p.name + ' is a part of a kept source'); assert.deepEqual(p.entries, {}); assert.ok(top.operations.some(o => o.results.includes(p.id))); }
+  assert.deepEqual(parts.map(p => [p.from.range.col, p.from.range.cols, p.from.range.toEnd.cols]).sort(), [[0, 2, false], [3, 2, false], [4, 2, true]]);
+  assert.equal(top.shapes.filter(s => s.joined).length, 1);
+  /* the cut Keys is still the variable its other use is */
+  const kept = top.operations[0].sources[0], used = top.shapes.find(s => s.name === 'Keys');
+  assert.ok(Number.isInteger(kept.variable)); assert.equal(kept.variable, used.variable);
 });
