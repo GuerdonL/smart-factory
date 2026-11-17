@@ -59,8 +59,11 @@
    settable(repeat, patch)       -> { repeat } | { refused }: the repeat with x, y, cols or rows changed as typed.
                                     The pattern's sides are whole numbers of at least 1 and its place is on whole
                                     units. (Counts are changed through typed, or by dragging: dragged.)
-   dragged(size, distance)       -> the count an edge pulled to `distance` units from the tile's corner gives, for a
-                                    pattern `size` units long that way: whole patterns, at least 1
+   dragged(count, size, moved)   -> the count after an edge has been pulled `moved` units (outwards is more), for
+                                    a pattern `size` units long that way: the count it had (what it comes to,
+                                    where it is a formula), changed by the whole patterns moved, at least 1.
+                                    Whatever is drawn of the tile: an elided tile's edge is not where its last
+                                    cell would be
 
    What is drawn
    slots(across, down, formula)  -> { xs, ys }: which cells are drawn in each direction, in order: { cell: k } or
@@ -187,7 +190,7 @@ export function settable(repeat, patch){
   for (const k of ['x', 'y']) if (k in patch){ if (!Number.isInteger(patch[k])) return { refused: 'A tile stands on whole units' }; next[k] = patch[k]; }
   return { repeat: next };
 }
-export const dragged = (size, distance) => Math.max(1, Math.round(distance / size));
+export const dragged = (count, size, moved) => Math.max(1, count + Math.round(moved / size));
 
 export function slots(across, down, formula = {}){
   const fa = !!formula.across, fd = !!formula.down, many = (fa ? 1 : across) * (fd ? 1 : down) > LIMIT;

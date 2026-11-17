@@ -109,9 +109,11 @@ test('the pattern is resized and the tile moved only to whole units', () => {
   assert.deepEqual(settable(rep(3, 2), { rows: 1 }).repeat.rows, 1);      /* the least */
 });
 
-test('an edge dragged gives a count in whole patterns, never less than 1', () => {
-  assert.equal(dragged(3, 9), 3); assert.equal(dragged(3, 10.4), 3); assert.equal(dragged(3, 10.6), 4);
-  assert.equal(dragged(3, 1), 1); assert.equal(dragged(3, -8), 1); assert.equal(dragged(1, 64), 64);
+test('an edge dragged changes the count by the whole patterns moved, from the count it had, never to less than 1', () => {
+  assert.equal(dragged(1, 3, 6), 3); assert.equal(dragged(3, 3, 1.4), 3); assert.equal(dragged(3, 3, 1.6), 4);      /* half a pattern is the boundary */
+  assert.equal(dragged(3, 3, -3), 2); assert.equal(dragged(3, 3, -6), 1); assert.equal(dragged(3, 3, -60), 1);
+  /* a tile drawn elided: 70 across in a pattern 2 wide, its edge pulled 2 units, is 71, not what the drawn width would hold */
+  assert.equal(dragged(70, 2, 2), 71); assert.equal(dragged(70, 2, -4), 68); assert.equal(dragged(70, 2, 0), 70);
 });
 
 test('every cell is drawn up to 64 of them; beyond that, the first three and the last each way', () => {

@@ -1537,15 +1537,15 @@ function untiling(g){
 }
 /* a drag that begins on a tile's frame: by its right or bottom edge it changes that count, in whole patterns; anywhere else it moves the tile and what is in it. One message says where it ended. */
 function dragTile(g, edge, from){
-  const u = view.unit, rep = space.repeats.get(g), was = repeatCopy(rep), rects = inGroup(g).map(b => [b, b.rect]);
+  const u = view.unit, rep = space.repeats.get(g), was = repeatCopy(rep), rects = inGroup(g).map(b => [b, b.rect]), had = tileInfo(space, g);      /* had: what its counts came to when the drag began */
   if (pickedTile !== g) bus.send('tile.pick', { frame: g });
   return { move(p){
-      if (edge) rep[edge] = edge === 'across' ? tiles.dragged(rep.cols, p.x / u - rep.x) : tiles.dragged(rep.rows, p.y / u - rep.y);
+      if (edge) rep[edge] = edge === 'across' ? tiles.dragged(had.across, rep.cols, (p.x - from.x) / u) : tiles.dragged(had.down, rep.rows, (p.y - from.y) / u);      /* by the patterns the pointer has moved, whatever is drawn */
       else { const dx = Math.round((p.x - from.x) / u), dy = Math.round((p.y - from.y) / u); rep.x = was.x + dx; rep.y = was.y + dy;
         for (const [b, r] of rects) if (!isArrow(b) && !b.seat) b.set({ ...r, x: r.x + dx * u, y: r.y + dy * u }); }
       view.el.style.cursor = edge === 'across' ? 'ew-resize' : edge ? 'ns-resize' : 'move'; shown(); },
     end(){ const now = repeatCopy(rep); Object.assign(rep, was); for (const [b, r] of rects) b.set(r); view.el.style.cursor = '';
-      if (edge && JSON.stringify(now[edge]) !== JSON.stringify(was[edge])) return bus.send('tile.set', { frame: g, [edge]: now[edge] });
+      if (edge && typeof now[edge] === 'number' && now[edge] !== had[edge]) return bus.send('tile.set', { frame: g, [edge]: now[edge] });      /* a count that is a formula is replaced only where the drag changed what it comes to */
       if (!edge && (now.x !== was.x || now.y !== was.y)) return bus.send('tile.set', { frame: g, x: now.x, y: now.y });
       shown(); } };
 }
