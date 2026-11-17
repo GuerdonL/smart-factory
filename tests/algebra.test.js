@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials } from '../algebra.js';
+import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, wholeSide, sideLabel, nthOf } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -356,4 +356,162 @@ test('valueText writes a value out, never in decimals', () => {
 test('initials are the first letters of a name\'s words', () => {
   assert.equal(initials('Key Weights'), 'kw'); assert.equal(initials('Shape 3'), 's'); assert.equal(initials('Embedding'), 'e');
   assert.equal(initials('a b c d e'), 'abc'); assert.equal(initials('123'), 'x'); assert.equal(initials(''), 'x');
+});
+
+/* ---- the boolean tool ---- */
+const R = (x, y, w, h) => ({ x, y, w, h });
+
+test('cut: shapes that do not overlap are not cut, and sharing an edge or a corner is no overlap', () => {
+  for (const b of [R(7, 0, 2, 4), R(6, 0, 2, 4), R(0, 4, 6, 2), R(6, 4, 2, 2)]){
+    const c = cut(R(0, 0, 6, 4), b);
+    assert.equal(c.overlap, null); assert.equal(c.a, null); assert.equal(c.b, null); assert.equal(c.refused, 'The shapes do not overlap'); }
+  assert.deepEqual(cut(R(0, 0, 6, 4), R(5, 3, 2, 2)).overlap, R(5, 3, 1, 1));      /* one square over: an overlap */
+});
+
+test('cut: a band at an edge leaves one rectangle, and the shape inside leaves none', () => {
+  /* +------+----+   b lies wholly inside a, over its last two columns */
+  const c = cut(R(0, 0, 6, 4), R(4, 0, 2, 4));
+  assert.deepEqual(c, { overlap: R(4, 0, 2, 4), a: [R(0, 0, 4, 4)], b: [], refused: null });
+  assert.deepEqual(cut(R(0, 0, 6, 4), R(0, 0, 2, 4)).a, [R(2, 0, 4, 4)]);      /* at the left edge */
+  assert.deepEqual(cut(R(0, 0, 6, 4), R(0, 0, 6, 1)).a, [R(0, 1, 6, 3)]);      /* along the top */
+  assert.deepEqual(cut(R(0, 0, 6, 4), R(0, 3, 6, 1)).a, [R(0, 0, 6, 3)]);      /* along the bottom */
+});
+
+test('cut: a band across the middle leaves two rectangles, left then right or top then bottom', () => {
+  /* +----+----+----+ */
+  const c = cut(R(0, 0, 6, 4), R(2, 0, 2, 4));
+  assert.deepEqual(c, { overlap: R(2, 0, 2, 4), a: [R(0, 0, 2, 4), R(4, 0, 2, 4)], b: [], refused: null });
+  const d = cut(R(0, 0, 6, 4), R(0, 1, 6, 2));
+  assert.deepEqual(d.a, [R(0, 0, 6, 1), R(0, 3, 6, 1)]); assert.equal(d.refused, null);
+});
+
+test('cut: a partial overlap in the same rows leaves a rectangle of each', () => {
+  /* +------+---+------+ */
+  const c = cut(R(0, 0, 5, 3), R(3, 0, 6, 3));
+  assert.deepEqual(c, { overlap: R(3, 0, 2, 3), a: [R(0, 0, 3, 3)], b: [R(5, 0, 4, 3)], refused: null });
+  const d = cut(R(0, 0, 3, 5), R(0, 3, 3, 6));      /* and in the same columns */
+  assert.deepEqual([d.a, d.b], [[R(0, 0, 3, 3)], [R(0, 5, 3, 4)]]);
+});
+
+test('cut: two bands that cross leave two rectangles of each', () => {
+  const c = cut(R(0, 2, 6, 2), R(2, 0, 2, 6));
+  assert.deepEqual(c.a, [R(0, 2, 2, 2), R(4, 2, 2, 2)]); assert.deepEqual(c.b, [R(2, 0, 2, 2), R(2, 4, 2, 2)]); assert.equal(c.refused, null);
+});
+
+test('cut: there is no cutter, so the order only says which leftover is whose', () => {
+  const one = cut(R(0, 0, 5, 3), R(3, 0, 6, 3)), other = cut(R(3, 0, 6, 3), R(0, 0, 5, 3));
+  assert.deepEqual(other, { overlap: one.overlap, a: one.b, b: one.a, refused: null });
+});
+
+test('cut: what is left must be rectangles, or the whole cut is refused', () => {
+  const why = 'What is left of a shape would not be a rectangle: the overlap has to cross it from one side to the other';
+  /* a small shape in the middle of a large one, touching no edge: a frame round a hole */
+  const hole = cut(R(0, 0, 8, 6), R(3, 2, 2, 2));
+  assert.equal(hole.refused, why); assert.equal(hole.a, null); assert.deepEqual(hole.b, []); assert.deepEqual(hole.overlap, R(3, 2, 2, 2));      /* the overlap is still there to be taken */
+  /* inside, against one edge but not across: the drawing, a U */
+  assert.equal(cut(R(0, 0, 8, 4), R(4, 1, 3, 3)).refused, why);
+  /* in a corner: an L */
+  assert.equal(cut(R(0, 0, 8, 4), R(6, 2, 2, 2)).refused, why);
+  /* over a corner from outside: an L of each */
+  const corner = cut(R(0, 0, 4, 4), R(2, 2, 4, 4));
+  assert.equal(corner.refused, why); assert.equal(corner.a, null); assert.equal(corner.b, null);
+  /* across one, but turning a corner in the other: one leftover would do, and it is refused all the same */
+  const half = cut(R(0, 0, 6, 2), R(2, 0, 2, 4));      /* a: two rectangles; b: one below */
+  assert.equal(half.refused, null); assert.deepEqual(half.b, [R(2, 2, 2, 2)]);
+  const off = cut(R(0, 0, 6, 2), R(2, 1, 2, 4));       /* now b covers only a's lower row there */
+  assert.equal(off.refused, why); assert.equal(off.a, null); assert.deepEqual(off.b, [R(2, 2, 2, 3)]);
+});
+
+test('cut: the same rectangle twice is refused, since nothing would be left; one row less is not', () => {
+  const c = cut(R(1, 1, 3, 2), R(1, 1, 3, 2));
+  assert.equal(c.refused, 'The two shapes are the same rectangle: nothing would be left'); assert.deepEqual([c.a, c.b], [[], []]); assert.deepEqual(c.overlap, R(1, 1, 3, 2));
+  assert.equal(cut(R(1, 1, 3, 2), R(1, 1, 3, 1)).refused, null);
+});
+
+test('fits: shapes that fill one rectangle exactly, with nothing missing and nothing doubled', () => {
+  assert.equal(fits([R(0, 0, 3, 2), R(3, 0, 2, 2)]), true);
+  assert.equal(fits([R(0, 0, 2, 2), R(2, 0, 2, 1), R(2, 1, 2, 1)]), true);
+  assert.equal(fits([R(0, 0, 3, 2)]), false);                                   /* one shape is nothing to fuse */
+  assert.equal(fits([R(0, 0, 3, 2), R(3, 0, 2, 3)]), false);                    /* a corner missing */
+  assert.equal(fits([R(0, 0, 3, 2), R(4, 0, 2, 2)]), false);                    /* a gap */
+  assert.equal(fits([R(0, 0, 3, 2), R(2, 0, 2, 2)]), false);                    /* an overlap */
+  assert.equal(fits([R(0, 0, 3, 2), R(1, 0, 3, 2), R(3, 0, 1, 2)]), false);     /* the areas would add up to a rectangle, but one square is doubled and one missing */
+});
+
+test('difference: fuses what fits together, cuts two that overlap, and says why it does neither', () => {
+  assert.deepEqual(difference([R(0, 0, 3, 2), R(3, 0, 2, 2)]), { fuse: true });
+  assert.deepEqual(difference([R(0, 0, 2, 2), R(2, 0, 2, 1), R(2, 1, 2, 1)]), { fuse: true });
+  assert.deepEqual(difference([R(0, 0, 6, 4), R(2, 0, 2, 4)]), { cut: cut(R(0, 0, 6, 4), R(2, 0, 2, 4)) });
+  assert.deepEqual(difference([R(0, 0, 3, 2)]), { refused: 'Difference takes two or more shapes' });
+  assert.deepEqual(difference([]), { refused: 'Difference takes two or more shapes' });
+  assert.deepEqual(difference([R(0, 0, 3, 2), R(4, 0, 2, 2)]), { refused: 'To be fused the shapes must fit together into one rectangle, and to be cut two must overlap' });
+  /* three shapes, two of which overlap: a cut takes exactly two, even where the third would fit */
+  assert.deepEqual(difference([R(0, 0, 6, 4), R(2, 0, 2, 4), R(6, 0, 2, 4)]), { refused: 'A cut takes exactly two shapes' });
+  assert.deepEqual(difference([R(0, 0, 8, 6), R(3, 2, 2, 2)]), { refused: cut(R(0, 0, 8, 6), R(3, 2, 2, 2)).refused });
+  assert.deepEqual(difference([R(0, 0, 2, 2), R(0, 0, 2, 2)]), { refused: 'The two shapes are the same rectangle: nothing would be left' });
+});
+
+test('intersection: exactly two shapes that overlap, however they do', () => {
+  assert.deepEqual(intersection([R(0, 0, 6, 4), R(2, 0, 2, 4)]), { overlap: R(2, 0, 2, 4) });
+  assert.deepEqual(intersection([R(0, 0, 8, 6), R(3, 2, 2, 2)]), { overlap: R(3, 2, 2, 2) });      /* where a difference is refused */
+  assert.deepEqual(intersection([R(0, 0, 4, 4), R(2, 2, 4, 4)]), { overlap: R(2, 2, 2, 2) });
+  assert.deepEqual(intersection([R(0, 0, 2, 2), R(0, 0, 2, 2)]), { overlap: R(0, 0, 2, 2) });      /* the same rectangle: all of it */
+  assert.deepEqual(intersection([R(0, 0, 3, 2), R(3, 0, 2, 2)]), { refused: 'The shapes do not overlap' });
+  assert.deepEqual(intersection([R(0, 0, 3, 2)]), { refused: 'Intersect takes exactly two shapes' });
+  assert.deepEqual(intersection([R(0, 0, 6, 4), R(2, 0, 2, 4), R(1, 0, 2, 4)]), { refused: 'Intersect takes exactly two shapes' });
+});
+
+test('a range is whole columns and rows of its source, from 0, and knows which edges it reached', () => {
+  const src = R(10, 5, 6, 4);
+  assert.deepEqual(rangeOf(src, R(12, 5, 2, 4)), { col: 2, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } });
+  assert.deepEqual(rangeOf(src, R(14, 5, 2, 4)), { col: 4, row: 0, cols: 2, rows: 4, toEnd: { cols: true, rows: true } });
+  assert.deepEqual(rangeOf(src, R(13, 6, 2, 2)), { col: 3, row: 1, cols: 2, rows: 2, toEnd: { cols: false, rows: false } });
+});
+
+test('a range stays on the same columns however its source is resized, and one that reached an edge goes on reaching it', () => {
+  const mid = { col: 2, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } };
+  assert.deepEqual(rangeIn(mid, 6, 4), { col: 2, row: 0, cols: 2, rows: 4 });
+  assert.deepEqual(rangeIn(mid, 9, 7), { col: 2, row: 0, cols: 2, rows: 7 });      /* columns 3 and 4 still; every row, now seven */
+  assert.deepEqual(rangeIn(mid, 4, 1), { col: 2, row: 0, cols: 2, rows: 1 });      /* the boundary: just wide enough */
+  assert.equal(rangeIn(mid, 3, 4), null);                                          /* column 4 is gone: no such range */
+  const end = { col: 4, row: 1, cols: 2, rows: 3, toEnd: { cols: true, rows: false } };
+  assert.deepEqual(rangeIn(end, 10, 4), { col: 4, row: 1, cols: 6, rows: 3 });     /* its stored cols is not looked at */
+  assert.deepEqual(rangeIn(end, 5, 4), { col: 4, row: 1, cols: 1, rows: 3 });      /* the boundary: one column left */
+  assert.equal(rangeIn(end, 4, 4), null);                                          /* none left */
+  assert.equal(rangeIn(end, 10, 3), null);                                         /* rows 2 to 4 are named, and row 4 is gone */
+});
+
+test('a side of a range is whole only where it runs from the first column or row to the end', () => {
+  const r = { col: 2, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } };
+  assert.equal(wholeSide(r, 'cols'), false); assert.equal(wholeSide(r, 'rows'), true);
+  assert.equal(wholeSide({ ...r, col: 0 }, 'cols'), false);                                    /* from the first, but not to the end */
+  assert.equal(wholeSide({ ...r, toEnd: { cols: true, rows: true } }, 'cols'), false);         /* to the end, but not from the first */
+  assert.equal(wholeSide({ ...r, col: 0, toEnd: { cols: true, rows: true } }, 'cols'), true);
+});
+
+test('a shortened side is labelled from both shapes names for it, and a whole one keeps its own', () => {
+  const part = { col: 0, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } };
+  assert.equal(sideLabel(part, 'cols', 'embed', 'head', 'difference'), 'embed-head');
+  assert.equal(sideLabel(part, 'cols', 'head', 'embed', 'difference'), 'head-embed');      /* the other shape's leftover */
+  assert.equal(sideLabel(part, 'cols', 'Keys.x', 'head', 'intersect'), 'Keys.x&head');
+  assert.equal(sideLabel(part, 'cols', 'embed', 'head', 'difference', 1), 'embed-head.1');
+  assert.equal(sideLabel(part, 'cols', 'embed', 'head', 'difference', 2), 'embed-head.2');
+  assert.equal(sideLabel(part, 'rows', 'context', 'batch', 'difference', 2), 'context');   /* the whole side: its own name, and no number */
+  assert.equal(sideLabel(part, 'rows', null, 'batch', 'difference'), null);
+  assert.equal(sideLabel(part, 'cols', null, 'head', 'difference'), null);                 /* either has no name: no label */
+  assert.equal(sideLabel(part, 'cols', 'embed', null, 'intersect'), null);
+});
+
+test('two ranges one operation made of one source are numbered left to right or top to bottom; one alone has no number', () => {
+  const left = rangeOf(R(0, 0, 6, 4), R(0, 0, 2, 4)), right = rangeOf(R(0, 0, 6, 4), R(4, 0, 2, 4));
+  assert.equal(nthOf(left, [right, left]), 1); assert.equal(nthOf(right, [right, left]), 2); assert.equal(nthOf(right, [right]), 0);
+  const top = rangeOf(R(0, 0, 6, 4), R(0, 0, 6, 1)), bottom = rangeOf(R(0, 0, 6, 4), R(0, 3, 6, 1));
+  assert.equal(nthOf(top, [top, bottom]), 1); assert.equal(nthOf(bottom, [top, bottom]), 2);
+});
+
+test('a shape with no value gives its piece none, alone or touching', () => {
+  assert.deepEqual(typeOf([{ ...rect(0, 0, 3, 2), none: true }]), { error: 'no value' });
+  const [p] = pieces([rect(0, 0, 3, 2), { ...rect(3, 0, 4, 3), none: true }]);
+  assert.deepEqual(p.type, { error: 'no value' }); assert.deepEqual(p.members, [0, 1]);
+  assert.deepEqual(typeOf([rect(0, 0, 3, 2), rect(3, 0, 4, 3)]), type(4, 2));      /* and with a value, as ever */
 });
