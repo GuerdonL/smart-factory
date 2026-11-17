@@ -25,7 +25,7 @@ import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
-import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, passed, worked as entryWise, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn } from './arrows.js';
+import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, passed, worked as entryWise, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { squares } from './components/matrix.js';
 
@@ -90,6 +90,8 @@ const defKey = o => isArrow(o) ? 'arrow ' + JSON.stringify(defSize(o)) : JSON.st
 /* opening a block: its definition space is made the first time (one space for every place the variable is used),
    and is entered from here, by this block */
 function open(b){
+  const can = definable({ name: bare(b.name), seated: !!seatedOf(b) });      /* a seated variable is defined by its seat and by nothing else (arrows.js) */
+  if (can.refused) return hud.say(can.refused);
   if (!spaceOf.has(b)){ const def = newSpace(b, space); for (const k of kinOf(b)) spaceOf.set(k, def); }
   const def = spaceOf.get(b);
   if (trail().includes(def)) return;           /* already inside it */
@@ -795,14 +797,14 @@ const properties = createProperties({ ...fields,
    the arrows and seats are put in their places again (arrange), and where any moved it is drawn once more. */
 function shown(){
   memo = new Map();
-  try { for (let pass = 0; pass < 4; pass++){ const was = paint(); memo.clear(); if (!arrange() && standingNow() === was) break; } } finally { memo = null; }
+  try { arrangeAll(); for (let pass = 0; pass < 4; pass++){ const was = paint(); memo.clear(); if (!arrangeAll() && standingNow() === was) break; } } finally { memo = null; }
 }
 /* how every arrow on screen stands just now: whether it warns, and where its output is. What was drawn is drawn again where this is no longer so. */
 const standingNow = () => { const list = space.blocks.filter(isArrow); return !list.length ? '' : JSON.stringify(list.map(a => { const o = outputOf(a); return [o.warn, o.place, o.type]; })); };
 const outs = new Map();                        /* arrow -> its output as it is written (components/result.js) */
 const arrowFrame = createBounds();             /* the frame round a selected arrow and its output */
 function paint(){
-  hush(); follow(); arrange(); configure();
+  hush(); follow(); if (arrangeAll()) memo?.clear(); configure();
   for (const b of space.blocks) if (measures(b)){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
   for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b)); b.sit(!!b.seat); b.given(!!b.in);      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
@@ -883,33 +885,23 @@ function paint(){
   /* what the space comes to: its ends, the pieces (and outputs) nothing reads from. What is in a .config is no part of it. */
   const mine = space.definition ? endsOf(space, { active, all }) : [], outLook = a => ({ letter: initials(a.name), values: outputOf(a).values || new Map() });      /* in the ordinary text colour: the function colour is for the triangle */
   space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? (mine[0].piece ? lookOf(mine[0].piece) : outLook(mine[0].arrow)) : {});
-  const ps = space.owner ? [] : all;
   /* a result stays by its piece: to the right; if something else is there (another block, or a result already placed),
      just below, to the left, or a little further below; and if every one of those is taken, to the right all the
      same, over whatever is there. It never goes off looking for room. */
-  /* (an arrow that reads a written result, and the block seated on it, are placed by where the result is written: they are not in its way, or it would run from them) */
-  const follows = b => (isArrow(b) && b.arrow.input.as === 'result') || (typeof b.seat === 'string' && space.blocks.some(a => a.id === b.seat && isArrow(a) && a.arrow.input.as === 'result'));
-  const taken = space.blocks.filter(b => !follows(b)).map(b => b.rect),      /* commented-out blocks are still in the way */
-     hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   /* A times or over pair encloses two empty rectangles, its hollows, and its result is written in them, on the bare
      canvas, in place of the "= …" beside the piece: in neither, one or both, as .show_hadamard_copies says. Which
      hollows, if any, is worked out in algebra.js (resultHollows); the page says only how many squares the matrix
      takes as it is written, and draws. With none, the result goes beside the piece as any other does. */
-  /* With one copy asked for, the hollow written in is the one an arrow reads from, where one does. Each is given with which of the pair's two it is (n). */
-  const readers = space.blocks.filter(k => isArrow(k) && !isOff(k) && k.arrow.input.as === 'result' && k.arrow.input.hollow);
-  const hollowsOf = piece => { if (piece.type.error) return [];
-    const both = pieceHollows(rects, piece), needed = readers.filter(k => piece.members.some(m => active[m].id === k.arrow.input.id)).map(k => k.arrow.input.hollow);
-    return resultHollows(rects, piece, hadamardCopies(active[piece.members[0]]), { cols: squares(piece.type.cols, piece.type.colsName), rows: squares(piece.type.rows, piece.type.rowsName) }, needed)
-      .map(h => ({ n: both.indexOf(h) + 1, x: h.x * u, y: h.y * u, w: h.w * u, h: h.h * u })); };
+  /* With one copy asked for, the hollow written in is the one an arrow reads from, where one does. Where each result
+     goes is worked out from the blocks (writtenIn), the same on screen and off; here it is drawn there. */
+  const world = r => ({ x: r.x * u, y: r.y * u, w: r.w * u, h: r.h * u });
   /* a product, a sum or an elementwise result can be named, folding its blocks into one; a block on its own already is one, and has its own name */
-  const writ = ps.map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1, hollows: hollowsOf(piece),
-    editable: piece.members.length === 1 && isNamed(active[piece.members[0]]),      /* a named shape on its own: its entries can be typed where they are written */
-    box: { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u } }));
-  writ.forEach(({ blocks, type, look, nameable, editable, box, hollows }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
-    r.piece = { blocks, type, box, hollows, body: null };            /* what this result is the result of, and the hollows it is written in */
-    let at = null;
-    for (const where of hollows.length ? [{ hollows }] : [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}]){ at = r.set(box, type, { ...where, look, nameable, editable }); if (where.hollows || !hits(at)) break; }
-    r.piece.at = at; r.piece.body = hollows.length ? null : r.body(); taken.push(at); });      /* body: where its matrix is, for an arrow set against it */
+  const writ = writtenIn(space, { active, rects, all }).map(w => ({ ...w, look: lookOf(w.piece), nameable: w.piece.members.length > 1, hollows: w.drawn.map(h => ({ n: h.n, ...world(h) })),
+    editable: w.piece.members.length === 1 && isNamed(w.blocks[0]),      /* a named shape on its own: its entries can be typed where they are written */
+    box: world(w.piece.box) }));
+  writ.forEach(({ blocks, type, look, nameable, editable, box, hollows, where, whole }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
+    const at = r.set(box, type, { ...(hollows.length ? { hollows } : { side: where.side, drop: where.drop, whole }), look, nameable, editable });
+    r.piece = { blocks, type, box, hollows, at }; });            /* what this result is the result of, and the hollows it is written in */
   for (const r of results.slice(writ.length)) r.el.remove();
   /* a named group's frame takes in what is written beside its shapes, too */
   for (const f of space.frames.values()){ const [box, options, ms] = f.fit; let x0 = box.x, y0 = box.y, x1 = box.x + box.w, y1 = box.y + box.h;
@@ -1387,9 +1379,9 @@ const isUse = b => isArrow(b) && !!b.ref && originOf(b) === b;
 /* the arrow whose function b applies: the one it was made as or from; for a use by name, the nearest arrow of that name here or above (null: the program's own) */
 function fnBlock(b){
   if (!isUse(b)) return originOf(b);
-  const name = bare(b.name).trim();
-  for (let s = spaceWith(b) || space; s; s = s.parent){ const own = s.blocks.find(k => isArrow(k) && !k.ref && !isOff(k) && bare(k.name).trim() === name); if (own) return own; }
-  return null;
+  const levels = []; for (let s = spaceWith(b) || space; s; s = s.parent) levels.push(s.blocks.filter(isArrow).map(k => ({ id: k.id, name: bare(k.name), reference: !!k.ref, off: isOff(k), of: k })));
+  const id = functionFor(bare(b.name), levels);      /* which arrow shadows the program's function is arrows.js's to say */
+  return id ? levels.flat().find(k => k.id === id).of : null;
 }
 const fnOf = b => { const home = fnBlock(b); return home ? home.fn : BUILT.get(bare(b.name).trim()) || b.fn; };
 const full = b => ({ ...b.arrow, formula: fnOf(b).formula });      /* an arrow as arrows.js takes one */
@@ -1407,22 +1399,52 @@ function readOf(s, inp){
   return writtenOf(s, blk, inp.hollow);
 }
 const inputOf = a => readOf(spaceWith(a), a.arrow.input);
-/* the written result of the piece that holds blk: where its matrix is (in the hollow asked for where that is written
-   in, else wherever it is written), its type, and its entries where they are worked out: those of a shape on its
-   own. (A product, a sum or an elementwise result is not worked out in numbers yet: its entries are unknown.)
-   Results are written beside pieces only in the Menu; in another space than the one on screen only the type and the
-   entries are given, since nothing is drawn there. */
+/* Where each piece's result is written in space s, worked out from the blocks alone, so that it is the same whether
+   or not s is on screen: [{ piece, blocks, type, copies, usable, drawn, where, whole, body, at }], in units. usable
+   and drawn are the pair's hollows the result could be, and is, written in (algebra.js); where is its place beside
+   the piece (arrows.js: writtenWhere) when it is in no hollow, body its matrix there; whole says an arrow reads it,
+   so that its matrix stands on whole units. Results are written beside pieces only in the Menu: a definition space
+   has none. The page draws exactly this (paint), and an arrow reads it (writtenOf). */
+const copiesIn = (s, b) => systemValue('show-hadamard-copies', [...pathTo(s), { s, at: chain(b, s) }])[0];
+function writtenIn(s, alg = null){
+  if (s.owner) return [];
+  if (memo?.has(s)) return memo.get(s);
+  const { active, rects, all } = alg || algebraIn(s), u = view.unit, same = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+  const readers = s.blocks.filter(k => isArrow(k) && !isOff(k) && k.arrow.input.as === 'result');
+  /* an arrow that reads a written result, and the block seated on it, are placed by where the result is written: they are not in its way, or it would run from them */
+  const follows = b => (isArrow(b) && b.arrow.input.as === 'result') || (typeof b.seat === 'string' && s.blocks.some(a => a.id === b.seat && isArrow(a) && a.arrow.input.as === 'result'));
+  const taken = s.blocks.filter(b => !follows(b)).map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));      /* commented-out blocks are still in the way */
+  const out = all.map(piece => { const blocks = piece.members.map(m => active[m]), read = readers.filter(k => blocks.some(b => b.id === k.arrow.input.id)), type = piece.type, copies = copiesIn(s, blocks[0]);
+    const size = type.error ? { w: 4, h: 0 } : { w: squares(type.cols, type.colsName), h: squares(type.rows, type.rowsName) };
+    const usable = type.error ? [null, null] : pieceHollows(rects, piece).map(h => h && size.w <= h.w && size.h <= h.h ? h : null);
+    const drawn = type.error ? [] : resultHollows(rects, piece, copies, { cols: size.w, rows: size.h }, read.map(k => k.arrow.input.hollow).filter(Boolean)).map(h => ({ n: usable.findIndex(o => same(o, h)) + 1, ...h }));
+    const where = drawn.length ? null : writtenWhere(piece.box, size, taken, read.length > 0), at = drawn.length ? { x: drawn[0].x, y: drawn[0].y, w: drawn[0].w, h: drawn[0].h } : where.at;
+    taken.push(at);
+    return { piece, blocks, type, copies, usable, drawn, where, whole: read.length > 0, body: where && !type.error ? where.body : null, at }; });
+  memo?.set(s, out); return out;
+}
+/* the written result of the piece that holds blk, as an arrow reads it: where its matrix is (arrows.js: readAt), its
+   type, and its entries where they are worked out: those of a shape on its own. (A product, a sum or an elementwise
+   result is not worked out in numbers yet: its entries are unknown.) */
 function writtenOf(s, blk, hollow){
-  const u = view.unit;
-  if (s !== space){ const { active, all } = algebraIn(s), p = all.find(p => p.members.some(m => active[m] === blk)); if (!p || p.type.error) return null;
-    return { rect: { x: 0, y: 0, w: p.type.cols, h: p.type.rows }, ...p.type, values: p.members.length === 1 ? valuesOf(blk) : new Map() }; }
-  const r = results.find(r => r.el.isConnected && !r.el.hidden && r.piece?.blocks.includes(blk)), p = r?.piece;
-  if (!p || p.type.error || space.owner) return null;
-  /* the hollow it names, where results are written in hollows at all and that one is the result's size: it is where
-     the result is written once something reads from it (see hollowsOf). Otherwise wherever the result is written. */
-  const named = hollow && hadamardCopies(blk) > 0 && p.blocks.length === 2 ? hollowOf(idsOf(p.blocks), undefined, hollow) : null;
-  const at = (named && { x: named.rect.x * u, y: named.rect.y * u }) || p.hollows.find(h => h.n === hollow) || p.hollows[0] || p.body; if (!at) return null;
-  return { rect: { x: at.x / u, y: at.y / u, w: p.type.cols, h: p.type.rows }, ...p.type, values: p.blocks.length === 1 ? valuesOf(blk) : new Map() };
+  const w = writtenIn(s).find(w => w.blocks.includes(blk)); if (!w || w.type.error) return null;
+  const at = readAt(w, hollow, w.copies); if (!at) return null;
+  return { rect: { x: at.x, y: at.y, w: w.type.cols, h: w.type.rows }, ...w.type, values: w.blocks.length === 1 ? valuesOf(blk) : new Map() };
+}
+/* what a thing depends on, by id, for arrows.js (dependsOn): an arrow, on what it reads (the block; the arrow whose
+   output it reads; or every block of the piece whose result it reads) and, where it is defined in a space, on the
+   arrows in that space; a seated block, on its arrow or on the two shapes of its pair */
+function depsOf(id){
+  const k = blockOf(id); if (!k) return [];
+  if (!isArrow(k)) return !k.seat ? [] : typeof k.seat === 'string' ? [k.seat] : [...k.seat.hollow];
+  const s = spaceWith(k), inp = k.arrow.input, blk = s?.blocks.find(x => x.id === inp.id), def = fnOf(k).formula ? null : spaceOf.get(fnBlock(k) || k);
+  return [...(!blk ? [] : inp.as === 'result' && !isArrow(blk) ? touching(s, blk) : [inp.id]), ...(def ? def.blocks.filter(isArrow).map(x => x.id) : [])];
+}
+/* the ids of the blocks joined to blk by touching, itself included */
+function touching(s, blk){
+  const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), ts = touches(live.map(unitsOf)), seen = new Set([live.indexOf(blk)]);
+  for (let more = true; more;){ more = false; for (const t of ts) if (seen.has(t.a) !== seen.has(t.b)){ seen.add(t.a); seen.add(t.b); more = true; } }
+  return [...seen].filter(i => i >= 0).map(i => live[i].id);
 }
 /* An arrow as it stands (arrows.js: standing), with its output's entries where they are worked out: a pass-through's
    and an entry formula's, entry by entry. One defined by a definition space shows its size and symbols until there
@@ -1431,26 +1453,26 @@ function writtenOf(s, blk, hollow){
 const busy = new Set(); let memo = null;
 function outputOf(a){
   if (memo?.has(a)) return memo.get(a);
-  if (busy.has(a)) return { warn: 'it depends on itself', part: null, came: null, type: null, place: null, values: null, defined: false };
+  if (busy.has(a)) return { ...standing(full(a), null, [], null, null, { loops: true }), values: null, defined: false };      /* being worked out already: only reached where it reads itself */
   busy.add(a);
   try {
-    const s = spaceWith(a), arrow = full(a), input = s ? inputOf(a) : null, seat = seatOn(a, s);
+    const loops = dependsOn(depsOf(a.id), a.id, depsOf);      /* it reads itself, through whatever else: arrows.js says what that comes to */
+    const s = spaceWith(a), arrow = full(a), input = s && !loops ? inputOf(a) : null, seat = seatOn(a, s);
     const defined = arrow.formula || !input ? null : definedBy(a, input);
-    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input.id) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined);
-    /* another use of a named arrow has to fit the function's own input */
-    if (!st.warn && a.ref && !isUse(a) && st.part){ const inner = innerOf(a), fit = inner ? fits(inner, st.part) : { ok: true }; if (fit.refused) st.warn = 'its input does not fit the function: ' + fit.refused; }
+    /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
+    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null });
     let values = null;
     if (st.part && !defined && (!arrow.output || (arrow.output.cols === st.part.cols && arrow.output.rows === st.part.rows))){
       const x = passed(input.values, covered(arrow, input));
       values = !arrow.formula ? x : entryWise(arrow.formula, { cols: st.part.cols, rows: st.part.rows, x, lookup: lookupFor(a),
         matrix: id => { const m = blockOf(id); if (!m || isArrow(m)) return undefined; const r = unitsOf(m); return { cols: r.w, rows: r.h, values: lost(m) ? new Map() : valuesOf(m) }; } }); }
     const out = { ...st, values, defined: !!defined };
-    if (memo && s === space) memo.set(a, out);
+    memo?.set(a, out);
     return out;
   } finally { busy.delete(a); }
 }
 /* the rects an arrow's edge has to be free of: every block of the space that touches, but for its own input */
-const othersOf = (s, inputId) => s.blocks.filter(k => !isArrow(k) && !isOff(k) && !hollowSeat(k) && k.id !== inputId).map(unitsOf);
+const othersOf = (s, input, seat = null) => s.blocks.filter(k => !isArrow(k) && !isOff(k) && !hollowSeat(k) && !(input.as !== 'result' && k.id === input.id) && k !== seat).map(unitsOf);      /* (the block a result is read by way of is not the result: it is in the way like any other) */
 /* the function's own input, as a type: the covered part of the arrow the function was made as */
 function innerOf(a){ const o = originOf(a), input = isArrow(o) ? inputOf(o) : null; return input ? coveredType(full(o), input) : null; }
 /* what a space comes to: its ends, the things in it that nothing reads from. A piece no arrow has for its input is
@@ -1465,15 +1487,20 @@ function endsOf(s, alg = algebraIn(s)){
 /* what an arrow's definition space comes to, for this arrow's input: a type or { error }; null where it holds only its input, which is to pass through */
 function definedBy(a, input){
   const home = fnBlock(a) || a, def = spaceOf.get(home); if (!def) return null;
-  syncIn(def, a, input);
+  syncIn(def); arrange(def);                   /* its space is laid out from the data, on screen or not, before it is asked what it comes to */
   const alg = algebraIn(def), inner = def.blocks.find(k => k.in);
   return defined(endsOf(def, alg).map(e => e.piece ? { type: e.type, piece: { ids: e.piece.members.map(m => alg.active[m].id) } } : e), id => id === inner?.id);
 }
-/* the block called in takes the size and the side names of the covered part of this arrow's input */
-function syncIn(def, a, input = inputOf(a)){
-  const inner = def.blocks.find(k => k.in), part = input && coveredType(full(a), input), u = view.unit; if (!inner || !part) return;
-  if (inner.rect.w !== part.cols * u || inner.rect.h !== part.rows * u) keepTouching(() => { inner.set({ ...inner.rect, w: part.cols * u, h: part.rows * u }); for (const k of kinOf(inner)) if (k !== inner) k.set({ ...k.rect, w: inner.rect.w, h: inner.rect.h }); });
-  inner.sides = { w: part.colsName, h: part.rowsName };
+/* the block called in takes the size and the side names of the covered part of the input of the arrow the function
+   was made as (every use of a named arrow has to fit that, so it is theirs too). It does not depend on which arrow
+   the space was opened through: going into a space never changes the project. Gives whether it changed. */
+function syncIn(def){
+  const a = def.owner && isArrow(def.owner) ? originOf(def.owner) : null, inner = a && def.blocks.find(k => k.in), input = inner && spaceWith(a) ? inputOf(a) : null, part = input && coveredType(full(a), input), u = view.unit;
+  if (!part) return false;
+  const sized = inner.rect.w !== part.cols * u || inner.rect.h !== part.rows * u, named = inner.sides.w !== (part.colsName || null) || inner.sides.h !== (part.rowsName || null);
+  if (sized) keepTouching(() => { inner.set({ ...inner.rect, w: part.cols * u, h: part.rows * u }); for (const k of kinOf(inner)) if (k !== inner) k.set({ ...k.rect, w: inner.rect.w, h: inner.rect.h }); });
+  inner.sides = { w: part.colsName || null, h: part.rowsName || null };
+  return sized || named;
 }
 /* makes the block called in, in an arrow's definition space that has none: clear of the equation, on its left */
 function ensureIn(def, a){
@@ -1496,14 +1523,15 @@ function seatValues(st){
 }
 /* where a block seated in a hollow sits: the first hollow of its pair that is the size of the result (algebra.js:
    pieceHollows), as { n: which of the two, rect, type }; null where the two do not make such a pair now */
-function hollowOf(pair, alg = algebraIn(space), which = 0){      /* which: 1 or 2 for that hollow and no other */
+function hollowOf(pair, s = space, alg = algebraIn(s), which = 0){      /* which: 1 or 2 for that hollow and no other */
   const { active, rects, all } = alg, p = all.find(p => p.members.length === 2 && p.members.every(m => pair.includes(active[m].id)));
   if (!p) return null;
   const both = pieceHollows(rects, p), n = which ? (both[which - 1] ? which - 1 : -1) : both.findIndex(Boolean);
   return n < 0 ? null : { n: n + 1, rect: both[n], type: p.type };
 }
 /* a seated block whose seat is gone or has nowhere to be just now: it has no value */
-const seatLost = b => !b.seat ? false : typeof b.seat !== 'string' ? !hollowOf(b.seat.hollow) : (s => { const a = s?.blocks.find(k => k.id === b.seat && isArrow(k)); return !a || !outputOf(a).place; })(spaceWith(b));
+const seatLost = b => !b.seat ? false : (s => { if (!s) return true; if (typeof b.seat !== 'string') return !hollowOf(b.seat.hollow, s);
+  const a = s.blocks.find(k => k.id === b.seat && isArrow(k)), o = a && outputOf(a); return !o || !o.place || o.blocked; })(spaceWith(b));      /* blocked: its seat would lie on another block (arrows.js: standing) */
 /* a triangle's corners in units from its own rectangle's corner, for an arrow whose gap is w by h */
 function cornersOf(side, w, h){
   const rows = along(side) === 'rows', span = rows ? h : w, gap = rows ? w : h;
@@ -1513,19 +1541,29 @@ function cornersOf(side, w, h){
 /* puts every arrow of the space on screen in front of its base, and every seated block on its seat, at the size its
    seat has. An arrow may read a seated block or another arrow's output, so it is done until nothing moves. Gives
    whether anything did. */
-function arrange(){
+function arrange(s = space){
   const u = view.unit, scaled = r => ({ x: r.x * u, y: r.y * u, w: r.w * u, h: r.h * u }); let any = false;
-  if (!space.blocks.some(b => isArrow(b) || b.seat)) return false;
+  if (!s.blocks.some(b => isArrow(b) || b.seat)) return false;
   for (let pass = 0, again = true; again && pass < 8; pass++){ again = false; memo?.clear();
-    const alg = space.blocks.some(hollowSeat) ? algebraIn(space) : null;
-    for (const b of space.blocks){ let r = null;
+    const alg = s.blocks.some(hollowSeat) ? algebraIn(s) : null;
+    for (const b of s.blocks){ let r = null;
       if (isArrow(b)){ const input = inputOf(b); if (input && covered(b.arrow, input)) r = scaled(strip(b.arrow, input.rect));
         const at = r || b.rect; b.point(b.arrow.side, cornersOf(b.arrow.side, at.w / u, at.h / u), at.w / u, at.h / u); }
-      else if (typeof b.seat === 'string'){ const a = space.blocks.find(k => k.id === b.seat && isArrow(k)), o = a && outputOf(a); if (o?.place) r = scaled(o.place); }
-      else if (b.seat){ const h = hollowOf(b.seat.hollow, alg); if (h) r = scaled(h.rect); }
+      else if (typeof b.seat === 'string'){ const a = s.blocks.find(k => k.id === b.seat && isArrow(k)), o = a && outputOf(a); if (o?.place && !o.blocked) r = scaled(o.place); }      /* never onto another block */
+      else if (b.seat){ const h = hollowOf(b.seat.hollow, s, alg); if (h) r = scaled(h.rect); }
       if (!r || (r.x === b.rect.x && r.y === b.rect.y && r.w === b.rect.w && r.h === b.rect.h)) continue;
       const sized = r.w !== b.rect.w || r.h !== b.rect.h; b.set(r); if (sized && !isArrow(b)) agree(b); again = any = true; } }
   memo?.clear();
+  return any;
+}
+/* the same for every space, on screen or not, with each function's input block brought to its size first: what an
+   arrow comes to can depend on how the arrows and seats inside its definition are laid out, and those on it. Until
+   nothing moves. So what is saved never depends on which spaces have been looked at. */
+function arrangeAll(){
+  let any = false;
+  for (let pass = 0, again = true; again && pass < 4; pass++){ again = false;
+    for (const s of everySpace()){ if (!s.blocks.some(b => isArrow(b) || b.seat || b.in)) continue;
+      if (syncIn(s)) again = any = true; if (arrange(s)) again = any = true; } }
   return any;
 }
 /* every edge an arrow could be set against here: each block's; each arrow's output, where no block is seated on it;
@@ -1535,9 +1573,9 @@ function edgesHere(){
   for (const b of space.blocks){ if (isOff(b) || hollowSeat(b)) continue;
     if (isArrow(b)){ const o = outputOf(b); if (o.place && o.type && !seatOn(b, space)) out.push({ input: { id: b.id, as: 'result' }, rect: o.place }); }
     else out.push({ input: { id: b.id, as: 'block' }, rect: unitsOf(b) }); }
-  if (!space.owner) for (const r of results){ const p = r.piece; if (!r.el.isConnected || r.el.hidden || !p || p.blocks.length < 2 || p.type.error) continue;
-    if (p.hollows.length) for (const h of p.hollows) out.push({ input: { id: p.blocks[0].id, as: 'result', hollow: h.n }, rect: { x: h.x / u, y: h.y / u, w: h.w / u, h: h.h / u } });
-    else if (p.body) out.push({ input: { id: p.blocks[0].id, as: 'result' }, rect: { x: p.body.x / u, y: p.body.y / u, w: p.type.cols, h: p.type.rows } }); }
+  for (const w of writtenIn(space)){ if (w.blocks.length < 2 || w.type.error) continue;
+    if (w.drawn.length) for (const h of w.drawn) out.push({ input: { id: w.blocks[0].id, as: 'result', hollow: h.n }, rect: { x: h.x, y: h.y, w: h.w, h: h.h } });
+    else if (w.body) out.push({ input: { id: w.blocks[0].id, as: 'result' }, rect: { x: w.body.x, y: w.body.y, w: w.type.cols, h: w.type.rows } }); }
   return out;
 }
 /* the edge nearest a world point, if one is within reach (in units): { input, side, at, rect } */
@@ -1553,14 +1591,15 @@ function addArrow({ input, side, start = 1, span = 1, gap = 2, of = null, builti
   const arrow = { input: { id: input.id, as: input.as === 'result' ? 'result' : 'block', ...(input.as === 'result' && input.hollow ? { hollow: input.hollow } : {}) }, side, start, span, gap, gapName: null, output: null };
   const can = settable(arrow, s => along(s) === 'rows' ? read.rows : read.cols, {});
   if (can.refused) return hud.say(can.refused);
-  if (!free(arrow, read.rect, othersOf(space, input.id))) return hud.say(FREE);
+  if (!free(arrow, read.rect, othersOf(space, input))) return hud.say(FREE);
   if (from){ const inner = innerOf(from), fit = inner ? fits(inner, coveredType(arrow, read)) : { ok: true }; if (fit.refused) return hud.say(`${bare(from.name)} does not fit there. ${fit.refused}`); }
   const b = makeArrow(builtin || (from ? from.name : freeName())); b.arrow = arrow;
   if (from){ const o = originOf(from); b.ref = true; b.fn = o.fn; spaceOf.set(b, spaceOf.get(o)); const set = kin.get(o) || new Set([o]); set.add(b); for (const k of set) kin.set(k, set); }
   else { if (builtin) b.ref = true; spaceOf.set(b, newSpace(b, space)); }
   space.blocks.push(b); view.world.append(b.el);
   ensureIn(spaceOf.get(b), b);
-  if (seat){ const k = space.blocks.find(k => k.id === seat); if (k) k.seat = b.id; }
+  /* a block carried out of a hollow: put on the output first, while it is still no part of the pair's touching, and then seated there (left in the hollow it would lie against both shapes and break the piece the arrow reads) */
+  if (seat){ const k = space.blocks.find(k => k.id === seat), at = k && outputOf(b).place, u = view.unit; if (k){ if (at) k.set({ x: at.x * u, y: at.y * u, w: at.w * u, h: at.h * u }); k.seat = b.id; } }
   select([b]);
 }
 function setArrow({ id, ...patch }){
@@ -1572,7 +1611,7 @@ function setArrow({ id, ...patch }){
   if (got.refused){ hud.say(got.refused); return shown(); }
   const next = got.arrow;
   if (input && ('side' in geo || 'start' in geo || 'span' in geo)){
-    if (!free(next, input.rect, othersOf(space, a.arrow.input.id))){ hud.say(FREE); return shown(); }
+    if (!free(next, input.rect, othersOf(space, a.arrow.input))){ hud.say(FREE); return shown(); }
     const inner = a.ref && !isUse(a) ? innerOf(a) : null, fit = inner ? fits(inner, coveredType(next, input)) : { ok: true };
     if (fit.refused){ hud.say(`${bare(a.name)} would not fit its input. ${fit.refused}`); return shown(); } }
   if ('gapName' in patch) next.gapName = String(patch.gapName || '').trim() || null;
@@ -1586,6 +1625,8 @@ function setArrow({ id, ...patch }){
 /* what arrows.js needs to know of a block to say whether it can be seated */
 const seatFacts = b => ({ name: bare(b.name), named: isNamed(b), arrow: isArrow(b), input: !!givenOf(b), reference: !!b.ref, uses: [...kinOf(b)].length, defined: !!spaceOf.get(b)?.blocks.some(k => !isOff(k)),
   standing: !!b.tile, seated: !!seatedOf(b), part: !!rangedOf(b), measure: measures(b), fused: !!b.members });
+/* whether an arrow reads a block, directly or through other arrows and seats (arrows.js: dependsOn): its output cannot be seated with that block */
+const feeds = (b, a) => dependsOn([a.id], b.id, depsOf);
 function seatBlock({ arrow = null, hollow = null, id = null, name = null, color = null }){
   const u = view.unit, a = arrow ? space.blocks.find(k => k.id === arrow && isArrow(k)) : null, h = !a && hollow ? hollowOf(hollow) : null;
   if (!a && !h) return hud.say(hollow ? 'Those two shapes enclose no hollow of their result\'s size' : 'There is no output there to seat a block on');
@@ -1593,7 +1634,7 @@ function seatBlock({ arrow = null, hollow = null, id = null, name = null, color 
   const type = a ? outputOf(a).type : h.type;
   let b = id ? space.blocks.find(k => k.id === id) : null;
   if (id){ if (!b || !a) return hud.say(b ? 'A block is seated in a hollow by naming the result there' : 'That block is not on this canvas: it cannot be seated here');
-    const can = seatable(seatFacts(b)); if (can.refused){ hud.say(can.refused); return shown(); }
+    const can = seatable({ ...seatFacts(b), feeds: feeds(b, a) }); if (can.refused){ hud.say(can.refused); return shown(); }
     b.seat = a.id; a.arrow = { ...a.arrow, output: { cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u) } }; }      /* the arrow's output size becomes the block's size */
   else { if (!name) return; if (!type) return hud.say('That output has no size yet: there is nothing to seat a block on');
     b = makeBlock({ ...typeNamed('tensor'), color: color || someColour() }, { x: 0, y: 0, w: type.cols * u, h: type.rows * u }, name);
@@ -1633,7 +1674,7 @@ function dragSeated(b, from){
       if (a){ const now = a.arrow; a.arrow = was;
         if (off){ shown(); return isNamed(b) ? bus.send('use', { id: b.id, at: { x: at.x + at.w / 2, y: at.y + at.h / 2 } }) : hud.say('It stays seated. Give it a name, and dragging it off the arrow\'s line sets down a reference to it'); }
         return now.gap !== was.gap ? bus.send('arrow.set', { id: a.id, gap: now.gap }) : shown(); }
-      const h = hollowOf(b.seat.hollow), scale = r => ({ x: Math.round(r.x / u), y: Math.round(r.y / u), w: Math.round(r.w / u), h: Math.round(r.h / u) }), to = h && carried(h.rect, scale(at));
+      const h = hollowOf(b.seat.hollow, space), scale = r => ({ x: Math.round(r.x / u), y: Math.round(r.y / u), w: Math.round(r.w / u), h: Math.round(r.h / u) }), to = h && carried(h.rect, scale(at));
       if (!to){ shown(); if (at !== home && (at.x !== home.x || at.y !== home.y)) hud.say('To carry it out of the hollow, drag it straight along its row or its column, at least one unit clear'); return; }
       bus.send('arrow.add', { input: { id: b.seat.hollow[0], as: 'result', hollow: h.n }, side: to.side, start: 1, span: along(to.side) === 'rows' ? h.rect.h : h.rect.w, gap: to.gap, seat: b.id }); } };
 }

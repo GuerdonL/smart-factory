@@ -55,7 +55,7 @@
    check(promise, came)         -> { ok, note }: whether what the function comes to is what was promised. promise is
                                    { cols, rows, colsName, rowsName } or null (nothing promised: nothing checked).
                                    Where both name a side the names must be the same.
-   standing(arrow, input, others, names, defined) -> { warn, part, came, type, place }
+   standing(arrow, input, others, names, defined, { loops, inner }) -> { warn, part, came, type, place, blocked }
                                    everything about one arrow as it stands. input is null where it is gone, else
                                    { rect, cols, rows, colsName, rowsName }; others are the rects of the blocks that
                                    could lie against its edge; names are the side names that go with the promise
@@ -64,7 +64,44 @@
                                    its span runs past its input, the edge under it is not free, or what it comes to
                                    is not what it promises. type is the output as it is drawn (the promise where
                                    there is one, else what the function comes to; null where there is neither) and
-                                   place its rectangle.
+                                   place its rectangle. loops: the arrow reads itself, through whatever else
+                                   (dependsOn): it is "it depends on itself" and has nothing. inner: for another
+                                   use of a named arrow, the function's own input as a type: an input that does not
+                                   fit it (fits) is a warning too. others must not include the block seated on the
+                                   output: where there is one (names) and the output's place lies over another
+                                   block, blocked is true and the arrow warns: a seat is never put on another block.
+   dependsOn(from, target, next) -> whether target is reached from any of the ids in from, going on through next(id),
+                                   the ids that one depends on (an arrow: what it reads, and the arrows in its
+                                   function's space; a seated block: its arrow, or the two blocks of its pair). An
+                                   arrow reads itself where it is reached from what it reads; a block cannot be
+                                   seated on an arrow that is reached back to that block.
+   functionFor(name, levels)    -> the id of the arrow whose function a use by name applies, or null for the
+                                   program's own. levels: the arrows of the use's space, then of each space above
+                                   it, nearest first, each { id, name, reference, off }. It is the first arrow of
+                                   that name (as trimmed) in the nearest space that has one which is not itself a
+                                   reference and not commented out: that is how a project shadows a function.
+
+   Where a result is written (units; a rect's y downward). The page draws it there; an arrow set against it reads
+   it there, on screen or not.
+   writtenAt(box, size, { side, drop, whole }) -> { sign: { x, y }, body: { x, y, w, h }, at }
+                                   box is the rectangle round the piece; size the matrix as written ({ w, h }; an
+                                   error is { w: 4, h: 0 }). side 'right' (the default): the sign a unit and a half
+                                   right of the box and the matrix a unit and a half after it, level with the box's
+                                   middle. 'below': under the box from its left edge, drop further units down.
+                                   'left': the matrix, then the sign, left of the box. at is the rectangle all of
+                                   it covers, with a little air. whole: the result is read by an arrow, so its
+                                   matrix has to stand on whole units: below, it is two units after the sign in
+                                   place of one and a half (everywhere else it is on whole units already).
+   writtenWhere(box, size, taken, whole) -> writtenAt's answer with the side and drop chosen: to the right; if that
+                                   lies over one of taken, just below, to the left, or one or two units further
+                                   below; and if all of those are taken, to the right all the same.
+   readAt(written, hollow, copies) -> the rectangle an arrow reads of a written result, or null where none is
+                                   written. written: { usable: [first, second] the pair's hollows that the result
+                                   could be written in (null where not), drawn: [{ n, x, y, w, h }] those it is
+                                   written in, body: its matrix beside the piece or null }. An arrow that names a
+                                   hollow reads that hollow where results are written in hollows at all (copies
+                                   above 0) and it can be used: it is written there once something reads from it.
+                                   Otherwise the first hollow written in, else the matrix beside the piece.
 
    What a space comes to, where it holds arrows: its ends, the things in it that nothing reads from.
    ends(pieces, arrows)         -> [{ type, piece } | { type, arrow }]. pieces: [{ ids: the ids of its blocks, type,
@@ -103,7 +140,11 @@
    seatable(block)              -> { ok: true } | { refused: a sentence }. A seat gives a variable its value, so a
                                    block can be seated if it is unnamed, or the only use of its variable where
                                    nothing else defines that. block: { name, named, uses, reference, defined,
-                                   standing, seated, part, measure, fused, arrow, input }
+                                   standing, seated, part, measure, fused, arrow, input, feeds }. feeds: the arrow
+                                   reads this block, directly or through other arrows (dependsOn): its output
+                                   cannot be the block it is made from.
+   definable(block)             -> { ok: true } | { refused }: whether a variable's definition space can be gone into
+                                   to define it. Not where it is seated ({ name, seated }): a seat is what defines it.
    seatsOn(rect, place)         -> whether a block let go at rect is let go on an output at place: it lies over part
                                    of it, with its top-left corner within a unit of the output's
    carried(hollow, rect)        -> { side, gap } | null: a block lifted out of a hollow and set down at rect, if it
@@ -189,15 +230,29 @@ export function check(promise, came){
   for (const k of ['colsName', 'rowsName']) if (promise[k] && came[k] && promise[k] !== came[k]) return { ok: false, note: `${came[k]} ≠ ${promise[k]}` };
   return { ok: true, note: '' };
 }
-export function standing(arrow, input, others = [], names = null, defined = null){
+export function dependsOn(from, target, next){
+  const seen = new Set(), todo = [...from];
+  while (todo.length){ const id = todo.pop(); if (id === target) return true; if (seen.has(id)) continue; seen.add(id); todo.push(...next(id)); }
+  return false;
+}
+export function functionFor(name, levels){
+  const want = String(name).trim();
+  for (const level of levels){ const own = level.find(a => !a.reference && !a.off && String(a.name).trim() === want); if (own) return own.id; }
+  return null;
+}
+const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+export function standing(arrow, input, others = [], names = null, defined = null, { loops = false, inner = null } = {}){
   const promise = arrow.output ? { cols: arrow.output.cols, rows: arrow.output.rows, colsName: names?.colsName || null, rowsName: names?.rowsName || null } : null;
-  if (!input) return { warn: 'its input is gone', part: null, came: null, type: promise, place: null };
+  if (loops) return { warn: 'it depends on itself', part: null, came: null, type: null, place: null, blocked: false };
+  if (!input) return { warn: 'its input is gone', part: null, came: null, type: promise, place: null, blocked: false };
   const part = coveredType(arrow, input);
-  if (!part) return { warn: 'its span runs past its input', part: null, came: null, type: promise, place: null };
+  if (!part) return { warn: 'its span runs past its input', part: null, came: null, type: promise, place: null, blocked: false };
   const to = came(arrow, part, defined), ok = check(promise, to), type = promise || (to.error ? null : to);
+  const at = type ? place(arrow, input.rect, type) : null, blocked = !!names && !!at && others.some(o => over(o, at)), fit = inner ? fits(inner, part) : { ok: true };
   const warn = !free(arrow, input.rect, others) ? 'the edge under it is not free' : to.error ? `what defines it has no size: ${to.error}`
-    : !ok.ok ? `it promises ${promise.cols}×${promise.rows} and comes to ${to.cols}×${to.rows}` + (ok.note.includes('×') ? '' : `: ${ok.note}`) : null;
-  return { warn, part, came: to, type, place: type ? place(arrow, input.rect, type) : null };
+    : !ok.ok ? `it promises ${promise.cols}×${promise.rows} and comes to ${to.cols}×${to.rows}` + (ok.note.includes('×') ? '' : `: ${ok.note}`)
+    : fit.refused ? 'its input does not fit the function: ' + fit.refused : blocked ? 'its output would lie on another block: the block seated on it is left where it was' : null;
+  return { warn, part, came: to, type, place: at, blocked };
 }
 
 export function ends(pieces, arrows){
@@ -206,6 +261,23 @@ export function ends(pieces, arrows){
 }
 export const defined = (ends, isInput) => !ends.length || (ends.length === 1 && !!ends[0].piece && ends[0].piece.ids.length === 1 && isInput(ends[0].piece.ids[0])) ? null
   : ends.length === 1 ? ends[0].type : { error: ends.length + ' pieces' };
+
+export function writtenAt(box, size, { side = 'right', drop = 0, whole = false } = {}){
+  const on = Math.round, air = .25, w = size.w, h = size.h;
+  if (side === 'left'){ const signX = on(box.x) - 1.5, x = signX - 1.5 - w, y = h ? on(box.y + box.h / 2 - h / 2) : box.y + box.h / 2;
+    return { sign: { x: signX, y: y + h / 2 }, body: { x, y, w, h }, at: { x: x - air, y: y - (h ? air : .5), w: w + 2.5 + air, h: (h || 1) + 2 * air } }; }
+  const below = side === 'below', left = below ? on(box.x) : on(box.x + box.w) + 1.5, lead = below && whole ? 2 : 1.5;
+  const top = below ? on(box.y + box.h) + 1 + drop + (h ? 0 : .5) : h ? on(box.y + box.h / 2 - h / 2) : box.y + box.h / 2;
+  return { sign: { x: left, y: top + h / 2 }, body: { x: left + lead, y: top, w, h }, at: { x: left - .5, y: top - (h ? air : .5), w: lead + 1 + w + air, h: (h || 1) + 2 * air } };
+}
+export function writtenWhere(box, size, taken, whole = false){
+  const tries = [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}];
+  for (const [i, where] of tries.entries()){ const got = writtenAt(box, size, { ...where, whole }); if (i === tries.length - 1 || !taken.some(t => over(t, got.at))) return { side: where.side || 'right', drop: where.drop || 0, ...got }; }
+}
+export function readAt(written, hollow, copies){
+  const named = hollow && copies > 0 ? written.usable[hollow - 1] : null;
+  return named || written.drawn.find(h => h.n === hollow) || written.drawn[0] || written.body || null;
+}
 
 export function passed(values, part){
   const out = new Map();
@@ -243,6 +315,7 @@ export function seatable(b){
   const name = b.name || 'It';
   if (b.arrow) return { refused: 'An arrow cannot be seated on an output' };
   if (b.input) return { refused: 'in is the function\'s input: it cannot be seated' };
+  if (b.feeds) return { refused: `${name} is what that arrow reads: its output cannot be the block it is made from` };
   if (b.part) return { refused: `${name} is part of another shape, which is what defines it` };
   if (b.measure) return { refused: `${name} is a measure of another shape, which is what defines it` };
   if (b.fused) return { refused: `${name} is fused from other shapes, which are what define it` };
@@ -254,6 +327,7 @@ export function seatable(b){
   if (b.defined) return { refused: `${name} is defined in its definition space: a seat would define it twice` };
   return { ok: true };
 }
+export const definable = b => b.seated ? { refused: `${b.name || 'It'} is seated: the arrow's output is what defines it, so it has no definition of its own to go into` } : { ok: true };
 export const seatsOn = (r, p) => r.x < p.x + p.w && p.x < r.x + r.w && r.y < p.y + p.h && p.y < r.y + r.h && Math.abs(r.x - p.x) <= 1 && Math.abs(r.y - p.y) <= 1;
 export function carried(h, r){
   if (r.y === h.y && r.h === h.h && r.w === h.w){ if (r.x >= h.x + h.w + 1) return { side: 'e', gap: r.x - h.x - h.w }; if (r.x + r.w <= h.x - 1) return { side: 'w', gap: h.x - r.x - r.w }; }

@@ -263,7 +263,8 @@ it. A click anywhere else makes nothing, and the readout says so.
 along rows, on `n` and `s` along columns); the first row or column it covers and how many (start and span); the gap,
 in units, from the input's edge to the output; an output size it promises, or none; and its function. The output's
 place is never stored: it starts the gap away from the edge, level with the first row or column covered, always on
-whole units. Move the input and the arrow and its output go with it. One arrow over twenty rows is one function
+whole units. (A written result that an arrow reads is itself written on whole units: under its piece, that is half a
+unit further right than a result nothing reads.) Move the input and the arrow and its output go with it. One arrow over twenty rows is one function
 applied once to those twenty rows, and gives one output.
 
 **Changing it.** Click the triangle to select it: a frame goes round it and its output. Drag it along its line to
@@ -286,7 +287,8 @@ not free) is said in the readout, and the arrow stays as it was.
   error in every entry, and the panel says why. Nowhere else can a formula refer to a whole matrix.
 - *A definition space.* Click an arrow that is selected to open it, as for a block. The space holds one block that
   cannot be deleted, renamed or resized, called `in`, drawn pale with a dashed edge: it is the covered part of the
-  input, in size, side names and entries. `= [output]` stands at the centre. What the space comes to is the
+  input, in size, side names and entries (for a named arrow used in several places, the size and side names are
+  those of the arrow it was made as, which every other use has to fit). `= [output]` stands at the centre. What the space comes to is the
   function's result: touch `in` against a 4-row block and the arrow gives that product. Any variable in reach can
   be used there, `in` itself more than once (drag it from the list). Where the space holds arrows of its own, its
   result is the one thing in it nothing reads from.
@@ -302,7 +304,9 @@ elementwise result, which are not worked out in numbers yet.
 whose function does not come to it is drawn in the warning colour, with its output, and its definition space shows
 `≠`; where a block is seated on the output and both it and the result name a side, the names must agree too. An
 arrow is also drawn in the warning colour when its input is gone, when its span runs past its input, and when
-another block has been set against the edge under its base. Select it and the panel says which.
+another block has been set against the edge under its base. Select it and the panel says which. All of this is
+worked out from the project itself, for every space at once, whether or not it is on screen: changing an arrow
+changes what is inside its definition space there and then, and going into a space never changes anything.
 
 **The seat.** The output is not a block, so it touches nothing. To use it in a product, a sum or on a diagonal it
 needs a block, and a block that sits on an output is seated:
@@ -318,7 +322,12 @@ needs a block, and a block that sits on an output is seated:
   is set down where it was dropped. References to a seated variable show the arrow's output.
 - Only an unnamed block, or the one use of a variable that nothing else defines, can be seated: a reference, a
   variable used in several places, one with shapes in its definition space, a part of another shape, a fused shape
-  and a block that is seated already are each refused, with the reason.
+  and a block that is seated already are each refused, with the reason. So is the block the arrow itself reads,
+  directly or through other arrows: an output cannot be the block it is made from.
+- A seat is what defines a seated variable, so its definition space cannot be gone into: the readout says so.
+- A seat is never put on another block. Where the output's place would lie over one (its input was moved, or the
+  pair it read from was split), the seated block is left where it was, and it and the arrow turn to the warning
+  colour until there is room.
 - Unseat, in the right-click menu, takes a block off its seat and leaves it where it is, with the entries it had.
 - An arrow, the block `in` and a seated block are not cut, fused, folded away or transposed; the readout says why.
 

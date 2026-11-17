@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn } from '../arrows.js';
+import { along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -150,7 +150,7 @@ test('checking against a promise: sizes, and names where both name a side', () =
 test('an arrow as it stands: where its output is, and each reason for the warning colour', () => {
   const a = arrow('e', 1, 3, 2);
   assert.deepEqual(standing(a, input()), { warn: null, part: { cols: 4, rows: 3, colsName: null, rowsName: null }, came: { cols: 4, rows: 3, colsName: null, rowsName: null },
-    type: { cols: 4, rows: 3, colsName: null, rowsName: null }, place: { x: 8, y: 3, w: 4, h: 3 } });
+    type: { cols: 4, rows: 3, colsName: null, rowsName: null }, place: { x: 8, y: 3, w: 4, h: 3 }, blocked: false });
   assert.equal(standing(a, null).warn, 'its input is gone');
   assert.equal(standing(a, null).place, null);
   assert.equal(standing(arrow('e', 2, 3), input()).warn, 'its span runs past its input');
@@ -331,4 +331,93 @@ test('a block let go on an output: over it, its corner within a unit of the outp
   assert.equal(seatsOn({ x: 12, y: 4, w: 4, h: 1 }, place), false);         /* two units off, though it overlaps */
   assert.equal(seatsOn({ x: 10, y: 5, w: 4, h: 1 }, place), false);         /* against it, not over it */
   assert.equal(seatsOn({ x: 20, y: 4, w: 4, h: 1 }, place), false);
+});
+
+/* ---- after review ---- */
+test('an arrow that reads itself has nothing; another use that does not fit the function warns', () => {
+  const a = arrow('e', 1, 3, 2);
+  assert.deepEqual(standing(a, input(), [], null, null, { loops: true }), { warn: 'it depends on itself', part: null, came: null, type: null, place: null, blocked: false });
+  assert.equal(standing(a, input(), [], null, null, { loops: false }).warn, null);
+  const inner = { cols: 4, rows: 3, colsName: null, rowsName: null };
+  assert.equal(standing(a, input(), [], null, null, { inner }).warn, null);                                       /* it fits */
+  assert.match(standing(a, input(), [], null, null, { inner: { ...inner, cols: 5 } }).warn, /^its input does not fit the function: Its input has 5 columns/);
+  assert.match(standing(a, input(), [], null, null, { inner: { ...inner, colsName: 'embed' } }).warn, /columns are embed/);
+  assert.equal(standing(a, input(R, { colsName: 'embed' }), [], null, null, { inner: { ...inner, cols: 9, colsName: 'embed' } }).warn, null);      /* by name, whatever the length */
+  assert.equal(standing(arrow('e', 2, 3), input(), [], null, null, { inner }).warn, 'its span runs past its input');      /* what is wrong first is said first */
+});
+test('a seat is never put on another block', () => {
+  const a = arrow('e', 1, 3, 2), seat = { colsName: null, rowsName: null }, on = { x: 10, y: 4, w: 2, h: 2 };      /* the output is at 8,3, 4 by 3 */
+  const got = standing(a, input(), [on], seat);
+  assert.equal(got.blocked, true); assert.match(got.warn, /its output would lie on another block/); assert.deepEqual(got.place, { x: 8, y: 3, w: 4, h: 3 });
+  assert.equal(standing(a, input(), [on], null).blocked, false);                         /* nothing is seated: an output may be written over a block */
+  assert.equal(standing(a, input(), [on], null).warn, null);
+  assert.equal(standing(a, input(), [{ x: 12, y: 3, w: 2, h: 3 }], seat).blocked, false);      /* against the output, not on it */
+  assert.equal(standing(a, input(), [{ x: 11, y: 5, w: 2, h: 3 }], seat).blocked, true);       /* a unit of overlap is enough */
+  assert.equal(standing(a, input(), [], seat).blocked, false);
+});
+test('what depends on what: an arrow that reads itself, and a block that feeds the arrow it would sit on', () => {
+  /* X -> a1 -> (H seated) -> a2 -> output read by a3 */
+  const reads = { a1: ['X'], a2: ['H'], a3: ['a2'], H: ['a1'], X: [], Y: [] }, next = id => reads[id] || [];
+  assert.equal(dependsOn(['a1'], 'X', next), true);            /* X is what a1 reads: X cannot be seated on a1 */
+  assert.equal(dependsOn(['a3'], 'X', next), true);            /* nor on a3, three steps on */
+  assert.equal(dependsOn(['a3'], 'H', next), true);
+  assert.equal(dependsOn(['a1'], 'H', next), false);           /* H sits on a1: a1 does not read it */
+  assert.equal(dependsOn(['a1'], 'Y', next), false);
+  assert.equal(dependsOn(next('a1'), 'a1', next), false);      /* a1 does not read itself */
+  const loop = { a1: ['S'], S: ['a2'], a2: ['a1'] }, around = id => loop[id] || [];
+  assert.equal(dependsOn(around('a1'), 'a1', around), true);   /* a1 reads S, seated on a2, which reads a1's output */
+  assert.equal(dependsOn(around('a2'), 'a2', around), true);
+  assert.equal(dependsOn(['k'], 'k', () => ['k']), true);      /* an arrow inside its own function's space */
+  assert.equal(dependsOn([], 'a1', around), false);
+  assert.match(seatable({ name: 'X', named: true, uses: 1, feeds: true }).refused, /X is what that arrow reads/);
+  assert.match(seatable({ name: 'Shape 1', named: false, feeds: true }).refused, /what that arrow reads/);
+});
+test('which function a use by name applies: the nearest arrow of that name that is no reference', () => {
+  const own = { id: 'a1', name: '.recip', reference: false, off: false }, use = { id: 'a2', name: '.recip', reference: true, off: false };
+  assert.equal(functionFor('.recip', [[use]]), null);                                    /* only uses of it: the program's own */
+  assert.equal(functionFor('.recip', [[use, own]]), 'a1');
+  assert.equal(functionFor('.recip', [[use], [{ ...own, id: 'up' }]]), 'up');            /* from a space above, downwards */
+  assert.equal(functionFor('.recip', [[{ ...own, id: 'near' }], [{ ...own, id: 'far' }]]), 'near');      /* the nearest shadows the one above it */
+  assert.equal(functionFor('.recip', [[{ ...own, off: true }]]), null);                  /* commented out: it takes no part */
+  assert.equal(functionFor('.recip', [[{ ...own, name: '.exp' }]]), null);
+  assert.equal(functionFor(' .recip ', [[{ ...own, name: '.recip  ' }]]), 'a1');
+  assert.equal(functionFor('.recip', []), null);
+});
+test('where a result is written: right, below, left; on whole units where an arrow reads it', () => {
+  const box = { x: -12, y: 6, w: 6, h: 3 }, size = { w: 4, h: 3 };
+  assert.deepEqual(writtenAt(box, size), { sign: { x: -4.5, y: 7.5 }, body: { x: -3, y: 6, w: 4, h: 3 }, at: { x: -5, y: 5.75, w: 6.75, h: 3.5 } });
+  assert.deepEqual(writtenAt(box, size, { side: 'below' }).body, { x: -10.5, y: 10, w: 4, h: 3 });            /* as it always was: half a unit off */
+  assert.deepEqual(writtenAt(box, size, { side: 'below', whole: true }).body, { x: -10, y: 10, w: 4, h: 3 });      /* read by an arrow: on whole units */
+  assert.deepEqual(writtenAt(box, size, { side: 'below', drop: 2, whole: true }).body, { x: -10, y: 12, w: 4, h: 3 });
+  assert.deepEqual(writtenAt(box, size, { side: 'left' }).body, { x: -19, y: 6, w: 4, h: 3 });
+  assert.deepEqual(writtenAt(box, { w: 4, h: 0 }).sign, { x: -4.5, y: 7.5 });                                  /* an error: a line of words, level with the middle */
+  for (const side of ['right', 'below', 'left']) for (const h of [1, 2, 3, 4]) for (const bh of [1, 2, 3]) for (const drop of [0, 1]){
+    const b = writtenAt({ x: 3, y: -2, w: 5, h: bh }, { w: 3, h }, { side, drop, whole: true }).body; assert.ok([b.x, b.y].every(Number.isInteger), side + h + bh); }
+  /* which place: the first that lies over nothing */
+  assert.equal(writtenWhere(box, size, []).side, 'right');
+  const right = { x: -5, y: 5, w: 6, h: 5 };                                                                   /* a block where the result would go */
+  assert.deepEqual([writtenWhere(box, size, [right]).side, writtenWhere(box, size, [right]).drop], ['below', 0]);
+  assert.deepEqual(writtenWhere(box, size, [right], true).body, { x: -10, y: 10, w: 4, h: 3 });
+  const under = { x: -12, y: 10, w: 3, h: 1 };
+  assert.equal(writtenWhere(box, size, [right, under]).side, 'left');
+  const leftward = { x: -20, y: 6, w: 3, h: 1 };
+  assert.deepEqual([writtenWhere(box, size, [right, under, leftward]).side, writtenWhere(box, size, [right, under, leftward]).drop], ['below', 2]);      /* one unit further down still lies over the block under it */
+  const all = [right, under, leftward, { x: -12, y: 11, w: 3, h: 9 }];
+  assert.equal(writtenWhere(box, size, all).side, 'right');                                                    /* nowhere is free: to the right all the same */
+});
+test('what an arrow reads of a written result', () => {
+  const h1 = { x: 3, y: 3, w: 3, h: 2 }, h2 = { x: 0, y: 1, w: 3, h: 2 }, body = { x: 9, y: 2, w: 3, h: 2 };
+  const one = { usable: [h1, h2], drawn: [{ n: 1, ...h1 }], body: null };
+  assert.deepEqual(readAt(one, 1, 1), h1);
+  assert.deepEqual(readAt(one, 2, 1), h2);                     /* not written in yet: it will be, once this arrow reads from it */
+  assert.deepEqual(readAt(one, undefined, 1), { n: 1, ...h1 });      /* no hollow named: wherever it is written */
+  const none = { usable: [h1, h2], drawn: [], body };
+  assert.deepEqual(readAt(none, 2, 0), body);                  /* nothing is written in hollows: beside the piece */
+  assert.deepEqual(readAt({ usable: [h1, null], drawn: [{ n: 1, ...h1 }], body: null }, 2, 1), { n: 1, ...h1 });      /* the one named cannot be used: the one that is */
+  assert.deepEqual(readAt({ usable: [null, null], drawn: [], body }, 1, 1), body);      /* the pair was split: the result of the piece that holds the block */
+  assert.equal(readAt({ usable: [null, null], drawn: [], body: null }, 1, 1), null);    /* an error is written, not a matrix: nothing to read */
+});
+test('a seated variable has no definition of its own to go into', () => {
+  assert.deepEqual(definable({ name: 'H', seated: false }), { ok: true });
+  assert.match(definable({ name: 'H', seated: true }).refused, /H is seated/);
 });
