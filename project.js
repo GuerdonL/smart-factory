@@ -118,6 +118,8 @@
                                                            shapes. A frame inside another may be a tile too.
                                                            Absent: an ordinary frame.
 
+   A frame with no name is the file "frame n.frame.json", n its place among the frames of its space, from 1. Reading,
+   it is put back at that place, whatever order the files come in, so a project saved again keeps its file names.
    A frame named .config is written as the file .config in its space's directory, in the same form as any frame.
    The page reads it for root variables: see configure in smart-factory.js. There may be one at every level.
 
@@ -284,14 +286,14 @@ export function read(files){
   if (meta.version > FORMAT) throw new Error('this project was saved by a newer version (format ' + meta.version + ')');
 
   const space = dir => {
-    const found = [], groups = [], cuts = [];            /* found: [config, the group it is directly in, or null]; cuts: the operations as written */
+    const found = [], groups = [], places = [], cuts = [];      /* places: for a frame with no name, the place among the frames that its file's name says it had */            /* found: [config, the group it is directly in, or null]; cuts: the operations as written */
     const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take), ...(repeatOf(c.repeat) ? { repeat: repeatOf(c.repeat) } : {}) };
       for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
       if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !(path.endsWith('.json') || path.slice(dir.length) === '.config') || path === 'project.json') continue;
       let c; try { c = JSON.parse(text); } catch (e) { throw new Error(path + ' is not valid JSON'); }
       if (c.format === 'smart-factory/shape') found.push([c, null]);
-      else if (c.format === 'smart-factory/frame' || c.format === 'smart-factory/group') groups.push(take(c));      /* 'group' is what a frame was called in projects saved before */
+      else if (c.format === 'smart-factory/frame' || c.format === 'smart-factory/group'){ const n = !c.named && path.slice(dir.length).match(/^frame (\d+)\.frame\.json$/); groups.push(take(c)); places.push(n ? +n[1] - 1 : null); }      /* 'group' is what a frame was called in projects saved before */
       else if (c.format === 'smart-factory/operations' && Array.isArray(c.operations)) cuts.push(...c.operations);
     }
     found.sort((a, b) => (a[0].order ?? 0) - (b[0].order ?? 0));
@@ -309,7 +311,12 @@ export function read(files){
     const operations = cuts.filter(o => o && (o.op === 'difference' || o.op === 'intersect') && Array.isArray(o.sources) && o.sources.length === 2 && Array.isArray(o.results) && o.results.some(id => typeof id === 'string'))
       .map(o => ({ id: typeof o.id === 'string' ? o.id : null, op: o.op, sources: o.sources.map(c => make(c || {})), results: o.results.filter(id => typeof id === 'string'),
         was: Array.isArray(o.was) && o.was.length === 2 ? o.was.map(w => ({ order: Number.isInteger(w?.order) && w.order >= 0 ? w.order : null, frames: (Array.isArray(w?.frames) ? w.frames : []).filter(f => typeof f?.id === 'string').map(f => ({ id: f.id, name: typeof f.name === 'string' ? f.name : null })) })) : null }));
-    return { shapes, groups, operations };
+    /* a frame with no name is written as "frame n", n its place among the space's frames, and files come back in the
+       order of their names ("frame 10" before "frame 2"): each is put back at the place its name says, the named ones
+       among them in the order they came, so that saved again every file has the name it had */
+    const set = new Array(groups.length).fill(null), rest = [];
+    groups.forEach((g, i) => { const at = places[i]; if (at !== null && at < set.length && !set[at]) set[at] = g; else rest.push(g); });
+    return { shapes, groups: set.map(g => g || rest.shift()), operations };
   };
   const top = space('');
   let project = { top, saved: meta.saved || null, ids: meta.ids || null };

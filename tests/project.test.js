@@ -335,6 +335,24 @@ test('an arrow that reads a tile, and the index as a matrix, come back as they w
   assert.deepEqual(read([head(3), file('A.json', at('A', 0, 0, 1, 1, { type: 'arrow', arrow: { input: { id: 'g1', as: 'tile', hollow: 2 } } }))]).top.shapes[0].arrow.input, { id: 'g1', as: 'tile' });
 });
 
+test('frames with no name keep their file names when a project is saved, reopened and saved, however many there are', () => {
+  /* twelve unnamed frames (tiles, so that each may be empty) with a named one among them; files come back sorted by name, as a server lists them */
+  const groups = Array.from({ length: 13 }, (_, i) => i === 5 ? { id: 'gnamed', name: 'Zeta', members: [0], groups: [] } : { id: 'g' + i, name: null, members: [], groups: [], repeat: { x: i, y: 0, cols: 1, rows: 1, across: i + 1, down: 1 } });
+  const files = write(project(space([shape('A')], groups))), sorted = fs => [...fs].sort((a, b) => a.path < b.path ? -1 : 1);
+  assert.deepEqual(paths(files).filter(p => p.startsWith('frame')), [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13].map(n => `frame ${n}.frame.json`).sort());
+  assert.ok(sorted(files).findIndex(f => f.path === 'frame 10.frame.json') < sorted(files).findIndex(f => f.path === 'frame 2.frame.json'));      /* the order that used to renumber them */
+  const once = read(sorted(files)); assert.deepEqual(once.top.groups.map(g => g.id), groups.map(g => g.id));
+  const again = write(once); assert.deepEqual(sorted(again), sorted(files));
+  assert.deepEqual(sorted(write(read(sorted(again)))), sorted(files));
+  /* fewer than ten, and none named: the names they have always had */
+  const few = write(project(space([shape('A'), shape('B')], [{ id: 'ga', name: null, members: [0], groups: [] }, { id: 'gb', name: null, members: [1], groups: [] }])));
+  assert.deepEqual(paths(few).filter(p => p.startsWith('frame')), ['frame 1.frame.json', 'frame 2.frame.json']);
+  assert.deepEqual(sorted(write(read(sorted(few)))), sorted(few));
+  /* a file whose name gives a place that is taken, or past the end, falls into what is left */
+  const odd = read([head(3), file('frame 9.frame.json', { format: 'smart-factory/frame', version: 3, id: 'g9', named: false, shapes: [at('A', 0, 0, 1, 1)] }), file('Named.frame.json', { format: 'smart-factory/frame', version: 3, id: 'gn', name: 'Named', named: true, shapes: [at('B', 0, 0, 1, 1)] })]);
+  assert.deepEqual(odd.top.groups.map(g => g.id).sort(), ['g9', 'gn']);
+});
+
 /* the projects that come with the repository */
 const here = fileURLToPath(new URL('../projects/', import.meta.url));
 const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
