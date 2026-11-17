@@ -302,6 +302,9 @@ test('map is refused where the tile repeats the other way, the pattern is not th
   assert.match(mapped({ ...a, side: 'e' }, rep(2, 1), 2, 3, 4).warn, /repeats across, and an arrow against rows is repeated down only/);
   assert.match(mapped(a, rep(2, 2), 2, 1, 4).warn, /pattern is 2 wide and the arrow's span is 1/);
   assert.match(mapped({ ...a, side: 'w', span: 2 }, rep(2, 3), 1, 2, 9).warn, /pattern is 3 tall and the arrow's span is 2/);
+  /* an arrow in one tile whose input is another tile: it reads all of that tile, so there is nothing to repeat along */
+  const other = mapped(a, rep(1, 2), 4, 1, 4, { tile: true }); assert.equal(other.count, 1); assert.match(other.warn, /reads another tile, all of it, so it cannot be repeated/);
+  assert.equal(mapped(a, rep(1, 2), 4, 1, 4, { tile: false }).warn, null);
   const past = mapped(a, rep(1, 2), 5, 1, 4);
   assert.equal(past.count, 5); assert.match(past.warn, /last cell runs past its input, which has 4 columns/);
   assert.match(mapped({ ...a, start: 2 }, rep(1, 2), 4, 1, 4).warn, /runs past/);      /* one column on is one too many */

@@ -130,12 +130,15 @@
                                     patch says: not its start or its span, to anything but what they are
 
    Map: an arrow inside a tile whose input is outside it is repeated along its input.
-   mapped(arrow, repeat, across, down, n) -> { count, warn }: how many times, and why not where it cannot be (null
+   mapped(arrow, repeat, across, down, n, { tile }) -> { count, warn }: how many times, and why not where it cannot be (null
                                     where it can). The tile must repeat only along the edge the arrow sits on
                                     (across for n and s, down for e and w), and the pattern's size that way must be
                                     the arrow's span. In cell k the arrow's start is its own plus (k − 1) spans
                                     (startIn); where the last cell runs past the input (n rows or columns along
                                     the edge) that is a warning, and the tile is drawn in the warning colour.
+                                    tile: the input is another tile. An arrow that reads a tile reads all of it
+                                    (whole), so it cannot be repeated along it: that is refused, once, with what
+                                    to do instead.
    startIn(arrow, k)             -> the arrow's start in cell k, from 1 */
 import { evaluate, entered, refs } from './expression.js';
 import { isWhole, isError, valueText } from './algebra.js';
@@ -268,7 +271,8 @@ export const spanned = (arrow, patch) => ('start' in patch && patch.start !== ar
   ? { refused: 'An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that' } : { ok: true };
 
 export const startIn = (arrow, k) => arrow.start + (k - 1) * arrow.span;
-export function mapped(arrow, repeat, across, down, n){
+export function mapped(arrow, repeat, across, down, n, { tile = false } = {}){
+  if (tile) return { count: 1, warn: 'it is in a tile and reads another tile, all of it, so it cannot be repeated along it: seat a block on that tile\'s output outside this one, and repeat an arrow along the block' };
   const rows = along(arrow.side) === 'rows', times = rows ? down : across, other = rows ? across : down, size = rows ? repeat.rows : repeat.cols;
   const way = rows ? 'down' : 'across', edge = rows ? 'rows' : 'columns';
   if (other !== 1) return { count: 1, warn: `its tile repeats ${rows ? 'across' : 'down'}, and an arrow against ${edge} is repeated ${way} only` };
