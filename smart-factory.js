@@ -1331,11 +1331,12 @@ const originOf = b => [...kinOf(b)].find(k => !k.ref) || b;      /* the shape a 
 const sourceOf = b => b.from ? everyKnown().find(o => o.id === b.from.id) || null : null;
 const dimOf = (b, src) => b.from.side === 'm' ? 'm' : (b.from.side === 'x') !== turned(src) ? 'w' : 'h';      /* which of the source's sides, the way it now lies */
 const derived = b => { const src = sourceOf(b); if (!src || src === b) return null; const dim = dimOf(b, src), r = rootSide(src); if (dim === 'm') return scalarOf(src); if (unset(src)) return null; return r === null ? Math.round(src.rect[dim] / view.unit) : r; };
-function doomed(blocks, reverting = [], tileIds = []){            /* reverting: operations being reverted, whose kept blocks come back and so do not go; tileIds: tiles being taken off, whose arrows go */
+function doomed(blocks, reverting = [], tileIds = [], leaving = []){      /* leaving: the ids of blocks that are leaving their tiles: their index matrices go (tiles.js: indexless) */            /* reverting: operations being reverted, whose kept blocks come back and so do not go; tileIds: tiles being taken off, whose arrows go */
   const gone = new Set(blocks), all = everyKnown(), byId = new Map(all.map(b => [b.id, b])), spaces = everySpace();
   const holder = new Map(); for (const b of all) for (const m of b.members || []) holder.set(m.block, b);      /* a block fused into another goes when that one does */
   const going = b => { for (let k = b; k; k = holder.get(k)) if (gone.has(k)) return true; return false; };
   const add = b => { if (!gone.has(b)){ gone.add(b); return true; } return false; };
+  for (const id of tiles.indexless(all, leaving)) add(byId.get(id));
   for (let more = true; more;){ more = false;
     for (const set of new Set([...gone].map(b => kin.get(b)).filter(Boolean))){ const origins = [...set].filter(k => !k.ref);      /* every shape the variable was made as is going: its references go */
       if (origins.length && origins.every(k => gone.has(k))) for (const k of set) if (add(k)) more = true; }
@@ -1358,8 +1359,8 @@ function doomed(blocks, reverting = [], tileIds = []){            /* reverting: 
    of variables and how many instances of each would go, and can still say no */
 const warning = createWarning();
 /* sends a message that takes `list` away, with whatever else would go; asks first where anything else would */
-function warned(list, doing, proceed, send, reverting = [], tileIds = [], what = null){      /* tileIds, what: tiles being taken off, and what to call them */
-  const also = doomed(list, reverting, tileIds), broken = formulasOn([...list, ...also]);
+function warned(list, doing, proceed, send, reverting = [], tileIds = [], what = null, leaving = [], onCancel = null){      /* tileIds, what: tiles being taken off, and what to call them; leaving: blocks leaving their tiles */
+  const also = doomed(list, reverting, tileIds, leaving), broken = formulasOn([...list, ...also]);
   if (!also.length && !broken) return send(also);
   const count = new Map(); for (const b of also) count.set(bare(b.name), (count.get(bare(b.name)) || 0) + 1);
   const sources = [...new Set(list.filter(b => also.some(o => [...kinOf(b)].includes(o) || o.from?.id === b.id || o.arrow?.input.id === b.id || o.seat === b.id || (o.seat?.hollow || []).includes(b.id))).map(b => bare(b.name))), ...(what ? [what] : [])];
@@ -1367,7 +1368,7 @@ function warned(list, doing, proceed, send, reverting = [], tileIds = [], what =
   warning.ask({ title: also.length ? `${doing} ${sources.join(', ') || 'this'} also deletes what refers to it` : `${doing} ${named} leaves ${broken === 1 ? 'a formula' : broken + ' formulas'} without it`,
     note: [also.length ? `${also.length} other ${also.length === 1 ? 'instance' : 'instances'} would be removed with it, here or in other spaces.` : '',
       broken ? `${formulas}. ${broken === 1 ? 'It is' : 'They are'} left in place, and will show an error: missing variable.` : ''].filter(Boolean).join(' '),
-    head: also.length ? ['Variable', 'Instances'] : [], rows: [...count].sort((a, b) => b[1] - a[1]), proceed: also.length ? proceed : proceed.replace(/ all$/, ''), onProceed: () => send(also) });      /* nothing else goes: there is no "all" */
+    head: also.length ? ['Variable', 'Instances'] : [], rows: [...count].sort((a, b) => b[1] - a[1]), proceed: also.length ? proceed : proceed.replace(/ all$/, ''), onProceed: () => send(also), ...(onCancel ? { onCancel } : {}) });      /* nothing else goes: there is no "all" */
 }
 /* how many formulas refer to a variable that would be gone with these blocks: every entry and attribute, anywhere,
    that holds a capsule naming one of them (expression.js: refersTo) and is not itself going. A variable's entries
@@ -1536,7 +1537,7 @@ function tileTyped(g, key, text){
 /* taking a tile off: its blocks stay, once, and the copies go. An arrow that reads the tile goes with it, after the warning. */
 function untiling(g){
   const name = space.groupNames.get(g) || 'the tile';
-  warned([], 'Taking off', 'Take off', also => bus.send('tile.remove', { frame: g, also: idsOf(also) }), [], [g], name);
+  warned([], 'Taking off', 'Take off', also => bus.send('tile.remove', { frame: g, also: idsOf(also) }), [], [g], name, idsOf(inGroup(g)));      /* its blocks are in no tile then: their index matrices go */
 }
 /* a drag that begins on a tile's frame: by its right or bottom edge it changes that count, in whole patterns; anywhere else it moves the tile and what is in it. One message says where it ended. */
 function dragTile(g, edge, from){
@@ -2095,9 +2096,10 @@ function dragged(el, from, e){
   /* while a drag lasts the blocks follow the pointer directly. When it ends they are put back as they were, and one
      message, 'place', says where every block that moved or changed size now goes. */
   const before = new Map(everyKnown().map(b => [b, b.rect])), tilesBefore = placesOfTiles();      /* a tile that followed its arrow during the drag is put back too */
-  const settle = () => { const rects = []; for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; }
+  const collect = () => { const rects = []; for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; }      /* everything back as it was; gives where what moved was let go */
     for (const [b, r] of before) if (b.rect !== r){ if (b.rect.x !== r.x || b.rect.y !== r.y || b.rect.w !== r.w || b.rect.h !== r.h) rects.push({ id: b.id, ...b.rect }); b.set(r); }
-    if (rects.length) bus.send('place', { rects }); else shown(); };
+    return rects; };
+  const settle = () => { const rects = collect(); if (rects.length) bus.send('place', { rects }); else shown(); };
   const end = () => { cursor(''); settle(); };
   const grip = el.dataset.grip;
   if (grip && rangedOf(b)){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); return { end(){}, move(){} }; }      /* it is as large as its range, and cannot be pulled larger or smaller */
@@ -2130,9 +2132,11 @@ function dragged(el, from, e){
       /* one block let go on an arrow's output is seated there, where it can be (arrows.js: seatable) */
       const onto = !pulled && held.size === 1 && !isArrow(b) && !b.seat ? outputUnder(b) : null;
       if (onto){ cursor(''); for (const [k, r] of before) if (k.rect !== r) k.set(r); for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; } return bus.send('seat', { arrow: onto.id, id: b.id }); }
+      if (pulled && host === null){ const stays = pulled.find(([, r]) => within(last, r)), t = tileOf(b);      /* innermost first */
+        /* out of its tile, its index matrices would be left defining it as nothing: they go with it, after the warning. Nothing is done until that is answered. */
+        const leaves = t !== undefined && !(stays && upFrom(stays[0]).includes(t)), rects = (cursor(''), collect()); shown();
+        return warned([], 'Taking out', 'Take out', also => { if (rects.length) bus.send('place', { rects }); bus.send('frame.leave', { id: b.id, frame: stays ? stays[0] : null, also: idsOf(also) }); }, [], [], bare(b.name), leaves ? [b.id] : []); }
       end();
-      if (pulled && host === null){ const stays = pulled.find(([, r]) => within(last, r));      /* innermost first */
-        return bus.send('frame.leave', { id: b.id, frame: stays ? stays[0] : null }); }
       if (host !== null) bus.send('frame.enter', { ids: idsOf(held), frame: host }); },
     move(p){ let dx = snap(p.x - from.x), dy = snap(p.y - from.y), stopped = null; last = p;
       /* a block that belongs to a tile stays inside the tile's pattern (tiles.js: held) unless it is being pulled out with Shift */
@@ -2407,7 +2411,7 @@ bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupName
     if (!spaceOf.has(of)){ const def = newSpace(of, s); for (const k of kinOf(of)) spaceOf.set(k, def); } spaceOf.set(b, spaceOf.get(of));
     const set = kin.get(of) || new Set([of]); set.add(b); for (const k of set) kin.set(k, set); });
   shown(); }, changes);
-bus.on('frame.leave', ({ id, frame: g }) => { const b = blockOf(id); if (b){ if (g === null) space.groupOf.delete(b); else space.groupOf.set(b, g); } tidy(); shown(); }, changes);      /* pulled free of its group, as far out as g: null is out of them all */
+bus.on('frame.leave', ({ id, frame: g, also = [] }) => { const b = blockOf(id); if (b){ if (g === null) space.groupOf.delete(b); else space.groupOf.set(b, g); } tidy(); discard(also.map(blockOf).filter(Boolean)); shown(); }, changes);      /* also: what goes with it (the index matrices of a block that leaves its tile) */      /* pulled free of its group, as far out as g: null is out of them all */
 /* a name given to a frame: a named group is renamed; a group without one is named, and stays, framed; a plain selection folds into a new block of that name */
 bus.on('name', ({ frame: id, ids, name, color }) => { const list = ids.map(blockOf).filter(Boolean);
   if (name && id !== null) space.groupNames.set(id, name);

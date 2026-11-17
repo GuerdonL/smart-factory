@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { drawnOn, movable, held, settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { indexless, drawnOn, movable, held, settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -220,6 +220,14 @@ test('index.x and index.y are the two names of the index, and a text that uses n
   for (const other of ['index', 'index.z', 'x', 'index.xy', 'myindex.x', null, 3]) assert.equal(axisOf(other), null);
   assert.equal(reads('index.x + index.y'), true); assert.equal(reads('select(index.y > 2, 1, 0)'), true); assert.equal(reads('2index.x'), true);
   assert.equal(reads('x + i + j'), false); assert.equal(reads('reindex.x'), false); assert.equal(reads('index.xs'), false); assert.equal(reads(''), false); assert.equal(reads(null), false);
+});
+
+test('index matrices go with the tile: those of a block that leaves its tile, and no others', () => {
+  const shapes = [{ id: 'P', from: null }, { id: 'ix', from: { id: 'P', index: 'x' } }, { id: 'iy', from: { id: 'P', index: 'y' } }, { id: 'qx', from: { id: 'Q', index: 'x' } },
+    { id: 'len', from: { id: 'P', side: 'x' } }, { id: 'part', from: { id: 'P', range: {} } }, { id: 'plain' }];
+  assert.deepEqual(indexless(shapes, ['P']), ['ix', 'iy']);            /* a measure and a part of P are not its index */
+  assert.deepEqual(indexless(shapes, ['P', 'Q']), ['ix', 'iy', 'qx']);
+  assert.deepEqual(indexless(shapes, ['R']), []); assert.deepEqual(indexless(shapes, []), []);
 });
 
 test('the index as two matrices the size of a block', () => {

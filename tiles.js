@@ -107,6 +107,11 @@
    reads(text)                   -> whether a formula's text reads the index
    indexValues(repeat, offset, cols, rows, axis, cx, cy) -> a Map from "column,row": index.x or index.y for every
                                     entry of a block that size, as a matrix
+   indexless(shapes, leaving)    -> the ids of the index matrices that are left without an index when blocks leave
+                                    their tiles (a tile is taken off; a block is taken out): those whose block is
+                                    among leaving (ids). shapes: [{ id, from }], every shape there is. They go
+                                    with it, through the page's cascade and its warning: an index matrix left
+                                    standing would define its block as nothing.
    NO_INDEX                      -> the error an index comes to where there is no tile
 
    Its matrix
@@ -243,6 +248,7 @@ export const enterable = (host, held) => host && held ? { refused: 'A tile does 
 export const index = (repeat, offset, c, r, cx = 1, cy = 1) => ({ x: (cx - 1) * repeat.cols + offset.x + c, y: (cy - 1) * repeat.rows + offset.y + r });
 export const axisOf = name => { const m = typeof name === 'string' && name.trim().toLowerCase().match(/^index\.(x|y)$/); return m ? m[1] : null; };
 export const reads = text => (String(text ?? '').replace(/@\[[^\]]*\]/g, ' ').match(/[A-Za-z_][\w.]*/g) || []).some(name => axisOf(name.replace(/\.+$/, '')) !== null);      /* names as expression.js reads them */
+export const indexless = (shapes, leaving) => { const out = new Set(leaving); return shapes.filter(d => d.from && d.from.index && out.has(d.from.id)).map(d => d.id); };
 export function indexValues(repeat, offset, cols, rows, axis, cx = 1, cy = 1){
   const out = new Map();
   for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) out.set(c + ',' + r, index(repeat, offset, c, r, cx, cy)[axis === 'y' ? 'y' : 'x']);
