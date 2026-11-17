@@ -9,7 +9,7 @@ import { pieces } from '../algebra.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
-  entries: {}, inside: null, variable: null, tile: false, transposed: false, attributes: [], reference: false, from: null, joined: null, ...more });
+  entries: {}, inside: null, variable: null, tile: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
 const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
@@ -384,4 +384,53 @@ test('attributes keep their text, capsules and all; a format 2 project\'s entrie
   const old = read([head(2), file('S.json', { format: 'smart-factory/shape', version: 2, name: 'S', named: true, size: { cols: 2, rows: 2 }, attributes: [{ name: 'heads', value: '2^(3) + 1' }],
     value: { entries: { '1,1': 0, '2,1': '-inf', '1,2': { n: 3, d: 4, k: 0 }, '2,2': 'inf' } } })]).top.shapes[0];
   assert.deepEqual(old.entries, { '1,1': 0, '2,1': -Infinity, '1,2': { n: 3, d: 4, k: 0 }, '2,2': Infinity }); assert.deepEqual(old.attributes, [{ name: 'heads', value: '2^(3) + 1' }]);
+});
+
+/* ---- arrows and seats (phase 4) ---- */
+const anArrow = (more = {}) => ({ input: { id: 'bin0001', as: 'block' }, side: 'e', start: 1, span: 3, gap: 2, gapName: null, output: null, formula: null, ...more });
+test('arrows, seats and an input block come back as they went', () => {
+  const p = project(space([
+    shape('Keys', { id: 'bin0001', cols: 4, rows: 3 }),
+    shape('Shape 1', { id: 'barrow1', type: 'arrow', x: 4, cols: 2, rows: 3, arrow: anArrow() }),
+    shape('H', { id: 'bseat01', x: 6, cols: 4, rows: 3, seat: 'barrow1', entries: { '1,1': 9 } }),      /* its own entries are kept, and not used while it is seated */
+    shape('relu', { id: 'barrow2', type: 'arrow', arrow: anArrow({ input: { id: 'barrow1', as: 'result' }, side: 's', start: 2, span: 2, gap: 3, gapName: 'air', output: { cols: 2, rows: 3 }, formula: 'max(x, @[bin0001])' }),
+      inside: space([shape('in', { id: 'binner1', in: true }), shape('W', { x: 2, cols: 5, rows: 2 })]) }),
+    shape('A', { id: 'bpairA1' }), shape('B', { id: 'bpairB1' }),
+    shape('Shape 2', { id: 'barrow3', type: 'arrow', arrow: anArrow({ input: { id: 'bpairA1', as: 'result', hollow: 2 } }) }),
+    shape('P', { id: 'bseat02', seat: { hollow: ['bpairA1', 'bpairB1'] } }),
+  ]));
+  assert.deepEqual(read(write(p)), p);
+});
+test('an arrow is written as type "arrow" with its arrow, and nothing that was worked out', () => {
+  const files = write(project(space([shape('Keys', { id: 'bin0001' }), shape('relu', { id: 'barrow1', type: 'arrow', arrow: { ...anArrow({ formula: 'max(x, 0)' }), place: { x: 9, y: 9 }, values: { '1,1': 2 } } }),
+    shape('H', { id: 'bseat01', seat: 'barrow1' })])));
+  const a = json(files, 'relu.json');
+  assert.equal(a.type, 'arrow');
+  assert.deepEqual(a.arrow, { input: { id: 'bin0001', as: 'block' }, side: 'e', start: 1, span: 3, gap: 2, gapName: null, output: null, formula: 'max(x, 0)' });      /* where its output is, and what it comes to, are never written */
+  assert.equal(json(files, 'H.json').seat, 'barrow1');
+  assert.equal('seat' in json(files, 'Keys.json'), false); assert.equal('arrow' in json(files, 'Keys.json'), false); assert.equal('in' in json(files, 'Keys.json'), false);
+});
+test('an arrow with things missing or wrong is read with safe values', () => {
+  const got = read([head(), file('a.json', config('Shape 1', { id: 'barrow1', type: 'arrow', arrow: { input: { as: 'nothing', hollow: 2 }, side: 'up', start: 0, span: 'x', gap: -3, gapName: '  ', output: { cols: 0, rows: 2 }, formula: '   ' } })),
+    file('b.json', config('Shape 2', { id: 'barrow2', type: 'arrow' })),
+    file('c.json', config('Shape 3', { id: 'barrow3', type: 'arrow', arrow: { input: { id: 'bx', as: 'block', hollow: 1 }, side: 'n', start: 2.4, span: 3, gap: 2, gapName: ' air ', output: { cols: 2.2, rows: 3 }, formula: 'x' } })),
+    file('d.json', config('Shape 4', { id: 'bplain1', arrow: anArrow() }))]).top.shapes;
+  const safe = { input: { id: '', as: 'block' }, side: 'e', start: 1, span: 1, gap: 1, gapName: null, output: null, formula: null };
+  assert.deepEqual(got[0].arrow, safe); assert.deepEqual(got[1].arrow, safe);
+  assert.deepEqual(got[2].arrow, { input: { id: 'bx', as: 'block' }, side: 'n', start: 2, span: 3, gap: 2, gapName: 'air', output: { cols: 2, rows: 3 }, formula: 'x' });      /* a hollow goes with a result only */
+  assert.equal(got[3].arrow, null);                         /* only a shape of type arrow is one */
+});
+test('a seat that names nothing the project has is dropped; one that names an arrow anywhere is kept', () => {
+  const got = read([head(), file('a.json', config('Shape 1', { id: 'barrow1', type: 'arrow', arrow: anArrow() })),
+    file('h.json', config('H', { id: 'bseat01', seat: 'barrow1' })), file('g.json', config('G', { id: 'bseat02', seat: 'bgone01' })),
+    file('k.json', config('K', { id: 'bseat03', seat: 'bseat01' })),                                   /* a block that is no arrow */
+    file('p.json', config('P', { id: 'bseat04', seat: { hollow: ['bseat01', 'bseat02'] } })), file('q.json', config('Q', { id: 'bseat05', seat: { hollow: ['bseat01', 'bgone02'] } })),
+    file('r.json', config('R', { id: 'bseat06', seat: { hollow: ['bseat01'] } })), file('s.json', config('S', { id: 'bseat07', seat: 7 }))]).top.shapes;
+  const seat = name => got.find(d => d.name === name).seat;
+  assert.equal(seat('H'), 'barrow1'); assert.equal(seat('G'), null); assert.equal(seat('K'), null);
+  assert.deepEqual(seat('P'), { hollow: ['bseat01', 'bseat02'] }); assert.equal(seat('Q'), null); assert.equal(seat('R'), null); assert.equal(seat('S'), null);
+});
+test('format 2 has no arrows and no seats', () => {
+  const got = read([head(2), file('a.json', config('Keys', { id: 'b1' }))]).top.shapes[0];
+  assert.equal(got.arrow, null); assert.equal(got.seat, null); assert.equal(got.in, false);
 });
