@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried } from '../arrows.js';
+import { along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -294,4 +294,41 @@ test('an arrow turned to another side: the whole side stays the whole side, a pa
   assert.deepEqual(sided(arrow('s', 3, 2), 'e', 4, 3), { side: 'e', start: 3, span: 1 });
   assert.deepEqual(sided(arrow('s', 4, 1), 'e', 4, 3), { side: 'e', start: 3, span: 1 });
   assert.deepEqual(sided(arrow('e', 1, 2), 'w', 3, 3), { side: 'w', start: 1, span: 2 });
+});
+
+test('what a space comes to: the things nothing reads from', () => {
+  const T = (cols, rows) => ({ cols, rows, colsName: null, rowsName: null }), piece = (ids, type, more = {}) => ({ ids, type, ...more });
+  const a = piece(['in'], T(4, 3)), b = piece(['W'], T(2, 4)), prod = piece(['in', 'W'], T(2, 3));
+  assert.deepEqual(ends([a, b], []).map(e => e.piece.ids), [['in'], ['W']]);                  /* without arrows: the pieces, as before */
+  assert.deepEqual(ends([prod, piece(['.bg'], T(3, 1), { config: true })], []).map(e => e.type), [T(2, 3)]);      /* a .config is no part of it */
+  /* in, read by an arrow whose output nothing reads: the output is the one end */
+  const exp = { id: 'a1', reads: 'in', seated: false, type: T(4, 3) };
+  assert.deepEqual(ends([a], [exp]), [{ type: T(4, 3), arrow: exp }]);
+  /* a block seated on that output is what goes on: its piece is the end, not the output */
+  const seated = { ...exp, seated: true }, e = piece(['E'], T(4, 3));
+  assert.deepEqual(ends([a, e], [seated]), [{ type: T(4, 3), piece: e }]);
+  /* a chain of two arrows: only the last output */
+  const ln = { id: 'a2', reads: 'a1', seated: false, type: T(4, 3) };
+  assert.deepEqual(ends([a], [exp, ln]).map(e => e.arrow.id), ['a2']);
+  /* an arrow that reads the result of a piece takes the whole piece */
+  assert.deepEqual(ends([prod], [{ id: 'a3', reads: 'W', seated: false, type: T(2, 3) }]).map(e => e.arrow.id), ['a3']);
+  /* an output with no size is still an end, and says so */
+  assert.deepEqual(ends([a], [{ ...exp, type: { error: 'its span runs past its input' } }])[0].type, { error: 'its span runs past its input' });
+  /* what a definition comes to */
+  const isInput = id => id === 'in';
+  assert.equal(defined(ends([a], []), isInput), null);                      /* only its input: pass through */
+  assert.equal(defined([], isInput), null);
+  assert.deepEqual(defined(ends([prod], []), isInput), T(2, 3));            /* in against W: that product */
+  assert.deepEqual(defined(ends([b], []), isInput), T(2, 4));               /* one block that is not the input is a result all the same */
+  assert.deepEqual(defined(ends([a, b], []), isInput), { error: '2 pieces' });
+  assert.deepEqual(defined(ends([a], [exp]), isInput), T(4, 3));
+});
+test('a block let go on an output: over it, its corner within a unit of the output\'s', () => {
+  const place = { x: 10, y: 4, w: 4, h: 1 };
+  assert.equal(seatsOn({ x: 10, y: 4, w: 4, h: 1 }, place), true);
+  assert.equal(seatsOn({ x: 10, y: 4, w: 2, h: 2 }, place), true);          /* another size: it is seated, and the promise becomes its size */
+  assert.equal(seatsOn({ x: 11, y: 3, w: 4, h: 3 }, place), true);          /* a unit off each way */
+  assert.equal(seatsOn({ x: 12, y: 4, w: 4, h: 1 }, place), false);         /* two units off, though it overlaps */
+  assert.equal(seatsOn({ x: 10, y: 5, w: 4, h: 1 }, place), false);         /* against it, not over it */
+  assert.equal(seatsOn({ x: 20, y: 4, w: 4, h: 1 }, place), false);
 });

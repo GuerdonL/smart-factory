@@ -25,7 +25,7 @@ import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
-import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, passed, worked as entryWise, names as formulaNames, fits, fitting, seatable, carried } from './arrows.js';
+import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, passed, worked as entryWise, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { squares } from './components/matrix.js';
 
@@ -1451,20 +1451,20 @@ const othersOf = (s, inputId) => s.blocks.filter(k => !isArrow(k) && !isOff(k) &
 /* the function's own input, as a type: the covered part of the arrow the function was made as */
 function innerOf(a){ const o = originOf(a), input = isArrow(o) ? inputOf(o) : null; return input ? coveredType(full(o), input) : null; }
 /* what a space comes to: its ends, the things in it that nothing reads from. A piece no arrow has for its input is
-   one; so is the output of an arrow that nothing reads from and no block is seated on. (Without arrows these are the
-   space's pieces, as before.) Each is { type, piece | arrow, block: the one block of a piece of one } */
+   one; so is the output of an arrow that nothing reads from and no block is seated on (arrows.js: ends). Without
+   arrows these are the space's pieces, as before. Each is { type, piece | arrow } */
 function endsOf(s, alg = algebraIn(s)){
-  const { active, all } = alg, arrows = s.blocks.filter(k => isArrow(k) && !isOff(k)), read = new Set(arrows.map(k => k.arrow.input.id));
-  const out = all.filter(p => !p.members.some(m => inConfig(active[m], s) || read.has(active[m].id))).map(p => ({ piece: p, type: p.type, block: p.members.length === 1 ? active[p.members[0]] : null }));
-  for (const k of arrows) if (!read.has(k.id) && !seatOn(k, s)){ const o = outputOf(k); out.push({ arrow: k, type: o.type || { error: o.warn || 'no value' } }); }
-  return out;
+  const { active, all } = alg, arrows = s.blocks.filter(k => isArrow(k) && !isOff(k));
+  return ends(all.map(p => ({ ids: p.members.map(m => active[m].id), type: p.type, config: p.members.some(m => inConfig(active[m], s)), of: p })),
+    arrows.map(k => { const seated = !!seatOn(k, s), o = seated ? null : outputOf(k); return { id: k.id, reads: k.arrow.input.id, seated, type: o ? o.type || { error: o.warn || 'no value' } : null, of: k }; }))
+    .map(e => e.piece ? { type: e.type, piece: e.piece.of } : { type: e.type, arrow: e.arrow.of });
 }
 /* what an arrow's definition space comes to, for this arrow's input: a type or { error }; null where it holds only its input, which is to pass through */
 function definedBy(a, input){
   const home = fnBlock(a) || a, def = spaceOf.get(home); if (!def) return null;
   syncIn(def, a, input);
-  const ends = endsOf(def);
-  return !ends.length || (ends.length === 1 && ends[0].block?.in) ? null : ends.length === 1 ? ends[0].type : { error: ends.length + ' pieces' };
+  const alg = algebraIn(def), inner = def.blocks.find(k => k.in);
+  return defined(endsOf(def, alg).map(e => e.piece ? { type: e.type, piece: { ids: e.piece.members.map(m => alg.active[m].id) } } : e), id => id === inner?.id);
 }
 /* the block called in takes the size and the side names of the covered part of this arrow's input */
 function syncIn(def, a, input = inputOf(a)){
@@ -1589,7 +1589,7 @@ function seatBlock({ arrow = null, hollow = null, id = null, name = null, color 
   if (a ? seatOn(a, space) : space.blocks.some(k => hollowSeat(k) && k.seat.hollow.every(x => hollow.includes(x)))) return hud.say('A block is seated there already');
   const type = a ? outputOf(a).type : h.type;
   let b = id ? space.blocks.find(k => k.id === id) : null;
-  if (id){ if (!b || !a) return;
+  if (id){ if (!b || !a) return hud.say(b ? 'A block is seated in a hollow by naming the result there' : 'That block is not on this canvas: it cannot be seated here');
     const can = seatable(seatFacts(b)); if (can.refused){ hud.say(can.refused); return shown(); }
     b.seat = a.id; a.arrow = { ...a.arrow, output: { cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u) } }; }      /* the arrow's output size becomes the block's size */
   else { if (!name) return; if (!type) return hud.say('That output has no size yet: there is nothing to seat a block on');
@@ -1634,11 +1634,10 @@ function dragSeated(b, from){
       if (!to){ shown(); if (at !== home && (at.x !== home.x || at.y !== home.y)) hud.say('To carry it out of the hollow, drag it straight along its row or its column, at least one unit clear'); return; }
       bus.send('arrow.add', { input: { id: b.seat.hollow[0], as: 'result', hollow: h.n }, side: to.side, start: 1, span: along(to.side) === 'rows' ? h.rect.h : h.rect.w, gap: to.gap, seat: b.id }); } };
 }
-/* the arrow whose output a block has been let go on, if any: an output with no block seated on it that the block lies over, its corner within a unit of the output's */
+/* the arrow whose output a block has been let go on, if any: an output with no block seated on it (arrows.js: seatsOn) */
 function outputUnder(b){
   const r = unitsOf(b);
-  return space.blocks.find(a => { if (!isArrow(a) || seatOn(a, space)) return false; const p = outputOf(a).place;
-    return !!p && r.x < p.x + p.w && p.x < r.x + r.w && r.y < p.y + p.h && p.y < r.y + r.h && Math.abs(r.x - p.x) <= 1 && Math.abs(r.y - p.y) <= 1; }) || null;
+  return space.blocks.find(a => { if (!isArrow(a) || seatOn(a, space)) return false; const p = outputOf(a).place; return !!p && seatsOn(r, p); }) || null;
 }
 /* what the properties panel shows of an arrow: a row for each thing that can be typed */
 const arrowRows = (a, fn) => [{ key: 'side', label: 'side', text: a.arrow.side }, { key: 'start', label: 'start', text: String(a.arrow.start) }, { key: 'span', label: 'span', text: String(a.arrow.span) },
@@ -1890,7 +1889,7 @@ function clicked(el, e){
   }
   /* an arrow's output: name it, and a block of that name is seated on it */
   const out = [...outs].find(([, o]) => o.el.isConnected && o.el.contains(el));
-  if (out){ const [a, o] = out; pick([]); return o.name(name => { if (name) bus.send('seat', { arrow: a.id, name, color: someColour() }); }); }
+  if (out){ const [a, o] = out; pick([]); return o.name(name => { if (name) bus.send('seat', { arrow: a.id, name }); }); }
   /* a result's matrix: name it, and the blocks that came to it fold into a new block */
   const r = results.find(r => r.el.isConnected && r.el.contains(el));
   if (r){ const piece = r.piece;
@@ -1898,7 +1897,7 @@ function clicked(el, e){
     if (piece.blocks.length < 2){ const cell = el.closest?.('.result.editable .result-body [data-c]'); if (!cell || cell.querySelector('.formula')) return;
       const [o, key] = entryHome(piece.blocks[0], +cell.dataset.c, +cell.dataset.r); pick([]); return typeEntry(cell, o, key); }
     /* written in a hollow: the name seats a block there, and the two shapes stay where they are */
-    if (piece.hollows.length){ pick([]); return r.name(name => { if (name) bus.send('seat', { hollow: idsOf(piece.blocks), name, color: someColour() }); }); }
+    if (piece.hollows.length){ pick([]); return r.name(name => { if (name) bus.send('seat', { hollow: idsOf(piece.blocks), name }); }); }
     pick([]); return r.name(name => { if (name) bus.send('fold', { ids: idsOf(piece.blocks), name, color: someColour(), product: true }); }); }
   /* a measurement: double-click to type a length in whole units, a name for that side, or both; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
@@ -2024,7 +2023,8 @@ bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) retur
        there, the span runs past the input, the edge is not free, or a named arrow does not fit.
    arrow.set { id, side, start, span, gap, gapName, output, formula }: whichever of those are given, changed; refused the same way.
    seat { arrow | hollow: [id, id], id | name, color }: seats a block on an arrow's output or in a pair's hollow: the
-       block with that id (which must be one that can be seated; the arrow's output size becomes its size), or a new one of that name.
+       block with that id (which must be one that can be seated; the arrow's output size becomes its size), or a new one of that name,
+       in that colour or, with none given, one drawn here from the project's own chance, so that undoing it puts that back too.
    unseat { id }: the block is no longer seated. It stays where it is, with the entries it had before. */
 bus.on('arrow.add', addArrow, changes);
 bus.on('arrow.set', setArrow, changes);

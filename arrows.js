@@ -66,6 +66,18 @@
                                    there is one, else what the function comes to; null where there is neither) and
                                    place its rectangle.
 
+   What a space comes to, where it holds arrows: its ends, the things in it that nothing reads from.
+   ends(pieces, arrows)         -> [{ type, piece } | { type, arrow }]. pieces: [{ ids: the ids of its blocks, type,
+                                   config: true for what is in a .config, which is no part of what a space comes
+                                   to }]; arrows: [{ id, reads: the id its input names, seated: whether a block is
+                                   seated on its output, type: what its output is, or { error } }]. A piece is an
+                                   end unless an arrow reads one of its blocks (or the piece's result); an arrow's
+                                   output is one unless another arrow reads it or a block is seated on it, in which
+                                   case that block's piece is what goes on. With no arrows, the ends are the pieces.
+   defined(ends, isInput)       -> what an arrow's definition space comes to: null where it has no end, or its one
+                                   end is the input block alone (isInput(id) says which block that is), which is to
+                                   pass through; the one end's type; or { error: 'n pieces' } for several
+
    Values, entry by entry
    passed(values, part)         -> a Map: the covered part of the input's entries (a Map from "column,row")
    worked(formula, { cols, rows, x, lookup, matrix }) -> a Map from "column,row" to a value
@@ -92,6 +104,8 @@
                                    block can be seated if it is unnamed, or the only use of its variable where
                                    nothing else defines that. block: { name, named, uses, reference, defined,
                                    standing, seated, part, measure, fused, arrow, input }
+   seatsOn(rect, place)         -> whether a block let go at rect is let go on an output at place: it lies over part
+                                   of it, with its top-left corner within a unit of the output's
    carried(hollow, rect)        -> { side, gap } | null: a block lifted out of a hollow and set down at rect, if it
                                    went straight out along its row or its column, at least one unit clear: the
                                    pass-through arrow that carries the hollow's result to it */
@@ -186,6 +200,13 @@ export function standing(arrow, input, others = [], names = null, defined = null
   return { warn, part, came: to, type, place: type ? place(arrow, input.rect, type) : null };
 }
 
+export function ends(pieces, arrows){
+  const read = new Set(arrows.map(a => a.reads));
+  return [...pieces.filter(p => !p.config && !p.ids.some(id => read.has(id))).map(p => ({ type: p.type, piece: p })), ...arrows.filter(a => !a.seated && !read.has(a.id)).map(a => ({ type: a.type, arrow: a }))];
+}
+export const defined = (ends, isInput) => !ends.length || (ends.length === 1 && !!ends[0].piece && ends[0].piece.ids.length === 1 && isInput(ends[0].piece.ids[0])) ? null
+  : ends.length === 1 ? ends[0].type : { error: ends.length + ' pieces' };
+
 export function passed(values, part){
   const out = new Map();
   for (const [key, v] of values){ const [c, r] = key.split(',').map(Number), C = c - part.col, R = r - part.row; if (C >= 1 && C <= part.cols && R >= 1 && R <= part.rows) out.set(C + ',' + R, v); }
@@ -233,6 +254,7 @@ export function seatable(b){
   if (b.defined) return { refused: `${name} is defined in its definition space: a seat would define it twice` };
   return { ok: true };
 }
+export const seatsOn = (r, p) => r.x < p.x + p.w && p.x < r.x + r.w && r.y < p.y + p.h && p.y < r.y + r.h && Math.abs(r.x - p.x) <= 1 && Math.abs(r.y - p.y) <= 1;
 export function carried(h, r){
   if (r.y === h.y && r.h === h.h && r.w === h.w){ if (r.x >= h.x + h.w + 1) return { side: 'e', gap: r.x - h.x - h.w }; if (r.x + r.w <= h.x - 1) return { side: 'w', gap: h.x - r.x - r.w }; }
   if (r.x === h.x && r.w === h.w && r.h === h.h){ if (r.y >= h.y + h.h + 1) return { side: 's', gap: r.y - h.y - h.h }; if (r.y + r.h <= h.y - 1) return { side: 'n', gap: h.y - r.y - r.h }; }
