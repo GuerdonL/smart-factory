@@ -28,20 +28,30 @@
    where the answer is a safe integer, anything else with BigInt numerators and denominators, so nothing overflows
    and nothing is rounded. The solver (nerdamer, the global the page loads from vendor/) is asked only for a pair
    that involves a symbolic value, or whose answer is not a single root (√2 + √3, 2^(1/3)), and what it answered is
-   remembered. A whole number or a fraction too large to hold as plain numbers is kept as symbolic text.
+   remembered. Whether a sum of two roots is a single root is settled here, exactly (it is when one is a fraction of
+   the other: √8 + √2 = 3√2), and where the solver says an answer is a single root that is checked numerically
+   before it is taken, since the solver is sometimes wrong about it.
+   A whole number, a fraction or a single root too large to hold as plain numbers (past 2^53) is kept as symbolic
+   text of a fixed form, "1208925819614629174706176", "(1208925819614629174706177/1)^(1/2)", which is read back
+   here: it stays exact, is worked out with BigInt like any other, and is never handed to the solver, which would
+   round it. Where such a number meets something that is not a single root (2^80 + √2), or a bound is passed (see
+   MAXBITS), the answer is the error "too large to work out": no step waits long.
 
    Comparing. Whole numbers, fractions and single roots are compared exactly, here. Where a symbolic value is
    involved, two values are equal when the solver reduces their difference to 0; otherwise their order is the sign
    of the difference worked out numerically at the solver's own precision. That is the only numeric approximation
    made in the browser, and what comes of it is true or false, never a number that is shown. Where the solver
    cannot reduce the difference to 0 and it is smaller than 1e-12 in size, the answer is the error
-   "cannot be compared exactly", never a guess.
+   "cannot be compared exactly", never a guess. In size means against the larger of 1, the two sides and the terms
+   of the difference: see compare. A side past what a floating-point number holds (exp(1000)) is compared by its
+   logarithm. Whether a symbolic value counts as true is the same question, asked against 0.
 
    combine(op, a, b) -> a value      op is '+' '-' '*' '/' '^', '==' '!=' '<' '>' '<=' '>=', '&&' '||', 'max' or 'min'
    apply(fn, a)      -> a value      fn is 'neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh' or 'erf'. exp, ln, tanh and
                                      erf stay symbolic unless they come out (exp(0) is 1, ln(1) is 0, and at the
                                      infinities: exp(-∞) = 0, exp(∞) = ∞, ln(0) = -∞, ln(∞) = ∞, tanh(±∞) = erf(±∞) = ±1)
-   truth(v)          -> whether a value counts as true: false for false and 0, true for everything else that is known
+   truth(v)          -> whether a value counts as true: false for false and 0, true for everything else that is known;
+                        for a symbolic value that cannot be told from 0, the error saying so
    typedNumber(text) -> digits as typed, with at most one point, as a value: "1.25" is 5/4. Never a decimal.
    written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)"; "!" for an
                         error (why is v.err), and "" for unknown. The one function that turns a value into text.
@@ -75,7 +85,14 @@ export function kind(v){
   return isError(v) ? 'error' : isSurd(v) ? 'exact' : isSym(v) ? 'symbolic' : isDec(v) ? 'decimal' : 'unknown';
 }
 export const storable = v => { const k = kind(v); return k !== 'error' && k !== 'decimal' && k !== 'unknown'; };
-export const truth = v => typeof v === 'boolean' ? v : isDec(v) ? v.f !== 0 : v !== 0 && v !== null && v !== undefined;
+/* whether a value counts as true: false for false and 0. A symbolic value is asked whether it is 0 as any comparison
+   is, so one that cannot be told from 0 is the error "cannot be compared exactly", which is what this then gives. */
+export function truth(v){
+  if (typeof v === 'boolean') return v;
+  if (isDec(v)) return v.f !== 0;
+  if (isSym(v)){ const c = compare(v, 0); return isError(c) ? c : c !== 0; }
+  return v !== 0 && v !== null && v !== undefined;
+}
 
 /* ---- whole numbers, fractions and single roots, exactly ----
    Inside, such a number is [p, q, k]: BigInt p over BigInt q (q above 0, lowest terms), under k square roots, the
@@ -98,17 +115,37 @@ function norm(p, q, k){
   return [p, q, k];
 }
 const SAFE = B(Number.MAX_SAFE_INTEGER), safe = x => x <= SAFE && x >= -SAFE;
-/* such a number as a value: a whole number, an exact value, or (too large for either, or under more roots than are written) symbolic text */
+/* The bounds that keep any one step short. A number here has at most MAXBITS binary digits above and below its line
+   (some 1,200 decimal digits) and stands under at most MAXK square roots (a 64th root); a root that is asked for has
+   an index of at most MAXROOT. Past a bound the answer is the error "too large to work out", not a long wait. */
+const MAXBITS = 4096, MAXK = 6, MAXROOT = 1024;
+const bits = x => big(x).toString(2).length;
+/* such a number as a value: a whole number; an exact value; or, too large for plain numbers, symbolic text that is
+   still exact and is read back by numberOf, so it is still worked out here and never by the solver */
 function valueOf([p, q, k]){
   if (!k && q === 1n && safe(p)) return Number(p);
-  if (k <= 6 && safe(p) && safe(q)) return { n: Number(p), ...(q !== 1n ? { d: Number(q) } : {}), k };
-  return { sym: textOf([p, q, k]) };
+  if (safe(p) && safe(q)) return { n: Number(p), ...(q !== 1n ? { d: Number(q) } : {}), k };
+  return bits(p) > MAXBITS || bits(q) > MAXBITS ? err(LARGE) : { sym: textOf([p, q, k]) };
 }
+/* the text such a number is kept as where it is too large: "123…", "-123…/45…", "(123…/1)^(1/2)", "-(123…/45…)^(1/4)" */
 const textOf = ([p, q, k]) => { const body = k ? `(${big(p)}/${q})^(1/${2 ** k})` : q === 1n ? String(big(p)) : `${big(p)}/${q}`; return p < 0n ? '-' + body : body; };
+const ROOTED = /^(-?)\((\d+)\/(\d+)\)\^\(1\/(2|4|8|16|32|64)\)$/;
+/* a symbolic text that is such a number, as one; null for any other text */
+function largeOf(text){
+  let m = text.match(RATIONAL), t = null;
+  if (m) t = m[2] === '0' ? null : norm(B(m[1]), B(m[2] || 1), 0);
+  else if ((m = text.match(ROOTED)) && m[3] !== '0' && text.length < 2600) t = norm(B(m[1] + m[2]), B(m[3]), Math.log2(+m[4]));
+  return t && bits(t[0]) <= MAXBITS && bits(t[1]) <= MAXBITS ? t : null;
+}
 /* a value as such a number, or null for a kind that is not one */
-const numberOf = v => { if (typeof v === 'number') return Number.isInteger(v) ? [B(v), 1n, 0] : null;
-  if (isSurd(v)) return [B(v.n), B(v.d || 1), v.k];
-  const m = isSym(v) && v.sym.match(RATIONAL); return m ? [B(m[1]), B(m[2] || 1), 0] : null; };      /* a whole number or a fraction too large for plain numbers is kept as text, and is still worked out here */
+const numberOf = v => typeof v === 'number' ? (Number.isInteger(v) ? [B(v), 1n, 0] : null) : isSurd(v) ? [B(v.n), B(v.d || 1), v.k] : isSym(v) ? largeOf(v.sym) : null;
+/* whether a value is one of those too large for plain numbers: the solver is never handed one, since it would round it */
+const isLarge = v => isSym(v) && !!largeOf(v.sym);
+/* such a number as a floating-point number, near enough to tell a sign or check an answer by; never shown */
+function approx([p, q, k]){
+  const shift = bits(q) - bits(p) + 64, m = shift > 0 ? (big(p) << B(shift)) / q : big(p) / (q << B(-shift)), e = 1 / 2 ** k;
+  return (p < 0n ? -1 : 1) * Number(m) ** e * 2 ** (-shift * e);
+}
 const sign = a => a[0] < 0n ? -1 : a[0] > 0n ? 1 : 0;
 /* both brought under the same number of roots: [|a|, |b|] as fractions [p, q] under K roots */
 function level(a, b){ const K = Math.max(a[2], b[2]), up = (x, by) => [big(x[0]) ** by, x[1] ** by];
@@ -124,17 +161,20 @@ function plus(a, b){
 }
 /* a to the power b: such a number, null where it is not a single root (the solver's to say), or words where it has no value */
 function power(a, b){
-  if (b[2]) return null;
+  /* what to say where this cannot work it out: the solver's, unless the number is one the solver would be slow or wrong with */
+  const hard = () => safe(a[0]) && safe(a[1]) && big(a[0]) <= 10n ** 12n && a[1] <= 10n ** 12n ? null : LARGE;
+  if (b[2]) return safe(a[0]) && safe(a[1]) ? null : LARGE;
   let [u, v] = b; if (u === 0n) return [1n, 1n, 0];
   if (!sign(a)) return u > 0n ? ZERO : DIV0;
-  if (big(u) > 4096n || a[0].toString(2).length * Number(big(u)) > 1e6) return LARGE;
+  if (big(u) > 4096n || Math.max(bits(a[0]), bits(a[1])) * Number(big(u)) > 1e6) return LARGE;
   if (u < 0n){ a = flip(a); u = -u; }
   let j = 0; while (v % 2n === 0n){ v /= 2n; j++; }            /* the roots in it: j square roots, then a v-th root with v odd */
-  if (v !== 1n){ if (a[2] || v > 64n) return null; const top = iroot(big(a[0]), Number(v)), under = iroot(a[1], Number(v)); if (top === null || under === null) return null;
-    a = [a[0] < 0n ? -top : top, under, 0]; }      /* an odd root of a negative number is the real one */
+  if (j > 64) return LARGE;
+  if (v !== 1n){ if (v > B(MAXROOT)) return hard(); const top = iroot(big(a[0]), Number(v)), under = iroot(a[1], Number(v)); if (top === null || under === null) return hard();
+    a = [a[0] < 0n ? -top : top, under, a[2]]; }      /* an odd root of a negative number is the real one; of a root, the root of what is under it */
   if (j && a[0] < 0n) return EVEN;
-  const s = a[0] < 0n && u % 2n ? -1n : 1n;
-  return norm(s * big(a[0]) ** u, a[1] ** u, a[2] + j);
+  const s = a[0] < 0n && u % 2n ? -1n : 1n, r = norm(s * big(a[0]) ** u, a[1] ** u, a[2] + j);
+  return r[2] > MAXK ? (safe(r[0]) && safe(r[1]) && j <= 64 ? null : LARGE) : r;
 }
 /* -1, 0 or 1 as a is below, level with or above b */
 function order(a, b){
@@ -147,12 +187,15 @@ function order(a, b){
 const said = new Map();                        /* what was asked -> what it came to. The same question has the same answer. */
 /* a value as the solver reads it */
 const forSolver = v => typeof v === 'boolean' ? (v ? '(1)' : '(0)') : typeof v === 'number' ? `(${v})` : isSym(v) ? `(${v.sym})` : `(${textOf(numberOf(v))})`;
-function solve(text){
+/* single: false where it is already known here that the answer is no single root (a sum of two roots of which neither is a fraction of the other) */
+function solve(text, single = true){
   const N = solver(); if (!N) return err('the maths solver did not load');
-  if (!said.has(text)){ if (said.size > 4000) said.clear(); said.set(text, solveNow(N, text)); }
-  return said.get(text);
+  if (text.length > 4000) return err(LARGE);
+  const key = (single ? '' : '~') + text;
+  if (!said.has(key)){ if (said.size > 4000) said.clear(); said.set(key, solveNow(N, text, single)); }
+  return said.get(key);
 }
-function solveNow(N, typed){
+function solveNow(N, typed, single){
   let answer; try { answer = N(typed); } catch (e){ const m = String(e.message || e);
     return err(/zero/i.test(m) ? DIV0 : 'that cannot be worked out'); }
   let text = answer.toString(); if (/(^|[^a-z])i([^a-z]|$)/.test(text)) return err(EVEN);
@@ -173,29 +216,58 @@ function solveNow(N, typed){
        told, so the bars come off: what is inside, or that turned round. Left as it is where the sign cannot be told. */
     for (let m; (m = text.match(/^abs\((.*)\)$/)) && closes(m[1]);){ const n = numeric(N, m[1]); if (!(Math.abs(n) >= 1e-12)) break;
       answer = N(n > 0 ? m[1] : `-(${m[1]})`); text = answer.toString(); }
-    /* a single root comes out whole, or as a fraction, when it is squared enough times */
-    for (let k = 0; k <= 3; k++){ let up; try { up = N(`expand((${text})^${2 ** k})`).toString(); } catch (e){ break; }
-      const m = up.match(RATIONAL); if (!m) continue;
+    /* A single root comes out whole, or as a fraction, when it is squared enough times. The solver is not believed
+       when it says so: it gives 8 for (√2-√6)², dropping the cross term. What it claims is checked against the
+       number the text itself comes to, and taken only where the two agree. */
+    const is = single ? numeric(N, text) : NaN;
+    for (let k = 0; single && k <= 3; k++){ let up; try { up = N(`expand((${text})^${2 ** k})`).toString(); } catch (e){ break; }
+      const m = up.match(RATIONAL); if (!m || m[2] === '0') continue;
       const top = B(m[1]); if (k > 0 && top < 0n) continue;      /* an even power is never negative */
-      return valueOf(norm(k > 0 && numeric(N, text) < 0 ? -top : top, B(m[2] || 1), k)); }
+      const claimed = norm(k > 0 && is < 0 ? -top : top, B(m[2] || 1), k), near = approx(claimed);
+      if (Math.abs(near - is) <= 1e-9 * Math.max(1, Math.abs(is))) return valueOf(claimed); }
+    /* the solver works in numbers of its own that may round a long one: an answer holding one is not kept */
+    if (/\d{16}/.test(text)) return err(LARGE);
   } catch (e){ return err('that cannot be worked out'); }
   return { sym: text };
 }
 /* whether a text's brackets all close within it, so that abs(a)+abs(b) is not taken for one abs */
 const closes = t => { let d = 0; for (const c of t){ if (c === '(') d++; else if (c === ')' && --d < 0) return false; } return d === 0; };
 /* what the solver's text comes to as a number, at its own precision: used only to tell a sign, never shown */
-const numeric = (N, text) => { try { return Number(N(text).evaluate().text('decimals')); } catch (e){ return NaN; } };
+const numbers = new Map();
+function numeric(N, text){
+  if (!numbers.has(text)){ if (numbers.size > 4000) numbers.clear(); let n; try { n = Number(N(text).evaluate().text('decimals')); } catch (e){ n = NaN; } numbers.set(text, n); }
+  return numbers.get(text);
+}
 
-/* -1, 0 or 1 as a is below, level with or above b, or an error. a and b: any of whole, infinite, exact, symbolic. */
+/* -1, 0 or 1 as a is below, level with or above b, or an error. a and b: any of whole, infinite, exact, symbolic.
+   Two numbers this file holds exactly are compared exactly. Otherwise the solver is asked for the difference, and
+   where that is not a number it has reduced, its sign is told numerically. A numeric difference means something only
+   against the size of what was subtracted, so the band inside which nothing is decided is 1e-12 of the larger of 1,
+   the two sides, and the terms of the difference as the solver left it (all taken as positive): (1+√2)(1+√3)·10⁶
+   against its own expansion differs by 1e-9 of floating-point noise, and is not decided by it. */
+const UNDECIDED = 'cannot be compared exactly';
 function compare(a, b){
   if (typeof a === 'number' && typeof b === 'number') return a < b ? -1 : a > b ? 1 : 0;      /* whole numbers and infinities */
   if (isInf(a)) return a > 0 ? 1 : -1; if (isInf(b)) return b > 0 ? -1 : 1;
   const x = numberOf(a), y = numberOf(b);
   if (x && y) return order(x, y);
-  const d = solve(forSolver(a) + '-' + forSolver(b));
-  if (isError(d)) return d; if (d === 0) return 0;
-  const n = isSym(d) ? numeric(solver(), d.sym) : sign(numberOf(d));
-  return Math.abs(n) >= 1e-12 ? (n < 0 ? -1 : 1) : err('cannot be compared exactly');
+  const N = solver(); if (!N) return err('the maths solver did not load');
+  const within = (gap, ...sizes) => Math.abs(gap) >= 1e-12 * Math.max(1, ...sizes.map(Math.abs).filter(Number.isFinite)) ? (gap < 0 ? -1 : 1) : err(UNDECIDED);
+  /* one side too large to hand to the solver: by the numbers the two come to, which here are far apart or not told apart */
+  if (isLarge(a) || isLarge(b)){ const na = x ? approx(x) : numeric(N, a.sym), nb = y ? approx(y) : numeric(N, b.sym);
+    return Number.isNaN(na) || Number.isNaN(nb) ? err(UNDECIDED) : Math.abs(na - nb) >= 1e-9 * Math.max(1, Math.abs(na), Math.abs(nb)) ? (na < nb ? -1 : 1) : err(UNDECIDED); }
+  const A = forSolver(a), B_ = forSolver(b), d = solve(A + '-' + B_);
+  if (isError(d)) return d;
+  const exactly = numberOf(d); if (exactly) return sign(exactly);
+  const na = numeric(N, A), nb = numeric(N, B_);
+  if (Number.isNaN(na) || Number.isNaN(nb)) return err(UNDECIDED);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return within(numeric(N, d.sym), na, nb, numeric(N, d.sym.replace(/-/g, '+')));
+  /* one side is past what a floating-point number holds (exp(1000)). Against a side that is not, that settles it; two
+     such sides of one sign are compared by their logarithms, which the solver reduces (ln(exp(1000)) is 1000). */
+  if (na !== nb) return na < nb ? -1 : 1;
+  const s = na > 0 ? '' : '-', la = numeric(N, `log(${s}${A})`), lb = numeric(N, `log(${s}${B_})`);
+  if (!Number.isFinite(la) || !Number.isFinite(lb)) return err(UNDECIDED);
+  const c = within(la - lb, la, lb); return isError(c) || na > 0 ? c : -c;
 }
 const COMPARE = { '==': c => c === 0, '!=': c => c !== 0, '<': c => c < 0, '>': c => c > 0, '<=': c => c <= 0, '>=': c => c >= 0 };
 const INF = n => n > 0 ? Infinity : -Infinity;
@@ -215,7 +287,7 @@ function infinite(op, a, b){
   return one > 0 ? (b > 0 ? Infinity : 0) : b > 0 ? 0 : sa === 0 ? err(DIV0) : Infinity;
 }
 /* a value as a floating-point number, for where a decimal is involved */
-const float = v => isDec(v) ? v.f : typeof v === 'boolean' ? +v : typeof v === 'number' ? v : isSurd(v) ? Math.sign(v.n) * (Math.abs(v.n) / (v.d || 1)) ** (1 / 2 ** v.k) : numeric(solver(), v.sym);
+const float = v => isDec(v) ? v.f : typeof v === 'boolean' ? +v : typeof v === 'number' ? v : numberOf(v) ? approx(numberOf(v)) : numeric(solver(), v.sym);
 const decimal = f => Number.isNaN(f) ? err(NONE) : { f };
 const FLOAT = { '+': (x, y) => x + y, '-': (x, y) => x - y, '*': (x, y) => x * y, '^': (x, y) => x ** y, max: Math.max, min: Math.min };
 
@@ -227,7 +299,7 @@ export function combine(op, a, b){
   if (isError(a)) return a; if (isError(b)) return b;
   if (a === null || a === undefined || b === null || b === undefined) return null;
   if (Number.isNaN(a) || Number.isNaN(b)) return err(NONE);
-  if (op === '&&') return truth(a) && truth(b); if (op === '||') return truth(a) || truth(b);
+  if (op === '&&' || op === '||'){ const p = truth(a), q = truth(b); return isError(p) ? p : isError(q) ? q : op === '&&' ? p && q : p || q; }
   if (isDec(a) || isDec(b) || kind(a) === 'decimal' || kind(b) === 'decimal'){ const x = float(a), y = float(b);
     return COMPARE[op] ? COMPARE[op](x < y ? -1 : x > y ? 1 : 0) : op === '/' ? (y === 0 ? err(DIV0) : decimal(x / y)) : decimal(FLOAT[op](x, y)); }
   if (typeof a === 'boolean') a = +a; if (typeof b === 'boolean') b = +b;
@@ -239,7 +311,13 @@ export function combine(op, a, b){
     const r = op === '+' ? plus(x, y) : op === '-' ? plus(x, [-y[0], y[1], y[2]]) : op === '*' ? times(x, y) : op === '/' ? (sign(y) ? times(x, flip(y)) : DIV0) : power(x, y);
     if (typeof r === 'string') return err(r);
     if (r) return valueOf(r);
+    if (!isLarge(a) && !isLarge(b) && (op === '+' || op === '-')) return solve(forSolver(a) + op + forSolver(b), false);      /* two roots, neither a fraction of the other: settled here that their sum is no single root */
   }
+  if (isLarge(a) || isLarge(b)) return err(LARGE);      /* not a single root, and too long for the solver to be trusted with */
+  /* a root of a value below 0 that was not worked out above: an even one there is none of, and the solver would not say so */
+  if (op === '^' && y && !y[2] && y[1] !== 1n){ const s = x ? sign(x) : compare(a, 0); if (isError(s)) return s;
+    if (s < 0 && y[1] % 2n === 0n) return err(EVEN);
+    if (s < 0){ const r = combine('^', combine('-', 0, a), b); return y[0] % 2n ? combine('-', 0, r) : r; } }      /* and an odd root of one below 0 is the real one: the root of it turned round, turned back */
   return solve(forSolver(a) + op + forSolver(b));
 }
 
@@ -250,12 +328,13 @@ const FLOAT1 = { neg: x => -x, abs: Math.abs, sqrt: Math.sqrt, exp: Math.exp, ln
 export function apply(fn, a){
   if (isError(a)) return a;
   if (a === null || a === undefined) return null;
-  if (fn === '!') return !truth(a);
+  if (fn === '!'){ const t = truth(a); return isError(t) ? t : !t; }
   if (isDec(a) || kind(a) === 'decimal') return decimal(FLOAT1[fn](float(a)));
   if (typeof a === 'boolean') a = +a;
   if (fn === 'neg') return combine('-', 0, a);
   if (fn === 'sqrt') return a === Infinity ? Infinity : a === -Infinity ? err(EVEN) : combine('^', a, HALF);
   const s = compare(a, 0); if (isError(s)) return s;
+  if (fn !== 'abs' && isLarge(a)) return err(LARGE);
   if (fn === 'abs') return s < 0 ? combine('-', 0, a) : a;
   if (fn === 'exp') return a === Infinity ? Infinity : a === -Infinity ? 0 : s === 0 ? 1 : solve(`exp${forSolver(a)}`);
   if (fn === 'ln') return s < 0 ? err('ln of a negative number') : s === 0 ? -Infinity : a === Infinity ? Infinity : a === 1 ? 0 : solve(`log${forSolver(a)}`);
@@ -286,7 +365,9 @@ export function written(v){
   if (typeof v === 'boolean') return v ? 'T' : 'F';
   if (typeof v === 'number') return v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
   if (isError(v)) return '!';
-  if (isSym(v)) return pretty(v.sym);
+  if (isSym(v)){ const t = largeOf(v.sym); if (!t || !t[2]) return pretty(v.sym);      /* a root of a number too large for plain numbers: written as a root, with nothing brought out from under it */
+    const mark = t[2] === 1 ? '√' : t[2] === 2 ? '∜' : null, under = t[1] === 1n ? String(big(t[0])) : `(${big(t[0])}/${t[1]})`;
+    return (t[0] < 0n ? '-' : '') + (mark ? mark + under : `${under}^(1/${2 ** t[2]})`); }
   if (isDec(v)) return String(v.f);
   if (!isSurd(v)) return '';
   const p = v.n, q = v.d || 1;

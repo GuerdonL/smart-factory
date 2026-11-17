@@ -27,7 +27,7 @@
                   be pressed, and carries the id as data-tile for whoever handles the click. Left out where the matrix is elided.
      values       a Map from "column,row" (say "2,1") to a value, for entries that have come to one: any kind of
                   value but unknown (values.js). Those are written as the value, upright, in place of the symbol:
-                  7, 3/4, √2, 1+√2, T or F for a boolean, and infinity as +∞ or −∞. An error is written as ! in the
+                  7, 3/4, √2, 1+√2, T or F for a boolean, and infinity as ∞ or -∞. An error is written as ! in the
                   warning colour, with why as the entry's title. An entry not in the Map is unknown, and is its symbol.
      width, height  the size of what was made, in world units (for placing it)
 
@@ -37,7 +37,7 @@
    Each entry's element carries data-c and data-r, its column and row, for whoever wants to act on a click. */
 
 /* a value as it is written in a matrix */
-export const written = v => v === Infinity ? '+∞' : v === -Infinity ? '−∞' : typeof v === 'number' ? String(v).replace('-', '−') : valueText(v);
+export const written = v => typeof v === 'number' && Number.isFinite(v) ? String(v).replace('-', '−') : valueText(v);
 import { html, style } from './dom.js';
 import { likeness } from './block.js';
 import { isError, valueText } from '../algebra.js';

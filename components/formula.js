@@ -21,7 +21,8 @@
    choosing a measure puts its capsule in. Escape shuts the list, and pressed again leaves the field.
 
    A capsule is drawn as a pill in its variable's colour, holding up to ten characters of the variable's name and
-   the measure: Keys.x. It is one character to the cursor and cannot be typed inside. Its sizes are in ems, so it
+   the measure: Keys.x. It is one character to the cursor (one press of an arrow key passes it, one Backspace or
+   Delete removes it) and cannot be typed inside. Its sizes are in ems, so it
    is the size of the text it stands in and zooms with it. */
 import { html, style } from './dom.js';
 import { parts, capsuleText, offers } from '../expression.js';
@@ -132,6 +133,32 @@ export function createFormula({ text = '', look = () => null, reach = () => [], 
       after.before(pill({ id: o.of.id, measure: o.measure.measure, name: o.measure.name })); r.setStart(after, 1); }
     r.collapse(true); sel.removeAllRanges(); sel.addRange(r); on = 0; suggest();
   }
+  /* A pill is one character to the cursor. The letter of no width after it is not: the keys that move or rub out
+     are answered here wherever a pill is the next thing along, so that one press passes or removes the pill whole.
+     beside(back): the pill straight before the cursor (back) or straight after it, with nothing but such letters between; else null. */
+  function beside(back){
+    const sel = getSelection(); if (!sel.rangeCount || !sel.isCollapsed || !el.contains(sel.anchorNode)) return null;
+    let node = sel.anchorNode; const off = sel.anchorOffset;
+    if (node.nodeType === 3){ if ((back ? node.data.slice(0, off) : node.data.slice(off)).replaceAll(GAP, '')) return null; node = back ? node.previousSibling : node.nextSibling; }
+    else node = node.childNodes[back ? off - 1 : off];
+    while (node && node.nodeType === 3 && !node.data.replaceAll(GAP, '')) node = back ? node.previousSibling : node.nextSibling;
+    return node && isCapsule(node) ? node : null;
+  }
+  const put = (node, off) => { const r = document.createRange(), sel = getSelection(); r.setStart(node, off); r.collapse(true); sel.removeAllRanges(); sel.addRange(r); };
+  /* the cursor just before a pill, and just after it (in the text that follows, past its letter of no width, which is put there if it is not) */
+  const before = p => { const prev = p.previousSibling; if (prev && prev.nodeType === 3) put(prev, prev.data.length); else put(p.parentNode, [...p.parentNode.childNodes].indexOf(p)); };
+  const after = p => { let next = p.nextSibling; if (!next || next.nodeType !== 3){ next = document.createTextNode(GAP); p.after(next); } else if (!next.data.startsWith(GAP)) next.insertData(0, GAP); put(next, 1); };
+  /* takes a pill out, with the letter of no width that followed it, leaving the cursor where the pill was */
+  function remove(p){ const next = p.nextSibling; if (next && next.nodeType === 3 && next.data.startsWith(GAP)) next.deleteData(0, 1);
+    before(p); const sel = getSelection(), at = [sel.anchorNode, sel.anchorOffset]; p.remove(); put(...at); el.normalize(); }
+  function pillKey(e){
+    if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return false;
+    const back = e.key === 'ArrowLeft' || e.key === 'Backspace', p = ['ArrowLeft', 'ArrowRight', 'Backspace', 'Delete'].includes(e.key) ? beside(back) : null;
+    if (!p) return false;
+    e.preventDefault();
+    if (e.key === 'ArrowLeft') before(p); else if (e.key === 'ArrowRight') after(p); else { remove(p); on = 0; suggest(); }
+    return true;
+  }
   let kept = text;
   draw(text);
   el.addEventListener('focus', () => { onOpen(self); if (el.dataset.sel !== 'no') getSelection().selectAllChildren(el); });
@@ -139,6 +166,7 @@ export function createFormula({ text = '', look = () => null, reach = () => [], 
     if (now !== kept){ kept = now; onKeep(now, e.relatedTarget); } else onLeave(e.relatedTarget); });
   el.addEventListener('keydown', e => { e.stopPropagation();
     const open = !list.hidden;
+    if (pillKey(e)) return;
     if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')){ e.preventDefault(); on = (on + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length; suggest(); }
     else if (open && (e.key === 'Enter' || e.key === 'Tab')){ e.preventDefault(); choose(on); }
     else if (open && e.key === 'Escape'){ e.preventDefault(); shut(); }

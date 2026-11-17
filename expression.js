@@ -13,7 +13,8 @@
                                  bracket, a name or a root multiplies: 2(3+1), 2x, 2√3
        -a  !a                    minus, and not
        a ^ b                     a power, right to left: 2^3^2 is 2^9. ^ is followed by a number, a name or a bracket
-       √a  ∜a                    a square or fourth root of the number, name or bracket that follows: 2√3
+       √a  ∜a                    a square or fourth root of the number, name or bracket that follows: 2√3. A sign
+                                 straight after the root sign goes under it: √-4 is √(-4)
        numbers (a decimal is taken as a fraction: 0.5 is 1/2), brackets, names, capsules, and these and no others:
        select(c, a, b)           a where c is true, else b. Only the chosen side is worked out, so an error or an
                                  infinity in the other does no harm
@@ -103,7 +104,7 @@ function tokens(text){
   for (let i = 0; i < s.length;){ const c = SIGN[s[i]] || s[i], rest = s.slice(i);
     if (/\s/.test(c) || c === '​'){ i++; continue; }
     if (c === '@'){ const m = rest.match(ONE); if (!m) throw new Wrong('after @, choose a variable from the list'); out.push({ t: 'ref', v: capsuleOf(m) }); i += m[0].length; continue; }
-    const n = rest.match(/^(\d*\.?\d+|\d+\.?)/); if (n){ out.push({ t: 'num', v: typedNumber(n[0]) }); i += n[0].length; continue; }
+    const n = rest.match(/^(\d+\.?\d*|\.\d+)/); if (n){ out.push({ t: 'num', v: typedNumber(n[0]) }); i += n[0].length; continue; }
     if (/[A-Za-z_]/.test(c)){ const id = rest.match(/^[A-Za-z_][\w.]*/)[0].replace(/\.+$/, ''); out.push({ t: 'name', v: id }); i += id.length; continue; }
     const two = c.length === 2 ? c : (c + (s[i + 1] || ''));
     if (['==', '!=', '<=', '>=', '&&', '||'].includes(two)){ out.push({ t: two }); i += c.length === 2 ? 1 : 2; continue; }
@@ -125,8 +126,7 @@ function parse(text){
     if (t.t === '∞') return { num: Infinity };
     if (t.t === 'ref') return { ref: t.v };
     if (t.t === '('){ const e = or(); if (!take(')')) throw new Wrong('a bracket is not closed'); return e; }
-    if (t.t === '√' || t.t === '∜'){ if (!ts[i] || !(starts(ts[i]) || ts[i].t === 'num')) throw new Wrong('a root sign with nothing under it');
-      const root = { fn: 'sqrt', args: [atom()] }; return t.t === '∜' ? { fn: 'sqrt', args: [root] } : root; }
+    if (t.t === '√' || t.t === '∜'){ const root = { fn: 'sqrt', args: [under()] }; return t.t === '∜' ? { fn: 'sqrt', args: [root] } : root; }
     if (t.t !== 'name') throw new Wrong(UNREAD);
     const fn = t.v.toLowerCase();
     if (!(fn in ARITY) || ts[i]?.t !== '(') return { name: t.v };
@@ -135,6 +135,9 @@ function parse(text){
     if (args.length !== ARITY[fn]) throw new Wrong(`${fn} takes ${['no', 'one', 'two', 'three'][ARITY[fn]]} value${ARITY[fn] === 1 ? '' : 's'}`);
     return { fn, args };
   }
+  /* what a root sign applies to: a number, a name, a bracket or another root, with any sign it carries (√-4 is read as √(-4)) */
+  function under(){ if (take('-')) return { fn: 'neg', args: [under()] }; if (take('+')) return under();
+    if (!ts[i] || !(starts(ts[i]) || ts[i].t === 'num')) throw new Wrong('a root sign with nothing under it'); return atom(); }
   const power = () => { const a = atom(); return take('^') ? { op: '^', a, b: unary() } : a; };
   function unary(){ return take('-') ? { fn: 'neg', args: [unary()] } : take('+') ? unary() : take('!') ? { fn: '!', args: [unary()] } : power(); }
   function term(){ let a = unary();
@@ -171,7 +174,8 @@ export function evaluate(text, lookup = () => undefined, { matrices = false } = 
     if ('num' in n) return n.num;
     if (known.has(n)) return known.get(n);
     if (n.op) return combine(n.op, run(n.a), run(n.b));
-    if (n.fn === 'select'){ const c = run(n.args[0]); return isError(c) ? c : kind(c) === 'unknown' ? null : run(n.args[truth(c) ? 1 : 2]); }      /* only the chosen side */
+    if (n.fn === 'select'){ const c = run(n.args[0]); if (isError(c)) return c; if (kind(c) === 'unknown') return null;
+      const chosen = truth(c); return isError(chosen) ? chosen : run(n.args[chosen ? 1 : 2]); }      /* only the chosen side; a condition that cannot be told from 0 is that error */
     if (n.fn === 'max' || n.fn === 'min') return combine(n.fn, run(n.args[0]), run(n.args[1]));
     return apply(n.fn, run(n.args[0]));
   };

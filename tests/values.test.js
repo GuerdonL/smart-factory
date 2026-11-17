@@ -46,6 +46,65 @@ test('what is not a single root goes to the solver and comes back symbolic, or s
   is('^', combine('^', sym('1+sqrt(2)'), 2), q(1, 2), sym('1+sqrt(2)')); is('^', combine('^', sym('1-sqrt(2)'), 2), q(1, 2), sym('-1+sqrt(2)'));
 });
 
+/* what a value comes to as a floating-point number, worked out apart from values.js: to check answers by */
+const near = v => typeof v === 'number' ? v : v.sym !== undefined ? Number(globalThis.nerdamer(v.sym).evaluate().text('decimals')) : Math.sign(v.n) * (Math.abs(v.n) / (v.d || 1)) ** (1 / 2 ** v.k);
+const squareFree = n => { for (let f = 2; f * f <= n; f++) while (n % (f * f) === 0) n /= f * f; return n; };
+
+test('a sum or difference of two roots is a single root only when one is a fraction of the other: every √a ± √b for a, b from 2 to 24', () => {
+  let single = 0, symbolic = 0;
+  for (let a = 2; a <= 24; a++) for (let b = 2; b <= 24; b++) for (const op of ['+', '-']){
+    const v = combine(op, combine('^', a, q(1, 2)), combine('^', b, q(1, 2))), want = op === '+' ? Math.sqrt(a) + Math.sqrt(b) : Math.sqrt(a) - Math.sqrt(b), label = `√${a} ${op} √${b} = ${written(v)}`;
+    assert.ok(Math.abs(near(v) - want) < 1e-9, label);
+    const one = squareFree(a) === squareFree(b);          /* the same square-free part: √8 and √2, √12 and √3 */
+    assert.equal(kind(v) === 'whole' || kind(v) === 'exact', one, label); assert.equal(kind(v) === 'symbolic', !one, label);
+    one ? single++ : symbolic++; }
+  assert.equal(single + symbolic, 2 * 23 * 23); assert.equal(single, 2 * [...Array(23)].flatMap((_, i) => [...Array(23)].map((_, j) => [i + 2, j + 2])).filter(([a, b]) => squareFree(a) === squareFree(b)).length);
+  /* the ones the solver gets wrong when asked: it says (√2-√6)² is 8 */
+  is('-', q(2, 1, 1), q(6, 1, 1), sym('-sqrt(6)+sqrt(2)')); is('-', q(3, 1, 1), q(6, 1, 1), sym('-sqrt(6)+sqrt(3)')); is('==', combine('-', q(2, 1, 1), q(6, 1, 1)), q(-8, 1, 1), false);
+  assert.ok(Math.abs(near(combine('-', q(2, 1, 1), combine('/', q(10, 1, 1), 3))) - (Math.SQRT2 - Math.sqrt(10) / 3)) < 1e-9);
+});
+
+test('a root of a number past 2^53 stays exact, is read back, and is written readably', () => {
+  const root = v => combine('^', v, q(1, 2)), p60 = combine('+', combine('^', 2, 60), 1), p81 = combine('^', 2, 81);
+  is('^', root(p60), 2, sym('1152921504606846977'));                    /* √(2^60+1)² ends in 977, not 976 */
+  is('^', root(sym('9007199254740993')), 2, sym('9007199254740993'));
+  is('==', combine('*', q(2, 1, 1), p60), combine('*', q(2, 1, 1), combine('^', 2, 60)), false); is('>', combine('*', q(2, 1, 1), p60), combine('*', q(2, 1, 1), combine('^', 2, 60)), true);
+  const e40 = combine('+', combine('^', 10, 40), 1); is('==', root(e40), combine('^', 10, 20), false); is('>', root(e40), combine('^', 10, 20), true);
+  is('*', root(p81), root(p81), sym('2417851639229258349412352'));
+  is('/', combine('*', q(2, 1, 1), combine('^', 10, 20)), combine('^', 10, 20), q(2, 1, 1));      /* √2·10^20 / 10^20 is √2 again, not a fraction near it */
+  assert.deepEqual(root(p81), sym('(2417851639229258349412352/1)^(1/2)')); assert.equal(written(root(p81)), '√2417851639229258349412352');
+  assert.equal(written(combine('/', 1, root(p81))), '√(1/2417851639229258349412352)'); assert.equal(written(combine('^', e40, q(1, 4))), '∜10000000000000000000000000000000000000001');
+  assert.equal(written(combine('-', 0, combine('^', e40, q(1, 8)))), '-10000000000000000000000000000000000000001^(1/8)');
+  is('+', root(p81), q(2, 1, 1), sym('(2417851639233656395923458/1)^(1/2)'));      /* √(2^81) + √2 = (2^40 + 1)√2: still one root */
+  is('-', root(p81), root(p81), 0); is('/', root(p81), root(p81), 1); is('^', root(root(combine('^', 3, 400))), 4, combine('^', 3, 400));
+  is('<', root(p81), root(combine('+', p81, 1)), true); is('max', root(p81), 5, root(p81));
+  assert.equal(apply('abs', combine('-', 0, root(p81))).sym, root(p81).sym); assert.deepEqual(apply('sqrt', combine('^', 2, 162)), p81);
+});
+
+test('no input waits long: past a bound the answer is an error that says so', () => {
+  const large = E('too large to work out'), t0 = performance.now();
+  is('^', combine('^', 2, 130), q(1, 130), 2); is('^', combine('^', 2, 134), q(1, 67), 4);      /* these have whole roots, found directly */
+  is('^', combine('+', combine('^', 10, 30), 1), q(1, 3), large);      /* this has none, and is too long for the solver */
+  is('^', 9007199254740881, q(1, 3), large);                            /* so is a cube root of a 16-digit number with no whole root */
+  is('^', 1000000007, q(1, 3), sym('1000000007^(1/3)'));               /* the boundary: up to 10^12 the solver is asked */
+  is('^', 10, 5000, large); is('^', combine('^', 2, 4000), 2, large); is('+', combine('^', 2, 80), q(2, 1, 1), large); is('*', sym('1+sqrt(2)'), combine('^', 2, 80), large);
+  is('^', combine('^', 2, 80), q(2, 1, 1), large); is('^', 2, combine('/', 1, combine('^', 2, 80)), large); is('^', combine('^', 2, 200), q(1, 1025 * 3), large);
+  assert.deepEqual(apply('exp', combine('^', 2, 80)), large); assert.deepEqual(typedNumber('1' + '0'.repeat(1300)), large); assert.equal(kind(typedNumber('1' + '0'.repeat(1200))), 'symbolic');
+  let deep = 2; for (let i = 0; i < 7; i++) deep = combine('^', deep, q(1, 2)); assert.deepEqual(deep, sym('2^(1/128)'));      /* under more than six roots: the solver's, as text */
+  is('>', combine('^', 2, 80), sym('1+sqrt(2)'), true); is('<', sym('1+sqrt(2)'), combine('^', 2, 80), true);      /* one side large, far from the other: told */
+  assert.ok(performance.now() - t0 < 3000, `took ${(performance.now() - t0).toFixed(0)}ms`);
+});
+
+test('a root of a symbolic value below 0: an even one is an error, an odd one is the real one', () => {
+  const even = E('an even root of a negative number'), neg = sym('1-sqrt(2)'), pos = sym('-1+sqrt(2)');
+  assert.deepEqual(apply('sqrt', neg), even); is('^', neg, q(1, 2), even); is('^', neg, q(1, 4), even); is('^', neg, q(3, 2), even); assert.deepEqual(apply('sqrt', combine('-', q(2, 1, 1), q(3, 1, 1))), even);
+  assert.deepEqual(apply('sqrt', pos), sym('sqrt(-1+sqrt(2))')); assert.deepEqual(apply('sqrt', combine('-', q(3, 1, 1), q(2, 1, 1))), sym('sqrt(-sqrt(2)+sqrt(3))'));
+  is('^', q(-8, 1, 1), q(2, 3), 2); is('^', q(-8, 1, 1), q(1, 3), q(-2, 1, 1)); is('^', q(-6, 1, 1), q(1, 2), even);      /* a root that is below 0: (-√8)^(2/3) is 2 */
+  assert.ok(Math.abs(near(combine('^', q(-6, 1, 1), q(2, 3))) - 6 ** (1 / 3)) < 1e-9); assert.ok(Math.abs(near(combine('^', q(-6, 1, 1), q(1, 3))) + 6 ** (1 / 6)) < 1e-9);
+  is('^', neg, q(1, 3), sym('-(-1+sqrt(2))^(1/3)')); is('^', neg, q(2, 3), sym('(-1+sqrt(2))^(2/3)')); is('^', pos, q(1, 3), sym('(-1+sqrt(2))^(1/3)'));
+  assert.ok(Math.abs(near(combine('^', neg, q(1, 3))) + Math.cbrt(Math.SQRT2 - 1)) < 1e-9);
+});
+
 test('division by zero is an error, and so is an even root of a negative number', () => {
   is('/', 1, 0, E('divide by zero')); is('/', q(1, 2), 0, E('divide by zero')); is('/', 0, 0, E('divide by zero')); is('^', 0, -1, E('divide by zero'));
   is('/', sym('1+sqrt(2)'), 0, E('divide by zero'));
@@ -73,6 +132,14 @@ test('a boolean in arithmetic is 1 or 0, and a number where a boolean is wanted 
   is('&&', 1, 2, true); is('&&', 0, 2, false); is('||', 0, 0, false); is('||', 0, q(1, 2), true); is('&&', INF, sym('1+sqrt(2)'), true);
   assert.equal(apply('!', 0), true); assert.equal(apply('!', 3), false); assert.equal(apply('!', true), false); assert.equal(apply('!', q(1, 2)), false);
   assert.equal(truth(0), false); assert.equal(truth(false), false); assert.equal(truth(-1), true); assert.equal(truth(-INF), true); assert.equal(truth({ f: 0 }), false);
+  assert.equal(truth(sym('1+sqrt(2)')), true); assert.equal(truth(sym('1208925819614629174706176')), true);
+});
+
+test('a symbolic value that cannot be told from 0 is not taken as true or as false', () => {
+  const z = sym('(1+sqrt(2))*(1+sqrt(3))-(1+sqrt(2)+sqrt(3)+sqrt(6))'), no = E('cannot be compared exactly');      /* exactly 0, but the solver does not reduce it */
+  assert.deepEqual(truth(z), no); assert.deepEqual(apply('!', z), no); is('&&', z, 1, no); is('&&', 1, z, no); is('||', z, 0, no); is('==', z, 0, no); is('<', z, 0, no);
+  is('&&', combine('*', z, 1000000), 1, no);               /* however it is scaled: the noise is scaled with it */
+  assert.deepEqual(apply('abs', z), no); is('*', z, INF, no);
 });
 
 test('infinity', () => {
@@ -121,6 +188,16 @@ test('comparing: exactly where it can be, by the sign of the difference where it
   /* the boundary: a difference of 1e-11 is told, one of 1e-13 is not */
   is('<', a, sym('1+sqrt(2)+1/100000000000+sqrt(3)-sqrt(3)'), true);
   is('<', sym('sqrt(2)*sqrt(3)+sqrt(5)'), sym('sqrt(6)+sqrt(5)+1/10000000000000+sqrt(7)-sqrt(7)'), no);
+});
+
+test('comparing: the band where nothing is decided is relative to the size of what is compared', () => {
+  const no = E('cannot be compared exactly'), m = 1000000, lhs = combine('*', sym('(1+sqrt(2))*(1+sqrt(3))'), m), rhs = combine('*', sym('1+sqrt(2)+sqrt(3)+sqrt(6)'), m);
+  is('==', lhs, rhs, no); is('<', lhs, rhs, no); is('>', lhs, rhs, no);      /* equal, and 1e-9 of floating-point noise apart: not decided by the noise */
+  is('<', lhs, combine('+', rhs, 1), true); is('>', combine('+', lhs, 1), rhs, true); is('==', lhs, combine('+', rhs, q(1, 1000)), false);      /* a real difference at that size is told */
+  /* past what a floating-point number holds: told against one that is not, and by their logarithms against each other */
+  const big = apply('exp', 1000), less = apply('exp', 999);
+  is('>', big, 1, true); is('>', big, less, true); is('<', less, big, true); is('==', big, big, true); is('max', big, less, big);
+  is('<', apply('neg', big), apply('neg', less), true); is('>', big, apply('neg', big), true); is('<', apply('neg', big), 0, true);
 });
 
 test('written writes every kind, and never a decimal for an exact value', () => {
@@ -176,7 +253,7 @@ test('speed: a product of two 64 by 64 matrices of whole numbers, about half a m
   run();                                                   /* once to warm up, then timed */
   const t0 = performance.now(), { C, steps } = run(), ms = performance.now() - t0;
   assert.equal(steps, 2 * n * n * n);                      /* 524,288 */
-  let s = 0; for (let k = 0; k < n; k++) s += A[k] * B[k * n]; assert.equal(C[0], s);
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++){ let s = 0; for (let k = 0; k < n; k++) s += A[r * n + k] * B[k * n + c]; assert.equal(C[r * n + c], s); }      /* every entry, against plain arithmetic */
   assert.ok(ms < 400, `took ${ms.toFixed(0)}ms`);
 });
 

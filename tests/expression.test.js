@@ -15,7 +15,8 @@ test('whole numbers and fractions stay exact', () => {
 });
 
 test('decimals are taken as fractions, never kept as decimals', () => {
-  is('0.5', q(1, 2)); is('1.25', q(5, 4)); is('0.1 + 0.2', q(3, 10)); is('.5', q(1, 2));
+  is('0.5', q(1, 2)); is('1.25', q(5, 4)); is('0.1 + 0.2', q(3, 10)); is('.5', q(1, 2)); is('5.', 5); is('5. + 1', 6); is('2.(3)', 6);      /* a point with nothing after it, as typedNumber takes it */
+  unread('.', 'cannot read "."'); unread('1.2.3', 'that cannot be read as arithmetic');
 });
 
 test('a single root is a value', () => {
@@ -38,7 +39,8 @@ test('whole roots the solver leaves standing are brought out', () => {
 });
 
 test('an even root of a negative number is an error', () => {
-  for (const t of ['√(-4)', '(-4)^(1/2)', '(-16)^(1/4)', '(-8)^(1/6)', '(-2)^(3/2)', 'sqrt(-1)']) is(t, E('an even root of a negative number'));
+  for (const t of ['√(-4)', '√-4', '∜-16', '√ - 4', '(-4)^(1/2)', '(-16)^(1/4)', '(-8)^(1/6)', '(-2)^(3/2)', 'sqrt(-1)', '√(1-√2)', '√(√2-√3)']) is(t, E('an even root of a negative number'));
+  is('√-(1-5)', 2); is('√+4', 2); is('2√-(-9)', 6); unread('√-', 'a root sign with nothing under it'); unread('√-)', 'a root sign with nothing under it');      /* a sign after a root sign goes under it */
 });
 
 test('the signs people type are read', () => {
@@ -79,6 +81,7 @@ test('select works out only the chosen side', () => {
   is('select(1/0, 1, 2)', E('divide by zero'));            /* an error in the condition is that error */
   is('select(u, 1, 2)', null, () => null);                 /* an unknown condition is unknown: it is not false */
   is('select(2 > 3, u, 5)', 5, () => null); is('select(2 < 3, u, 5)', null, () => null);
+  const z = '((1+√2)*(1+√3) - (1+√2+√3+√6))'; is(`select(${z}, 1, 2)`, E('cannot be compared exactly')); is(`!${z}`, E('cannot be compared exactly')); is(`${z} && 1`, E('cannot be compared exactly'));      /* a condition that cannot be told from 0 is neither side */
   unread('select(1, 2)', 'select takes three values'); unread('select(1, 2, zz)', 'unknown name: zz');      /* a name nothing knows is said, whichever side it is on */
 });
 
@@ -215,6 +218,24 @@ test('a formula that depends on itself is an error, directly or through others',
   assert.equal(value('g'), 2);                                   /* on the side not chosen it does no harm */
   assert.deepEqual(value('h'), E('depends on itself'));
   assert.equal(working('k', () => working('l', () => 5)), 5); assert.throws(() => working('m', () => { throw new Error('x'); })); assert.equal(working('m', () => 1), 1);      /* cleared even when the work throws */
+});
+
+test('formulas that refer to themselves through capsules, as the page has them: directly, and through another variable', () => {
+  /* variables as plain data: a mass (the formula of entry 1,1) and attributes, each referring to others by capsule */
+  const variables = { b1: { mass: '@[b1:m] + 1', attributes: {} },                                   /* directly */
+    b2: { mass: '@[b3:a:heads] * 2', attributes: {} }, b3: { mass: '4', attributes: { heads: '@[b2:m] + 1', tails: '@[b3:m] / 2', own: 'own + 1' } },      /* through another variable */
+    b4: { mass: 'select(1, 7, @[b4:m])', attributes: { fine: '@[b3:a:tails] + @[b3:m]' } } };
+  const working = guard();
+  const lookup = id => token => { if (typeof token === 'string') return token in variables[id].attributes ? worked(id, 'a:' + token) : undefined;
+    return !variables[token.id] ? undefined : token.measure === 'm' ? worked(token.id, 'm') : token.name in variables[token.id].attributes ? worked(token.id, 'a:' + token.name) : { err: 'missing attribute' }; };
+  const worked = (id, what) => working(id + ' ' + what, () => evaluate(what === 'm' ? variables[id].mass : variables[id].attributes[what.slice(2)], lookup(id)).value);
+  const itself = E('depends on itself');
+  assert.deepEqual(worked('b1', 'm'), itself);                                                       /* its own mass */
+  assert.deepEqual(worked('b2', 'm'), itself); assert.deepEqual(worked('b3', 'a:heads'), itself);     /* b2's mass needs b3's heads, which needs b2's mass */
+  assert.deepEqual(worked('b3', 'a:own'), itself);                                                   /* an attribute by its own bare name */
+  assert.equal(worked('b3', 'm'), 4); assert.equal(worked('b3', 'a:tails'), 2); assert.equal(worked('b4', 'a:fine'), 6);      /* what does not go round is worked out, the same variables beside it */
+  assert.equal(worked('b4', 'm'), 7);                                                                /* itself on the side not chosen does no harm */
+  assert.deepEqual(evaluate('@[b1:m] + @[b3:m]', lookup('b3')).value, itself); assert.deepEqual(evaluate('@[bgone:m]', lookup('b3')).value, E('missing variable'));
 });
 
 test('without the solver, only what needs it says so', () => {
