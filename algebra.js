@@ -59,7 +59,12 @@
        shapes, times or over, has any: a chain of three or more is written beside the piece. Only a hollow of the
        result's size is used (with a broadcast operand one or both are not), and only one the matrix as written is
        no larger than. With one copy asked for it is the first of hollows() that can be used, else the other.
-       [] means: beside the piece, as any other result.
+       [] means: beside the piece, as any other result. needed, where given, is which hollows are read from (1 the
+       first of hollows(), 2 the other: an arrow's input, phase 4): with one copy asked for, those are the ones
+       written in, where they can be used, in place of the first.
+   pieceHollows(rects, piece) -> [first, second]: the piece's two hollows in hollows()' order, each null where it is
+       not the size of the result (or the piece is not a defined times or over pair). Whether anything is written
+       there or not, this is where a hollow is: where a block seated in one sits (arrows.js).
    stacks(rects) -> see below: what a stack was in projects saved before format 3. Not used to work anything out now.
 
    A rect may also carry none: true, for a shape that has no value just now (a part of another shape that is too
@@ -195,11 +200,19 @@ export function hollows(touch, rects){
   const besideA = { x: b.x, y: a.y, w: b.w, h: a.h }, besideB = { x: a.x, y: b.y, w: a.w, h: b.h };      /* level with a, in b's columns; level with b, in a's columns */
   return [touch.kind === 'times' ? besideA : besideB, touch.kind === 'times' ? besideB : besideA];
 }
-export function resultHollows(rects, piece, copies = 1, written = null){
-  const type = piece.type, n = !(copies > 0) ? 0 : copies >= 2 ? 2 : 1;
-  if (!n || piece.rule !== 'elementwise' || piece.members.length !== 2 || type.error) return [];
-  const touch = touches(rects).find(t => t.a === piece.members[0] && t.b === piece.members[1]), size = written || type;
-  return hollows(touch, rects).filter(h => h.w === type.cols && h.h === type.rows && size.cols <= h.w && size.rows <= h.h).slice(0, n);
+export function pieceHollows(rects, piece){
+  const type = piece.type;
+  if (piece.rule !== 'elementwise' || piece.members.length !== 2 || type.error) return [null, null];
+  const touch = touches(rects).find(t => t.a === piece.members[0] && t.b === piece.members[1]);
+  return hollows(touch, rects).map(h => h.w === type.cols && h.h === type.rows ? h : null);
+}
+export function resultHollows(rects, piece, copies = 1, written = null, needed = []){
+  const type = piece.type, n = !(copies > 0) ? 0 : copies >= 2 ? 2 : 1, size = written || type;
+  if (!n) return [];
+  const usable = pieceHollows(rects, piece).map(h => h && size.cols <= h.w && size.rows <= h.h ? h : null), all = usable.filter(Boolean);
+  if (n === 2) return all;
+  const wanted = needed.map(k => usable[k - 1]).filter(Boolean);      /* with one copy, the one that is read from, where one is */
+  return wanted.length ? usable.filter(h => wanted.includes(h)) : all.slice(0, 1);
 }
 
 /* In projects saved before format 3, shapes of one width set one directly on top of the next were a stack: one
