@@ -75,8 +75,10 @@ fill it, and that is what `.variable_colors` equals. They are the only listing o
 A row of `.variable_colors` that is not given in full (the matrix has a hole, or a shape standing in it leaves an
 entry as a symbol) is no colour: shapes that wear it are drawn with no fill. Nothing stands in for it.
 
-A shape is defined only in its definition space, and only by shapes standing in the definition's matrix: once they
-cover every entry, the shape's entries are theirs. Shapes set anywhere else, in that space or beside the shape on its
+A shape is defined only in its definition space, and only by standing shapes, the shapes standing in the
+definition's matrix (snap to matrix): once they cover every entry, the shape's entries are theirs, and until then it
+keeps its own. A standing shape's file carries `"standing": true` (`"tile": true` in projects saved before, which is
+still read). Shapes set anywhere else, in that space or beside the shape on its
 own canvas, are only pieces and define nothing.
 
 Neither the program nor the stylesheet holds a value for any of these. They are written out, entry by entry, in the

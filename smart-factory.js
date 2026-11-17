@@ -75,18 +75,18 @@ function write(){
   if (isArrow(space.owner)){      /* an arrow's space: its output on the right, at the size it promises or, with no promise, the size it comes to */
     const a = space.owner, t = defSize(a); syncIn(space, a);
     space.definition = createDefinition({ cols: t.cols, rows: t.rows, unit: view.unit, name: isNamed(a) ? a.name : 'output', letter: initials(a.name), color: 'function', values: new Map(), editable: false, colsName: t.colsName || null, rowsName: t.rowsName || null });
-    space.definition.tiled = defKey(a); view.world.prepend(space.definition.el); return; }
+    space.definition.wrote = defKey(a); view.world.prepend(space.definition.el); return; }
   flow(space.owner);
   const o = space.owner, r = o.rect, over = turned(o);      /* opened through a transpose, it is still the variable's own definition: the right way round */
   space.definition = createDefinition({ cols: Math.round((over ? r.h : r.w) / view.unit), rows: Math.round((over ? r.w : r.h) / view.unit), unit: view.unit,
     name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: valuesOf(o, 0, true), inherited: inheritedBy(o, space.parent), editable: isNamed(o),      /* a named block's matrix is written in its colour */
-    colsName: over ? o.sides.h : o.sides.w, rowsName: over ? o.sides.w : o.sides.h, tiles: tileLook(o) });
-  space.definition.tiled = defKey(o);
+    colsName: over ? o.sides.h : o.sides.w, rowsName: over ? o.sides.w : o.sides.h, standing: standingLook(o) });
+  space.definition.wrote = defKey(o);
   view.world.prepend(space.definition.el);     /* beneath the blocks */
 }
 /* the size an arrow's space writes on the right of its equation, and what the equation was written for: it is written again when that changes */
 const defSize = a => { const o = outputOf(a), seat = seatOn(a); return a.arrow.output ? { ...a.arrow.output, colsName: seat?.sides.w || null, rowsName: seat?.sides.h || null } : (o.came && !o.came.error && o.came) || o.part || { cols: 1, rows: 1 }; };
-const defKey = o => isArrow(o) ? 'arrow ' + JSON.stringify(defSize(o)) : JSON.stringify(tileLook(o));
+const defKey = o => isArrow(o) ? 'arrow ' + JSON.stringify(defSize(o)) : JSON.stringify(standingLook(o));
 /* opening a block: its definition space is made the first time (one space for every place the variable is used),
    and is entered from here, by this block */
 function open(b){
@@ -191,32 +191,34 @@ function useShape(of, at, transposed = false){      /* transposed: whether the n
   b.ref = true; b.attrs = attrsOf(of);           /* a reference to the variable, not the shape it was made as: its attributes are the variable's */
   space.blocks.push(b); view.world.append(b.el); select([b]);
 }
-/* ---- shapes standing in a matrix ----
+/* ---- standing shapes (snap to matrix) ----
    A variable dragged from the list onto a shape's matrix (the "= [...]" beside it in the Menu, or the right-hand side
    in its definition space) goes into the matrix, where it was dropped, in place of the entries it covers. It may be
    any size that fits inside the matrix, and the shapes there may be packed in any arrangement that does not overlap;
    the entries not yet covered stay as they were. The first one put in replaces whatever was in the receiving shape's definition space. From then on that
-   space holds the shapes standing in the matrix, each marked as a tile and lying where it stands: the place where the
-   equation's left side is written is the matrix, entry for unit. Once the tiles cover every entry, the receiving
-   shape's entries are theirs, as if they had been joined. */
+   space holds the shapes standing in the matrix, each marked as standing there and lying where it stands: the place where the
+   equation's left side is written is the matrix, entry for unit. Once the standing shapes cover every entry, the receiving
+   shape's entries are theirs, as if they had been joined. Until then the variable keeps its own typed entries: the two
+   are never mixed. Such a shape is a standing shape (block.standing; once called a tile, a word that now means a
+   region that repeats: see "tiles"). What the user reads calls it snap to matrix. */
 const slotOf = b => ({ x: -view.unit - b.rect.w, y: Math.round(-b.rect.h / 2 / view.unit) * view.unit });      /* where the left side of b's equation is written, in b's definition space */
 /* the shapes standing in b's matrix: [{ block, x, y, w, h }] in entries, or null if its definition space is not just such shapes */
-function tilesOf(b){
+function standingOf(b){
   const def = spaceOf.get(b), u = view.unit; if (!def) return null;
   const act = def.blocks.filter(t => !isOff(t) && !inConfig(t, def)), slot = slotOf(b), cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), out = [];
   if (!act.length) return null;
   for (const t of act){ const x = (t.rect.x - slot.x) / u, y = (t.rect.y - slot.y) / u, w = t.rect.w / u, h = t.rect.h / u;
-    if (!t.tile || x % 1 || y % 1 || x < 0 || y < 0 || x + w > cols || y + h > rows) return null;
+    if (!t.standing || x % 1 || y % 1 || x < 0 || y < 0 || x + w > cols || y + h > rows) return null;
     if (out.some(o => x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h)) return null;
     out.push({ block: t, x, y, w, h }); }
   return out;
 }
-const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: t.h, color: t.block.shape.color, name: t.block.name, id: t.block.id }));
+const standingLook = b => (standingOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: t.h, color: t.block.shape.color, name: t.block.name, id: t.block.id }));
 /* ---- the algebra of a space ----
    algebraIn(s): the blocks of s that take part, their rectangles in units, every touch between them (a product, a
    sum, times or over: algebra.js) and the pieces they make, each with its one rule. */
 function algebraIn(s){
-  const u = view.unit, active = s.owner && tilesOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part */
+  const u = view.unit, active = s.owner && standingOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part */
   const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, ...(lost(b) ? { none: true } : {}) }));      /* none: a part its source is too small to have has no value */
   return { active, rects, touches: touches(rects), all: pieces(rects) };
 }
@@ -249,11 +251,11 @@ function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's ow
   if (measures(b)){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
   const part = rangedOf(b);                    /* a part of another shape: that shape's entries there, whatever they are now */
   if (part) return depth < 8 ? rangeValues(part, depth, turned(b) && !plain) : new Map();
-  const tiles = depth < 8 && tilesOf(b), u = view.unit;
-  if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
+  const stood = depth < 8 && standingOf(b), u = view.unit;
+  if (!stood || stood.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
     return own(b, plain); }
   const all = new Map();
-  for (const t of tiles) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); }
+  for (const t of stood) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); }
   return all;
 }
 function matrixAt(x, y){
@@ -267,30 +269,30 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   if (rangedOf(a)) return hud.say(`${bare(a.name)} is part of ${partOf(a)}: change it there`);      /* its entries are its source's */
   if (isArrow(a) || givenOf(a) || seatedOf(a)) return hud.say(isArrow(a) ? 'An arrow\'s output is what its function comes to: nothing stands in it' : `${bare(a.name)} ${givenOf(a) ? 'is the function\'s input' : 'is seated'}: its entries are not its own`);
   if (kinOf(a).includes(v)) return hud.say('A shape cannot go into its own matrix');
-  if (w > cols || h > rows) return hud.say(`${bare(v.name)} does not fit in ${bare(a.name)}`);
+  if (w > cols || h > rows) return hud.say(`Snap to matrix: ${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
   const def = spaceOf.get(a);
   if (def === spaceOf.get(v)) return hud.say('A shape cannot go into its own matrix');
   const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
-  let tiles = tilesOf(a);
-  if (!tiles){ for (const b of [...def.blocks]) out(b); tiles = [];      /* the first shape in: whatever was in its definition goes */
+  let stood = standingOf(a);
+  if (!stood){ for (const b of [...def.blocks]) out(b); stood = [];      /* the first shape in: whatever was in its definition goes */
     def.groupUp.clear(); def.groupNames.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear(); }
   /* where it was dropped; if that is taken, the nearest free place; if there is none, it takes the place of what is there */
   const wantX = Math.max(0, Math.min(cols - w, Math.round(cx - w / 2))), wantY = Math.max(0, Math.min(rows - h, Math.round(cy - h / 2)));
-  const over = (X, Y) => tiles.filter(t => X < t.x + t.w && t.x < X + w && Y < t.y + t.h && t.y < Y + h);
+  const over = (X, Y) => stood.filter(t => X < t.x + t.w && t.x < X + w && Y < t.y + t.h && t.y < Y + h);
   let best = null;
   for (let X = 0; X <= cols - w; X++) for (let Y = 0; Y <= rows - h; Y++) if (!over(X, Y).length){ const d = Math.abs(X - wantX) + Math.abs(Y - wantY); if (!best || d < best[2]) best = [X, Y, d]; }
   const [X, Y] = best || [wantX, wantY];
   for (const t of over(X, Y)) out(t.block);
   pruneOps();                                  /* what was cut in the definition went with it */
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
-  use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
+  use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.standing = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
   const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.ref = true; use.attrs = attrsOf(v);
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
-  const left = cols * rows - (tilesOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
-  hud.say(left ? `${bare(v.name)} is in ${bare(a.name)}: ${left} ${left === 1 ? 'entry' : 'entries'} still open` : `${bare(a.name)} is filled`);
+  const left = cols * rows - (standingOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
+  hud.say(left ? `Snap to matrix: ${bare(v.name)} stands in ${bare(a.name)}, ${left} ${left === 1 ? 'entry' : 'entries'} still open` : `Snap to matrix: ${bare(a.name)} is covered, and its entries are now those of the shapes standing in it`);
 }
 /* a side-length variable dragged over the canvas: the blocks near the pointer show their measurements, and the line
    nearest the pointer, if it is close, is where the length will land */
@@ -866,8 +868,8 @@ function paint(){
       parts: bs.map(b => ({ letter: initials(b.name), color: b.shape.color, cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u), transposed: turned(b) })),
       signs: piece.members.slice(1).map((m, n) => piece.rule === 'sum' ? '+' : ts.some(t => t.kind === 'over' && t.a === piece.members[n] && t.b === m) ? '/' : '·') } };
     /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
-    if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), tiles: tileLook(first) };
-    if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first), transposed: turned(first) };
+    if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), standing: standingLook(first) };
+    if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), standing: standingLook(first), transposed: turned(first) };
     /* scalars times at most one other shape: that shape's entries, each multiplied through where the numbers are known;
        an entry not known is written as the scalars against its symbol */
     const one = b => b.rect.w === u && b.rect.h === u && !b.members, scalars = bs.filter(one), solid = bs.filter(b => !one(b));
@@ -879,9 +881,9 @@ function paint(){
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const stacked = new Set(ts.filter(t => t.kind === 'sum').flatMap(t => [active[t.a], active[t.b]]));
-  const standing = new Set(((space.owner && tilesOf(space.owner)) || []).map(t => t.block));      /* shapes standing in the definition's matrix sit against one another too */
+  const standing = new Set(((space.owner && standingOf(space.owner)) || []).map(t => t.block));      /* shapes standing in the definition's matrix sit against one another too */
   for (const b of space.blocks) b.inset(stacked.has(b) || standing.has(b));      /* in a sum there is no room above a block for its name (the next one up is there): names go on the blocks */
-  if (space.definition && space.definition.tiled !== defKey(space.owner)) write();      /* shapes have gone into, or come out of, its block's matrix; or an arrow's output is another size */
+  if (space.definition && space.definition.wrote !== defKey(space.owner)) write();      /* shapes have gone into, or come out of, its block's matrix; or an arrow's output is another size */
   /* what the space comes to: its ends, the pieces (and outputs) nothing reads from. What is in a .config is no part of it. */
   const mine = space.definition ? endsOf(space, { active, all }) : [], outLook = a => ({ letter: initials(a.name), values: outputOf(a).values || new Map() });      /* in the ordinary text colour: the function colour is for the triangle */
   space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? (mine[0].piece ? lookOf(mine[0].piece) : outLook(mine[0].arrow)) : {});
@@ -976,7 +978,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
 const picture = (b, s) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
-  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
+  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -990,7 +992,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = pic.arrow ? makeArrow(name) : makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); b.turn(pic.t); if (pic.tile && s !== space) b.tile = true;
+    const b = pic.arrow ? makeArrow(name) : makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); b.turn(pic.t); if (pic.standing && s !== space) b.standing = true;
     if (pic.arrow){ const { formula, ...geo } = pic.arrow; b.set(r); b.arrow = { ...geo, input: { ...geo.input }, output: geo.output ? { ...geo.output } : null }; b.fn = { formula }; if (pic.use) b.ref = true; }
     if (pic.seat) b.seat = typeof pic.seat === 'string' ? pic.seat : { hollow: [...pic.seat.hollow] };
     if (pic.in && s.owner && isArrow(s.owner) && !s.blocks.some(k => k.in)) b.in = true;      /* a function's input, copied with its function */
@@ -1624,7 +1626,7 @@ function setArrow({ id, ...patch }){
 }
 /* what arrows.js needs to know of a block to say whether it can be seated */
 const seatFacts = b => ({ name: bare(b.name), named: isNamed(b), arrow: isArrow(b), input: !!givenOf(b), reference: !!b.ref, uses: [...kinOf(b)].length, defined: !!spaceOf.get(b)?.blocks.some(k => !isOff(k)),
-  standing: !!b.tile, seated: !!seatedOf(b), part: !!rangedOf(b), measure: measures(b), fused: !!b.members });
+  standing: !!b.standing, seated: !!seatedOf(b), part: !!rangedOf(b), measure: measures(b), fused: !!b.members });
 /* whether an arrow reads a block, directly or through other arrows and seats (arrows.js: dependsOn): its output cannot be seated with that block */
 const feeds = (b, a) => dependsOn([a.id], b.id, depsOf);
 function seatBlock({ arrow = null, hollow = null, id = null, name = null, color = null }){
@@ -1718,7 +1720,7 @@ function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
+    standing: !!b.standing, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
     arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
     seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in,
@@ -1747,7 +1749,7 @@ function rebuild(data){
     if (d.arrow){ const { formula, ...use } = d.arrow; b.arrow = { ...use, input: { ...use.input }, output: use.output ? { ...use.output } : null }; b.fn = { formula: formula || null }; }
     if (d.seat) b.seat = typeof d.seat === 'string' ? d.seat : { hollow: [...d.seat.hollow] };
     if (d.in) b.in = true;
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -1922,8 +1924,8 @@ function clicked(el, e){
     return;
   }
   /* a shape standing in a matrix: it is the real shape, shown where it stands. A double click opens it, as it would on the canvas. */
-  const tile = el.closest?.('[data-tile]');
-  if (tile){ if (twice) bus.send('open', { id: tile.dataset.tile }); return; }
+  const stood = el.closest?.('[data-standing]');
+  if (stood){ if (twice) bus.send('open', { id: stood.dataset.standing }); return; }
   /* an entry of this space's own matrix, if its block has been named: type a value or a formula over it. Nothing typed puts the symbol back. */
   const entry = el.closest?.('.definition.editable [data-c]');
   if (entry){

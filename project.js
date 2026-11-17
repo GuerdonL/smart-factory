@@ -35,8 +35,9 @@
                                                  formula (see "Entries", below)
          "definition": "Keys/",                  the directory holding its definition space, if it has one
          "order": 3,                             its place among the shapes of its space, back to front
-         "tile": true,                           it stands in its owner's matrix: it was dropped onto that matrix, and its place in
-                                                 the definition space is its place among the entries
+         "standing": true,                       a standing shape: it stands in its owner's matrix (it was dropped onto that matrix), and
+                                                 its place in the definition space is its place among the entries. Written
+                                                 "tile": true before phase 5; either is read
          "attributes": [ { "name": "heads", "value": "2^(3) + 1" } ],
                                                  attributes given to the variable by hand: a name, and a value as it was
                                                  typed (a number, or a formula; ^( ) is a power). It may hold
@@ -135,7 +136,9 @@
    its "arrow", a shape's "seat", and "in" on an arrow's input block; a format 2 project has no arrows. Reading, an
    arrow with a field missing or wrong is given a safe one (side e, start, span and gap 1, no promise, no formula; an
    input with no id is an input that is gone), and a seat that names an arrow or a block the project has not got is
-   dropped, so that nothing is left naming what is not there. It also adds to what an entry can hold:
+   dropped, so that nothing is left naming what is not there. A standing shape's "standing": true was "tile": true in format 2 and in format 3 projects saved before the
+   word tile was given to a region that repeats; "tile": true is read as "standing": true, and never written.
+   It also adds to what an entry can hold:
    booleans, symbolic values and formulas, and capsules in an attribute's value. A format 2 project's entries
    (numbers, "inf" and "-inf", { n, d, k }) and attributes are read unchanged. What else changed is what a file means: shapes of one width set one
    directly on the next were a stack in format 2, its rows theirs (rows appended), and are a sum in format 3. Nothing
@@ -160,7 +163,7 @@
               was: [{ order, frames: [{ id, name }] }, the same for the second source] | null }] }
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": a literal value (Infinity for an infinity) or { expr } },
-              inside: space | null,
+              inside: space | null, standing: true for a standing shape,
               variable: a number shared by shapes that are one variable, or null,
               from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | null,
               arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
@@ -217,7 +220,7 @@ export function write(project){
       if (shape.inside) space(shape.inside, dir + name + '/');
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.tile ? { tile: true } : {}), ...(shape.transposed ? { transposed: true } : {}),
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(shape.transposed ? { transposed: true } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: shape.from.range ? { id: shape.from.id, range: rangeOf(shape.from.range) } : { id: shape.from.id, side: shape.from.side } } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
@@ -264,7 +267,7 @@ export function read(files){
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
       return { id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
-        entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile, transposed: !!c.transposed,
+        entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
         reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? (c.from.range && typeof c.from.range === 'object' ? { id: c.from.id, range: rangeOf(c.from.range) } : { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' }) : null,
         arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
@@ -319,7 +322,7 @@ function fuseStacks(s, owner = null, seen = new Set()){
   const standing = (() => { if (!owner) return false;
     const act = live.filter(i => !chain(i).some(g => (g.name || '').trim() === '.config')).map(i => s.shapes[i]), x0 = -1 - owner.cols, y0 = Math.round(-owner.rows / 2), placed = [];
     for (const t of act){ const x = t.x - x0, y = t.y - y0;
-      if (!t.tile || x % 1 || y % 1 || x < 0 || y < 0 || x + t.cols > owner.cols || y + t.rows > owner.rows) return false;
+      if (!t.standing || x % 1 || y % 1 || x < 0 || y < 0 || x + t.cols > owner.cols || y + t.rows > owner.rows) return false;
       if (placed.some(o => x < o.x + o.w && o.x < x + t.cols && y < o.y + o.h && o.y < y + t.rows)) return false;
       placed.push({ x, y, w: t.cols, h: t.rows }); }
     return act.length > 0; })();
@@ -332,7 +335,7 @@ function fuseStacks(s, owner = null, seen = new Set()){
     let n = 1; while (used.has('Shape ' + n)) n++;      /* a name no shape of the space has, as a newly joined shape is given */
     const at = Math.min(...run), holder = chain(run[0]).find(g => run.every(i => chain(i).includes(g)));      /* the innermost frame holding them all */
     made.set(at, { id: null, type: 'tensor', name: 'Shape ' + n, color: null, x: first.x, y: first.y, cols: first.cols, rows, colsName: first.colsName || null, rowsName: null, entries: {}, inside: null, variable: null,      /* the stack's columns had its first shape's name */
-      tile: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false,
+      standing: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false,
       joined: run.map(i => ({ fx: 0, fy: (s.shapes[i].y - first.y) / rows, fw: 1, fh: s.shapes[i].rows / rows, shape: s.shapes[i] })) });
     for (const i of run){ gone.add(i); for (const g of chain(i)) g.members = g.members.filter(m => m !== i); }
     if (holder) holder.members.push(at);

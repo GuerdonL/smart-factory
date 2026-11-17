@@ -9,7 +9,7 @@ import { pieces } from '../algebra.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
-  entries: {}, inside: null, variable: null, tile: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
+  entries: {}, inside: null, variable: null, standing: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
 const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
@@ -21,7 +21,7 @@ const config = (name, more = {}) => ({ format: 'smart-factory/shape', version: F
 test('a project with everything in it comes back as it went', () => {
   const p = project(space([
     shape('Keys', { id: 'b0x7m2c', color: 'variable-3', x: -12, y: 4, cols: 4, rows: 6, colsName: 'key', rowsName: 'context', variable: 2,
-      inside: space([shape('Embedding', { id: 'b111111', tile: true }), shape('Key Weights', { x: 5, entries: { '1,1': 3 } })]) }),
+      inside: space([shape('Embedding', { id: 'b111111', standing: true }), shape('Key Weights', { x: 5, entries: { '1,1': 3 } })]) }),
     shape('Shape 1', { entries: { '1,1': 0, '2,1': -Infinity, '1,2': Infinity, '2,3': -7 } }),
     shape('Keys', { id: 'b222222', color: 'variable-3', x: 20, cols: 6, rows: 4, variable: 2, reference: true, transposed: true }),
     shape('Width', { cols: 1, rows: 1, from: { id: 'b0x7m2c', side: 'x' } }),
@@ -256,6 +256,21 @@ test('format 2: shapes standing in their owner\'s matrix were its entries, not a
   /* the same two with a third shape beside them that stands nowhere: then nothing stood, and they were a stack */
   const loose = read([head(2), file('Colours.json', at('Colours', 0, 0, 3, 2, { definition: 'Colours/' })), ...rows, file('Colours/Shape 1.json', at('Shape 1', 8, 8, 2, 2, { order: 2 }))]);
   assert.equal(loose.converted, 1);
+});
+
+test('a standing shape is written "standing": true, and a file that says "tile": true is read as one', () => {
+  /* the old word, in a format 2 file and in a format 3 file saved before the rename: both are standing shapes */
+  for (const version of [2, 3]){
+    const old = read([head(version), file('Colours.json', at('Colours', 0, 0, 3, 1, { definition: 'Colours/' })), file('Colours/red.json', at('red', -4, 0, 3, 1, { tile: true, order: 0 }))]);
+    const red = old.top.shapes[0].inside.shapes[0];
+    assert.equal(red.standing, true); assert.equal('tile' in red, false);
+    const text = write(old).find(f => f.path === 'Colours/red.json').text;
+    assert.equal(JSON.parse(text).standing, true); assert.equal('tile' in JSON.parse(text), false); }
+  /* the new word is read; a shape that says neither stands nowhere, and its file has neither word */
+  const now = read([head(3), file('Colours.json', at('Colours', 0, 0, 3, 1, { definition: 'Colours/' })), file('Colours/red.json', at('red', -4, 0, 3, 1, { standing: true, order: 0 })), file('Loose.json', at('Loose', 9, 9, 1, 1, { order: 1 }))]);
+  assert.equal(now.top.shapes[0].inside.shapes[0].standing, true);
+  const loose = now.top.shapes.find(d => d.name === 'Loose'); assert.equal(loose.standing, false);
+  const written = JSON.parse(write(now).find(f => f.path === 'Loose.json').text); assert.equal('standing' in written, false); assert.equal('tile' in written, false);
 });
 
 /* the projects that come with the repository */

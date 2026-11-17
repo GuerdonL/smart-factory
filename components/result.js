@@ -9,7 +9,7 @@
             Either way they sit on the dots.
             type is what the piece comes to: { cols, rows } is written out in matrix notation; { error } is written
             as the error, in the warning colour. With no type nothing is shown.
-            look is how the matrix is written: any of createMatrix's letter, color, values and product. Its tiles
+            look is how the matrix is written: any of createMatrix's letter, color, values and product. Its standing
             are the shapes that stand in for some of the entries (see matrix.js).
             hollows, where given and not empty, is where the matrix goes in place of all that: [{ x, y, w, h }],
             empty rectangles among the piece's own shapes (world coordinates). The matrix is written in the middle

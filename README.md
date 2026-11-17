@@ -185,8 +185,11 @@ a part of one of them, its source, in whole columns and rows:
   name, and does not shorten the written matrix. Type a name on the side to give it a real one; a part cannot
   change size, so every side of that name then stays that length, and the readout says why when you try.
 
-Shapes standing in a definition's matrix that together cover it still define the variable with no command; that is
-the other way to append.
+Standing shapes (snap to matrix) are the other way to append, with no command: a variable dragged from the list
+onto a shape's matrix stands there in place of the entries it covers. Standing shapes define the variable only once
+together they cover every entry of its matrix; until then it keeps its own typed entries, and the two are never
+mixed. (The code and the file format called a standing shape a `tile` before phase 5; a tile is now a region that
+repeats.)
 
 `projects/boolean-tool` shows a fused shape, a cut and an intersection.
 
