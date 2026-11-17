@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable } from '../arrows.js';
+import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -422,4 +422,48 @@ test('what an arrow reads of a written result', () => {
 test('a seated variable has no definition of its own to go into', () => {
   assert.deepEqual(definable({ name: 'H', seated: false }), { ok: true });
   assert.match(definable({ name: 'H', seated: true }).refused, /H is seated/);
+});
+
+test('an input that is there and has no value warns with its reason, and has no output', () => {
+  const rect = (x, y, w, h) => ({ x, y, w, h });
+  const st = standing(arrow(), { rect: rect(0, 0, 4, 2), error: 'its tile has no matrix: its pattern has a gap' });
+  assert.equal(st.warn, 'its tile has no matrix: its pattern has a gap'); assert.equal(st.place, null); assert.equal(st.type, null); assert.equal(st.part, null);
+  const promised = standing(arrow('e', 1, 1, 2, { output: { cols: 4, rows: 3 } }), { rect: rect(0, 0, 4, 2), error: 'no matrix' });
+  assert.deepEqual(promised.type, { cols: 4, rows: 3, colsName: null, rowsName: null }); assert.equal(promised.place, null);
+});
+
+test('a type set beside itself along the edge: the repeated side grows and keeps no name', () => {
+  const t = { cols: 1, rows: 2, colsName: 'embed', rowsName: 'context' };
+  assert.deepEqual(spread(t, 4, 's'), { cols: 4, rows: 2, colsName: null, rowsName: 'context' });
+  assert.deepEqual(spread(t, 4, 'n'), { cols: 4, rows: 2, colsName: null, rowsName: 'context' });
+  assert.deepEqual(spread(t, 3, 'e'), { cols: 1, rows: 6, colsName: 'embed', rowsName: null });
+  assert.equal(spread(t, 1, 'e'), t);                                   /* once is itself, names and all */
+  assert.deepEqual(spread({ error: 'undefined' }, 3, 'e'), { error: 'undefined' }); assert.equal(spread(null, 3, 'e'), null);
+});
+
+test('a mapped arrow comes to every cell\'s output as one: checked whole, placed from its first cell, free under every cell', () => {
+  const rect = (x, y, w, h) => ({ x, y, w, h });
+  const input = { rect: rect(0, 0, 4, 2), cols: 4, rows: 2, colsName: null, rowsName: null }, a = arrow('s', 1, 1, 2);
+  const once = standing(a, input), st = standing(a, input, [], null, null, { map: { count: 4, warn: null } });
+  assert.deepEqual(once.type, { cols: 1, rows: 2, colsName: null, rowsName: null });
+  assert.deepEqual(st.type, { cols: 4, rows: 2, colsName: null, rowsName: null }); assert.equal(st.warn, null);
+  assert.deepEqual(st.place, { x: 0, y: 4, w: 4, h: 2 });              /* gap units under the input, from the first column covered */
+  assert.deepEqual(st.part, once.part);                                 /* the part is one cell's */
+  /* the promise is of the whole output */
+  assert.equal(standing({ ...a, output: { cols: 4, rows: 2 } }, input, [], null, null, { map: { count: 4, warn: null } }).warn, null);
+  assert.match(standing({ ...a, output: { cols: 1, rows: 2 } }, input, [], null, null, { map: { count: 4, warn: null } }).warn, /promises 1×2 and comes to 4×2/);
+  /* a block against the edge under the third cell is in the way, though the first cell's base is free */
+  const under = [rect(2, 2, 1, 1)];
+  assert.equal(standing(a, input, under).warn, null);
+  assert.equal(standing(a, input, under, null, null, { map: { count: 4, warn: null } }).warn, 'the edge under it is not free');
+  /* why it cannot be repeated is the warning, and it stands as far as it can */
+  const past = standing(a, input, [], null, null, { map: { count: 5, warn: 'its last cell runs past its input, which has 4 columns' } });
+  assert.match(past.warn, /runs past its input/); assert.deepEqual(past.type.cols, 5);
+});
+
+test('an entry formula asks for a name with the entry\'s place, for what depends on it', () => {
+  const asked = [], got = worked('index.x + x', { cols: 2, rows: 2, x: new Map([['1,1', 10], ['2,1', 20], ['1,2', 30], ['2,2', 40]]),
+    lookup: (token, at) => { asked.push([token, at.c, at.r]); return token === 'index.x' ? 100 * at.c + at.r : undefined; } });
+  assert.deepEqual([...got], [['1,1', 111], ['2,1', 221], ['1,2', 132], ['2,2', 242]]);
+  assert.deepEqual(asked, [['index.x', 1, 1], ['index.x', 2, 1], ['index.x', 1, 2], ['index.x', 2, 2]]);
 });

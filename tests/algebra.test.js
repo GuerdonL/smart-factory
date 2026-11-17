@@ -13,6 +13,22 @@ test('shapes touching side by side along an edge are a product', () => {
   assert.deepEqual({ ...js[0] }, { left: 0, right: 1, x: 3, y: 1, ok: true, scalar: false, note: '' });
 });
 
+test('shapes in different tiles, or one in a tile and one outside it, do not touch; shapes of one tile do', () => {
+  const zoned = (r, zone) => ({ ...r, zone });
+  const a = rect(0, 0, 3, 2), b = rect(3, 0, 4, 3), under = rect(0, 2, 3, 2), corner = rect(3, -2, 3, 2);
+  assert.equal(touches([zoned(a, 't1'), zoned(b, 't1')]).length, 1);                      /* both in one tile */
+  assert.equal(touches([a, b]).length, 1); assert.equal(touches([zoned(a, null), b]).length, 1);      /* neither in any: null and left out are the same */
+  assert.equal(touches([zoned(a, 't1'), b]).length, 0);                                   /* across the boundary, either way */
+  assert.equal(touches([a, zoned(b, 't1')]).length, 0);
+  assert.equal(touches([zoned(a, 't1'), zoned(b, 't2')]).length, 0);                      /* two tiles */
+  /* every kind of touch is ignored across a boundary: a sum and a corner too */
+  assert.equal(touches([a, under, corner]).length, 2); assert.equal(touches([zoned(a, 't1'), under, corner]).length, 0);
+  /* so the shapes are separate pieces, each with its own type, and joins has nothing to keep together */
+  const ps = pieces([zoned(a, 't1'), b]); assert.equal(ps.length, 2); assert.deepEqual(ps.map(p => p.rule), [null, null]);
+  assert.equal(joins([zoned(a, 't1'), b]).length, 0);
+  assert.equal(pieces([zoned(a, 't1'), zoned(b, 't1'), rect(7, 0, 1, 4)]).length, 2);      /* the third is outside, against the tile's last block */
+});
+
 test('the order shapes are given in does not matter, only where they are', () => {
   const [j] = joins([rect(3, 0, 4, 3), rect(0, 0, 3, 2)]);
   assert.equal(j.left, 1); assert.equal(j.right, 0); assert.equal(j.ok, true);

@@ -55,6 +55,9 @@
                                                  row, counted from 0. Where toEnd.cols is true it runs to the source's
                                                  last column whatever size the source now is, and cols is not looked at;
                                                  toEnd.rows likewise. Its entries are the source's, and are not written here.
+         "from": { "id": "b3k…", "index": "x" },   or, with index: it is the index (tiles.js) of the block with that id, which is
+                                                 in a tile, as a matrix that block's size: index.x, or index.y for "y". It
+                                                 stands in that block's definition space, and its entries are not written here.
          "transposed": true,                     it is the transpose of its variable: its columns and rows here are the
                                                  transpose's, and its entries are written as the variable's own
          "joined": [ { "at": { "x": 0, "y": 0, "w": 0.5, "h": 1 }, "shape": { a shape's config } }, … ],
@@ -66,7 +69,8 @@
                                                  an arrow, a function drawn as a triangle (arrows.js has what each field
                                                  means). input.as is "block", or "result" for the drawn result of the
                                                  piece holding that block (with "hollow": 1 or 2 for a times or over
-                                                 pair's hollow) or, where the id is an arrow's, that arrow's output.
+                                                 pair's hollow) or, where the id is an arrow's, that arrow's output, or
+                                                 "tile" where the id is a tile's frame and it reads the tile's matrix.
                                                  output is null where nothing is promised, formula null where there is
                                                  no entry formula. An arrow's definition space is written as any
                                                  shape's is. Its position and size are where it is drawn, worked out
@@ -102,7 +106,17 @@
    A frame's config:
        { "format": "smart-factory/frame", "version": 1, "id": "g4k09zq", "name": "Pair", "named": true,
          "shapes": [ { a shape's config }, … ],            the shapes directly in the frame
-         "groups": [ { "name", "named", "shapes", "groups" }, … ] }      the frames inside it, written the same way
+         "groups": [ { "name", "named", "shapes", "groups" }, … ],      the frames inside it, written the same way
+         "repeat": { "x": 2, "y": -3, "cols": 3, "rows": 2, "across": 3, "down": { "expr": "@[b3k2m9x:y]" } } }
+                                                           only on a tile: a frame whose contents repeat (tiles.js).
+                                                           x, y: where the pattern's top-left corner is, in units;
+                                                           cols, rows: the pattern's size; across, down: how many
+                                                           times it is repeated each way, a whole number of at least
+                                                           1 or a formula that comes to one from sizes alone. Its
+                                                           shapes are those of the first cell: the copies, and what
+                                                           the counts come to, are never written. A tile may hold no
+                                                           shapes. A frame inside another may be a tile too.
+                                                           Absent: an ordinary frame.
 
    A frame named .config is written as the file .config in its space's directory, in the same form as any frame.
    The page reads it for root variables: see configure in smart-factory.js. There may be one at every level.
@@ -138,7 +152,10 @@
    its "arrow", a shape's "seat", and "in" on an arrow's input block; a format 2 project has no arrows. Reading, an
    arrow with a field missing or wrong is given a safe one (side e, start, span and gap 1, no promise, no formula; an
    input with no id is an input that is gone), and a seat that names an arrow or a block the project has not got is
-   dropped, so that nothing is left naming what is not there. It adds sources: a shape's "source". Reading, a source this program has not got (anything but those three
+   dropped, so that nothing is left naming what is not there. It adds tiles: a frame's "repeat", an arrow's input.as "tile", and from.index. A format 2 project has none of
+   them. Reading, a repeat is given whole numbers, a pattern of at least 1 by 1 and counts of at least 1 (a count
+   that is neither a number nor a formula is 1).
+   It adds sources: a shape's "source". Reading, a source this program has not got (anything but those three
    words; a format 2 project has none) is dropped, and the shape is an ordinary one with whatever entries its file has.
    A standing shape's "standing": true was "tile": true in format 2 and in format 3 projects saved before the
    word tile was given to a region that repeats; "tile": true is read as "standing": true, and never written.
@@ -165,17 +182,19 @@
    top; if the old top level had shapes too, they are kept inside one block called "Top level", set beside it.
    space:   { shapes: [shape], groups: [group], operations: [{ id, op: 'difference' | 'intersect', sources: [shape, shape], results: [shape ids],
               was: [{ order, frames: [{ id, name }] }, the same for the second source] | null }] }
-   group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
+   group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it],
+              repeat: { x, y, cols, rows, across, down } only where the frame is a tile }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": a literal value (Infinity for an infinity) or { expr } },
               inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | null,
               variable: a number shared by shapes that are one variable, or null,
-              from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | null,
+              from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, index: 'x' | 'y' } | null,
               arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
               seat: an arrow's id | { hollow: [id, id] } | null, in: true for an arrow's input block,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
 
 import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.js';
 import { kept as sourceOf } from './sources.js';
+import { kept as repeatOf } from './tiles.js';
 
 export const FORMAT = 3;
 const isCommented = name => /^\s*\/\//.test(name);
@@ -194,11 +213,15 @@ const rangeOf = r => { const n = (v, least) => Math.max(least, Math.round(+v || 
   return { col: n(r.col, 0), row: n(r.row, 0), cols: n(r.cols, 1), rows: n(r.rows, 1), toEnd: { cols: !!r.toEnd?.cols, rows: !!r.toEnd?.rows } }; };
 
 /* an arrow as it is kept: every field there and of its kind (arrows.js) */
-const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => Math.max(1, Math.round(+v || 1)), as = a.input?.as === 'result' ? 'result' : 'block';
+const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => Math.max(1, Math.round(+v || 1)), as = a.input?.as === 'result' ? 'result' : a.input?.as === 'tile' ? 'tile' : 'block';
   return { input: { id: typeof a.input?.id === 'string' ? a.input.id : '', as, ...(as === 'result' && (a.input.hollow === 1 || a.input.hollow === 2) ? { hollow: a.input.hollow } : {}) },
     side: ['n', 'e', 's', 'w'].includes(a.side) ? a.side : 'e', start: n(a.start), span: n(a.span), gap: n(a.gap), gapName: typeof a.gapName === 'string' && a.gapName.trim() ? a.gapName.trim() : null,
     output: a.output && typeof a.output === 'object' && +a.output.cols >= 1 && +a.output.rows >= 1 ? { cols: n(a.output.cols), rows: n(a.output.rows) } : null,
     formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null }; };
+/* a shape's from, as it is written and as it is read: a range, the index, or a measure's side */
+const fromOut = f => f.range ? { id: f.id, range: rangeOf(f.range) } : f.index ? { id: f.id, index: f.index === 'y' ? 'y' : 'x' } : { id: f.id, side: f.side };
+const fromBack = f => !f || typeof f.id !== 'string' ? null : f.range && typeof f.range === 'object' ? { id: f.id, range: rangeOf(f.range) } : f.index === 'x' || f.index === 'y' ? { id: f.id, index: f.index }
+  : { id: f.id, side: f.side === 'y' || f.side === 'm' ? f.side : 'x' };
 const seatOf = s => typeof s === 'string' && s ? s : s && typeof s === 'object' && Array.isArray(s.hollow) && s.hollow.length === 2 && s.hollow.every(id => typeof id === 'string' && id) ? { hollow: [...s.hollow] } : null;
 
 /* a name made safe to be a file's name, and different from every other in its directory */
@@ -231,11 +254,11 @@ export function write(project){
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside && holdsAny(shape.inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
-        ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: shape.from.range ? { id: shape.from.id, range: rangeOf(shape.from.range) } : { id: shape.from.id, side: shape.from.side } } : {}),
+        ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: fromOut(shape.from) } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
-    const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
+    const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner), ...(repeatOf(g.repeat) ? { repeat: repeatOf(g.repeat) } : {}) });      /* a tile */
     let hasConfig = false;
     s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken);
       if (own) hasConfig = true;
@@ -262,7 +285,7 @@ export function read(files){
 
   const space = dir => {
     const found = [], groups = [], cuts = [];            /* found: [config, the group it is directly in, or null]; cuts: the operations as written */
-    const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take) };
+    const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take), ...(repeatOf(c.repeat) ? { repeat: repeatOf(c.repeat) } : {}) };
       for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
       if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !(path.endsWith('.json') || path.slice(dir.length) === '.config') || path === 'project.json') continue;
@@ -278,7 +301,7 @@ export function read(files){
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
         entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
-        reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? (c.from.range && typeof c.from.range === 'object' ? { id: c.from.id, range: rangeOf(c.from.range) } : { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' }) : null,
+        reference: !!c.reference, from: fromBack(c.from),
         arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });

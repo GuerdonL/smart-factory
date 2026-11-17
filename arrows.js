@@ -3,10 +3,11 @@
    An arrow is a function drawn as a triangle. Its base lies against rows or columns of an input, it points away, and
    its output is written on the far side. An arrow as it is kept:
 
-       { input:  { id, as: 'block' | 'result', hollow: 1 | 2 (only with 'result') },
+       { input:  { id, as: 'block' | 'result' | 'tile', hollow: 1 | 2 (only with 'result') },
                  what it reads: a block; or the drawn result of the piece that holds the block with that id (for a
                  times or over pair, hollow says which of its two hollows: algebra.js numbers them); or, where the
-                 id is another arrow's, that arrow's output
+                 id is another arrow's, that arrow's output; or, with 'tile', the matrix of the tile whose frame has
+                 that id (tiles.js), all of it
          side:   'n' | 'e' | 's' | 'w', the edge of the input the base lies on. On e and w the base runs along rows;
                  on n and s, along columns
          start, span:   the first row or column covered, from 1, and how many: whole numbers
@@ -55,7 +56,7 @@
    check(promise, came)         -> { ok, note }: whether what the function comes to is what was promised. promise is
                                    { cols, rows, colsName, rowsName } or null (nothing promised: nothing checked).
                                    Where both name a side the names must be the same.
-   standing(arrow, input, others, names, defined, { loops, inner }) -> { warn, part, came, type, place, blocked }
+   standing(arrow, input, others, names, defined, { loops, inner, map }) -> { warn, part, came, type, place, blocked }
                                    everything about one arrow as it stands. input is null where it is gone, else
                                    { rect, cols, rows, colsName, rowsName }; others are the rects of the blocks that
                                    could lie against its edge; names are the side names that go with the promise
@@ -70,6 +71,15 @@
                                    fit it (fits) is a warning too. others must not include the block seated on the
                                    output: where there is one (names) and the output's place lies over another
                                    block, blocked is true and the arrow warns: a seat is never put on another block.
+                                   An input that is there and has no value ({ rect, error }: a tile with no
+                                   matrix) is a warning that says so, and there is no output. map: for an arrow
+                                   inside a tile whose input is outside it (tiles.js: mapped), { count, warn }: it
+                                   is repeated count times along its input, and what it comes to is every cell's
+                                   output set beside the last in that direction (spread): one output, checked
+                                   against the promise as a whole. Its edge has to be free under every cell.
+   spread(type, count, side)    -> a type set beside itself count times along the edge an arrow on that side runs
+                                   along: count times the rows for e and w, the columns for n and s. The side that
+                                   was repeated keeps no name.
    dependsOn(from, target, next) -> whether target is reached from any of the ids in from, going on through next(id),
                                    the ids that one depends on (an arrow: what it reads, and the arrows in its
                                    function's space; a seated block: its arrow, or the two blocks of its pair). An
@@ -123,8 +133,9 @@
                                    and j this entry's column and row from 1, a capsule for a whole matrix is that
                                    matrix's entry at this place (matrix(id) -> { cols, rows, values } or undefined;
                                    one that is not the size of the output is the error "not the size of the
-                                   output"), and anything else is lookup's to say. An entry that comes to nothing
-                                   yet is left out.
+                                   output"), and anything else is lookup's to say: it is asked lookup(token, { c, r })
+                                   with the entry's column and row, for a name whose value depends on the place
+                                   (index.x: tiles.js). An entry that comes to nothing yet is left out.
    names(lookup)                -> a lookup that also knows x, i and j, as unknown: for reading a formula as it is typed
 
    Named arrows. A named arrow is a variable; another use of it is the same function on a new input, which must fit
@@ -241,15 +252,18 @@ export function functionFor(name, levels){
   return null;
 }
 const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-export function standing(arrow, input, others = [], names = null, defined = null, { loops = false, inner = null } = {}){
+export const spread = (type, count, side) => !type || type.error || count === 1 ? type : along(side) === 'rows' ? { ...type, rows: type.rows * count, rowsName: null } : { ...type, cols: type.cols * count, colsName: null };
+export function standing(arrow, input, others = [], names = null, defined = null, { loops = false, inner = null, map = null } = {}){
   const promise = arrow.output ? { cols: arrow.output.cols, rows: arrow.output.rows, colsName: names?.colsName || null, rowsName: names?.rowsName || null } : null;
   if (loops) return { warn: 'it depends on itself', part: null, came: null, type: null, place: null, blocked: false };
   if (!input) return { warn: 'its input is gone', part: null, came: null, type: promise, place: null, blocked: false };
+  if (input.error) return { warn: input.error, part: null, came: null, type: promise, place: null, blocked: false };
   const part = coveredType(arrow, input);
   if (!part) return { warn: 'its span runs past its input', part: null, came: null, type: promise, place: null, blocked: false };
-  const to = came(arrow, part, defined), ok = check(promise, to), type = promise || (to.error ? null : to);
+  const times = map ? map.count : 1, n = along(arrow.side) === 'rows' ? input.rows : input.cols, under = { ...arrow, span: Math.min(arrow.span * times, n - arrow.start + 1) };      /* every cell's base */
+  const to = spread(came(arrow, part, defined), times, arrow.side), ok = check(promise, to), type = promise || (to.error ? null : to);
   const at = type ? place(arrow, input.rect, type) : null, blocked = !!names && !!at && others.some(o => over(o, at)), fit = inner ? fits(inner, part) : { ok: true };
-  const warn = !free(arrow, input.rect, others) ? 'the edge under it is not free' : to.error ? `what defines it has no size: ${to.error}`
+  const warn = !free(under, input.rect, others) ? 'the edge under it is not free' : map?.warn ? map.warn : to.error ? `what defines it has no size: ${to.error}`
     : !ok.ok ? `it promises ${promise.cols}×${promise.rows} and comes to ${to.cols}×${to.rows}` + (ok.note.includes('×') ? '' : `: ${ok.note}`)
     : fit.refused ? 'its input does not fit the function: ' + fit.refused : blocked ? 'its output would lie on another block: the block seated on it is left where it was' : null;
   return { warn, part, came: to, type, place: at, blocked };
@@ -290,8 +304,8 @@ export function worked(formula, { cols, rows, x = new Map(), lookup = () => unde
   const whole = id => { if (!sized.has(id)){ const m = matrix(id); sized.set(id, m === undefined ? undefined : m.cols === cols && m.rows === rows ? m : { err: 'not the size of the output' }); } return sized.get(id); };
   for (let j = 1; j <= rows; j++) for (let i = 1; i <= cols; i++){ const key = i + ',' + j;
     const v = evaluate(formula, token => {
-      if (typeof token !== 'string'){ if (token.measure) return lookup(token); const m = whole(token.id); return m === undefined ? undefined : m.err ? m : m.values.get(key) ?? null; }
-      const k = token.toLowerCase(); return k === 'x' ? x.get(key) ?? null : k === 'i' ? i : k === 'j' ? j : lookup(token); }, { matrices: true }).value;
+      if (typeof token !== 'string'){ if (token.measure) return lookup(token, { c: i, r: j }); const m = whole(token.id); return m === undefined ? undefined : m.err ? m : m.values.get(key) ?? null; }
+      const k = token.toLowerCase(); return k === 'x' ? x.get(key) ?? null : k === 'i' ? i : k === 'j' ? j : lookup(token, { c: i, r: j }); }, { matrices: true }).value;
     if (v !== null && v !== undefined) out.set(key, v); }
   return out;
 }

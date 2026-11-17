@@ -295,6 +295,46 @@ test('a definition space with nothing in it has no directory, so its shape does 
   assert.deepEqual(write(read(files)).map(f => f.text), files.map(f => f.text));
 });
 
+test('a tile is a frame with its repeat: kept with its counts, formula and all, shapes or none, at any depth', () => {
+  const repeat = { x: 2, y: -3, cols: 4, rows: 1, across: 1, down: { expr: '@[bkeys01:y]' } };
+  const p = project(space([shape('Bias', { id: 'bbias01', x: 2, y: -3, cols: 4, rows: 1 }), shape('Keys', { id: 'bkeys01' }), shape('In', { id: 'bin0001' })],
+    [{ id: 'gtile01', name: 'Rows', members: [0], groups: [], repeat }, { id: 'gempty1', name: null, members: [], groups: [], repeat: { x: 9, y: 9, cols: 2, rows: 2, across: 3, down: 2 } },
+     { id: 'gouter1', name: 'Outer', members: [], groups: [{ id: 'ginner1', name: null, members: [2], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 3, across: 2, down: 1 } }] }]));
+  const files = write(p), rows = json(files, 'Rows.frame.json');
+  assert.deepEqual(rows.repeat, repeat); assert.equal(rows.shapes.length, 1);
+  const empty = json(files, 'frame 2.frame.json'); assert.deepEqual(empty.shapes, []); assert.deepEqual(empty.repeat, { x: 9, y: 9, cols: 2, rows: 2, across: 3, down: 2 });
+  const outer = json(files, 'Outer.frame.json'); assert.equal('repeat' in outer, false); assert.deepEqual(outer.groups[0].repeat, { x: 0, y: 0, cols: 2, rows: 3, across: 2, down: 1 });
+  const back = read(files);
+  assert.deepEqual(back.top.groups.map(g => [g.id, g.name, g.members.length, g.repeat ?? null]).sort(), [['gempty1', null, 0, { x: 9, y: 9, cols: 2, rows: 2, across: 3, down: 2 }], ['gouter1', 'Outer', 0, null], ['gtile01', 'Rows', 1, repeat]]);
+  assert.deepEqual(back.top.groups.find(g => g.id === 'gouter1').groups[0].repeat, { x: 0, y: 0, cols: 2, rows: 3, across: 2, down: 1 });
+  assert.deepEqual(write(back).map(f => f.text), files.map(f => f.text));      /* saved and reopened: the same files */
+});
+
+test('an ordinary frame has no repeat, and a repeat with things missing or wrong is read with safe values', () => {
+  const frame = more => file('F.frame.json', { format: 'smart-factory/frame', version: 3, id: 'gframe1', name: 'F', named: true, shapes: [at('A', 0, 0, 1, 1)], ...more });
+  const g = more => read([head(3), frame(more)]).top.groups[0];
+  assert.equal('repeat' in g({}), false); assert.equal('repeat' in g({ repeat: null }), false); assert.equal('repeat' in g({ repeat: 'twice' }), false);
+  assert.deepEqual(g({ repeat: {} }).repeat, { x: 0, y: 0, cols: 1, rows: 1, across: 1, down: 1 });
+  assert.deepEqual(g({ repeat: { x: 1.4, y: -2, cols: 0, rows: 2, across: -3, down: { expr: '' } } }).repeat, { x: 1, y: -2, cols: 1, rows: 2, across: 1, down: 1 });
+  assert.deepEqual(g({ repeat: { cols: 3, rows: 2, across: { expr: '@[b1:x]', value: 4 }, down: 2 } }).repeat.across, { expr: '@[b1:x]' });      /* a formula's text, and nothing it came to */
+  assert.equal(read([head(2), file('F.frame.json', { format: 'smart-factory/group', version: 2, name: 'F', named: true, shapes: [at('A', 0, 0, 1, 1)] })]).top.groups[0].repeat, undefined);      /* format 2 has none */
+});
+
+test('an arrow that reads a tile, and the index as a matrix, come back as they went', () => {
+  const p = project(space([shape('out', { id: 'barrow1', type: 'arrow', arrow: { input: { id: 'gtile01', as: 'tile' }, side: 'e', start: 1, span: 3, gap: 2, gapName: null, output: null, formula: null } }),
+    shape('index.x', { id: 'bindex1', reference: true, from: { id: 'bbias01', index: 'x' } }), shape('index.y', { id: 'bindex2', reference: true, from: { id: 'bbias01', index: 'y' } }), shape('W', { from: { id: 'bbias01', side: 'y' } })]));
+  const files = write(p);
+  assert.deepEqual(json(files, 'out.json').arrow.input, { id: 'gtile01', as: 'tile' });
+  assert.deepEqual(json(files, 'index.x.json').from, { id: 'bbias01', index: 'x' }); assert.deepEqual(json(files, 'index.y.json').from, { id: 'bbias01', index: 'y' });
+  const back = read(files).top.shapes;
+  assert.deepEqual(back.map(d => d.from), [null, { id: 'bbias01', index: 'x' }, { id: 'bbias01', index: 'y' }, { id: 'bbias01', side: 'y' }]);
+  assert.deepEqual(back[0].arrow.input, { id: 'gtile01', as: 'tile' });
+  /* an index that is neither is no index: the from is read as a measure, as any from with no range is */
+  assert.deepEqual(read([head(3), file('S.json', at('S', 0, 0, 1, 1, { from: { id: 'b1', index: 'z' } }))]).top.shapes[0].from, { id: 'b1', side: 'x' });
+  /* a tile's input carries no hollow */
+  assert.deepEqual(read([head(3), file('A.json', at('A', 0, 0, 1, 1, { type: 'arrow', arrow: { input: { id: 'g1', as: 'tile', hollow: 2 } } }))]).top.shapes[0].arrow.input, { id: 'g1', as: 'tile' });
+});
+
 /* the projects that come with the repository */
 const here = fileURLToPath(new URL('../projects/', import.meta.url));
 const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
