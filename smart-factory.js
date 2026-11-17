@@ -19,6 +19,8 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
+import { createTile } from './components/tile.js';
+import * as tiles from './tiles.js';
 import { touches, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
@@ -51,17 +53,18 @@ fetch('shapes/index.json').then(r => r.json())
    with the block as a variable in matrix notation on the right and what the shapes in the space come to on the left.
    What is put in the space must come to the block's promised size (w units across, h units down). The Menu has no
    promise, so it writes "=" and what each piece of touching shapes comes to beside that piece.
+   A frame of a space may be a tile: space.repeats has its repeat, and space.tiles what draws it (see "tiles").
    Only the current space's blocks are on the canvas. A space also keeps its operations (ops): what Difference and
    Intersect have cut in it, each with the two blocks it took off the canvas (see "the boolean tool"). */
-const newSpace = (owner, parent) => ({ owner, parent, blocks: [], ops: [], groupOf: new Map(), groupUp: new Map(), groupNames: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
+const newSpace = (owner, parent) => ({ owner, parent, blocks: [], ops: [], groupOf: new Map(), groupUp: new Map(), groupNames: new Map(), repeats: new Map(), tiles: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
 const top = newSpace(null, null);              /* the Menu */
 const spaceOf = new Map();                     /* block -> its definition space */
 let space = top;
 const trail = () => { const t = []; for (let s = space; s; s = s.parent) t.unshift(s); return t; };
 function go(to){
   select([]); space.camera = view.camera();
-  for (const b of space.blocks) b.el.remove(); space.definition?.el.remove(); for (const f of space.frames.values()) f.el.remove();
-  space = to;
+  for (const b of space.blocks) b.el.remove(); space.definition?.el.remove(); for (const f of space.frames.values()) f.el.remove(); for (const t of space.tiles.values()){ t.el.remove(); t.overEl.remove(); }
+  pickedTile = null; space = to;
   view.world.append(...space.blocks.map(b => b.el));
   write();
   view.origin.hidden = !!space.owner;          /* a definition space has its equals sign at the origin */
@@ -148,8 +151,8 @@ const kinOf = b => kin.get(b) || [b];
 function inReach(){
   const spaces = trail(), main = [], hidden = [], seen = new Set(), names = new Set(), lengths = [], shapes = [];
   spaces.forEach((s, depth) => { const nodes = new Map();
-    const named = g => { for (; g !== undefined; g = s.groupUp.get(g)) if (s.groupNames.has(g)) return g; };      /* the nearest named frame, from g outwards */
-    const node = g => { if (!nodes.has(g)){ const up = named(s.groupUp.get(g)), name = s.groupNames.get(g);
+    const named = g => { for (; g !== undefined; g = s.groupUp.get(g)) if (s.groupNames.has(g) || s.repeats.has(g)) return g; };      /* the nearest named frame, from g outwards; a tile is listed whether or not it has a name */
+    const node = g => { if (!nodes.has(g)){ const up = named(s.groupUp.get(g)), name = s.groupNames.get(g) || 'tile';
         const n = { kind: 'frame', name, id: g, key: depth + ':' + g, color: 'muted', cols: 3, rows: 2, children: [] }; nodes.set(g, n);
         (up === undefined ? (isHidden(name) ? hidden : main) : node(up).children).push(n); }
       return nodes.get(g); };
@@ -164,7 +167,8 @@ function inReach(){
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
           children: (turned(b) ? ['h', 'w'] : ['w', 'h']).map(dim => ({ kind: 'length', of: originOf(b).id, side: (dim === 'w') !== turned(b) ? 'x' : 'y', name: sideName(b, dim), units: unset(b) ? null : rootSide(b) === null ? b.rect[dim] / view.unit : rootSide(b), label: unset(b) ? '√' + symbolOf(b) : rootSide(b) === null ? null : valueText(rootSide(b)) + 'u' }))
-            .concat(massName(b) ? [{ kind: 'length', of: originOf(b).id, side: 'm', name: massName(b), units: scalarOf(b), label: unset(b) ? symbolOf(b) : valueText(scalarOf(b)) }] : []) };      /* and a scalar's mass: the number it holds */      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
+            .concat(massName(b) ? [{ kind: 'length', of: originOf(b).id, side: 'm', name: massName(b), units: scalarOf(b), label: unset(b) ? symbolOf(b) : valueText(scalarOf(b)) }] : [])
+            .concat(tileOf(b, s) !== undefined ? indexItems(b) : []) };      /* in a tile: its index, beside its x and y */      /* and a scalar's mass: the number it holds */      /* its side lengths, out of sight under it until it is clicked: the variable's width, then its height */
         shapes.push([item, up === undefined ? (isHidden(b.name) ? hidden : main) : node(up).children]); }
       if (!isNamed(b)) for (const dim of ['w', 'h']) if (b.sides[dim] && !names.has(b.sides[dim])){      /* a named side of a shape with no name has no shape to hang under */ names.add(b.sides[dim]); lengths.push({ kind: 'length', of: b.id, side: dim === 'w' ? 'x' : 'y', name: b.sides[dim], units: b.rect[dim] / view.unit }); }
     } });
@@ -176,8 +180,12 @@ function inReach(){
   face(main); face(hidden);
   const told = new Set(), tell = list => { for (const i of list){ told.add(i.name); if (i.children) tell(i.children); } }; tell(hidden);
   const under = new Set(shapes.flatMap(([i]) => i.children.map(c => c.name)));      /* lengths already listed under a shape */
+  /* in the definition space of a block that is in a tile, its index is listed as two matrices the block's size, to be dragged in (but for one that is in the space already, which is listed as the shape it is) */
+  const o = space.owner, os = o && !isArrow(o) ? spaceWith(o) : null;
+  if (os && tileOf(o, os) !== undefined) main.unshift(...indexItems(o).filter(i => !space.blocks.some(b => b.from?.index === i.axis)));
   return { main: [...main, ...lengths.filter(l => !under.has(l.name))], hidden: [...systemItems().filter(i => !told.has(i.name)), ...hidden] };      /* the program's own, where the project has none of that name */
 }
+const indexItems = b => ['x', 'y'].map(axis => ({ kind: 'index', name: 'index.' + axis, axis, of: b.id, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit }));
 const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 }, { kind: 'system', name: DARK, group: true, color: 'muted', cols: 3, rows: 2 },
   ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 })),
   ...FUNCTIONS.map(f => ({ kind: 'arrow', name: f.name, color: 'function', cols: 1, rows: 1, builtin: true }))];      /* the program's own functions (a project's arrow of the same name is listed in its place) */
@@ -220,7 +228,7 @@ const standingLook = b => (standingOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t
    sum, times or over: algebra.js) and the pieces they make, each with its one rule. */
 function algebraIn(s){
   const u = view.unit, active = s.owner && standingOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part */
-  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, ...(lost(b) ? { none: true } : {}) }));      /* none: a part its source is too small to have has no value */
+  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, zone: tileOf(b, s) ?? null, ...(lost(b) ? { none: true } : {}) }));      /* zone: the tile it is in: nothing touches across a tile's boundary (algebra.js) */      /* none: a part its source is too small to have has no value */
   return { active, rects, touches: touches(rects), all: pieces(rects) };
 }
 /* a block's entries: its own; or, once shapes standing in its matrix (in its definition space) cover all of it,
@@ -237,7 +245,7 @@ const flipped = values => new Map([...values].map(([k, v]) => { const [c, r] = k
    others, comes to the error "depends on itself": working (expression.js: guard) keeps track of what is being
    worked out, each thing by the id of the block its variable was made as. */
 const working = guard();
-const workedAt = (b, key) => { const v = b.values.get(key); return isFormula(v) ? working(originOf(b).id + ' ' + key, () => evaluate(v.expr, lookupFor(b)).value ?? null) : v; };
+const workedAt = (b, key) => { const v = b.values.get(key); if (!isFormula(v)) return v; const [c, r] = key.split(',').map(Number); return working(originOf(b).id + ' ' + key, () => evaluate(v.expr, lookupFor(b, { c, r })).value ?? null); };      /* the entry's place, for a formula that reads the index */
 function worked(b){
   if (b.source){ const u = view.unit, w = Math.round(b.rect.w / u), h = Math.round(b.rect.h / u); return sourceValues(b.source, turned(b) ? h : w, turned(b) ? w : h); }      /* a source stores no entries: they follow from its kind and its size (sources.js), the variable's own way round */
   let any = false; for (const v of b.values.values()) if (isFormula(v)){ any = true; break; }
@@ -251,13 +259,15 @@ function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's ow
   const given = givenOf(b), seated = given ? null : seatedOf(b);      /* a function's input, or a seated block (or a reference to either): what the arrow is given, or its output */
   if (given || seated){ const of = given || seated, v = given ? inValues(of) : seatValues(of), right = of.t ? flipped(v) : v; return turned(b) && !plain ? flipped(right) : right; }
   if (measures(b)){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
+  const ix = indexedOf(b); if (ix) return indexMatrix(ix);      /* the index of the block whose definition this is in, as a matrix */
   const part = rangedOf(b);                    /* a part of another shape: that shape's entries there, whatever they are now */
   if (part) return depth < 8 ? rangeValues(part, depth, turned(b) && !plain) : new Map();
   const stood = depth < 8 && standingOf(b), u = view.unit;
   if (!stood || stood.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
     return own(b, plain); }
-  const all = new Map();
-  for (const t of stood) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); }
+  const all = new Map(), using = useNow; useNow = b;
+  try { for (const t of stood) for (const [k, v] of valuesOf(t.block, depth + 1)){ const [c, r] = k.split(',').map(Number); if (c <= t.w && r <= t.h) all.set((c + t.x) + ',' + (r + t.y), v); } }
+  finally { useNow = using; }
   return all;
 }
 function matrixAt(x, y){
@@ -280,7 +290,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
   let stood = standingOf(a);
   if (!stood){ for (const b of [...def.blocks]) out(b); stood = [];      /* the first shape in: whatever was in its definition goes */
-    def.groupUp.clear(); def.groupNames.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear(); }
+    def.groupUp.clear(); def.groupNames.clear(); def.repeats.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear(); for (const t of def.tiles.values()){ t.el.remove(); t.overEl.remove(); } def.tiles.clear(); }
   /* where it was dropped; if that is taken, the nearest free place; if there is none, it takes the place of what is there */
   const wantX = Math.max(0, Math.min(cols - w, Math.round(cx - w / 2))), wantY = Math.max(0, Math.min(rows - h, Math.round(cy - h / 2)));
   const over = (X, Y) => stood.filter(t => X < t.x + t.w && t.x < X + w && Y < t.y + t.h && t.y < Y + h);
@@ -290,8 +300,10 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   for (const t of over(X, Y)) out(t.block);
   pruneOps();                                  /* what was cut in the definition went with it */
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
-  use.sides = { ...v.sides }; use.values = v.values; if (v.source) use.source = v.source; use.turn(v.t); use.standing = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
-  const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.ref = true; use.attrs = attrsOf(v);
+  use.sides = { ...v.sides }; use.values = v.values; if (v.source) use.source = v.source; use.turn(v.t); use.standing = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v) || newSpace(use, def));      /* (its own, where the shape it was made from went with what the definition held) */
+  use.ref = true;
+  if (v.from?.index) use.from = fromOf(v.from);      /* an index matrix stands there as itself: the one it was made from went with what the definition held */
+  else { const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.attrs = attrsOf(v); }
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
   const left = cols * rows - (standingOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
@@ -324,9 +336,14 @@ const variables = createVariables({
   onDrop: (item, x, y) => { const at = view.toWorld(x, y);
     /* onto a formula that is open: a measure's capsule goes in at the cursor. A whole shape is its mass if it is a scalar, and otherwise is refused (expression.js: wholeOf). */
     if (openField?.over(x, y)){
+      if (item.kind === 'index') return openField.write(item.name);      /* the index goes in by its name: it is the place of whatever entry the formula is in */
       if (item.kind === 'length' && item.of) return openField.insert({ id: item.of, measure: item.side || 'x', name: null });
       const whole = item.kind === 'shape' ? wholeOf(variableOf(item.block), !!openField.matrices) : { refused: 'only a variable or one of its measures can go into a formula' };
       return whole.refused ? hud.say(`${item.name}: ${whole.refused}`) : openField.insert(whole.capsule); }
+    /* the index of a block in a tile: into that block's own definition space, as a matrix, on the canvas or standing in the definition's matrix */
+    if (item.kind === 'index'){ const mine = space.owner && [...kinOf(space.owner)].some(k => k.id === item.of), of = blockOf(item.of);
+      if (!mine) return hud.say(`${item.name} is the place of ${of ? bare(of.name) : 'a block'} in its tile: type it in an entry's formula, or drag it into ${of ? bare(of.name) + "'s" : 'that block\'s'} definition space`);
+      return bus.send('index.add', { of: item.of, axis: item.axis, at, stand: !!matrixAt(x, y) }); }
     if (item.kind === 'shape'){ const onto = matrixAt(x, y); if (!onto) return bus.send('use', { id: item.block.id, at, transposed: !!item.transposed });
       const r = onto.el.getBoundingClientRect(), u = view.unit, cols = Math.round(onto.block.rect.w / u), rows = Math.round(onto.block.rect.h / u), whole = cols <= 8 && rows <= 8;      /* a longer matrix is written with its middle left out, so the pointer cannot say where */
       return bus.send('slot', { into: onto.block.id, id: item.block.id, cx: whole ? (x - r.left) / (r.width / cols) : 0, cy: whole ? (y - r.top) / (r.height / rows) : 0 }); }
@@ -436,7 +453,7 @@ function agree(b){
 function keepTouching(change, except = () => false){
   const u = view.unit, pairs = [];
   for (const s of everySpace()){
-    const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));
+    const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, zone: tileOf(b, s) ?? null }));
     for (const j of joins(rects)) if (!except(live[j.left], live[j.right])) pairs.push([live[j.left], live[j.right]]);
   }
   change();
@@ -452,6 +469,7 @@ function typedNow(b, dim, text){
   if (isArrow(b)) return hud.say('An arrow has no sides of its own: its start, span and gap are in its properties');
   if (b.in) return hud.say('in is the function\'s input: its sides are those of what the arrow covers');
   if (b.seat && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is seated: its size is the output's`);
+  if (b.from?.index && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is the index of its block: it is that block's size`);
   const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(); let n = m[2] ? Math.round(parseFloat(m[2])) : null;
   /* a part of another shape is the size of that part: a length typed on it is not taken, nor a name that is another length already */
   if (rangedOf(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
@@ -504,13 +522,14 @@ function group(list){
     else { for (const x of inGroup(unit)) done.add(x); space.groupUp.set(unit, g); } }
   if (holder !== undefined) space.groupUp.set(g, holder);
   tidy();
+  return g;
 }
 /* takes one group apart: what was directly in it is now directly in the group that held it, or in none */
 function ungroup(g, s = space){
   const up = s.groupUp.get(g);
   for (const [b, at] of s.groupOf) if (at === g) up === undefined ? s.groupOf.delete(b) : s.groupOf.set(b, up);
   for (const [c, at] of s.groupUp) if (at === g) up === undefined ? s.groupUp.delete(c) : s.groupUp.set(c, up);
-  s.groupUp.delete(g); s.groupNames.delete(g);
+  s.groupUp.delete(g); s.groupNames.delete(g); s.repeats.delete(g);      /* and it is no tile */
 }
 /* after blocks have left: an unnamed group with fewer than two things in it is no group, nor a named one with nothing, and a group that is gone keeps no name */
 function tidy(s = space){
@@ -518,12 +537,12 @@ function tidy(s = space){
   for (let again = true; again;){ again = false;
     const ids = new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()]);
     for (const g of ids){ const holds = [...s.groupOf.values()].filter(at => at === g).length + [...s.groupUp.values()].filter(at => at === g).length;
-      if (holds < 1){ ungroup(g, s); again = true; break; } } }      /* a frame may hold a single thing; an empty one is no frame */
-  const live = new Set([...s.groupOf.values(), ...s.groupUp.values()]);
+      if (holds < 1 && !s.repeats.has(g)){ ungroup(g, s); again = true; break; } } }      /* a frame may hold a single thing; an empty one is no frame, unless it is a tile, whose pattern may be blank */
+  const live = new Set([...s.groupOf.values(), ...s.groupUp.values(), ...s.repeats.keys()]);
   for (const id of [...s.groupNames.keys()]) if (!live.has(id)) s.groupNames.delete(id);
 }
 /* how many levels of named groups sit strictly inside these blocks' frame: 0 if none */
-const framesIn = s => new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()]);      /* every frame of a space, by id */
+const framesIn = s => new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values(), ...s.repeats.keys()]);      /* every frame of a space, by id: a tile that holds nothing is still one */
 const namedBelow = id => Math.max(0, ...[...space.groupUp].filter(([, up]) => up === id).map(([c]) => 1 + namedBelow(c)));      /* the same, for a group: by what is grouped inside it */
 function namedWithin(list, not = []){             /* not: the groups already counted on the way in (two may hold exactly the same blocks) */
   let most = 0;
@@ -733,9 +752,11 @@ function measured(b, measure, name){
 }
 /* what a name or a capsule in one of b's formulas stands for (expression.js: evaluate's lookup). A capsule names a
    measure of any variable, by its block's id. A bare name is one of b's own: x, y, mass, or an attribute it was given. */
-function lookupFor(b){
+function lookupFor(b, at = null){      /* at: the entry the formula is in, { c, r }, for the index; arrows.js hands an arrow's own with each name */
   const mine = bare(b.name).trim().slice(0, 10).toLowerCase() + '.';
-  return token => {
+  return (token, place = null) => {
+    const axis = typeof token === 'string' ? tiles.axisOf(token) : null;
+    if (axis){ const i = indexFor(b, place || at); return i ? i[axis] : tiles.NO_INDEX; }      /* index.x, index.y: this entry's place across its whole tile (tiles.js) */
     if (typeof token === 'string' && isArrow(b)) return undefined;      /* an arrow has no attributes of its own to call by a bare name (x, i and j are its formula's: arrows.js) */
     if (typeof token !== 'string'){ const of = blockOf(token.id); if (!of) return undefined;      /* its variable is gone: "missing variable" */
       const v = measured(of, token.measure, token.name); return v === undefined ? { err: 'missing attribute' } : v; }
@@ -780,13 +801,15 @@ function attributesOf(b){
 /* the block an entry of the selected shape's matrix really belongs to, and its key there */
 const entryOfSelected = key => { const b = [...selected][0], [c, r] = key.split(',').map(Number); return b ? entryHome(b, c, r) : null; };
 const properties = createProperties({ ...fields,
-  onName: text => { const b = [...selected][0]; if (b) bus.send('rename', { id: b.id, name: text, color: isNamed(b) ? null : someColour() }); },
+  onName: text => { if (pickedTile) return bus.send('name', { frame: pickedTile, ids: [], name: text, color: null });
+    const b = [...selected][0]; if (b) bus.send('rename', { id: b.id, name: text, color: isNamed(b) ? null : someColour() }); },
   onAdd: () => { const b = [...selected][0]; if (!b) return; properties.focus('a' + attrsOf(b).length + '.label'); bus.send('attr.add', { id: b.id }); },
   onLabel: (key, text) => { const b = [...selected][0]; if (b) bus.send('attr.set', { id: b.id, index: +key.slice(1), name: text }); },
   onEntry: (key, text) => { const home = entryOfSelected(key); if (home) bus.send('entry.set', { id: home[0].id, key: home[1], text: text === '' ? null : text }); },
   /* what an entry holds, as it would be typed: its formula or its literal; for an entry that is another shape's (a measure, a part), what it shows */
   textOf: key => { const home = entryOfSelected(key); return !home ? '' : home[0].values.has(home[1]) && !home[0].members && !seatedOf(home[0]) && !givenOf(home[0]) ? typedText(home[0].values.get(home[1])) : typedText(valuesOf([...selected][0]).get(key)); },
-  onValue: (key, text) => { const b = [...selected][0]; if (!b) return;
+  onValue: (key, text) => { if (pickedTile) return tileTyped(pickedTile, key, text);
+    const b = [...selected][0]; if (!b) return;
     if (isArrow(b)) return arrowTyped(b, key, text);
     if (key[0] === 'a') return bus.send('attr.set', { id: b.id, index: +key.slice(1), text });
     /* a scalar's mass and sides take a value of any kind, or a formula. Its side is the root of its mass, so a side
@@ -820,7 +843,14 @@ function paint(){
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
   /* the properties of the one shape selected: its name, its shape, its value */
-  if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), wrong = [...(o.values || [])].filter(([, v]) => isError(v));
+  if (pickedTile && space.repeats.has(pickedTile)){ const t = tileInfo(space, pickedTile), r = t.rep, typedAs = v => typeof v === 'object' ? v.expr : String(v);
+    const row = k => ({ key: k, label: k, text: typedAs(r[k]), seen: refs(typedAs(r[k])).map(fields.look), result: typeof r[k] === 'object' ? String(t[k]) : null });
+    const read = space.blocks.some(a => isArrow(a) && a.arrow.input.as === 'tile' && a.arrow.input.id === pickedTile), mapWarn = inGroup(pickedTile).filter(isArrow).map(a => outputOf(a).mapWarn).find(Boolean);
+    properties.show({ id: 'tile ' + pickedTile, name: space.groupNames.get(pickedTile) || 'tile', color: '', cols: r.cols, rows: r.rows, scalar: false, plain: true, fixed: true,
+      shape: `tile: a ${r.cols} × ${r.rows} pattern, ${t.across} across × ${t.down} down` + (t.matrix.error ? '' : `. Its matrix is ${t.matrix.cols} wide × ${t.matrix.rows} tall`),
+      attributes: [{ key: 'cols', label: 'pattern x', text: String(r.cols) }, { key: 'rows', label: 'pattern y', text: String(r.rows) }, row('across'), row('down')],
+      notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : [])], matrix: null }); }
+  else if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), wrong = [...(o.values || [])].filter(([, v]) => isError(v));
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: t?.cols || 1, rows: t?.rows || 1, scalar: false, plain: true, fixed: true,
       shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` : ''), attributes: arrowRows(one, fn),
       notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
@@ -837,6 +867,7 @@ function paint(){
   /* every frame is drawn, named or not; the one that is the whole selection also carries the tools */
   const oneGroup = groupIs(list), live = new Set();
   for (const id of framesIn(space)){ const name = space.groupNames.get(id) || '';
+    if (space.repeats.has(id)) continue;       /* a tile draws itself (below) */
     const ms = inGroup(id); if (!ms.length) continue;
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
     const whole = ms.length === list.length && ms.every(b => selected.has(b));      /* the selection is this frame (two frames, one round the other, can hold the very same blocks) */
@@ -845,7 +876,7 @@ function paint(){
     f.set(f.fit[0], f.fit[1]); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
-  if (room.host !== null && !space.frames.has(room.host)){ roomFrame.set(boxOf(inGroup(room.host)), { selected: true, grouped: true, grow: namedBelow(room.host) }); view.world.append(roomFrame.el); }
+  if (room.host !== null && !space.frames.has(room.host) && !space.repeats.has(room.host)){ roomFrame.set(boxOf(inGroup(room.host)), { selected: true, grouped: true, grow: namedBelow(room.host) }); view.world.append(roomFrame.el); }
   else roomFrame.el.remove();                  /* a group with no name has no frame of its own: it is lent one while something is held over it */
   /* any other selection of several gets the dashed box, with a name to fill in */
   if (list.length > 1 && !live.has(oneGroup)){
@@ -929,11 +960,21 @@ function paint(){
   if (one && isArrow(one)){ const at = outs.get(one)?.el.isConnected ? outs.get(one).at : one.rect, x = Math.min(one.rect.x, at.x), y = Math.min(one.rect.y, at.y);
     arrowFrame.set({ x, y, w: Math.max(one.rect.x + one.rect.w, at.x + at.w) - x, h: Math.max(one.rect.y + one.rect.h, at.y + at.h) - y }, { selected: true }); view.world.append(arrowFrame.el); }
   else arrowFrame.el.remove();
+  /* every tile of the space: its frame, its cells, and the copies of what is in its first one */
+  for (const g of space.repeats.keys()){ const t = tileInfo(space, g), tile = space.tiles.get(g) || createTile(), list = inGroup(g).filter(b => !isOff(b) && !hollowSeat(b)); space.tiles.set(g, tile);
+    for (const e of tile.el.querySelectorAll('[data-tile-grab], [data-tile-edge]')) e.dataset.tile = g;
+    const mapWarn = list.filter(isArrow).map(a => outputOf(a).mapWarn).find(Boolean);      /* an arrow repeated here that cannot be, or runs past its input */
+    tile.set({ x: t.rep.x * u, y: t.rep.y * u, unit: u, xs: t.lay.xs, ys: t.lay.ys, w: t.lay.w, h: t.lay.h, name: space.groupNames.get(g) || '', counts: `${t.across} × ${t.down}`,
+      selected: pickedTile === g || room.host === g, warn: !!(t.warn || mapWarn), copies: copiesOf(space, t, list), written: writtenOn(t, list) });
+    view.world.prepend(tile.el); view.world.append(tile.overEl); }
+  for (const [g, tile] of space.tiles) if (!space.repeats.has(g)){ tile.el.remove(); tile.overEl.remove(); space.tiles.delete(g); }
+  if (pickedTile && !space.repeats.has(pickedTile)) pickedTile = null;
   dress();
   const reach = inReach(); variables.show(reach.main, reach.hidden);
   return standingNow();                        /* as the arrows stood when this was drawn */
 }
 function select(list, { toggle = false } = {}){
+  if (!toggle || list.length) pickedTile = null;      /* blocks are selected, or a tile: not both */
   if (!toggle) selected.clear();
   const off = toggle && list.length && list.every(b => selected.has(b));
   for (const b of list) off ? selected.delete(b) : selected.add(b);
@@ -962,8 +1003,9 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
   const whole = groupIs(inside), going = new Set(inside.flatMap(b => chain(b)).filter(g => g !== whole && inGroup(g).every(b => inside.includes(b))));
   for (const b of inside) if (going.has(space.groupOf.get(b))) def.groupOf.set(b, space.groupOf.get(b));
   for (const g of going){ if (going.has(space.groupUp.get(g))) def.groupUp.set(g, space.groupUp.get(g)); if (space.groupNames.has(g)) def.groupNames.set(g, space.groupNames.get(g)); }
-  for (const g of going){ space.groupUp.delete(g); space.groupNames.delete(g); }
   const dx = -u * (3 + squares(type.cols, type.colsName)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
+  for (const g of going){ space.groupUp.delete(g); space.groupNames.delete(g);
+    if (space.repeats.has(g)){ const r = space.repeats.get(g); def.repeats.set(g, { ...r, x: r.x + dx / u, y: r.y + dy / u }); space.repeats.delete(g); } }      /* a tile among them goes as a tile */
   for (const b of inside){
     b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b);
     b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); def.blocks.push(b);
@@ -984,8 +1026,8 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
 const picture = (b, s) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
-  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
-  groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
+  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) || indexedOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
+  groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
   members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
@@ -1005,7 +1047,8 @@ function develop(pictures, s, dx, dy){
     if (pic.id) now.set(pic.id, b);
     if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
     s.blocks.push(b); made.push(b);
-    pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, newGroup()); if (g.name) s.groupNames.set(groups.get(g.id), g.name); }
+    pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, newGroup()); if (g.name) s.groupNames.set(groups.get(g.id), g.name);
+        if (g.repeat) s.repeats.set(groups.get(g.id), { ...repeatCopy(g.repeat), x: g.repeat.x + Math.round(dx / u), y: g.repeat.y + Math.round(dy / u) }); }      /* a tile is pasted as a tile, where its blocks are */
       if (i === 0) s.groupOf.set(b, groups.get(g.id)); else s.groupUp.set(groups.get(pic.groups[i - 1].id), groups.get(g.id)); });
     if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
     if (pic.arrow){ if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, s)); }
@@ -1099,7 +1142,7 @@ function transpose(){
    upper one is only a stencil. */
 const unitsOf = b => { const u = view.unit; return { x: Math.round(b.rect.x / u), y: Math.round(b.rect.y / u), w: Math.round(b.rect.w / u), h: Math.round(b.rect.h / u) }; };
 const inOrder = list => space.blocks.filter(b => list.includes(b));      /* back to front, as they are drawn */
-const measures = b => !!b.from && !b.from.range;      /* block.from is one of two things: a measure of a shape's side, or a part (a range) of a shape */
+const measures = b => !!b.from && !b.from.range && !b.from.index;      /* block.from is one of three things: a measure of a shape's side, a part (a range) of a shape, or the index of a block in a tile */
 /* the block whose range b shows: itself, or, for another use of a part that was named, that part */
 const rangedOf = b => b.from?.range ? b : kin.has(b) ? [...kin.get(b)].find(k => k.from?.range) || null : null;
 const partOf = b => { const src = sourceOf(rangedOf(b)); return src ? bare(src.name) : 'another shape'; };      /* what to call its source, in a sentence */
@@ -1120,7 +1163,9 @@ function follow(){
   for (let pass = 0, moved = true; moved && pass < 8; pass++){ moved = false;
     for (const o of everyKnown()){ const at = o.from?.range && rangeNow(o); if (!at) continue;
       const w = (turned(o) ? at.rows : at.cols) * u, h = (turned(o) ? at.cols : at.rows) * u;
-      if (o.rect.w !== w || o.rect.h !== h){ o.set({ ...o.rect, w, h }); agree(o); moved = true; } } }
+      if (o.rect.w !== w || o.rect.h !== h){ o.set({ ...o.rect, w, h }); agree(o); moved = true; } }
+    /* an index matrix is the size of the block it is the index of */
+    for (const o of everyKnown()){ const src = o.from?.index && sourceOf(o); if (src && (o.rect.w !== src.rect.w || o.rect.h !== src.rect.h)){ o.set({ ...o.rect, w: src.rect.w, h: src.rect.h }); agree(o); moved = true; } } }
 }
 /* The sides of a part. A side that takes in the whole of its source's side keeps the name given to that side (a real
    name: it is that length). Any other name it shows is a label, made by algebra.js (sideLabel) from what the two
@@ -1266,7 +1311,8 @@ function discard(blocks){
   for (const b of going){ const stay = [...kinOf(b)].find(k => !going.has(k)), ids = new Set([b.id]); if (!stay) continue;
     for (const d of everyKnown()){ for (const [k, v] of d.values) if (isFormula(v) && refersTo(v.expr, ids)) d.values.set(k, { expr: repoint(v.expr, b.id, stay.id) });
       for (const a of attrsOf(d)) if (refersTo(a.text, ids)) a.text = repoint(a.text, b.id, stay.id);
-      if (d.fn?.formula && refersTo(d.fn.formula, ids)) d.fn.formula = repoint(d.fn.formula, b.id, stay.id); } }
+      if (d.fn?.formula && refersTo(d.fn.formula, ids)) d.fn.formula = repoint(d.fn.formula, b.id, stay.id); }
+    for (const s of everySpace()) for (const r of s.repeats.values()) for (const k of ['across', 'down']) if (typeof r[k] === 'object' && refersTo(r[k].expr, ids)) r[k] = { expr: repoint(r[k].expr, b.id, stay.id) }; }      /* and a tile's count */
   for (const b of going){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
   for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); touched.add(s);
     for (const b of o.sources) if (going.has(b)) forget(b);
@@ -1285,7 +1331,7 @@ const originOf = b => [...kinOf(b)].find(k => !k.ref) || b;      /* the shape a 
 const sourceOf = b => b.from ? everyKnown().find(o => o.id === b.from.id) || null : null;
 const dimOf = (b, src) => b.from.side === 'm' ? 'm' : (b.from.side === 'x') !== turned(src) ? 'w' : 'h';      /* which of the source's sides, the way it now lies */
 const derived = b => { const src = sourceOf(b); if (!src || src === b) return null; const dim = dimOf(b, src), r = rootSide(src); if (dim === 'm') return scalarOf(src); if (unset(src)) return null; return r === null ? Math.round(src.rect[dim] / view.unit) : r; };
-function doomed(blocks, reverting = []){            /* reverting: operations being reverted, whose kept blocks come back and so do not go */
+function doomed(blocks, reverting = [], tileIds = []){            /* reverting: operations being reverted, whose kept blocks come back and so do not go; tileIds: tiles being taken off, whose arrows go */
   const gone = new Set(blocks), all = everyKnown(), byId = new Map(all.map(b => [b.id, b])), spaces = everySpace();
   const holder = new Map(); for (const b of all) for (const m of b.members || []) holder.set(m.block, b);      /* a block fused into another goes when that one does */
   const going = b => { for (let k = b; k; k = holder.get(k)) if (gone.has(k)) return true; return false; };
@@ -1296,7 +1342,7 @@ function doomed(blocks, reverting = []){            /* reverting: operations bei
     for (const d of all) if (d.from && !gone.has(d)){ const src = sourceOf(d); if (src && gone.has(src) && ![...kinOf(src)].some(k => !gone.has(k)) && add(d)) more = true; }
     /* an arrow goes with its input (a block, or the block or arrow whose result it reads), and a seated block with
        its seat: the arrow it sits on, or either shape of the pair whose hollow it sits in */
-    const ids = new Set([...gone].map(b => b.id));
+    const ids = new Set([...[...gone].map(b => b.id), ...tileIds]);
     for (const d of all) if (!gone.has(d) && ((isArrow(d) && ids.has(d.arrow.input.id)) || (d.seat && (typeof d.seat === 'string' ? ids.has(d.seat) : d.seat.hollow.some(id => ids.has(id))))) && add(d)) more = true;
     /* what a cut keeps off the canvas is part of this too. A kept block that goes (its variable went) takes every
        shape its operation made. And when every shape an operation made goes, its two kept blocks go, with whatever
@@ -1312,11 +1358,11 @@ function doomed(blocks, reverting = []){            /* reverting: operations bei
    of variables and how many instances of each would go, and can still say no */
 const warning = createWarning();
 /* sends a message that takes `list` away, with whatever else would go; asks first where anything else would */
-function warned(list, doing, proceed, send, reverting = []){
-  const also = doomed(list, reverting), broken = formulasOn([...list, ...also]);
+function warned(list, doing, proceed, send, reverting = [], tileIds = [], what = null){      /* tileIds, what: tiles being taken off, and what to call them */
+  const also = doomed(list, reverting, tileIds), broken = formulasOn([...list, ...also]);
   if (!also.length && !broken) return send(also);
   const count = new Map(); for (const b of also) count.set(bare(b.name), (count.get(bare(b.name)) || 0) + 1);
-  const sources = [...new Set(list.filter(b => also.some(o => [...kinOf(b)].includes(o) || o.from?.id === b.id || o.arrow?.input.id === b.id || o.seat === b.id || (o.seat?.hollow || []).includes(b.id))).map(b => bare(b.name)))];
+  const sources = [...new Set(list.filter(b => also.some(o => [...kinOf(b)].includes(o) || o.from?.id === b.id || o.arrow?.input.id === b.id || o.seat === b.id || (o.seat?.hollow || []).includes(b.id))).map(b => bare(b.name))), ...(what ? [what] : [])];
   const named = [...new Set(list.filter(isNamed).map(b => bare(b.name)))].join(', ') || 'this', formulas = `${broken} ${broken === 1 ? 'formula refers' : 'formulas refer'} to it`;
   warning.ask({ title: also.length ? `${doing} ${sources.join(', ') || 'this'} also deletes what refers to it` : `${doing} ${named} leaves ${broken === 1 ? 'a formula' : broken + ' formulas'} without it`,
     note: [also.length ? `${also.length} other ${also.length === 1 ? 'instance' : 'instances'} would be removed with it, here or in other spaces.` : '',
@@ -1333,6 +1379,7 @@ function formulasOn(blocks){
     if (!seen.has(b.values)){ seen.add(b.values); for (const v of b.values.values()) if (isFormula(v) && refersTo(v.expr, ids)) n++; }
     const attrs = attrsOf(b); if (!seen.has(attrs)){ seen.add(attrs); for (const a of attrs) if (refersTo(a.text, ids)) n++; }
     if (b.fn && !seen.has(b.fn)){ seen.add(b.fn); if (b.fn.formula && refersTo(b.fn.formula, ids)) n++; } }      /* an arrow's entry formula, once for the function */
+  for (const s of everySpace()) for (const r of s.repeats.values()) for (const k of ['across', 'down']) if (typeof r[k] === 'object' && refersTo(r[k].expr, ids)) n++;      /* a tile's count that follows a size */
   return n;
 }
 function removing(type){
@@ -1347,6 +1394,141 @@ function reverting(){
   const list = [...selected], r = revertible(list);
   if (r.refused) return hud.say(r.refused);
   warned(r.ops.flatMap(o => o.results.map(blockOf)), 'Reverting', 'Revert', also => bus.send('revert', { ids: idsOf(list), also: idsOf(also) }), r.ops);
+}
+
+
+/* ---- tiles ----
+   A tile is a region whose contents repeat a whole number of times. What a tile means (its counts, what is drawn,
+   the index, its matrix, how an arrow is repeated in it) is tiles.js's to say; here it is kept, drawn and changed.
+
+   A tile is a frame with a repeat: space.repeats, frame id -> { x, y, cols, rows, across, down }, the pattern's
+   place and size in units and its two counts, each a whole number or a formula { expr } that comes to one from
+   sizes alone. What is in it is what is in the frame, so it is dragged into and out of (with shift), named and
+   listed as a frame is. A tile may hold nothing, so its frame stays when its last block leaves.
+   Only the blocks of the first cell exist. The other cells are drawn copies (components/tile.js), which take no
+   press. A block of a tile is a different matrix in each cell only through the index: index.x and index.y in an
+   entry's formula, or the two index matrices in its definition space (a block whose from is { id, index }). What
+   a block is in a cell other than the first is worked out with cellNow saying which cell is meant.
+   A tile touches nothing: every block of a tile carries the tile for its zone (algebra.js), so no touch crosses a
+   tile's boundary. An arrow can take a tile for its input ({ id: the frame's, as: 'tile' }): it reads the tile's
+   matrix, all of it. An arrow in a tile whose input is outside the tile is repeated along its input (map). */
+let pickedTile = null;                         /* the tile that is selected, by its frame's id: its counts and its pattern are in the properties panel */
+const cellNow = { of: null, cx: 1, cy: 1 };    /* the cell a tile's blocks are being worked out for (of: that tile's repeat); with none, the first */
+let useNow = null;                             /* the use of a variable whose standing shapes are being read, for an index matrix among them */
+const firstCell = () => !cellNow.of || (cellNow.cx === 1 && cellNow.cy === 1);
+const tileOf = (b, s = space) => chain(b, s).find(g => s.repeats.has(g));      /* the tile a block is in, innermost; undefined for none */
+const repeatCopy = r => ({ ...r, across: typeof r.across === 'object' ? { expr: r.across.expr } : r.across, down: typeof r.down === 'object' ? { expr: r.down.expr } : r.down });
+/* what a capsule in a count's formula stands for: a measure of a variable, by its block's id (tiles.js lets only sizes through) */
+const sizeLookup = token => { if (typeof token === 'string') return undefined; const of = blockOf(token.id); return of ? measured(of, token.measure, token.name) : undefined; };
+/* a tile as it stands: its repeat, what its counts come to, what is drawn of it, its blocks and its matrix. Worked out once for every time the screen is brought up to date. */
+function tileInfo(s, g){
+  const rep = s.repeats.get(g); if (!rep) return null;
+  if (memo?.has(rep)) return memo.get(rep);
+  const c = tiles.counts(rep, sizeLookup), lay = tiles.layout(rep, c.across, c.down, c.formula);
+  const blocks = inGroup(g, s).filter(b => !isArrow(b) && !isOff(b) && !hollowSeat(b));
+  const info = { g, rep, ...c, lay, rect: { x: rep.x, y: rep.y, w: lay.w, h: lay.h }, blocks, matrix: tiles.matrix(rep, c.across, c.down, blocks.map(unitsOf)), values: null };
+  memo?.set(rep, info); return info;
+}
+/* the entries of a tile's matrix: every cell's blocks, each worked out for its cell */
+function tileValues(s, g){
+  const t = tileInfo(s, g); if (!t || t.matrix.error) return new Map();
+  const was = { ...cellNow };
+  try { return tiles.entries(t.rep, t.across, t.down, t.blocks.map(unitsOf), (n, cx, cy) => { Object.assign(cellNow, { of: t.rep, cx, cy }); return lost(t.blocks[n]) ? new Map() : valuesOf(t.blocks[n]); }); }
+  finally { Object.assign(cellNow, was); }
+}
+/* the index of one entry of a block or of an arrow's output (at: { c, r }, and cx or cy for an arrow repeated in its tile); null where it is in no tile */
+function indexFor(b, at){
+  const s = spaceWith(b), g = s && tileOf(b, s); if (!s || g === undefined || !at) return null;
+  const rep = s.repeats.get(g), r = unitsOf(b), here = cellNow.of === rep, [c, row] = turned(b) ? [at.r, at.c] : [at.c, at.r];      /* a transpose keeps its entries the variable's way round: its place is where it is drawn */
+  return tiles.index(rep, { x: r.x - rep.x, y: r.y - rep.y }, c, row, at.cx || (here ? cellNow.cx : 1), at.cy || (here ? cellNow.cy : 1));
+}
+/* an index matrix: a block that is index.x or index.y of another block, the one whose definition space it is in */
+const indexedOf = b => b.from?.index ? b : kin.has(b) ? [...kin.get(b)].find(k => k.from?.index) || null : null;
+function indexMatrix(o){
+  let of = blockOf(o.from.id); if (!of) return new Map();
+  if (useNow && [...kinOf(useNow)].includes(of)) of = useNow;      /* read through another use of the variable, it is that use's place */
+  const s = spaceWith(of), g = s && tileOf(of, s); if (!s || g === undefined) return new Map();
+  const rep = s.repeats.get(g), r = unitsOf(of), here = cellNow.of === rep;
+  return tiles.indexValues(rep, { x: r.x - rep.x, y: r.y - rep.y }, r.w, r.h, o.from.index, here ? cellNow.cx : 1, here ? cellNow.cy : 1);
+}
+/* whether a block is a different matrix in each cell: an entry of its reads the index, or an index matrix stands in its matrix */
+const readsIndex = b => [...b.values.values()].some(v => isFormula(v) && tiles.reads(v.expr)) || (standingOf(b) || []).some(t => indexedOf(t.block));
+const texts = values => new Map([...values].map(([k, v]) => [k, isError(v) ? '!' : valueText(v)]));
+/* what is drawn in the cells that are not the first: a copy of every block, and of every arrow, of the tile */
+function copiesOf(s, t, list){
+  const out = [], was = { ...cellNow }, rep = t.rep;
+  try { t.lay.ys.forEach((sy, iy) => t.lay.xs.forEach((sx, ix) => { if (sx.dots || sy.dots || (sx.cell === 1 && sy.cell === 1)) return;
+      Object.assign(cellNow, { of: rep, cx: sx.cell, cy: sy.cell });
+      for (const b of list){ const r = unitsOf(b), at = { cx: ix, cy: iy, x: r.x - rep.x, y: r.y - rep.y, w: r.w, h: r.h, color: b.shape.color, name: isNamed(b) ? b.name : '' };
+        if (isArrow(b)) out.push({ ...at, tri: cornersOf(b.arrow.side, r.w, r.h) });
+        else out.push({ ...at, values: readsIndex(b) ? texts(valuesOf(b)) : null }); } })); }
+  finally { Object.assign(cellNow, was); }
+  return out;
+}
+/* and what is written over the real blocks, in the first cell: the entries of one that reads the index (a single entry shows its own on its face) */
+const writtenOn = (t, list) => list.filter(b => !isArrow(b) && !single(b) && readsIndex(b)).map(b => { const r = unitsOf(b); return { x: r.x - t.rep.x, y: r.y - t.rep.y, w: r.w, h: r.h, values: texts(valuesOf(b)) }; });
+/* a frame's rectangle, for whatever is held over it: a tile's pattern, or the box round an ordinary frame's blocks */
+const frameBox = id => { const r = space.repeats.get(id), u = view.unit; return r ? { x: r.x * u, y: r.y * u, w: r.cols * u, h: r.rows * u } : boxOf(inGroup(id)); };
+/* whether an arrow in tile g is repeated there: its input is outside the tile */
+const mapsIn = (s, a, g) => { const inp = a.arrow.input, blk = inp.as === 'tile' ? null : s.blocks.find(k => k.id === inp.id); return !!blk && !chain(blk, s).includes(g); };
+/* moves a tile and its blocks (dx, dy in units). Arrows and seated blocks are placed by what they read, so they are left to that. */
+function shiftTile(s, g, dx, dy){
+  const rep = s.repeats.get(g), u = view.unit; rep.x += dx; rep.y += dy;
+  for (const b of inGroup(g, s)) if (!isArrow(b) && !b.seat) b.set({ ...b.rect, x: b.rect.x + dx * u, y: b.rect.y + dy * u });
+}
+const placesOfTiles = () => everySpace().flatMap(s => [...s.repeats.values()].map(r => [r, r.x, r.y]));      /* where every tile is, to put them back after a drag's preview */
+const cap = text => text[0].toUpperCase() + text.slice(1);
+function addTile(rect){
+  const u = view.unit, r = { x: Math.round(rect.x / u), y: Math.round(rect.y / u), w: Math.round(rect.w / u), h: Math.round(rect.h / u) };
+  const can = tiles.makable(r, [...space.repeats.keys()].map(g => tileInfo(space, g).rect));
+  if (can.refused) return hud.say(can.refused);
+  const inside = tiles.members(r, space.blocks.map(unitsOf)).map(i => space.blocks[i]);
+  if (inside.some(b => tileOf(b) !== undefined)) return hud.say('A block of another tile lies there: a tile does not go inside a tile');
+  const g = inside.length ? group(inside) : newGroup();
+  space.repeats.set(g, { x: r.x, y: r.y, cols: r.w, rows: r.h, across: 1, down: 1 });
+  tidy(); selected.clear(); pickedTile = g; shown();
+  hud.say(`A tile: ${r.w} × ${r.h}, ${inside.length ? 'holding ' + inside.length + (inside.length === 1 ? ' block' : ' blocks') : 'empty'}. Pull its right or bottom edge to repeat it`);
+}
+function setTile({ frame, ...patch }){
+  const rep = space.repeats.get(frame), u = view.unit; if (!rep) return;
+  const geo = {}; for (const k of ['x', 'y', 'cols', 'rows']) if (k in patch) geo[k] = patch[k];
+  const got = tiles.settable(rep, geo); if (got.refused){ hud.say(got.refused); return shown(); }
+  const next = got.repeat;
+  for (const k of ['across', 'down']) if (k in patch){ const c = tiles.count(patch[k], sizeLookup); if (c.refused){ hud.say(`${cap(k)}: ${c.refused}`); return shown(); } next[k] = c.formula ? { expr: patch[k].expr } : c.count; }
+  const cs = tiles.counts(next, sizeLookup), clear = tiles.makable(tiles.footprint(next, cs.across, cs.down, cs.formula), [...space.repeats.keys()].filter(g => g !== frame).map(g => tileInfo(space, g).rect));
+  if (clear.refused){ hud.say(clear.refused); return shown(); }
+  const dx = next.x - rep.x, dy = next.y - rep.y;
+  Object.assign(rep, next, { x: rep.x, y: rep.y }); if (dx || dy) shiftTile(space, frame, dx, dy);
+  shown();
+}
+/* what was typed in the panel of a tile: a count takes a whole number or a formula of sizes; the pattern's sides a whole number, worked out once, now */
+function tileTyped(g, key, text){
+  const t = bound(text, reachList());
+  if (key === 'across' || key === 'down'){ const got = t.refused ? t : tiles.typed(t.text, sizeLookup);
+    if (got.refused){ hud.say(`${cap(key)}: ${got.refused}`); return shown(); }
+    return bus.send('tile.set', { frame: g, [key]: got.value }); }
+  const got = t.refused ? t : evaluate(t.text, sizeLookup), side = got.refused ? got : got.empty ? { refused: 'nothing was typed' } : sideOf(got.value);
+  if (side.refused){ hud.say(`Pattern: ${side.refused}`); return shown(); }
+  bus.send('tile.set', { frame: g, [key]: side.length });
+}
+/* taking a tile off: its blocks stay, once, and the copies go. An arrow that reads the tile goes with it, after the warning. */
+function untiling(g){
+  const name = space.groupNames.get(g) || 'the tile';
+  warned([], 'Taking off', 'Take off', also => bus.send('tile.remove', { frame: g, also: idsOf(also) }), [], [g], name);
+}
+/* a drag that begins on a tile's frame: by its right or bottom edge it changes that count, in whole patterns; anywhere else it moves the tile and what is in it. One message says where it ended. */
+function dragTile(g, edge, from){
+  const u = view.unit, rep = space.repeats.get(g), was = repeatCopy(rep), rects = inGroup(g).map(b => [b, b.rect]);
+  if (pickedTile !== g) bus.send('tile.pick', { frame: g });
+  return { move(p){
+      if (edge) rep[edge] = edge === 'across' ? tiles.dragged(rep.cols, p.x / u - rep.x) : tiles.dragged(rep.rows, p.y / u - rep.y);
+      else { const dx = Math.round((p.x - from.x) / u), dy = Math.round((p.y - from.y) / u); rep.x = was.x + dx; rep.y = was.y + dy;
+        for (const [b, r] of rects) if (!isArrow(b) && !b.seat) b.set({ ...r, x: r.x + dx * u, y: r.y + dy * u }); }
+      view.el.style.cursor = edge === 'across' ? 'ew-resize' : edge ? 'ns-resize' : 'move'; shown(); },
+    end(){ const now = repeatCopy(rep); Object.assign(rep, was); for (const [b, r] of rects) b.set(r); view.el.style.cursor = '';
+      if (edge && JSON.stringify(now[edge]) !== JSON.stringify(was[edge])) return bus.send('tile.set', { frame: g, [edge]: now[edge] });
+      if (!edge && (now.x !== was.x || now.y !== was.y)) return bus.send('tile.set', { frame: g, x: now.x, y: now.y });
+      shown(); } };
 }
 
 /* ---- arrows ----
@@ -1400,6 +1582,10 @@ const givenOf = b => b.in ? b : kin.has(b) ? [...kin.get(b)].find(k => k.in) || 
 /* what an arrow would read, in space s: null where it is gone (not on this canvas, commented out, or a result that
    is not written here), else { rect, cols, rows, colsName, rowsName, values }: its rectangle in units and its entries */
 function readOf(s, inp){
+  /* a tile: its matrix, where its pattern is covered exactly; where it is not, it is there and has no value (arrows.js: standing) */
+  if (inp.as === 'tile'){ const t = s && tileInfo(s, inp.id); if (!t) return null;
+    if (t.matrix.error) return { rect: t.rect, error: 'its tile has no matrix: ' + t.matrix.error };
+    return { rect: t.rect, cols: t.matrix.cols, rows: t.matrix.rows, colsName: null, rowsName: null, get values(){ return t.values ||= tileValues(s, inp.id); } }; }
   const blk = s && s.blocks.find(k => k.id === inp.id);
   if (!blk || isOff(blk)) return null;
   if (isArrow(blk)){ if (inp.as !== 'result') return null; const o = outputOf(blk); return o.place && o.type ? { rect: o.place, ...o.type, values: o.values || new Map() } : null; }      /* another arrow's output */
@@ -1407,6 +1593,7 @@ function readOf(s, inp){
   return writtenOf(s, blk, inp.hollow);
 }
 const inputOf = a => readOf(spaceWith(a), a.arrow.input);
+const sized = input => input && !input.error ? input : null;      /* an input that has a size: not one that is gone, nor a tile with no matrix */
 /* Where each piece's result is written in space s, worked out from the blocks alone, so that it is the same whether
    or not s is on screen: [{ piece, blocks, type, copies, usable, drawn, where, whole, body, at }], in units. usable
    and drawn are the pair's hollows the result could be, and is, written in (algebra.js); where is its place beside
@@ -1422,6 +1609,7 @@ function writtenIn(s, alg = null){
   /* an arrow that reads a written result, and the block seated on it, are placed by where the result is written: they are not in its way, or it would run from them */
   const follows = b => (isArrow(b) && b.arrow.input.as === 'result') || (typeof b.seat === 'string' && s.blocks.some(a => a.id === b.seat && isArrow(a) && a.arrow.input.as === 'result'));
   const taken = s.blocks.filter(b => !follows(b)).map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));      /* commented-out blocks are still in the way */
+  for (const g of s.repeats.keys()) taken.push(tileInfo(s, g).rect);      /* and so is all that is drawn of a tile: a result is not written over its copies */
   const out = all.map(piece => { const blocks = piece.members.map(m => active[m]), read = readers.filter(k => blocks.some(b => b.id === k.arrow.input.id)), type = piece.type, copies = copiesIn(s, blocks[0]);
     const size = type.error ? { w: 4, h: 0 } : { w: squares(type.cols, type.colsName), h: squares(type.rows, type.rowsName) };
     const usable = type.error ? [null, null] : pieceHollows(rects, piece).map(h => h && size.w <= h.w && size.h <= h.h ? h : null);
@@ -1446,11 +1634,12 @@ function depsOf(id){
   const k = blockOf(id); if (!k) return [];
   if (!isArrow(k)) return !k.seat ? [] : typeof k.seat === 'string' ? [k.seat] : [...k.seat.hollow];
   const s = spaceWith(k), inp = k.arrow.input, blk = s?.blocks.find(x => x.id === inp.id), def = fnOf(k).formula ? null : spaceOf.get(fnBlock(k) || k);
+  if (inp.as === 'tile') return [...(s ? inGroup(inp.id, s).map(x => x.id) : []), ...(def ? def.blocks.filter(isArrow).map(x => x.id) : [])];      /* a tile: on everything in it */
   return [...(!blk ? [] : inp.as === 'result' && !isArrow(blk) ? touching(s, blk) : [inp.id]), ...(def ? def.blocks.filter(isArrow).map(x => x.id) : [])];
 }
 /* the ids of the blocks joined to blk by touching, itself included */
 function touching(s, blk){
-  const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), ts = touches(live.map(unitsOf)), seen = new Set([live.indexOf(blk)]);
+  const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), ts = touches(live.map(b => ({ ...unitsOf(b), zone: tileOf(b, s) ?? null }))), seen = new Set([live.indexOf(blk)]);
   for (let more = true; more;){ more = false; for (const t of ts) if (seen.has(t.a) !== seen.has(t.b)){ seen.add(t.a); seen.add(t.b); more = true; } }
   return [...seen].filter(i => i >= 0).map(i => live[i].id);
 }
@@ -1460,35 +1649,44 @@ function touching(s, blk){
    (memo); an arrow that reads itself, through whatever else, is "it depends on itself". */
 const busy = new Set(); let memo = null;
 function outputOf(a){
-  if (memo?.has(a)) return memo.get(a);
+  if (firstCell() && memo?.has(a)) return memo.get(a);      /* what is kept is the first cell's: a block of a tile may differ in the others */
   if (busy.has(a)) return { ...standing(full(a), null, [], null, null, { loops: true }), values: null, defined: false };      /* being worked out already: only reached where it reads itself */
   busy.add(a);
   try {
     const loops = dependsOn(depsOf(a.id), a.id, depsOf);      /* it reads itself, through whatever else: arrows.js says what that comes to */
     const s = spaceWith(a), arrow = full(a), input = s && !loops ? inputOf(a) : null, seat = seatOn(a, s);
-    const defined = arrow.formula || !input ? null : definedBy(a, input);
+    const defined = arrow.formula || !sized(input) ? null : definedBy(a, input);
+    /* in a tile, with its input outside it, the arrow is repeated along that input: how often, and whether it can be, is tiles.js's to say */
+    const g = s ? tileOf(a, s) : undefined, tile = sized(input) && g !== undefined && mapsIn(s, a, g) ? tileInfo(s, g) : null, rows = along(arrow.side) === 'rows';
+    const map = tile ? tiles.mapped(arrow, tile.rep, tile.across, tile.down, rows ? input.rows : input.cols) : null;
     /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
-    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null });
+    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map });
     let values = null;
-    if (st.part && !defined && (!arrow.output || (arrow.output.cols === st.part.cols && arrow.output.rows === st.part.rows))){
-      const x = passed(input.values, covered(arrow, input));
-      values = !arrow.formula ? x : entryWise(arrow.formula, { cols: st.part.cols, rows: st.part.rows, x, lookup: lookupFor(a),
-        matrix: id => { const m = blockOf(id); if (!m || isArrow(m)) return undefined; const r = unitsOf(m); return { cols: r.w, rows: r.h, values: lost(m) ? new Map() : valuesOf(m) }; } }); }
-    const out = { ...st, values, defined: !!defined };
-    memo?.set(a, out);
+    if (st.part && !defined && (!arrow.output || (arrow.output.cols === st.came.cols && arrow.output.rows === st.came.rows))){
+      const matrix = id => { const m = blockOf(id); if (!m || isArrow(m)) return undefined; const r = unitsOf(m); return { cols: r.w, rows: r.h, values: lost(m) ? new Map() : valuesOf(m) }; }, base = lookupFor(a);
+      /* one cell's output: the covered part passed through, or the formula worked out for each entry, which may read the index of its cell */
+      const cell = k => { const part = covered(k === 1 ? arrow : { ...arrow, start: tiles.startIn(arrow, k) }, input); if (!part) return null; const x = passed(input.values, part);
+        return !arrow.formula ? x : entryWise(arrow.formula, { cols: st.part.cols, rows: st.part.rows, x, matrix, lookup: (token, at) => base(token, map ? { ...at, [rows ? 'cy' : 'cx']: k } : at) }); };
+      if (!map) values = cell(1);
+      else { values = new Map();      /* every cell's output, set beside the last in the direction of repeating */
+        for (let k = 1; k <= map.count; k++) for (const [key, v] of cell(k) || []){ const [c, r] = key.split(',').map(Number); values.set(rows ? c + ',' + (r + (k - 1) * st.part.rows) : (c + (k - 1) * st.part.cols) + ',' + r, v); } } }
+    const out = { ...st, values, defined: !!defined, mapWarn: map?.warn || null };
+    if (firstCell()) memo?.set(a, out);
     return out;
   } finally { busy.delete(a); }
 }
 /* the rects an arrow's edge has to be free of: every block of the space that touches, but for its own input */
-const othersOf = (s, input, seat = null) => s.blocks.filter(k => !isArrow(k) && !isOff(k) && !hollowSeat(k) && !(input.as !== 'result' && k.id === input.id) && k !== seat).map(unitsOf);      /* (the block a result is read by way of is not the result: it is in the way like any other) */
+const othersOf = (s, input, seat = null) => { const own = input.as === 'tile' ? new Set(inGroup(input.id, s)) : null;      /* a tile's own blocks are not against its edge: they are it */
+  return s.blocks.filter(k => !isArrow(k) && !isOff(k) && !hollowSeat(k) && !(input.as !== 'result' && k.id === input.id) && k !== seat && !own?.has(k)).map(unitsOf); };      /* (the block a result is read by way of is not the result: it is in the way like any other) */
 /* the function's own input, as a type: the covered part of the arrow the function was made as */
-function innerOf(a){ const o = originOf(a), input = isArrow(o) ? inputOf(o) : null; return input ? coveredType(full(o), input) : null; }
+function innerOf(a){ const o = originOf(a), input = isArrow(o) ? sized(inputOf(o)) : null; return input ? coveredType(full(o), input) : null; }
 /* what a space comes to: its ends, the things in it that nothing reads from. A piece no arrow has for its input is
    one; so is the output of an arrow that nothing reads from and no block is seated on (arrows.js: ends). Without
    arrows these are the space's pieces, as before. Each is { type, piece | arrow } */
 function endsOf(s, alg = algebraIn(s)){
   const { active, all } = alg, arrows = s.blocks.filter(k => isArrow(k) && !isOff(k));
-  return ends(all.map(p => ({ ids: p.members.map(m => active[m].id), type: p.type, config: p.members.some(m => inConfig(active[m], s)), of: p })),
+  /* a piece in a tile is read where an arrow reads the tile: the tile's id goes with its blocks' */
+  return ends(all.map(p => ({ ids: [...p.members.map(m => active[m].id), ...new Set(p.members.map(m => tileOf(active[m], s)).filter(g => g !== undefined))], type: p.type, config: p.members.some(m => inConfig(active[m], s)), of: p })),
     arrows.map(k => { const seated = !!seatOn(k, s), o = seated ? null : outputOf(k); return { id: k.id, reads: k.arrow.input.id, seated, type: o ? o.type || { error: o.warn || 'no value' } : null, of: k }; }))
     .map(e => e.piece ? { type: e.type, piece: e.piece.of } : { type: e.type, arrow: e.arrow.of });
 }
@@ -1503,24 +1701,24 @@ function definedBy(a, input){
    was made as (every use of a named arrow has to fit that, so it is theirs too). It does not depend on which arrow
    the space was opened through: going into a space never changes the project. Gives whether it changed. */
 function syncIn(def){
-  const a = def.owner && isArrow(def.owner) ? originOf(def.owner) : null, inner = a && def.blocks.find(k => k.in), input = inner && spaceWith(a) ? inputOf(a) : null, part = input && coveredType(full(a), input), u = view.unit;
+  const a = def.owner && isArrow(def.owner) ? originOf(def.owner) : null, inner = a && def.blocks.find(k => k.in), input = inner && spaceWith(a) ? sized(inputOf(a)) : null, part = input && coveredType(full(a), input), u = view.unit;
   if (!part) return false;
-  const sized = inner.rect.w !== part.cols * u || inner.rect.h !== part.rows * u, named = inner.sides.w !== (part.colsName || null) || inner.sides.h !== (part.rowsName || null);
-  if (sized) keepTouching(() => { inner.set({ ...inner.rect, w: part.cols * u, h: part.rows * u }); for (const k of kinOf(inner)) if (k !== inner) k.set({ ...k.rect, w: inner.rect.w, h: inner.rect.h }); });
+  const resized = inner.rect.w !== part.cols * u || inner.rect.h !== part.rows * u, named = inner.sides.w !== (part.colsName || null) || inner.sides.h !== (part.rowsName || null);
+  if (resized) keepTouching(() => { inner.set({ ...inner.rect, w: part.cols * u, h: part.rows * u }); for (const k of kinOf(inner)) if (k !== inner) k.set({ ...k.rect, w: inner.rect.w, h: inner.rect.h }); });
   inner.sides = { w: part.colsName || null, h: part.rowsName || null };
-  return sized || named;
+  return resized || named;
 }
 /* makes the block called in, in an arrow's definition space that has none: clear of the equation, on its left */
 function ensureIn(def, a){
   if (def.blocks.some(k => k.in)) return;
-  const u = view.unit, input = inputOf(a), part = (input && coveredType(full(a), input)) || { cols: 1, rows: 1 };
+  const u = view.unit, input = sized(inputOf(a)), part = (input && coveredType(full(a), input)) || { cols: 1, rows: 1 };
   const b = makeBlock({ ...typeNamed('tensor'), color: 'function' }, { x: -u * (3 + squares(part.cols, part.colsName)) - part.cols * u, y: Math.round(-part.rows / 2) * u, w: part.cols * u, h: part.rows * u }, 'in');
   b.in = true; b.sides = { w: part.colsName || null, h: part.rowsName || null }; def.blocks.push(b);
 }
 /* the entries of the block called in: whatever the arrow its space was opened through is given */
 function inValues(b){
   const s = spaceWith(b), a = s?.owner; if (!a || !isArrow(a)) return new Map();
-  const input = inputOf(a), part = input && covered(full(a), input);
+  const input = sized(inputOf(a)), part = input && covered(full(a), input);
   return part ? passed(input.values, part) : new Map();
 }
 /* the entries of a seated block: its arrow's output, where that is worked out. (In a hollow: not worked out yet.) */
@@ -1555,12 +1753,17 @@ function arrange(s = space){
   for (let pass = 0, again = true; again && pass < 8; pass++){ again = false; memo?.clear();
     const alg = s.blocks.some(hollowSeat) ? algebraIn(s) : null;
     for (const b of s.blocks){ let r = null;
-      if (isArrow(b)){ const input = inputOf(b); if (input && covered(b.arrow, input)) r = scaled(strip(b.arrow, input.rect));
+      if (isArrow(b)){ const input = inputOf(b);
+        /* an arrow that reads a tile reads all of it (tiles.js: whole), whatever the tile's counts have become */
+        if (sized(input) && b.arrow.input.as === 'tile'){ const all = tiles.whole(b.arrow, input); if (all.start !== b.arrow.start || all.span !== b.arrow.span){ b.arrow = all; again = any = true; } }
+        if (input && (input.error || covered(b.arrow, input))) r = scaled(strip(b.arrow, input.rect));
         const at = r || b.rect; b.point(b.arrow.side, cornersOf(b.arrow.side, at.w / u, at.h / u), at.w / u, at.h / u); }
       else if (typeof b.seat === 'string'){ const a = s.blocks.find(k => k.id === b.seat && isArrow(k)), o = a && outputOf(a); if (o?.place && !o.blocked) r = scaled(o.place); }      /* never onto another block */
       else if (b.seat){ const h = hollowOf(b.seat.hollow, s, alg); if (h) r = scaled(h.rect); }
       if (!r || (r.x === b.rect.x && r.y === b.rect.y && r.w === b.rect.w && r.h === b.rect.h)) continue;
-      const sized = r.w !== b.rect.w || r.h !== b.rect.h; b.set(r); if (sized && !isArrow(b)) agree(b); again = any = true; } }
+      /* an arrow repeated in a tile takes the tile with it: the tile lies along the arrow's input */
+      if (isArrow(b) && (r.x !== b.rect.x || r.y !== b.rect.y)){ const g = tileOf(b, s); if (g !== undefined && mapsIn(s, b, g)) shiftTile(s, g, Math.round((r.x - b.rect.x) / u), Math.round((r.y - b.rect.y) / u)); }
+      const resized = r.w !== b.rect.w || r.h !== b.rect.h; b.set(r); if (resized && !isArrow(b)) agree(b); again = any = true; } }
   memo?.clear();
   return any;
 }
@@ -1578,6 +1781,7 @@ function arrangeAll(){
    and, in the Menu, each written result of a piece of several shapes (each hollow it is written in). */
 function edgesHere(){
   const u = view.unit, out = [];
+  for (const g of space.repeats.keys()) out.push({ input: { id: g, as: 'tile' }, rect: tileInfo(space, g).rect });      /* first: where a tile's edge is also a block's, it is the tile that is meant */
   for (const b of space.blocks){ if (isOff(b) || hollowSeat(b)) continue;
     if (isArrow(b)){ const o = outputOf(b); if (o.place && o.type && !seatOn(b, space)) out.push({ input: { id: b.id, as: 'result' }, rect: o.place }); }
     else out.push({ input: { id: b.id, as: 'block' }, rect: unitsOf(b) }); }
@@ -1596,11 +1800,12 @@ const FREE = 'An arrow needs a free edge: another block lies against that part o
 function addArrow({ input, side, start = 1, span = 1, gap = 2, of = null, builtin = null, seat = null }){
   const from = of ? blockOf(of) : null, read = readOf(space, input);
   if (!read) return hud.say('There is nothing there to set an arrow against');
-  const arrow = { input: { id: input.id, as: input.as === 'result' ? 'result' : 'block', ...(input.as === 'result' && input.hollow ? { hollow: input.hollow } : {}) }, side, start, span, gap, gapName: null, output: null };
-  const can = settable(arrow, s => along(s) === 'rows' ? read.rows : read.cols, {});
+  let arrow = { input: { id: input.id, as: input.as === 'result' ? 'result' : input.as === 'tile' ? 'tile' : 'block', ...(input.as === 'result' && input.hollow ? { hollow: input.hollow } : {}) }, side, start, span, gap, gapName: null, output: null };
+  if (input.as === 'tile' && sized(read)) arrow = tiles.whole(arrow, read);      /* an arrow on a tile reads all of it */
+  const can = settable(arrow, s => !sized(read) ? null : along(s) === 'rows' ? read.rows : read.cols, {});
   if (can.refused) return hud.say(can.refused);
   if (!free(arrow, read.rect, othersOf(space, input))) return hud.say(FREE);
-  if (from){ const inner = innerOf(from), fit = inner ? fits(inner, coveredType(arrow, read)) : { ok: true }; if (fit.refused) return hud.say(`${bare(from.name)} does not fit there. ${fit.refused}`); }
+  if (from){ const inner = innerOf(from), fit = inner && sized(read) ? fits(inner, coveredType(arrow, read)) : { ok: true }; if (fit.refused) return hud.say(`${bare(from.name)} does not fit there. ${fit.refused}`); }
   const b = makeArrow(builtin || (from ? from.name : freeName())); b.arrow = arrow;
   if (from){ const o = originOf(from); b.ref = true; b.fn = o.fn; spaceOf.set(b, spaceOf.get(o)); const set = kin.get(o) || new Set([o]); set.add(b); for (const k of set) kin.set(k, set); }
   else { if (builtin) b.ref = true; spaceOf.set(b, newSpace(b, space)); }
@@ -1612,8 +1817,9 @@ function addArrow({ input, side, start = 1, span = 1, gap = 2, of = null, builti
 }
 function setArrow({ id, ...patch }){
   const a = blockOf(id); if (!a || !isArrow(a)) return;
-  const input = inputOf(a), n = side => input ? (along(side) === 'rows' ? input.rows : input.cols) : null, geo = {};
+  const input = sized(inputOf(a)), n = side => input ? (along(side) === 'rows' ? input.rows : input.cols) : null, geo = {};
   for (const k of ['side', 'start', 'span', 'gap', 'output']) if (k in patch) geo[k] = patch[k];
+  if (a.arrow.input.as === 'tile' && (('start' in geo && geo.start !== a.arrow.start) || ('span' in geo && geo.span !== a.arrow.span))){ hud.say('An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that'); return shown(); }
   if ('side' in geo && !('start' in geo) && !('span' in geo) && input && SIDES.includes(geo.side)) Object.assign(geo, sided(a.arrow, geo.side, n(a.arrow.side), n(geo.side)));      /* turned to another side: it covers what it can of that one */
   const got = settable(a.arrow, n, geo);
   if (got.refused){ hud.say(got.refused); return shown(); }
@@ -1653,7 +1859,7 @@ function seatBlock({ arrow = null, hollow = null, id = null, name = null, color 
 /* a drag that begins on an arrow selected alone: along its line changes the gap, along the input's edge the start,
    and by a handle at an end of its base the span. The arrow follows the pointer; one message says where it ended. */
 function dragArrow(a, el, from){
-  const u = view.unit, input = inputOf(a), was = a.arrow, handle = el.dataset.handle || null;
+  const u = view.unit, input = sized(inputOf(a)), was = a.arrow, handle = el.dataset.handle || null;
   if (!input){ hud.say('Its input is gone: there is nothing to move it along'); return { move(){}, end(){} }; }
   const rows = along(was.side) === 'rows', n = rows ? input.rows : input.cols, r = input.rect;
   const down = p => rows ? p.y / u - r.y : p.x / u - r.x;      /* how far along the edge, in units from its start */
@@ -1736,16 +1942,17 @@ function gather(){
     groups: tree(s, undefined),
     operations: s.ops.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(one), results: [...o.results], was: wasOf(o.was) })) });      /* what was cut here, each with the two blocks it keeps, whole */
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
-  const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
-    .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
+  const tree = (s, up) => [...framesIn(s)].filter(g => s.groupUp.get(g) === up)
+    .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g), ...(s.repeats.has(g) ? { repeat: repeatCopy(s.repeats.get(g)) } : {}) }));      /* a tile: its repeat, and never what it comes to */
   return { top: plain(top), saved: new Date().toISOString(), ids: ids.state() };
 }
 /* the reverse: everything on the page is replaced by what the data describes */
 function rebuild(data){
   go(top); select([]);
   for (const s of [top]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
-    s.blocks.length = 0; s.ops.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.frames.clear(); }
-  spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
+    for (const t of s.tiles.values()){ t.el.remove(); t.overEl.remove(); }
+    s.blocks.length = 0; s.ops.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.repeats.clear(); s.tiles.clear(); s.frames.clear(); }
+  spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null; pickedTile = null;
   ids = createIds(); if (data.ids) ids.restore(data.ids);
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
   const u = view.unit;
@@ -1765,7 +1972,7 @@ function rebuild(data){
   const fill = (plain, s) => {
     for (const d of plain.shapes) s.blocks.push(build(d, s));
     for (const o of plain.operations || []) s.ops.push({ id: o.id || ids.id('o'), op: o.op, sources: o.sources.map(d => build(d, s)), results: [...o.results], was: wasOf(o.was) });
-    const regroup = (g, up) => { const id = g.id || newGroup(); if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name);
+    const regroup = (g, up) => { const id = g.id || newGroup(); if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name); if (tiles.kept(g.repeat)) s.repeats.set(id, tiles.kept(g.repeat));
       for (const i of g.members) s.groupOf.set(s.blocks[i], id); for (const inner of g.groups || []) regroup(inner, id); };
     for (const g of plain.groups) regroup(g, undefined);
     tidy(s);
@@ -1832,9 +2039,12 @@ addEventListener('keydown', e => {
   if (e.key === 's' || e.key === 'S') return bus.send('select.box');
   /* F2 or Enter: rename the one selected block (the way to rename a block in a sum, whose name is written on it) */
   if ((e.key === 'F2' || e.key === 'Enter') && selected.size === 1){ e.preventDefault(); return renaming([...selected][0]); }
+  /* with a tile selected: F2 or Enter names it; x, Backspace or Delete takes the tile off, leaving its blocks */
+  if (pickedTile && !selected.size && (e.key === 'F2' || e.key === 'Enter')){ e.preventDefault(); return nameTile(pickedTile); }
+  if (pickedTile && !selected.size && (e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete')){ e.preventDefault(); return untiling(pickedTile); }
   /* f frames the selection; on a selection that is one frame already, it takes the frame off */
   if ((e.key === 'f' || e.key === 'F') && selected.size){ e.preventDefault(); const list = [...selected], g = groupIs(list);
-    return g !== null ? bus.send('unframe', { frame: g }) : bus.send('frame', { ids: idsOf(list) }); }
+    return g !== null ? (space.repeats.has(g) ? untiling(g) : bus.send('unframe', { frame: g })) : bus.send('frame', { ids: idsOf(list) }); }
   if ((e.key === 't' || e.key === 'T') && selected.size){ e.preventDefault(); return bus.send('transpose', { ids: idsOf(selected) }); }      /* t transposes the selection */
   /* x, Backspace or Delete removes the selected blocks. (Typing in a name or a measurement never reaches here.) */
   if ((e.key === 'x' || e.key === 'X' || e.key === 'Backspace' || e.key === 'Delete') && selected.size){ e.preventDefault(); removing('delete'); }
@@ -1844,16 +2054,19 @@ addEventListener('keydown', e => {
    By a side or corner: resize it. On a selected block: move every selected block. Both go in steps of the dots on
    screen. Anything else is left to the view, which pans. */
 function dragged(el, from, e){
+  const onTile = el.closest?.('[data-tile]');      /* a tile's frame: its edge, or the rest of it */
+  if (onTile && space.repeats.has(onTile.dataset.tile) && !el.isContentEditable) return dragTile(onTile.dataset.tile, onTile.dataset.tileEdge || null, from);
   const b = blockAt(el);
   if (!b || el.isContentEditable) return;
   if (isArrow(b) && selected.has(b) && selected.size === 1) return dragArrow(b, el, from);
   if (b.seat && selected.has(b) && selected.size === 1 && !el.dataset.grip) return dragSeated(b, from);
+  if (el.dataset.grip && b.from?.index){ hud.say(`${bare(b.name)} is the index of its block: it is that block's size`); return { end(){}, move(){} }; }
   if (el.dataset.grip && (b.seat || b.in)){ hud.say(b.in ? 'in is the function\'s input: its size is what the arrow covers' : `${bare(b.name)} is seated: its size is the output's`); return { end(){}, move(){} }; }
   const g = view.grid(), snap = v => Math.round(v / g) * g, cursor = c => { view.el.style.cursor = c; };
   /* while a drag lasts the blocks follow the pointer directly. When it ends they are put back as they were, and one
      message, 'place', says where every block that moved or changed size now goes. */
-  const before = new Map(everyKnown().map(b => [b, b.rect]));
-  const settle = () => { const rects = [];
+  const before = new Map(everyKnown().map(b => [b, b.rect])), tilesBefore = placesOfTiles();      /* a tile that followed its arrow during the drag is put back too */
+  const settle = () => { const rects = []; for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; }
     for (const [b, r] of before) if (b.rect !== r){ if (b.rect.x !== r.x || b.rect.y !== r.y || b.rect.w !== r.w || b.rect.h !== r.h) rects.push({ id: b.id, ...b.rect }); b.set(r); }
     if (rects.length) bus.send('place', { rects }); else shown(); };
   const end = () => { cursor(''); settle(); };
@@ -1872,7 +2085,7 @@ function dragged(el, from, e){
   }
   /* shift, on a block in a group: that one block is pulled free. Its groups' frames stay where they are while it is
      carried; let go outside them, it has left. (Let go still inside one, it is in that one.) */
-  const pulled = e?.shiftKey && chain(b).length ? chain(b).map(id => [id, boxOf(inGroup(id))]) : null;
+  const pulled = e?.shiftKey && chain(b).length ? chain(b).map(id => [id, frameBox(id)]) : null;
   if (pulled){ pick([b]); room.loose = new Map(pulled); }
   if (!selected.has(b)) return;
   const start = [...selected].map(b => [b, b.rect]);
@@ -1880,14 +2093,14 @@ function dragged(el, from, e){
   cursor('move');
   /* held over a group, that group lights up; let go there and the selection joins it */
   const held = new Set(selected), u = view.unit;
-  const others = [...new Set([...space.groupOf.values(), ...space.groupUp.keys(), ...space.groupUp.values()])].filter(id => { const m = inGroup(id); return m.length && !m.some(x => held.has(x)); })
-    .map(id => [id, boxOf(inGroup(id))]);      /* they do not move during the drag, so their boxes are worked out once */
+  const others = [...framesIn(space)].filter(id => { const m = inGroup(id); return (m.length || space.repeats.has(id)) && !m.some(x => held.has(x)); })
+    .map(id => [id, frameBox(id)]);      /* a tile takes what is let go on its pattern, blank or not */      /* they do not move during the drag, so their boxes are worked out once */
   const within = (p, r) => p.x >= r.x - u / 2 && p.x <= r.x + r.w + u / 2 && p.y >= r.y - 1.25 * u && p.y <= r.y + r.h + u / 2;      /* the frame stands a little off its blocks, more above */
   return {
     end(){ const host = room.host; room.host = null; room.loose = null;
       /* one block let go on an arrow's output is seated there, where it can be (arrows.js: seatable) */
       const onto = !pulled && held.size === 1 && !isArrow(b) && !b.seat ? outputUnder(b) : null;
-      if (onto){ cursor(''); for (const [k, r] of before) if (k.rect !== r) k.set(r); return bus.send('seat', { arrow: onto.id, id: b.id }); }
+      if (onto){ cursor(''); for (const [k, r] of before) if (k.rect !== r) k.set(r); for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; } return bus.send('seat', { arrow: onto.id, id: b.id }); }
       end();
       if (pulled && host === null){ const stays = pulled.find(([, r]) => within(last, r));      /* innermost first */
         return bus.send('frame.leave', { id: b.id, frame: stays ? stays[0] : null }); }
@@ -1929,6 +2142,10 @@ function clicked(el, e){
     }
     return;
   }
+  /* a tile's frame or its name: the tile is selected; its name, once it is, is typed over */
+  const onTile = el.closest?.('[data-tile]');
+  if (onTile && space.repeats.has(onTile.dataset.tile)){ const g = onTile.dataset.tile;
+    return onTile.dataset.tileGrab === 'name' && pickedTile === g ? nameTile(g) : bus.send('tile.pick', { frame: g }); }
   /* a shape standing in a matrix: it is the real shape, shown where it stands. A double click opens it, as it would on the canvas. */
   const stood = el.closest?.('[data-standing]');
   if (stood){ if (twice) bus.send('open', { id: stood.dataset.standing }); return; }
@@ -1981,8 +2198,16 @@ function clicked(el, e){
   pick(b ? members(b) : [], !!b && e.shiftKey);
 }
 
+/* lets the user type a tile's name, where it is written */
+function nameTile(g){ const tile = space.tiles.get(g); if (!tile) return; tile.nameEl.textContent = space.groupNames.get(g) || '';
+  editText(tile.nameEl, name => name && name !== space.groupNames.get(g) ? bus.send('name', { frame: g, ids: [], name, color: null }) : shown()); }
 /* what choosing a shape from "New" does, by the shape's "draw" */
 const draw = {
+  /* a tile: a rectangle dragged round blocks or over empty canvas is its pattern */
+  tile: () => { select([]); hud.say('Drag a rectangle round blocks, or over empty canvas: it is the pattern that repeats'); let last = null;
+    const u = view.unit, one = (r, sketch) => { last = r; sketch.set({ x: r.x, y: r.y, unit: u, xs: [{ cell: 1, at: 0, size: r.w / u }], ys: [{ cell: 1, at: 0, size: r.h / u }], w: r.w / u, h: r.h / u, selected: true }); };
+    return drawRectangle(view, rect => { const sketch = createTile(); one(rect, sketch); return { el: sketch.el, set: r => one(r, sketch) }; }).then(made => { if (!made) return; made.el.remove();      /* what was drawn was a sketch: the message makes the tile */
+      bus.send('tile.add', { rect: last }); }); },
   rectangle: (shape, source = null) => { select([]); const name = freeName();
     return drawRectangle(view, rect => createBlock(shape, rect, name)).then(block => { if (!block) return; block.el.remove();      /* what was drawn was a sketch: the message makes the block */
       bus.send('add', { type: shape.name, rect: block.rect, name, ...(source ? { source } : {}) }); }); },
@@ -2006,10 +2231,10 @@ const draw = {
 const changes = { changes: true };
 /* ---- undo and redo ----
    History is a tap on the bus (history.js). What it keeps is the whole project as it is saved, with where the user
-   was: the space they were in and what was selected. Putting one back rebuilds the project from it (every block and
+   was: the space they were in and what was selected (blocks, or a tile). Putting one back rebuilds the project from it (every block and
    group has its id again), keeps each space's view where it now is, and goes back to that place. */
 const history = createHistory(bus, {
-  snap: () => { const data = gather(); return { data, text: JSON.stringify(data.top), path: trail().slice(1).map(s => s.owner.id), selected: idsOf(selected) }; },
+  snap: () => { const data = gather(); return { data, text: JSON.stringify(data.top), path: trail().slice(1).map(s => s.owner.id), selected: idsOf(selected), tile: pickedTile }; },
   same: (a, b) => a.text === b.text,
   restore(state){
     const views = new Map([[null, space === top ? view.camera() : top.camera]]);      /* each space's camera, by the id of the block it defines */
@@ -2020,6 +2245,7 @@ const history = createHistory(bus, {
     view.look(top.camera);
     for (const id of state.path){ const b = space.blocks.find(x => x.id === id); if (!b) break; open(b); }
     select(state.selected.map(blockOf).filter(b => b && space.blocks.includes(b)));
+    if (state.tile && space.repeats.has(state.tile)){ pickedTile = state.tile; shown(); }      /* or the tile that was */
   } });
 bus.on('undo', () => { const type = history.undo(); hud.say(type ? 'Undid ' + type : 'Nothing to undo'); });
 bus.on('redo', () => { const type = history.redo(); hud.say(type ? 'Redid ' + type : 'Nothing to redo'); });
@@ -2032,10 +2258,10 @@ bus.on('select.box', () => {                   /* s: drag a box; every block it 
     const hit = space.blocks.filter(b => b.rect.x < r.x + r.w && b.rect.x + b.rect.w > r.x && b.rect.y < r.y + r.h && b.rect.y + b.rect.h > r.y);
     /* a block the box touches brings its group only if the box crosses that group's frame or surrounds it: a box drawn
        wholly inside a frame picks out what it touches there (which may be a group inside, by the same rule) */
-    const frame = g => { const m = boxOf(inGroup(g)), grow = namedBelow(g); return { x: m.x - 12 - 14 * grow, y: m.y - 32 - 34 * grow, w: m.w + 2 * (12 + 14 * grow), h: m.h + 32 + 34 * grow + 12 + 14 * grow }; };      /* as bounds.js draws it */
+    const frame = g => { const m = frameBox(g), grow = namedBelow(g); return { x: m.x - 12 - 14 * grow, y: m.y - 32 - 34 * grow, w: m.w + 2 * (12 + 14 * grow), h: m.h + 32 + 34 * grow + 12 + 14 * grow }; };      /* as bounds.js draws it */
     const within = f => r.x > f.x && r.y > f.y && r.x + r.w < f.x + f.w && r.y + r.h < f.y + f.h;
     pick(new Set(hit.flatMap(b => { const g = chain(b).reverse().find(g => !within(frame(g))); return g === undefined ? [b] : inGroup(g); }))); }); });
-bus.on('escape', () => selected.size || !space.parent || boxing ? select([]) : out());      /* with nothing selected, Escape steps out of a definition space */
+bus.on('escape', () => selected.size || pickedTile || !space.parent || boxing ? select([]) : out());      /* with nothing selected, Escape steps out of a definition space */
 bus.on('open', ({ id }) => { const b = blockOf(id); if (b) open(b); });
 bus.on('space.out', out); bus.on('space.back', backIn);
 bus.on('space.go', ({ index }) => { deeper.length = 0; go(trail()[index]); });
@@ -2045,7 +2271,7 @@ bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); if (b && !s
   menuAt = view.toWorld(x, y); menu.openAt(x, y); });
 bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size && !openField) select([]); if (kind === 'length' && !openField?.over(x, y)) reach(x, y); });      /* while a formula is being typed the selection stays, and with it the panel the formula is in */
 bus.on('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); });
-bus.on('new', ({ type, source = null }) => { const shape = typeNamed(type); return draw[shape.draw]?.(shape, sourceKept(source)); });      /* begins drawing; 'add' is the block. source: the kind of source to draw (sources.js), for a tensor */
+bus.on('new', ({ type, source = null }) => { if (type === 'tile') return draw.tile(); const shape = typeNamed(type); return draw[shape.draw]?.(shape, sourceKept(source)); });      /* begins drawing; 'add' is the block. source: the kind of source to draw (sources.js), for a tensor */
 bus.on('copy', ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
 bus.on('save', ({ name = null }) => save(name));      /* name: what was typed when asked what to save it as */
 bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () => zipPicker.click());
@@ -2078,6 +2304,28 @@ bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) retur
        block with that id (which must be one that can be seated; the arrow's output size becomes its size), or a new one of that name,
        in that colour or, with none given, one drawn here from the project's own chance, so that undoing it puts that back too.
    unseat { id }: the block is no longer seated. It stays where it is, with the entries it had before. */
+/* tiles (tiles.js has every rule; see "tiles", above).
+   tile.pick { frame }: the tile is selected, in place of any blocks. Changes nothing.
+   tile.add { rect }: a tile drawn as that rectangle (world coordinates): its pattern. The blocks wholly inside it are
+       in it; with none it is empty. Counts start at 1. Refused over another tile.
+   tile.set { frame, x, y, cols, rows, across, down }: whichever are given, changed. x, y move the tile and its blocks;
+       cols, rows are the pattern's size; across, down a count: a whole number of at least 1, or { expr } that comes
+       to one from sizes alone. Refused, with a sentence, where a count is no such number or the tile would lie over another.
+   tile.remove { frame, also }: the tile is taken off. Its blocks stay; also: the arrows that read it, and what goes with them.
+   index.add { of, axis, at, stand }: the index of the block `of` (which is in a tile) as a matrix, index.x or
+       index.y, set down in that block's definition space at a point; with stand, standing in the definition's matrix. */
+bus.on('tile.pick', ({ frame }) => { selected.clear(); pickedTile = space.repeats.has(frame) ? frame : null; shown(); });
+bus.on('tile.add', ({ rect }) => addTile(rect), changes);
+bus.on('tile.set', setTile, changes);
+bus.on('tile.remove', ({ frame, also = [] }) => { if (!space.repeats.has(frame)) return; ungroup(frame); tidy(); if (pickedTile === frame) pickedTile = null;
+  discard(also.map(blockOf).filter(Boolean)); shown(); hud.say('The tile is taken off: what was in its first cell stays'); }, changes);
+bus.on('index.add', ({ of, axis, at, stand = false }) => { const owner = space.owner && [...kinOf(space.owner)].some(k => k.id === of) ? space.owner : null, u = view.unit, on = v => Math.round(v / u) * u;
+  if (!owner) return hud.say('The index of a block goes into that block\'s own definition space');
+  if (tileOf(owner, spaceWith(owner)) === undefined) return hud.say(`${bare(owner.name)} is in no tile: it has no index`);
+  const which = axis === 'y' ? 'y' : 'x', b = makeBlock({ ...typeNamed('tensor'), color: owner.shape.color }, { x: on(at.x - owner.rect.w / 2), y: on(at.y - owner.rect.h / 2), w: owner.rect.w, h: owner.rect.h }, 'index.' + which);
+  b.from = { id: owner.id, index: which }; b.ref = true; space.blocks.push(b); view.world.append(b.el);
+  if (stand) return slotIn(owner, b, 0, 0);
+  select([b]); }, changes);
 bus.on('arrow.add', addArrow, changes);
 bus.on('arrow.set', setArrow, changes);
 bus.on('seat', seatBlock, changes);
@@ -2089,6 +2337,7 @@ bus.on('unseat', ({ id }) => { const b = blockOf(id); if (b && b.seat) b.seat = 
 bus.on('entry.set', ({ id, key, text = null, settle = false }) => { const o = blockOf(id);
   if (o && measures(o)){ const src = sourceOf(o); hud.say(`${bare(o.name)} is a length of ${src ? bare(src.name) : 'another shape'}: change it there`); return shown(); }
   if (o && rangedOf(o)){ hud.say(`${bare(o.name)} is part of ${partOf(o)}: change it there`); return shown(); }      /* a part has no entries of its own */
+  if (o && indexedOf(o)){ hud.say(`${bare(o.name)} is the index of its block: its numbers are that block's place in its tile`); return shown(); }
   if (o && typable(o.source, bare(o.name)).refused){ hud.say(typable(o.source, bare(o.name)).refused); return shown(); }      /* nor has a source */
   if (o && (isArrow(o) || givenOf(o) || seatedOf(o))){ hud.say(isArrow(o) ? 'An arrow\'s output is worked out: change its input or its formula' : givenOf(o) ? 'in is whatever the arrow is given: change the arrow\'s input' : `${bare(o.name)} is seated: its value is the arrow's output`); return shown(); }
   if (o){ const t = text === null ? { text: '' } : bound(text, reachList()), got = t.refused ? t : entered(t.text, lookupFor(o), { settle });
@@ -2104,13 +2353,15 @@ bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b
 bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(b, dim, text); shown(); }, changes);
 /* a frame is several shapes held together (in the code, and in projects saved before, a group) */
 bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown(); hud.say('Framed: click its name to name it'); }, changes);
-bus.on('unframe', ({ frame: g }) => { ungroup(g); tidy(); shown(); hud.say('Frame taken off'); }, changes);
+bus.on('unframe', ({ frame: g }) => { if (space.repeats.has(g)){ hud.say('That frame is a tile: select the tile by its edge or its name, and press Delete to take it off'); return shown(); }
+  ungroup(g); tidy(); shown(); hud.say('Frame taken off'); }, changes);
 bus.on('frame.enter', ({ ids, frame: host }) => { const held = new Set(ids.map(blockOf).filter(Boolean));
+  if ([host, ...upFrom(host).slice(1)].some(g => space.repeats.has(g)) && [...held].some(b => tileOf(b) !== undefined)){ hud.say('A tile does not go inside another tile: each repeats on its own'); return shown(); }
   for (const b of held){ const outer = chain(b).at(-1);
     if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group */
   tidy(); shown(); }, changes);
 /* a whole frame set down again from the list: everything in it, made anew, centred where it was dropped */
-bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupNames.has(frame)); if (!s) return;
+bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupNames.has(frame) || s.repeats.has(frame)); if (!s) return;
   const pictures = inGroup(frame, s).map(b => picture(b, s));
   for (const p of pictures) p.groups = p.groups.slice(0, p.groups.findIndex(g => g.id === frame) + 1);      /* the frame and what is inside it, not the frames it is in */
   /* what comes from the list is the variables themselves, not copies: each named shape in the new frame is a
@@ -2154,7 +2405,8 @@ const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
   /* New: a kind of block to draw. Tensor is drawn by clicking it, as before; resting on it opens the sources (sources.js), each drawn the same way */
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }),
-    ...(shape.name === 'tensor' ? { items: SOURCES.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind }) })) } : {}) })) },
+    ...(shape.name === 'tensor' ? { items: SOURCES.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind }) })) } : {}) }))
+    .concat([{ label: 'Tile', run: () => bus.send('new', { type: 'tile' }) }]) },      /* a tile is no kind of block: it is drawn round them */
   { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
   { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },
   { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => removing('cut') },
