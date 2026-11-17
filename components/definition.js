@@ -17,9 +17,9 @@
      name         the block's name, written above the right-hand matrix
      letter       the block's initials, for the right-hand matrix's entries
      color        the theme colour to write the right-hand matrix and the name in; left out, the ordinary text colour
-     values       the entries that have been given a number (see matrix.js)
+     values       the entries that have come to a value (see matrix.js)
      tiles        the shapes that stand in for some of the right-hand matrix's entries (see matrix.js)
-     editable     whether the right-hand matrix's entries can be pressed, to give them numbers
+     editable     whether the right-hand matrix's entries can be pressed, to type a value or a formula over them
      colsName, rowsName   the names of the block's sides, where it has them
      unit         world units to one "u"
      check        takes what the space's contents come to: null for nothing yet; { cols, rows, colsName, rowsName }

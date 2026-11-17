@@ -9,7 +9,8 @@
      nameEl   the element showing the name
      sides    { w, h }: the names of its width and its height, null where unnamed. Kept here for whoever names them;
               the block itself does nothing with them.
-     values   a Map from "column,row" to a number: the entries of this variable that have been given one.
+     values   a Map from "column,row" to what that entry of this variable holds, for the entries given anything: a
+              literal value or a formula, { expr } (expression.js).
               Kept here for the same reason.
      set      moves and resizes it
      select   shows or hides the selection halo, and brings the block in front of the others

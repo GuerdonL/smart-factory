@@ -1,0 +1,27 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b2zsofy",
+  "type": "tensor",
+  "name": "Tau",
+  "named": true,
+  "commented": false,
+  "color": "variable-4",
+  "position": {
+    "x": -30,
+    "y": -9
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 38
+}

@@ -1,0 +1,32 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bl6p6vm",
+  "type": "tensor",
+  "name": ".fanta",
+  "named": true,
+  "commented": false,
+  "color": "variable-4",
+  "position": {
+    "x": -4,
+    "y": 0
+  },
+  "size": {
+    "cols": 3,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 255,
+      "2,1": 138,
+      "3,1": 48
+    }
+  },
+  "order": 3,
+  "tile": true
+}

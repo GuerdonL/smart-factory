@@ -18,7 +18,8 @@
      onDrag   called as it moves, with the item and the pointer's screen position
      onDrop   called when it is let go anywhere off this list, with the same
      onEnd    called when the drag is over, however it ended
-   While dragging, a copy of the item follows the pointer. */
+   While dragging, a copy of the item follows the pointer. Pressing an item does not take the cursor from wherever it
+   is, so an item can be dragged onto a formula that is being typed. */
 import { html, style } from './dom.js';
 
 const RULER = `<svg viewBox="0 0 24 12"><path d="M1.5 6h21M1.5 2v8M22.5 2v8M6.75 6v-2.5M12 6V2.5M17.25 6v-2.5"/></svg>`;

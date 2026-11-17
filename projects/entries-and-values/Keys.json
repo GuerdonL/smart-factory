@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bnu6sgx",
+  "type": "tensor",
+  "name": "Keys",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": -30,
+    "y": -16
+  },
+  "size": {
+    "cols": 4,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 37,
+  "attributes": [
+    {
+      "name": "heads",
+      "value": "x / 2"
+    }
+  ]
+}

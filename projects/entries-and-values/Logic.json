@@ -1,0 +1,44 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bqd2wmp",
+  "type": "tensor",
+  "name": "Logic",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": -22,
+    "y": -11
+  },
+  "size": {
+    "cols": 3,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": {
+        "expr": "select(2 > 3, 1/0, 5)"
+      },
+      "2,1": {
+        "expr": "1/0"
+      },
+      "3,1": {
+        "expr": "@[bnu6sgx:x] > @[bnu6sgx:y] && !(1 == 2)"
+      },
+      "1,2": {
+        "expr": "max(@[bnu6sgx:y], 7/2)"
+      },
+      "2,2": {
+        "expr": "select(@[bnu6sgx:x] >= 4, -inf, 0)"
+      },
+      "3,2": true
+    }
+  },
+  "order": 41
+}
