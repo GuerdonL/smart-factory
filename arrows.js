@@ -56,7 +56,7 @@
    check(promise, came)         -> { ok, note }: whether what the function comes to is what was promised. promise is
                                    { cols, rows, colsName, rowsName } or null (nothing promised: nothing checked).
                                    Where both name a side the names must be the same.
-   standing(arrow, input, others, names, defined, { loops, inner, map }) -> { warn, part, came, type, place, blocked }
+   standing(arrow, input, others, names, defined, { loops, inner, map, drawn }) -> { warn, part, came, type, place, blocked }
                                    everything about one arrow as it stands. input is null where it is gone, else
                                    { rect, cols, rows, colsName, rowsName }; others are the rects of the blocks that
                                    could lie against its edge; names are the side names that go with the promise
@@ -77,6 +77,9 @@
                                    is repeated count times along its input, and what it comes to is every cell's
                                    output set beside the last in that direction (spread): one output, checked
                                    against the promise as a whole. Its edge has to be free under every cell.
+                                   drawn: the arrow as it is drawn where that is not as it reads (against a tile
+                                   drawn elided: tiles.js, drawnOn): its base, the edge that has to be free and
+                                   the output's place go by it; what it covers and comes to go by the arrow.
    spread(type, count, side)    -> a type set beside itself count times along the edge an arrow on that side runs
                                    along: count times the rows for e and w, the columns for n and s. The side that
                                    was repeated keeps no name.
@@ -253,16 +256,16 @@ export function functionFor(name, levels){
 }
 const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 export const spread = (type, count, side) => !type || type.error || count === 1 ? type : along(side) === 'rows' ? { ...type, rows: type.rows * count, rowsName: null } : { ...type, cols: type.cols * count, colsName: null };
-export function standing(arrow, input, others = [], names = null, defined = null, { loops = false, inner = null, map = null } = {}){
+export function standing(arrow, input, others = [], names = null, defined = null, { loops = false, inner = null, map = null, drawn = null } = {}){
   const promise = arrow.output ? { cols: arrow.output.cols, rows: arrow.output.rows, colsName: names?.colsName || null, rowsName: names?.rowsName || null } : null;
   if (loops) return { warn: 'it depends on itself', part: null, came: null, type: null, place: null, blocked: false };
   if (!input) return { warn: 'its input is gone', part: null, came: null, type: promise, place: null, blocked: false };
   if (input.error) return { warn: input.error, part: null, came: null, type: promise, place: null, blocked: false };
   const part = coveredType(arrow, input);
   if (!part) return { warn: 'its span runs past its input', part: null, came: null, type: promise, place: null, blocked: false };
-  const times = map ? map.count : 1, n = along(arrow.side) === 'rows' ? input.rows : input.cols, under = { ...arrow, span: Math.min(arrow.span * times, n - arrow.start + 1) };      /* every cell's base */
+  const times = map ? map.count : 1, n = along(arrow.side) === 'rows' ? input.rows : input.cols, under = drawn || { ...arrow, span: Math.min(arrow.span * times, n - arrow.start + 1) };      /* every cell's base; or the base as it is drawn */
   const to = spread(came(arrow, part, defined), times, arrow.side), ok = check(promise, to), type = promise || (to.error ? null : to);
-  const at = type ? place(arrow, input.rect, type) : null, blocked = !!names && !!at && others.some(o => over(o, at)), fit = inner ? fits(inner, part) : { ok: true };
+  const at = type ? place(drawn || arrow, input.rect, type) : null, blocked = !!names && !!at && others.some(o => over(o, at)), fit = inner ? fits(inner, part) : { ok: true };
   const warn = !free(under, input.rect, others) ? 'the edge under it is not free' : map?.warn ? map.warn : to.error ? `what defines it has no size: ${to.error}`
     : !ok.ok ? `it promises ${promise.cols}×${promise.rows} and comes to ${to.cols}×${to.rows}` + (ok.note.includes('×') ? '' : `: ${ok.note}`)
     : fit.refused ? 'its input does not fit the function: ' + fit.refused : blocked ? 'its output would lie on another block: the block seated on it is left where it was' : null;

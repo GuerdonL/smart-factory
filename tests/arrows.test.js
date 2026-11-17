@@ -467,3 +467,15 @@ test('an entry formula asks for a name with the entry\'s place, for what depends
   assert.deepEqual([...got], [['1,1', 111], ['2,1', 221], ['1,2', 132], ['2,2', 242]]);
   assert.deepEqual(asked, [['index.x', 1, 1], ['index.x', 2, 1], ['index.x', 1, 2], ['index.x', 2, 2]]);
 });
+
+test('an arrow drawn shorter than it reads: the free edge and the output\'s place go by what is drawn', () => {
+  const rect = (x, y, w, h) => ({ x, y, w, h });
+  /* a tile drawn 2 tall whose matrix is 3 by 4; a block below the drawn tile, two units down, against the same line */
+  const input = { rect: rect(-30, -6, 3, 2), cols: 3, rows: 4, colsName: null, rowsName: null }, a = arrow('e', 1, 4, 2), below = [rect(-27, -4, 2, 2)];
+  assert.equal(standing(a, input, below).warn, 'the edge under it is not free');                       /* as it reads, rows 3 and 4 would be against that block */
+  const st = standing(a, input, below, null, null, { drawn: { ...a, span: 2 } });
+  assert.equal(st.warn, null); assert.deepEqual(st.type, { cols: 3, rows: 4, colsName: null, rowsName: null });      /* the output is the real size */
+  assert.deepEqual(st.place, { x: -25, y: -6, w: 3, h: 4 });
+  /* a block that does lie against the drawn edge is still in the way */
+  assert.equal(standing(a, input, [rect(-27, -5, 2, 2)], null, null, { drawn: { ...a, span: 2 } }).warn, 'the edge under it is not free');
+});

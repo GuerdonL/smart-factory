@@ -121,6 +121,11 @@
    whole(arrow, size)            -> the arrow as it reads a tile: all of the tile's matrix, start 1 and the whole
                                     side ({ cols, rows }) for its span. A tile is not a matrix to take rows of: the
                                     rows are taken from the block seated on the output.
+   drawnOn(arrow, rect)          -> the arrow as it is drawn against a tile whose footprint is rect: its base runs
+                                    the whole of the edge as that is drawn, from its first unit, however many rows
+                                    or columns the tile's matrix really has. An elided tile is drawn shorter than
+                                    its matrix: the base, and what has to be clear of it (arrows.js: free), go by
+                                    the drawn edge, while the output keeps the matrix's real size.
    spanned(arrow, patch)         -> { ok: true } | { refused }: whether an arrow that reads a tile can be changed as
                                     patch says: not its start or its span, to anything but what they are
 
@@ -258,6 +263,7 @@ export function entries(repeat, across, down, rects, valuesIn){
 }
 export const whole = (arrow, size) => ({ ...arrow, start: 1, span: along(arrow.side) === 'rows' ? size.rows : size.cols });
 
+export const drawnOn = (arrow, rect) => ({ ...arrow, start: 1, span: along(arrow.side) === 'rows' ? rect.h : rect.w });
 export const spanned = (arrow, patch) => ('start' in patch && patch.start !== arrow.start) || ('span' in patch && patch.span !== arrow.span)
   ? { refused: 'An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that' } : { ok: true };
 

@@ -1617,7 +1617,9 @@ function readOf(s, inp){
   return writtenOf(s, blk, inp.hollow);
 }
 const inputOf = a => readOf(spaceWith(a), a.arrow.input);
-const sized = input => input && !input.error ? input : null;      /* an input that has a size: not one that is gone, nor a tile with no matrix */
+const sized = input => input && !input.error ? input : null;
+/* an arrow as it is drawn against a tile: along the edge as the tile is drawn (tiles.js: drawnOn); null for any other arrow, which is drawn as it reads */
+const drawnOf = (arrow, input) => arrow.input.as === 'tile' && input ? tiles.drawnOn(arrow, input.rect) : null;      /* an input that has a size: not one that is gone, nor a tile with no matrix */
 /* Where each piece's result is written in space s, worked out from the blocks alone, so that it is the same whether
    or not s is on screen: [{ piece, blocks, type, copies, usable, drawn, where, whole, body, at }], in units. usable
    and drawn are the pair's hollows the result could be, and is, written in (algebra.js); where is its place beside
@@ -1684,7 +1686,7 @@ function outputOf(a){
     const g = s ? tileOf(a, s) : undefined, tile = sized(input) && g !== undefined && mapsIn(s, a, g) ? tileInfo(s, g) : null, rows = along(arrow.side) === 'rows';
     const map = tile ? tiles.mapped(arrow, tile.rep, tile.across, tile.down, rows ? input.rows : input.cols) : null;
     /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
-    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map });
+    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map, drawn: drawnOf(arrow, sized(input)) });
     let values = null;
     const large = map && st.came && !st.came.error && !tiles.small(st.came.cols, st.came.rows), note = large ? tiles.tooLarge(st.came.cols, st.came.rows) : sized(input)?.note || null;      /* an output of every cell that is too large to work out: its size, and why */
     if (large) values = new Map();
@@ -1782,7 +1784,7 @@ function arrange(s = space){
       if (isArrow(b)){ const input = inputOf(b);
         /* an arrow that reads a tile reads all of it (tiles.js: whole), whatever the tile's counts have become */
         if (sized(input) && b.arrow.input.as === 'tile'){ const all = tiles.whole(b.arrow, input); if (all.start !== b.arrow.start || all.span !== b.arrow.span){ b.arrow = all; again = any = true; } }
-        if (input && (input.error || covered(b.arrow, input))) r = scaled(strip(b.arrow, input.rect));
+        if (input && (input.error || covered(b.arrow, input))) r = scaled(strip(drawnOf(b.arrow, input) || b.arrow, input.rect));      /* against a tile, along its edge as it is drawn */
         const at = r || b.rect; b.point(b.arrow.side, cornersOf(b.arrow.side, at.w / u, at.h / u), at.w / u, at.h / u); }
       else if (typeof b.seat === 'string'){ const a = s.blocks.find(k => k.id === b.seat && isArrow(k)), o = a && outputOf(a); if (o?.place && !o.blocked) r = scaled(o.place); }      /* never onto another block */
       else if (b.seat){ const h = hollowOf(b.seat.hollow, s, alg); if (h) r = scaled(h.rect); }
@@ -1830,7 +1832,7 @@ function addArrow({ input, side, start = 1, span = 1, gap = 2, of = null, builti
   if (input.as === 'tile' && sized(read)) arrow = tiles.whole(arrow, read);      /* an arrow on a tile reads all of it */
   const can = settable(arrow, s => !sized(read) ? null : along(s) === 'rows' ? read.rows : read.cols, {});
   if (can.refused) return hud.say(can.refused);
-  if (!free(arrow, read.rect, othersOf(space, input))) return hud.say(FREE);
+  if (!free(drawnOf(arrow, read) || arrow, read.rect, othersOf(space, input))) return hud.say(FREE);
   if (from){ const inner = innerOf(from), fit = inner && sized(read) ? fits(inner, coveredType(arrow, read)) : { ok: true }; if (fit.refused) return hud.say(`${bare(from.name)} does not fit there. ${fit.refused}`); }
   const b = makeArrow(builtin || (from ? from.name : freeName())); b.arrow = arrow;
   if (from){ const o = originOf(from); b.ref = true; b.fn = o.fn; spaceOf.set(b, spaceOf.get(o)); const set = kin.get(o) || new Set([o]); set.add(b); for (const k of set) kin.set(k, set); }
@@ -1851,7 +1853,7 @@ function setArrow({ id, ...patch }){
   if (got.refused){ hud.say(got.refused); return shown(); }
   const next = got.arrow;
   if (input && ('side' in geo || 'start' in geo || 'span' in geo)){
-    if (!free(next, input.rect, othersOf(space, a.arrow.input))){ hud.say(FREE); return shown(); }
+    if (!free(drawnOf(next, input) || next, input.rect, othersOf(space, a.arrow.input))){ hud.say(FREE); return shown(); }
     const inner = a.ref && !isUse(a) ? innerOf(a) : null, fit = inner ? fits(inner, coveredType(next, input)) : { ok: true };
     if (fit.refused){ hud.say(`${bare(a.name)} would not fit its input. ${fit.refused}`); return shown(); } }
   if ('gapName' in patch) next.gapName = String(patch.gapName || '').trim() || null;

@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { movable, held, settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { drawnOn, movable, held, settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -274,6 +274,16 @@ test('a matrix that comes of a tile is worked out up to 4096 entries, and past t
 test('an arrow that reads a tile reads all of it', () => {
   assert.deepEqual(whole({ side: 'e', start: 2, span: 1, gap: 2 }, { cols: 4, rows: 3 }), { side: 'e', start: 1, span: 3, gap: 2 });
   assert.deepEqual(whole({ side: 's', start: 1, span: 1, gap: 1 }, { cols: 4, rows: 3 }), { side: 's', start: 1, span: 4, gap: 1 });
+});
+
+test('an arrow on a tile is drawn along the edge as the tile is drawn, not as long as its matrix', () => {
+  /* a 3 by 1 pattern whose down follows a height of 4: drawn as one pattern and an ellipsis, 2 units tall; its matrix has 4 rows */
+  const foot = footprint(rep(3, 1, 1, 1, -30, -6), 1, 4, { down: true }), a = whole({ side: 'e', start: 1, span: 1, gap: 2 }, { cols: 3, rows: 4 });
+  assert.deepEqual(foot, { x: -30, y: -6, w: 3, h: 2 }); assert.equal(a.span, 4);
+  assert.deepEqual(drawnOn(a, foot), { side: 'e', start: 1, span: 2, gap: 2 });      /* the base is the drawn edge */
+  assert.deepEqual(drawnOn({ ...a, side: 's' }, foot).span, 3);
+  /* drawn in full, the two agree */
+  assert.equal(drawnOn(a, footprint(rep(3, 1, 1, 1, -30, -6), 1, 4)).span, 4);
 });
 
 test('map: an arrow in a tile is repeated along its input, each cell one span on', () => {
