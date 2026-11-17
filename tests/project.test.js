@@ -339,7 +339,7 @@ test('an arrow that reads a tile, and the index as a matrix, come back as they w
 const here = fileURLToPath(new URL('../projects/', import.meta.url));
 const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const count = s => s.shapes.reduce((n, sh) => n + 1 + (sh.inside ? count(sh.inside) : 0), 0);
-for (const name of ['default-menu', 'example', 'touch-algebra', 'boolean-tool', 'entries-and-values', 'arrows']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
+for (const name of ['default-menu', 'example', 'touch-algebra', 'boolean-tool', 'entries-and-values', 'arrows', 'sources-and-tiles']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
   const p = read(tree(join(here, name)));
   assert.equal(p.converted, 0); assert.equal(p.changed, 0);
   assert.ok(count(p.top) > 0, 'it has shapes');
@@ -530,4 +530,34 @@ test('projects/arrows holds each kind of arrow, every input and seat naming some
   const carried = arrows.find(a => a.arrow.input.hollow); assert.deepEqual(carried.arrow.input, { id: by('Weights')[0].id, as: 'result', hollow: 1 }); assert.equal(by('Gated')[0].seat, carried.id);
   /* nothing that was worked out is in a file: H's entries are its arrow's, and are not written */
   assert.deepEqual(by('H')[0].entries, {});
+});
+
+test('every project that comes with the repository says "standing" for a standing shape, and none says "tile"', () => {
+  let standing = 0;
+  for (const name of readdirSync(here).filter(n => statSync(join(here, n)).isDirectory())) for (const f of tree(join(here, name))){
+    assert.equal(/"tile"\s*:/.test(f.text), false, name + '/' + f.path + ' still says tile'); if (/"standing": true/.test(f.text)) standing++; }
+  assert.ok(standing >= 12);
+  /* the default Menu's six colour rows, light and dark, stand in .variable_colors' matrix */
+  const menu = read(tree(join(here, 'default-menu'))), every = [], walk = sp => { for (const d of sp.shapes){ every.push(d); if (d.inside) walk(d.inside); } }; walk(menu.top);
+  assert.equal(every.filter(d => d.standing).length, 12);
+});
+
+test('projects/sources-and-tiles holds sources, standing shapes, a tile read by an arrow, the index, and a mapped arrow', () => {
+  const p = read(tree(join(here, 'sources-and-tiles'))), top = p.top.shapes, by = name => top.find(d => d.name === name), tile = name => p.top.groups.find(g => g.name === name);
+  assert.deepEqual(['Eye', 'Wide', 'Zero', 'One'].map(n => [by(n).source, by(n).entries]), [['identity', {}], ['identity', {}], ['zeros', {}], ['ones', {}]]);
+  /* Bias in a tile whose down follows X's height; the arrow that reads the tile; B seated on it */
+  const rows = tile('Every row'); assert.deepEqual(rows.repeat.down, { expr: `@[${by('X').id}:y]` }); assert.deepEqual(rows.members.map(i => top[i].name), ['Bias']);
+  const out = top.find(d => d.arrow?.input.as === 'tile'); assert.equal(out.arrow.input.id, rows.id); assert.equal(by('B').seat, out.id);
+  assert.deepEqual([rows.repeat.cols, rows.repeat.rows, by('Bias').cols, by('Bias').rows, by('Bias').x - rows.repeat.x, by('Bias').y - rows.repeat.y], [4, 1, 4, 1, 0, 0]);      /* the pattern is covered exactly */
+  /* the index, in entries */
+  assert.deepEqual(by('Place').entries, { '1,1': { expr: 'index.x + index.y' } }); assert.deepEqual([tile('Index').repeat.across, tile('Index').repeat.down], [2, 2]);
+  /* map: relu is in the tile, its input M is not, and the pattern is as wide as its span */
+  const relu = by('relu'), map = tile('Every column');
+  assert.equal(relu.arrow.formula, 'max(x, 0)'); assert.equal(relu.arrow.input.id, by('M').id); assert.deepEqual(map.members.map(i => top[i].name), ['relu']);
+  assert.deepEqual([map.repeat.cols, relu.arrow.span, map.repeat.across, map.repeat.down, relu.arrow.side], [1, 1, 4, 1, 's']); assert.equal(by('R').seat, relu.id);
+  /* standing shapes */
+  assert.deepEqual(by('Stack').inside.shapes.map(d => [d.name, d.standing]), [['Bias', true], ['Bias', true]]);
+  /* nothing names what is not there */
+  const ids = new Set([...top.map(d => d.id), ...p.top.groups.map(g => g.id)]);
+  for (const d of top.filter(d => d.arrow)) assert.ok(ids.has(d.arrow.input.id), d.name);
 });

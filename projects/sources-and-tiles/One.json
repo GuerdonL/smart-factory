@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bpijvtx",
+  "type": "tensor",
+  "name": "One",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -1,
+    "y": -22
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 40,
+  "source": "ones"
+}

@@ -1480,10 +1480,9 @@ const placesOfTiles = () => everySpace().flatMap(s => [...s.repeats.values()].ma
 const cap = text => text[0].toUpperCase() + text.slice(1);
 function addTile(rect){
   const u = view.unit, r = { x: Math.round(rect.x / u), y: Math.round(rect.y / u), w: Math.round(rect.w / u), h: Math.round(rect.h / u) };
-  const can = tiles.makable(r, [...space.repeats.keys()].map(g => tileInfo(space, g).rect));
-  if (can.refused) return hud.say(can.refused);
   const inside = tiles.members(r, space.blocks.map(unitsOf)).map(i => space.blocks[i]);
-  if (inside.some(b => tileOf(b) !== undefined)) return hud.say('A block of another tile lies there: a tile does not go inside a tile');
+  const can = tiles.makable(r, [...space.repeats.keys()].map(g => tileInfo(space, g).rect), inside.filter(b => tileOf(b) !== undefined).length);
+  if (can.refused) return hud.say(can.refused);
   const g = inside.length ? group(inside) : newGroup();
   space.repeats.set(g, { x: r.x, y: r.y, cols: r.w, rows: r.h, across: 1, down: 1 });
   tidy(); selected.clear(); pickedTile = g; shown();
@@ -1819,7 +1818,7 @@ function setArrow({ id, ...patch }){
   const a = blockOf(id); if (!a || !isArrow(a)) return;
   const input = sized(inputOf(a)), n = side => input ? (along(side) === 'rows' ? input.rows : input.cols) : null, geo = {};
   for (const k of ['side', 'start', 'span', 'gap', 'output']) if (k in patch) geo[k] = patch[k];
-  if (a.arrow.input.as === 'tile' && (('start' in geo && geo.start !== a.arrow.start) || ('span' in geo && geo.span !== a.arrow.span))){ hud.say('An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that'); return shown(); }
+  if (a.arrow.input.as === 'tile' && tiles.spanned(a.arrow, geo).refused){ hud.say(tiles.spanned(a.arrow, geo).refused); return shown(); }
   if ('side' in geo && !('start' in geo) && !('span' in geo) && input && SIDES.includes(geo.side)) Object.assign(geo, sided(a.arrow, geo.side, n(a.arrow.side), n(geo.side)));      /* turned to another side: it covers what it can of that one */
   const got = settable(a.arrow, n, geo);
   if (got.refused){ hud.say(got.refused); return shown(); }
@@ -1838,7 +1837,7 @@ function setArrow({ id, ...patch }){
 }
 /* what arrows.js needs to know of a block to say whether it can be seated */
 const seatFacts = b => ({ name: bare(b.name), named: isNamed(b), arrow: isArrow(b), input: !!givenOf(b), reference: !!b.ref, uses: [...kinOf(b)].length, defined: !!spaceOf.get(b)?.blocks.some(k => !isOff(k)),
-  standing: !!b.standing, seated: !!seatedOf(b), part: !!rangedOf(b), measure: measures(b), fused: !!b.members, source: b.source || null });
+  standing: !!b.standing, seated: !!seatedOf(b), part: !!rangedOf(b), measure: measures(b) || !!indexedOf(b), fused: !!b.members, source: b.source || null });
 /* whether an arrow reads a block, directly or through other arrows and seats (arrows.js: dependsOn): its output cannot be seated with that block */
 const feeds = (b, a) => dependsOn([a.id], b.id, depsOf);
 function seatBlock({ arrow = null, hollow = null, id = null, name = null, color = null }){
@@ -2356,7 +2355,8 @@ bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown();
 bus.on('unframe', ({ frame: g }) => { if (space.repeats.has(g)){ hud.say('That frame is a tile: select the tile by its edge or its name, and press Delete to take it off'); return shown(); }
   ungroup(g); tidy(); shown(); hud.say('Frame taken off'); }, changes);
 bus.on('frame.enter', ({ ids, frame: host }) => { const held = new Set(ids.map(blockOf).filter(Boolean));
-  if ([host, ...upFrom(host).slice(1)].some(g => space.repeats.has(g)) && [...held].some(b => tileOf(b) !== undefined)){ hud.say('A tile does not go inside another tile: each repeats on its own'); return shown(); }
+  const into = tiles.enterable(upFrom(host).some(g => space.repeats.has(g)), [...held].some(b => { const g = tileOf(b); return g !== undefined && inGroup(g).every(x => held.has(x)); }));      /* a whole tile among what is let go would go in as a tile */
+  if (into.refused){ hud.say(into.refused); return shown(); }
   for (const b of held){ const outer = chain(b).at(-1);
     if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group */
   tidy(); shown(); }, changes);

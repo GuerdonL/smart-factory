@@ -52,9 +52,13 @@
    within(repeat, rect)          -> whether rect lies wholly inside the pattern (the first cell)
    members(rect, rects)          -> the indexes of the rects that lie wholly inside rect: what a tile drawn as rect
                                     takes in
-   makable(rect, others)         -> { ok: true } | { refused }: whether a tile can be drawn as rect: at least 1 by 1,
-                                    on whole units, and not over another tile's footprint (others); edge to edge
-                                    is not over
+   makable(rect, others, held)   -> { ok: true } | { refused }: whether a tile can be drawn as rect: at least 1 by 1,
+                                    on whole units, not over another tile's footprint (others; edge to edge is
+                                    not over), and taking in no block that is in a tile already (held: how many
+                                    of the blocks inside rect are)
+   enterable(host, held)         -> { ok: true } | { refused }: whether blocks let go on a frame go into it. Not
+                                    where the frame is a tile, or is in one (host), and the blocks are all of
+                                    another tile's (held), which would go in whole: a tile does not go inside a tile
    A tile touches nothing, and nothing outside it touches a block inside it: that is algebra.js's to say (a rect's
    zone), and the page gives every block of a tile that tile's id for its zone.
 
@@ -80,6 +84,8 @@
    whole(arrow, size)            -> the arrow as it reads a tile: all of the tile's matrix, start 1 and the whole
                                     side ({ cols, rows }) for its span. A tile is not a matrix to take rows of: the
                                     rows are taken from the block seated on the output.
+   spanned(arrow, patch)         -> { ok: true } | { refused }: whether an arrow that reads a tile can be changed as
+                                    patch says: not its start or its span, to anything but what they are
 
    Map: an arrow inside a tile whose input is outside it is repeated along its input.
    mapped(arrow, repeat, across, down, n) -> { count, warn }: how many times, and why not where it cannot be (null
@@ -152,11 +158,14 @@ const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && 
 const pattern = repeat => ({ x: repeat.x, y: repeat.y, w: repeat.cols, h: repeat.rows });
 export const within = (repeat, rect) => inside(pattern(repeat), rect);
 export const members = (rect, rects) => rects.map((r, i) => inside(rect, r) ? i : -1).filter(i => i >= 0);
-export function makable(rect, others = []){
+export function makable(rect, others = [], held = 0){
   if (![rect.x, rect.y, rect.w, rect.h].every(Number.isInteger) || rect.w < 1 || rect.h < 1) return { refused: 'A tile\'s pattern is a rectangle on whole units, at least 1 by 1' };
   if (others.some(o => over(o, rect))) return { refused: 'A tile cannot lie over another tile: each repeats on its own' };
+  if (held > 0) return { refused: 'A block of another tile lies there: a tile does not go inside a tile' };
   return { ok: true };
 }
+
+export const enterable = (host, held) => host && held ? { refused: 'A tile does not go inside another tile: each repeats on its own' } : { ok: true };
 
 export const index = (repeat, offset, c, r, cx = 1, cy = 1) => ({ x: (cx - 1) * repeat.cols + offset.x + c, y: (cy - 1) * repeat.rows + offset.y + r });
 export const axisOf = name => { const m = typeof name === 'string' && name.trim().toLowerCase().match(/^index\.(x|y)$/); return m ? m[1] : null; };
@@ -183,6 +192,9 @@ export function entries(repeat, across, down, rects, valuesIn){
   return out;
 }
 export const whole = (arrow, size) => ({ ...arrow, start: 1, span: along(arrow.side) === 'rows' ? size.rows : size.cols });
+
+export const spanned = (arrow, patch) => ('start' in patch && patch.start !== arrow.start) || ('span' in patch && patch.span !== arrow.span)
+  ? { refused: 'An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that' } : { ok: true };
 
 export const startIn = (arrow, k) => arrow.start + (k - 1) * arrow.span;
 export function mapped(arrow, repeat, across, down, n){

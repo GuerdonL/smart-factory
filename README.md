@@ -45,6 +45,8 @@ who can reach the port can read and overwrite the projects.
 - `components/`: one file per thing on screen, each carrying its own markup, styles and behaviour.
 - `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules; what a cut leaves, and what
   a part of a shape is), how a project is written to files, and zip; no drawing.
+- `sources.js`, `tiles.js`: what a source is (zeros, ones, identity: an entry from its place alone), and what a tile
+  means (its counts, which cells are drawn, the index, its matrix, how an arrow is repeated in it); no drawing.
 - `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
 - `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
@@ -63,7 +65,7 @@ who can reach the port can read and overwrite the projects.
 
 ## Tests
 
-    node --test                                # the JavaScript: values, expression, algebra, arrows, project, bus, history, ids, zip
+    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, project, bus, history, ids, zip
     python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, and the PIN
 
 Nothing to install: the tests use Node's own test runner (Node 20 or later) and Python's unittest. `tests/solver.js`
@@ -357,6 +359,81 @@ space downwards, as a shape shadows a variable of the `.config`: every use of th
 softmax and layer norm are not shipped: they are built from these, touching and `max`.
 
 `projects/arrows` shows each of these.
+
+## Sources and tiles
+
+A source is a block that has values at any size without storing them. A tile is a region whose contents repeat a
+whole number of times. Together they give constants, broadcasting and map. What a source is, is in `sources.js`;
+what a tile means, in `tiles.js`; neither draws.
+
+### Sources
+
+New, then rest on Tensor: Zeros, Ones and Identity. (A click on Tensor itself draws a plain tensor, as before.)
+
+| Kind | Entry at column i, row j | On its face |
+| --- | --- | --- |
+| Zeros | 0 | `0` |
+| Ones | 1 | `1` |
+| Identity | 1 where i equals j, else 0. It need not be square | `I` |
+
+A source is drawn, moved, resized, named, referenced, fused and touched like any block, and its matrix shows its
+values. It stores no entries: resizing it, or tying a side to a named length, changes how many it has and never
+what they are. Typing an entry into one, standing a shape in its matrix (snap to matrix) and seating it on an
+arrow's output are each refused, with the reason in the readout.
+
+### Tiles
+
+- **Make one.** New, then Tile, then drag a rectangle round blocks or over empty canvas. The rectangle is the
+  pattern, in whole units; blank space inside it is part of the pattern. The blocks wholly inside it are in the tile.
+- **Counts.** A tile repeats `across` and `down`, each a whole number of at least 1, starting at 1. Pull its right
+  edge or its bottom edge to change one, in whole patterns. Its filled size is the pattern times the counts.
+- **Select it** by its frame's top or left line, or its name; drag there to move it with what is in it. Selected, its
+  panel has the pattern's size and the two counts. A count can be typed as a formula of sizes, such as `@Keys.y`:
+  it then follows that size, and the tile is drawn as one pattern with an ellipsis on the side it repeats toward. A
+  count that is not a whole number of at least 1, or that reads anything but a width or a height, is refused.
+- **What is real.** Only the blocks of the first cell, the top-left one, exist. The others are drawn copies that
+  cannot be selected. At most 64 cells are drawn; beyond that, the first three and the last each way, with an
+  ellipsis between.
+- **What is in it** is what is in its frame: drag a block onto the pattern to put it in, hold Shift to drag one out,
+  name the tile by its name. Delete with the tile selected takes the tile off and leaves its blocks.
+- **A tile is not a matrix and touches nothing.** Blocks inside it touch one another as usual; nothing outside
+  touches a block inside, however they lie.
+
+### The index
+
+Each cell has a place, counted from 1. A block in a tile is a different matrix in each cell only through the index:
+
+- In any entry's formula, and in an arrow's entry formula, `index.x` and `index.y` are that entry's column and row
+  counted across the whole filled tile: for a block at offset `(ox, oy)` in a pattern `pw` by `ph`, entry `c, r` in
+  cell `(cx, cy)` has `index.x = (cx - 1) * pw + ox + c` and `index.y = (cy - 1) * ph + oy + r`. A block that reads
+  the index has its entries written on its face and on every copy. Outside a tile the index is an error.
+- In the block's definition space, `index.x` and `index.y` are listed as two matrices the size of the block, and can
+  be dragged in: onto the canvas, or onto the definition's matrix to stand there.
+- In the list on the right, a named block in a tile hangs under the tile, named or not, with `index.x` and `index.y`
+  beside its `x` and `y`. Dragged onto a formula that is open, the name goes in.
+
+### A matrix out of a tile
+
+An arrow can be set against any edge of a tile (New, Function, then a click on the tile's edge, beside a copy where
+the edge is also a block's). It reads the tile's matrix: every cell's blocks set in their places, the filled size.
+The matrix exists when the pattern is covered exactly by blocks, with no gap and no overlap; otherwise the arrow is
+drawn in the warning colour and its panel says what is wrong. Such an arrow always reads the whole tile, so its
+start and span are not typed: seat a block on the output and take rows from that.
+
+That is how a bias is added to every row: a tile round the 1-row bias, `down` set to the matrix's `y`, an arrow out,
+and the seated result stacked under the matrix.
+
+### Map
+
+An arrow inside a tile whose input is outside the tile is repeated along its input. The tile must repeat only along
+the edge the arrow sits on (across for `n` and `s`, down for `e` and `w`), and the pattern must be as long that way
+as the arrow's span. In cell k the arrow starts `(k - 1)` spans further on. Every cell's output is one output, set
+side by side, seated and used like any other. If the last cell runs past the input, the tile and the arrow are
+drawn in the warning colour. The tile follows the arrow when the input moves.
+
+One `max(x, 0)` arrow under column 1 of a matrix, in a tile with `across` 4, is that function on every column.
+
+`projects/sources-and-tiles` shows each of these.
 
 ## How results are written
 

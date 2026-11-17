@@ -1,0 +1,49 @@
+{
+  "format": "smart-factory/frame",
+  "version": 3,
+  "id": "gwc82co",
+  "name": "Index",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 3,
+      "id": "b4yq95z",
+      "type": "tensor",
+      "name": "Place",
+      "named": true,
+      "commented": false,
+      "color": "variable-1",
+      "position": {
+        "x": -34,
+        "y": -4
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": {
+            "expr": "index.x + index.y"
+          }
+        }
+      },
+      "order": 45
+    }
+  ],
+  "groups": [],
+  "repeat": {
+    "x": -34,
+    "y": -4,
+    "cols": 1,
+    "rows": 1,
+    "across": 2,
+    "down": 2
+  }
+}

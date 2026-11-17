@@ -17,7 +17,8 @@
      grips    turns the resize grips on or off
      turn     says whether this block is the transpose of its variable (kept on the block as t): a small raised T is
               written after its name. The block itself is not resized; that is for whoever turns it.
-     face     writes a value in the middle of the block's face (text), or takes it off (null)
+     face     writes a value in the middle of the block's face (text), or takes it off (null): a single entry's
+              number, or what a source is (0, 1 or I)
      inset    writes the name on the block's face in place of above it (for a block in a sum, with another directly above or below), or puts it back
      stripes  bands the block's face, one band to each `unit` of world length, paler and deeper by turns in the
               block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or

@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -125,6 +125,23 @@ test('a tile is drawn on whole units, at least 1 by 1, and not over another tile
   assert.match(makable(rect(4, 0, 1, 1), other).refused, /over another tile/);      /* over a drawn copy is over the tile */
   assert.deepEqual(makable(rect(6, 0, 2, 2), other), { ok: true });                  /* edge to edge */
   assert.deepEqual(makable(rect(0, 2, 6, 1), other), { ok: true });
+  /* a block inside the rectangle that is in a tile already: its tile's pattern may be elsewhere, but the block is that tile's */
+  assert.match(makable(rect(20, 20, 3, 3), other, 1).refused, /does not go inside a tile/);
+  assert.deepEqual(makable(rect(20, 20, 3, 3), other, 0), { ok: true });
+});
+
+test('blocks go into a tile as into a frame, but a whole tile does not go into another', () => {
+  assert.deepEqual(enterable(true, false), { ok: true });      /* plain blocks, or some of a tile's, into a tile */
+  assert.deepEqual(enterable(false, true), { ok: true });      /* a whole tile, into an ordinary frame */
+  assert.deepEqual(enterable(false, false), { ok: true });
+  assert.match(enterable(true, true).refused, /does not go inside another tile/);
+});
+
+test('an arrow that reads a tile keeps its start and its span: only what leaves them as they are is taken', () => {
+  const a = { side: 'e', start: 1, span: 3, gap: 2 };
+  assert.deepEqual(spanned(a, { gap: 4 }), { ok: true }); assert.deepEqual(spanned(a, { side: 's' }), { ok: true });
+  assert.deepEqual(spanned(a, { start: 1, span: 3, gap: 5 }), { ok: true });      /* a drag that changed only the gap says all three */
+  assert.match(spanned(a, { span: 2 }).refused, /reads all of it/); assert.match(spanned(a, { start: 2 }).refused, /seat a block on its output/);
 });
 
 test('the index of an entry is its column and row counted across the whole filled tile', () => {

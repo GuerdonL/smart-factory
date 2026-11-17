@@ -1,0 +1,52 @@
+{
+  "format": "smart-factory/frame",
+  "version": 3,
+  "id": "g05giai",
+  "name": "Index of two",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 3,
+      "id": "bl34ofk",
+      "type": "tensor",
+      "name": "Pair",
+      "named": true,
+      "commented": false,
+      "color": "variable-3",
+      "position": {
+        "x": -22,
+        "y": -4
+      },
+      "size": {
+        "cols": 2,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": {
+            "expr": "index.x"
+          },
+          "2,1": {
+            "expr": "10 * index.y"
+          }
+        }
+      },
+      "order": 46
+    }
+  ],
+  "groups": [],
+  "repeat": {
+    "x": -22,
+    "y": -4,
+    "cols": 2,
+    "rows": 1,
+    "across": 3,
+    "down": 2
+  }
+}

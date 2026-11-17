@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b1cvo1m",
+  "type": "tensor",
+  "name": "B",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -22,
+    "y": -11
+  },
+  "size": {
+    "cols": 4,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 44,
+  "seat": "b921vpi"
+}

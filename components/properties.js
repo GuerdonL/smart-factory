@@ -8,7 +8,8 @@
               name         the variable's name, written large; click it to type another (onName)
               color        a CSS colour for the name (the variable's own); where it is no colour, the text colour is used
               cols, rows   the shape, written "3 wide × 6 tall" (a single entry is "scalar")
-              shape        where given, written in place of that (an arrow says what kind of function it is)
+              shape        where given, written in place of that (an arrow says what kind of function it is, a
+                           source its kind, a tile its pattern and its counts)
               plain        no plus button: this has only the rows it is given
               fixed        the matrix's entries cannot be pressed: they are worked out (an arrow's output)
               attributes   [{ key, label, text, result, error, custom }], a row each:

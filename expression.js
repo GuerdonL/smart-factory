@@ -23,6 +23,8 @@
        inf, infinity, ∞          infinity;   true, false
    An odd root of a negative number is the real one: (-8)^(1/3) is -2. An even root of one is an error.
    Nothing is ever rounded. The kinds of value, and how they combine, are set out in values.js.
+   A name may have dots in it (Keys.x, index.x). What a name stands for is the lookup's to say: x, i and j in an
+   arrow's formula are arrows.js's, and index.x and index.y, an entry's place in its tile, are tiles.js's.
 
    A capsule is a reference to a measure of a variable, by the id of the block the variable was made as, so that
    renaming the variable breaks nothing. In the text it is one of
