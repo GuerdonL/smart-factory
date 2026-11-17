@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { held, settled, MOST, small, tooLarge, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -155,6 +155,20 @@ test('what a tile takes in when it is drawn: the blocks wholly inside its rectan
   assert.deepEqual(members(rect(20, 20, 3, 3), rects), []);        /* over empty canvas */
   assert.equal(within(rep(3, 2), rect(1, 1, 2, 1)), true); assert.equal(within(rep(3, 2), rect(1, 1, 3, 1)), false);
   assert.equal(within(rep(3, 2, 4, 4), rect(3, 0, 1, 1)), false);      /* the second cell is not the pattern */
+});
+
+test('a block of a tile dragged the ordinary way stays inside the pattern', () => {
+  const p = rep(6, 3, 3, 1, 10, 10), r = rect(11, 10, 2, 1);      /* a 2 by 1 block one unit in from the pattern's left edge */
+  assert.deepEqual(held(p, r, 1, 1), { dx: 1, dy: 1, stopped: false });
+  assert.deepEqual(held(p, r, 3, 2), { dx: 3, dy: 2, stopped: false });      /* exactly into the far corner */
+  assert.deepEqual(held(p, r, 4, 2), { dx: 3, dy: 2, stopped: true });       /* one unit further: stopped at the edge */
+  assert.deepEqual(held(p, r, 3, -5), { dx: 3, dy: 0, stopped: true });      /* the reviewer's drag: 3 right and 5 up */
+  assert.deepEqual(held(p, r, -9, 0), { dx: -1, dy: 0, stopped: true });
+  assert.deepEqual(held(p, r, 0, 0), { dx: 0, dy: 0, stopped: false });
+  /* the second cell is not the pattern: a block cannot be dragged onto a copy */
+  assert.equal(held(p, r, 6, 0).dx, 3);
+  /* a block as large as the pattern does not move at all */
+  assert.deepEqual(held(rep(2, 1), rect(0, 0, 2, 1), 1, 0), { dx: 0, dy: 0, stopped: true });
 });
 
 test('a tile is drawn on whole units, at least 1 by 1, and not over another tile', () => {

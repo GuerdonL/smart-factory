@@ -78,6 +78,11 @@
 
    What is in it
    within(repeat, rect)          -> whether rect lies wholly inside the pattern (the first cell)
+   held(repeat, rect, dx, dy)    -> { dx, dy, stopped }: how far a block of the tile, at rect inside the pattern,
+                                    goes when it is dragged (dx, dy) units the ordinary way: as far as the
+                                    pattern's edge and no further. A block that belongs to a tile stays inside
+                                    its pattern unless it is taken out of the tile (Shift). stopped says the
+                                    drag was cut short.
    members(rect, rects)          -> the indexes of the rects that lie wholly inside rect: what a tile drawn as rect
                                     takes in
    makable(rect, others, held)   -> { ok: true } | { refused }: whether a tile can be drawn as rect: at least 1 by 1,
@@ -208,6 +213,11 @@ const inside = (outer, r) => r.x >= outer.x && r.y >= outer.y && r.x + r.w <= ou
 const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const pattern = repeat => ({ x: repeat.x, y: repeat.y, w: repeat.cols, h: repeat.rows });
 export const within = (repeat, rect) => inside(pattern(repeat), rect);
+export function held(repeat, rect, dx, dy){
+  const clamp = (v, low, high) => Math.max(low, Math.min(Math.max(low, high), v));
+  const x = clamp(rect.x + dx, repeat.x, repeat.x + repeat.cols - rect.w), y = clamp(rect.y + dy, repeat.y, repeat.y + repeat.rows - rect.h);
+  return { dx: x - rect.x, dy: y - rect.y, stopped: x !== rect.x + dx || y !== rect.y + dy };
+}
 export const members = (rect, rects) => rects.map((r, i) => inside(rect, r) ? i : -1).filter(i => i >= 0);
 export function makable(rect, others = [], held = 0){
   if (![rect.x, rect.y, rect.w, rect.h].every(Number.isInteger) || rect.w < 1 || rect.h < 1) return { refused: 'A tile\'s pattern is a rectangle on whole units, at least 1 by 1' };

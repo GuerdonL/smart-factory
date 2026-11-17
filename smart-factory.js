@@ -2112,7 +2112,7 @@ function dragged(el, from, e){
   if (pulled){ pick([b]); room.loose = new Map(pulled); }
   if (!selected.has(b)) return;
   const start = [...selected].map(b => [b, b.rect]);
-  let last = from;
+  let last = from, said = false;
   cursor('move');
   /* held over a group, that group lights up; let go there and the selection joins it */
   const held = new Set(selected), u = view.unit;
@@ -2128,9 +2128,14 @@ function dragged(el, from, e){
       if (pulled && host === null){ const stays = pulled.find(([, r]) => within(last, r));      /* innermost first */
         return bus.send('frame.leave', { id: b.id, frame: stays ? stays[0] : null }); }
       if (host !== null) bus.send('frame.enter', { ids: idsOf(held), frame: host }); },
-    move(p){ const dx = snap(p.x - from.x), dy = snap(p.y - from.y); last = p;
+    move(p){ let dx = snap(p.x - from.x), dy = snap(p.y - from.y), stopped = null; last = p;
+      /* a block that belongs to a tile stays inside the tile's pattern (tiles.js: held) unless it is being pulled out with Shift */
+      if (!pulled) for (let pass = 0; pass < 2; pass++) for (const [k, r] of start){ const t = isArrow(k) || k.seat ? undefined : tileOf(k), rep = t !== undefined && space.repeats.get(t), at = { x: r.x / u, y: r.y / u, w: r.w / u, h: r.h / u };
+        if (!rep || !tiles.within(rep, at)) continue;
+        const to = tiles.held(rep, at, dx / u, dy / u); if (to.stopped){ dx = to.dx * u; dy = to.dy * u; stopped = k; } }
+      if (stopped && !said){ said = true; hud.say(`${bare(stopped.name)} is in a tile: it stays inside the pattern. Hold Shift to drag it out`); }
       for (const [b, r] of start) b.set({ ...r, x: r.x + dx, y: r.y + dy });
-      const over = others.filter(([, r]) => within(p, r));
+      const over = stopped ? [] : others.filter(([, r]) => within(p, r));
       room.host = over.length ? over.reduce((a, c) => c[1].w * c[1].h < a[1].w * a[1].h ? c : a)[0] : null;      /* the innermost of those the pointer is in */
       shown(); } };
 }
