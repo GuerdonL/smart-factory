@@ -41,6 +41,11 @@
                                    changed as typed. n(side) gives how many rows or columns the input has along that
                                    side, or null where the input is gone (then only what needs no input is checked)
 
+   sided(arrow, side, was, now) -> { side, start, span }: the arrow turned to another side of its input, which has
+                                   `now` rows or columns along it where the old side had `was`. One that covered the
+                                   whole of the old side covers the whole of the new; any other keeps its start and
+                                   span as far as the new side has room
+
    What the function is: nothing (the covered part passes through unchanged), an entry formula (worked out once for
    every entry of the output, which is the size of the covered part), or a definition space (the page says what the
    one piece in it comes to).
@@ -154,6 +159,11 @@ export function settable(arrow, n, patch){
   if (has !== null && next.span > has) return { refused: `The span cannot exceed the input's ${what}: it has ${has}` };
   if (has !== null && next.start + next.span - 1 > has) return { refused: `That runs past the input's ${what}: it has ${has}` };
   return { arrow: { ...next, output: next.output ? { cols: next.output.cols, rows: next.output.rows } : null } };
+}
+
+export function sided(arrow, side, was, now){
+  if (arrow.start === 1 && arrow.span === was) return { side, start: 1, span: now };
+  const start = Math.min(arrow.start, now); return { side, start, span: Math.min(arrow.span, now - start + 1) };
 }
 
 export const came = (arrow, part, defined) => arrow.formula ? part : defined || part;

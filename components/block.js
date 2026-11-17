@@ -28,6 +28,9 @@
      off      shows it as commented out: washed out, with a dashed edge
      warn     draws it in the warning colour (--warn), or puts its own back: for a shape that cannot be what it
               is meant to be just now
+     sit      draws it as seated on an output (phase 4: arrows): a little smaller than its rectangle all round, so
+              that the brackets of the output it sits in show round it
+     given    draws it as a function's input, the block called in: a pale face with a dashed edge in the function colour
      paint    changes its colour to another theme variable's ("lazuli" -> --lazuli)
      call     gives it a name outright
      join     draws it as a block joined from several: join(parts, cols, rows), where parts is [{ x, y, w, h, color }],
@@ -72,6 +75,11 @@ style('block', `
 .block.dim { --face: color-mix(in srgb, var(--block) 28%, var(--fade-to)); --ink: color-mix(in srgb, var(--fg) 30%, var(--fade-to));
   --rim: color-mix(in srgb, var(--edge) 25%, transparent); --lit: color-mix(in srgb, var(--raise-light) 40%, transparent);
   --shade: color-mix(in srgb, var(--raise-dark) 25%, transparent); --cast: color-mix(in srgb, var(--shadow) 30%, transparent); }
+/* seated on an output: inset, so the output's brackets show round it */
+.block.seated { border: calc(5 * var(--px)) solid transparent; background-clip: padding-box; }
+/* a function's input: pale, with a dashed edge in the function colour */
+.block.input { --face: color-mix(in srgb, var(--function) 20%, var(--bg)); --rim: transparent; --lit: transparent; --shade: transparent; --cast: transparent; --ink: var(--function); }
+.block.input:not(.selected) { outline: calc(1.5 * var(--px)) dashed var(--function); outline-offset: calc(-1.5 * var(--px)); }
 /* a block makes no layer of its own, so its name (z-index 2) sits above every block on the canvas, not just this one */
 .block-name { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--ink); transition: color .15s; border-radius: calc(3 * var(--px)); cursor: default; }
@@ -131,6 +139,8 @@ export function createBlock(shape, rect, name = ''){
     face(text){ if (text === null || text === undefined || text === ''){ valueEl?.remove(); valueEl = null; return; }      /* a single entry's value, written on the block itself */
       if (!valueEl){ valueEl = html`<span class="block-value"></span>`; el.append(valueEl); }
       valueEl.textContent = text; valueEl.style.setProperty('--len', Math.max(2, String(text).length)); },
+    sit(on){ el.classList.toggle('seated', !!on); },
+    given(on){ el.classList.toggle('input', !!on); },
     turn(on){ block.t = !!on; el.classList.toggle('transposed', !!on); },
     stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');
       if (way) el.style.setProperty('--u', unit + 'px'); },

@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, came, check, standing, passed, worked, names, fits, fitting, seatable, carried } from '../arrows.js';
+import { along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -285,4 +285,12 @@ test('the hollows of a pair, and which one is written in when an arrow reads fro
   assert.deepEqual(pieceHollows(rowed, p2), [{ x: 3, y: 3, w: 3, h: 2 }, null]);
   assert.deepEqual(resultHollows(rowed, p2, 1, null, [2]), [{ x: 3, y: 3, w: 3, h: 2 }]);      /* the one needed cannot be used: the first, as before */
   assert.deepEqual(pieceHollows([{ x: 0, y: 0, w: 2, h: 2 }], pieces([{ x: 0, y: 0, w: 2, h: 2 }])[0]), [null, null]);
+});
+
+test('an arrow turned to another side: the whole side stays the whole side, a part keeps what there is room for', () => {
+  assert.deepEqual(sided(arrow('e', 1, 3), 's', 3, 4), { side: 's', start: 1, span: 4 });
+  assert.deepEqual(sided(arrow('e', 2, 2), 's', 3, 4), { side: 's', start: 2, span: 2 });
+  assert.deepEqual(sided(arrow('s', 3, 2), 'e', 4, 3), { side: 'e', start: 3, span: 1 });
+  assert.deepEqual(sided(arrow('s', 4, 1), 'e', 4, 3), { side: 'e', start: 3, span: 1 });
+  assert.deepEqual(sided(arrow('e', 1, 2), 'w', 3, 3), { side: 'w', start: 1, span: 2 });
 });

@@ -1,6 +1,6 @@
 /* What a piece (one shape, or several touching) comes to, written beside it:   [shapes]  =  ⎡ … ⎤
 
-   createResult({ unit }) -> { el, set(box, type, { side, drop, look, nameable, editable, hollows }) -> rect, name(done) }
+   createResult({ unit }) -> { el, set(box, type, { side, drop, look, nameable, editable, hollows }) -> rect, name(done), body() }
      unit   world units to one "u"
      set    box is the rectangle round the piece's shapes ({ x, y, w, h }, world coordinates). side says where the
             "=" and the matrix go: 'right' (the default) puts them to the right of the box, level with its middle;
@@ -20,6 +20,9 @@
             Returns the rectangle the "=" and the matrix now cover, so the caller can see what they would overlap.
      name   asks the user to name this result: the matrix is ringed and a field opens above it to type in.
             done(text) is called with the name, or with null if they gave none or pressed Escape.
+     body   the rectangle the matrix itself now covers ({ x, y, w, h }, world coordinates), or null where none is
+            written (nothing, or an error): for whoever sets something against the written result (an arrow).
+   An arrow's output is written with one of these too: the matrix alone, in the output's place (hollows: [place]).
    Where the matrix can be pressed, the canvas hands the click to the page, which decides what it means.
    Put el in the view's world, beneath the blocks. Call set whenever the shapes change; it only rewrites the matrix
    when the size it has to show is a different one. */
@@ -78,6 +81,7 @@ export function createResult({ unit }){
     Object.assign(nameEl.style, { left: left + 1.5 * unit + 'px', top: top + 'px' });
     const air = unit / 4;                       /* room for the brackets */
     return { x: left - unit / 2, y: top - (height ? air : unit / 2), w: 2.5 * unit + width + air, h: (height || unit) + 2 * air }; },
+    body(){ return el.hidden || !body || !height ? null : { x: parseFloat(body.style.left), y: parseFloat(body.style.top), w: width, h: height }; },
     name(done){
       el.classList.add('naming'); nameEl.textContent = ''; nameEl.hidden = false;
       editText(nameEl, text => { el.classList.remove('naming'); nameEl.hidden = true; done(text || null); });

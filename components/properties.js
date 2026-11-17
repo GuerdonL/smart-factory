@@ -3,18 +3,22 @@
 
    createProperties({ onName(text), onValue(key, text), onLabel(key, text), onAdd(), onEntry(key, text), textOf(key), look, reach, onOpen, onClose }) -> { el, show(what), focus(k) }
      show   takes what to put up, or null to take the panel down:
-              { id, name, color, cols, rows, scalar, matrix, attributes, notes }
+              { id, name, color, cols, rows, scalar, matrix, attributes, notes, shape, plain, fixed }
               id           whatever tells one shape from another: the panel is kept as it is while this stays the same
               name         the variable's name, written large; click it to type another (onName)
               color        a CSS colour for the name (the variable's own); where it is no colour, the text colour is used
               cols, rows   the shape, written "3 wide × 6 tall" (a single entry is "scalar")
+              shape        where given, written in place of that (an arrow says what kind of function it is)
+              plain        no plus button: this has only the rows it is given
+              fixed        the matrix's entries cannot be pressed: they are worked out (an arrow's output)
               attributes   [{ key, label, text, result, error, custom }], a row each:
                              label   the attribute's name; where custom, it can be typed over (onLabel(key, text))
                              text    its value as it was typed: a number, or a formula, in its stored form (capsules
                                      as @[id:x]). Click to type another (onValue(key, text)).
                              result  what the formula comes to, written after it ("= 12"); null for none
                              error   why it has no value, written in its place in the warning colour
-              matrix       what createMatrix takes, less its cell: the value. A long side is cut short there, to its
+                             matrices   the field takes a whole matrix (an arrow's entry formula)
+              matrix       what createMatrix takes, less its cell: the value (null: none is drawn). A long side is cut short there, to its
                            first three entries, dots, and its last. Click an entry to type a value over it: the
                            field opens holding textOf("c,r"), what the entry holds as it would be typed, and what
                            is typed is handed to onEntry("c,r", text).
@@ -86,28 +90,30 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
   }
   /* a value: a formula field (formula.js). Whatever comes of what was typed, the panel is drawn afresh. */
   const after = next => { const to = next?.closest?.('[data-k]'); want = to ? to.dataset.k : null; const waiting = held; held = null; return waiting; };
-  const valued = (text, keep) => createFormula({ text, look, reach, onOpen, onClose,
+  const valued = (text, keep, matrices = false) => createFormula({ text, look, reach, matrices, onOpen, onClose,
     onKeep: (now, next) => { after(next); showing = ''; keep(now); }, onLeave: next => { const waiting = after(next); if (waiting !== null) self.show(waiting); } });
   const self = { el, focus(k){ want = k; },
     show(what){
       if (!what){ el.hidden = true; showing = ''; held = null; return; }
-      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.notes, { ...what.matrix, values: [...(what.matrix.values || [])] }]);
+      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.notes, what.shape, what.plain, what.fixed, what.matrix && { ...what.matrix, values: [...(what.matrix.values || [])] }]);
       if (key === showing && !want) return;
       if (el.contains(document.activeElement) && document.activeElement.isContentEditable && what.id === shownId){ held = what; return; }      /* being typed in: drawn again when that is done */
       showing = key; held = null; shownId = what.id;
       if (!name.isContentEditable) name.textContent = what.name; name.style.setProperty('--named', what.color || 'initial');
-      shape.textContent = what.scalar ? 'scalar' : `${what.cols} wide × ${what.rows} tall`;
+      shape.textContent = what.shape || (what.scalar ? 'scalar' : `${what.cols} wide × ${what.rows} tall`); add.hidden = !!what.plain;
       rows.replaceChildren();
       for (const a of what.attributes || []){
-        const label = html`<span class="label"></span>`, cellV = html`<span class="value"></span>`, t = valued(a.text ?? '', text => onValue(a.key, text)).el;
+        const label = html`<span class="label"></span>`, cellV = html`<span class="value"></span>`, t = valued(a.text ?? '', text => onValue(a.key, text), !!a.matrices).el;
         if (a.custom){ label.dataset.k = a.key + '.label'; typed(label, a.label, text => onLabel(a.key, text)); } else label.textContent = a.label;
         t.classList.add('typed'); t.dataset.k = a.key + '.value'; cellV.append(t);
         if (a.error){ const r = html`<span class="outcome error"></span>`; r.textContent = a.error; cellV.append(r); }
         else if (a.result != null){ const r = html`<span class="outcome"></span>`; r.textContent = '= ' + a.result; cellV.append(r); }
         rows.append(label, cellV); }
+      if (!what.matrix){ value.replaceChildren(); notes.replaceChildren(...(what.notes || []).map(n => { const p = html`<div></div>`; p.textContent = n; return p; })); notes.hidden = !what.notes?.length; el.hidden = false;
+        if (want){ const c = el.querySelector(`[data-k="${CSS.escape(want)}"]`); want = null; if (c) c.focus(); } return; }
       const m = createMatrix({ ...what.matrix, cols: what.cols, rows: what.rows, cell: CELL });
       /* an entry pressed: a formula field opens over it, holding what the entry holds (its formula, not what that comes to) */
-      m.el.addEventListener('click', e => { const s = e.target.closest('span[data-c]'); if (!s || s.querySelector('.formula')) return; const k = s.dataset.c + ',' + s.dataset.r, was = [...s.childNodes];
+      m.el.addEventListener('click', e => { const s = e.target.closest('span[data-c]'); if (!s || s.querySelector('.formula') || what.fixed) return; const k = s.dataset.c + ',' + s.dataset.r, was = [...s.childNodes];
         const f = createFormula({ text: textOf(k), look, reach, onOpen, onClose, onKeep: text => { s.replaceChildren(...was); showing = ''; onEntry(k, text); }, onLeave: () => s.replaceChildren(...was) });
         s.replaceChildren(f.el); f.focus(); });
       notes.replaceChildren(...(what.notes || []).map(n => { const p = html`<div></div>`; p.textContent = n; return p; })); notes.hidden = !what.notes?.length;

@@ -242,3 +242,23 @@ test('without the solver, only what needs it says so', () => {
   const kept = globalThis.nerdamer; globalThis.nerdamer = undefined;
   try { is('1 + 1', 2); is('1/√4', q(1, 2)); is('√5 + 1', E('the maths solver did not load')); } finally { globalThis.nerdamer = kept; }
 });
+
+/* ---- phase 4: what an arrow adds ---- */
+test('an arrow\'s gap is a measure: @[id:g]', () => {
+  assert.deepEqual(refs('2 * @[ba1:g]'), [{ id: 'ba1', measure: 'g', name: null, text: '@[ba1:g]' }]);
+  is('2 * @[ba1:g] + 1', 7, token => token.measure === 'g' ? 3 : undefined);
+  assert.equal(capsuleText({ id: 'ba1', measure: 'g', name: null }), '@[ba1:g]');
+  assert.equal(label({ id: 'ba1', measure: 'g', name: null }, 'relu'), 'relu.gap');
+});
+test('where whole matrices are taken, all of a variable is offered before its measures, and a whole shape is its capsule', () => {
+  const vars = [{ id: 'b1', name: 'Keys', scalar: false, attributes: ['heads'] }, { id: 'b2', name: 'Tau', scalar: true, attributes: [] }];
+  assert.deepEqual(offers('Keys.', vars, { matrices: true }).options.map(o => o.label), ['all of it', 'x', 'y', 'heads']);
+  assert.deepEqual(offers('Keys.', vars, { matrices: true }).options[0], { measure: null, name: null, label: 'all of it' });
+  assert.deepEqual(offers('Keys.', vars).options.map(o => o.label), ['x', 'y', 'heads']);                    /* nowhere else */
+  assert.deepEqual(offers('Tau.', vars, { matrices: true }).options.map(o => o.label), ['x', 'y', 'mass']);      /* a scalar is its mass */
+  assert.deepEqual(offers('Keys.x', vars, { matrices: true }).options.map(o => o.label), ['x']);
+  assert.deepEqual(bound('max(x, @Keys)', vars, { matrices: true }), { text: 'max(x, @[b1])' });
+  assert.match(bound('max(x, @Keys)', vars).refused, /choose one of its measures/);
+  is('@[b1] + 1', 6, token => token.measure === null ? 5 : undefined, { matrices: true });
+  unread('@[b1] + 1', 'choose one of its measures', () => 5);
+});
