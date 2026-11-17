@@ -78,7 +78,14 @@
                                                                the two shapes it was done to, whole, as they were and
                                                                where they were: they are off the canvas, kept for
                                                                Revert and for the shapes made of them to read
-                           "results": [ "b0x7m2c", … ] } ] }   the ids of the shapes it made
+                           "results": [ "b0x7m2c", … ],        the ids of the shapes it made
+                           "was": [ { "order": 3, "frames": [ { "id": "g4k09zq", "name": "Pair" }, … ] }, { … } ] } ] }
+                                                               where each source was, for Revert to put it back
+                                                               exactly: its place among the shapes of the space,
+                                                               back to front, and the frames it was in, innermost
+                                                               first. Left out where that is not known (the shapes
+                                                               were since folded into another space): the sources
+                                                               then come back in front, in no frame.
    A source is written as any shape is, its definition directory (if it has one) beside the file. A shape fused
    from several keeps them in its own "joined", as before; no operation is written for that.
 
@@ -109,7 +116,8 @@
    Format 1 had two spaces at the top: the top level, in the project's directory, and the settings, in _settings/.
    Now there is one, the Menu, which is what the settings were. Reading a format 1 project, _settings/ becomes the
    top; if the old top level had shapes too, they are kept inside one block called "Top level", set beside it.
-   space:   { shapes: [shape], groups: [group], operations: [{ id, op: 'difference' | 'intersect', sources: [shape, shape], results: [shape ids] }] }
+   space:   { shapes: [shape], groups: [group], operations: [{ id, op: 'difference' | 'intersect', sources: [shape, shape], results: [shape ids],
+              was: [{ order, frames: [{ id, name }] }, the same for the second source] | null }] }
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
               variable: a number shared by shapes that are one variable, or null,
@@ -165,7 +173,7 @@ export function write(project){
       files.push({ path: own ? dir + '.config' : dir + name + '.frame.json', text: JSON.stringify({ format: 'smart-factory/frame', version: FORMAT, ...body }, null, 2) + '\n' }); });
     /* what was cut here: each operation with its two sources whole, written as shapes are (a definition goes in a directory beside) */
     if (s.operations?.length) files.push({ path: dir + 'operations.json', text: JSON.stringify({ format: 'smart-factory/operations', version: FORMAT,
-      operations: s.operations.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(shape => config(shape, 0)[1]), results: [...o.results] })) }, null, 2) + '\n' });
+      operations: s.operations.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(shape => config(shape, 0)[1]), results: [...o.results], ...(o.was ? { was: o.was.map(w => ({ order: w.order, frames: w.frames.map(f => ({ id: f.id, name: f.name ?? null })) })) } : {}) })) }, null, 2) + '\n' });
   };
   files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, ...(project.ids ? { ids: project.ids } : {}) }, null, 2) + '\n' });
   space(project.top, '');
@@ -206,7 +214,8 @@ export function read(files){
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });
     /* an operation that is not one (no such op, not two sources, nothing made) is passed over */
     const operations = cuts.filter(o => o && (o.op === 'difference' || o.op === 'intersect') && Array.isArray(o.sources) && o.sources.length === 2 && Array.isArray(o.results) && o.results.some(id => typeof id === 'string'))
-      .map(o => ({ id: typeof o.id === 'string' ? o.id : null, op: o.op, sources: o.sources.map(c => make(c || {})), results: o.results.filter(id => typeof id === 'string') }));
+      .map(o => ({ id: typeof o.id === 'string' ? o.id : null, op: o.op, sources: o.sources.map(c => make(c || {})), results: o.results.filter(id => typeof id === 'string'),
+        was: Array.isArray(o.was) && o.was.length === 2 ? o.was.map(w => ({ order: Number.isInteger(w?.order) && w.order >= 0 ? w.order : null, frames: (Array.isArray(w?.frames) ? w.frames : []).filter(f => typeof f?.id === 'string').map(f => ({ id: f.id, name: typeof f.name === 'string' ? f.name : null })) })) : null }));
     return { shapes, groups, operations };
   };
   const top = space('');

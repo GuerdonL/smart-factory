@@ -17,7 +17,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { touches, joins, pieces, resultHollows, typeOf, difference, intersection, rangeOf, rangeIn, wholeSide, sideLabel, nthOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
+import { touches, joins, pieces, resultHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -141,7 +141,7 @@ function inReach(){
         (up === undefined ? (isHidden(name) ? hidden : main) : node(up).children).push(n); }
       return nodes.get(g); };
     for (const g of s.groupNames.keys()) node(g);
-    for (const b of s.blocks){
+    for (const b of withKept(s)){               /* a variable a cut keeps off the canvas is still in reach: a use of it can be pulled out, to look at it or change it */
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
@@ -213,7 +213,7 @@ const own = (b, plain = false) => turned(b) && !plain ? flipped(b.values) : b.va
 function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's own way round, whatever this use is */
   if (measures(b)){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
   const part = rangedOf(b);                    /* a part of another shape: that shape's entries there, whatever they are now */
-  if (part){ const all = depth < 8 ? rangeValues(part, depth) : new Map(); return turned(b) && !plain ? flipped(all) : all; }
+  if (part) return depth < 8 ? rangeValues(part, depth, turned(b) && !plain) : new Map();
   const tiles = depth < 8 && tilesOf(b), u = view.unit;
   if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
     return own(b, plain); }
@@ -359,12 +359,15 @@ function lengthCalled(name, s, not = null){
    with one of its sides takes that side's length; then the same for whatever those changed, until nothing moves */
 function agree(b){
   const todo = [b], done = new Set();
+  /* a named side of a part that does not take in its source's whole side: it is as long as its range, whatever else carries the name */
+  const pinned = ([o, d]) => !!o.from?.range && d !== 'm' && !wholeSide(o.from.range, (d === 'w') !== turned(o) ? 'cols' : 'rows');
   while (todo.length){
     const c = todo.pop(); if (done.has(c)) continue; done.add(c);
     for (const k of kinOf(c)) if (k !== c){ const over = !!k.t !== !!c.t, w = over ? c.rect.h : c.rect.w, h = over ? c.rect.w : c.rect.h;      /* a transpose of it is the other way round */
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = everySpace().find(s => withKept(s).includes(c)); if (!s) continue;
-    for (const dim of ['w', 'h', 'm']) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o]) => rootSide(o) !== null);      /* a single entry's number settles the length: it is not resized to suit the others */
+    for (const dim of ['w', 'h', 'm']) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o]) => rootSide(o) !== null) || group.find(pinned);      /* a single entry's number settles the length: it is not resized to suit the others. So does a part's shortened side */
+      if (boss && pinned(boss) && c !== boss[0] && c.rect[dim] !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and is part of ${partOf(boss[0])}, so its size cannot change`);
       const length = boss ? sideLength(boss[0], boss[1]) : c.rect[dim];
       if (!boss && dim === 'm') continue;
       if (length === null){      /* the entry's side is not a whole number now: no side can be that long, so the sides that carried its name let go of it and stay as they are */
@@ -834,7 +837,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
   }
   /* what was cut goes with the shapes it made, where all of them fold away: the blocks it keeps move as they did */
   for (const o of [...space.ops]) if (o.results.every(id => inside.some(b => b.id === id))){ space.ops.splice(space.ops.indexOf(o), 1); def.ops.push(o);
-    for (const b of o.sources) b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); }
+    for (const b of o.sources) b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); o.was = null; }      /* their old place in the order, and their frames, were this space's */
   tidy();                                      /* a group left with one thing in it is no group */
   space.blocks.push(made); view.world.append(made.el);
   select([made]);
@@ -928,15 +931,22 @@ function transpose(){
    they follow when it is resized.
 
    A cut or an intersection takes its two shapes off the canvas and keeps them, whole, in the space's list of
-   operations: space.ops, each { id, op: 'difference' | 'intersect', sources: [the two blocks], results: [block ids] }.
-   A kept block is still a use of its variable and still has its id, so everything that names it finds it.
+   operations: space.ops, each { id, op: 'difference' | 'intersect', sources: [the two blocks], results: [block ids],
+   was: [where each source was: { order, frames }] or null }. Revert puts each source back at that place among the
+   blocks and in those frames, so a cut reverted leaves the project as it was before the cut.
+   A kept block is still a use of its variable and still has its id, so everything that names it finds it, and its
+   variable stays in the list at the right edge: a use of it can be pulled out, to see it or to change its entries.
+   A kept block goes for good in two ways, both through the cascade and its warning (doomed): its variable is
+   deleted, which takes the operation's shapes with it and puts the other kept block back; or every shape its
+   operation made is deleted, which takes both kept blocks and whatever refers to them.
    Each shape made is a part of one of the two, its source: block.from = { id, range }, the range in whole columns
    and rows of the source as that block stands (algebra.js: rangeOf, rangeIn). It has no entries of its own. Entry
    c,r of the part is the source's entry in that column and row, whatever it is now, so a number given to the
    source's variable anywhere shows in the part at once, and nothing can be typed into the part. A part is the size
    of its range: where the range reached the source's edge it grows and shrinks with the source, and where the source
    is now too small to have that part the shape is drawn in the warning colour and has no value, until it is large
-   enough again. A part that has been named is a variable like any other; its other uses read the same part.
+   enough again; so is a shape fused from such a part. A name typed on a part's shortened side is a real one, and
+   since the part cannot change size, neither can any other side of that name: the readout says so. A part that has been named is a variable like any other; its other uses read the same part.
    The part made by an intersection is of the lower of the two shapes, the one earlier in the space's blocks; the
    upper one is only a stencil. */
 const unitsOf = b => { const u = view.unit; return { x: Math.round(b.rect.x / u), y: Math.round(b.rect.y / u), w: Math.round(b.rect.w / u), h: Math.round(b.rect.h / u) }; };
@@ -947,14 +957,13 @@ const rangedOf = b => b.from?.range ? b : kin.has(b) ? [...kin.get(b)].find(k =>
 const partOf = b => { const src = sourceOf(rangedOf(b)); return src ? bare(src.name) : 'another shape'; };      /* what to call its source, in a sentence */
 /* a part's range as it lies in its source now, or null where the source cannot hold it (or is gone) */
 const rangeNow = o => { const src = sourceOf(o), u = view.unit; return src ? rangeIn(o.from.range, Math.round(src.rect.w / u), Math.round(src.rect.h / u)) : null; };
-const lost = b => { const o = rangedOf(b); return !!o && !rangeNow(o); };
-/* a part's entries, the variable's own way round: its source's, in its range */
-function rangeValues(o, depth){
-  const src = sourceOf(o), at = rangeNow(o), out = new Map(); if (!at) return out;
+/* a shape with no value just now: a part its source cannot hold, or a shape fused from one */
+const lost = b => { const o = rangedOf(b); return (!!o && !rangeNow(o)) || (b.members || []).some(m => lost(m.block)); };
+/* a part's entries: its source's, in its range (algebra.js: partEntries), the variable's own way round or turned */
+function rangeValues(o, depth, over = false){
+  const src = sourceOf(o), u = view.unit; if (!src) return new Map();
   flow(src);                                   /* a fused source's entries are gathered from what it was fused from */
-  for (const [k, v] of valuesOf(src, depth + 1)){ const [c, r] = k.split(',').map(Number);
-    if (c > at.col && c <= at.col + at.cols && r > at.row && r <= at.row + at.rows) out.set((c - at.col) + ',' + (r - at.row), v); }
-  return out;
+  return partEntries(o.from.range, { cols: Math.round(src.rect.w / u), rows: Math.round(src.rect.h / u), entries: valuesOf(src, depth + 1, true), turned: turned(src) }, over);
 }
 /* every part takes the size its range now has in its source (a part of a part after the part it is of), and what
    shares its variable or a side's name follows. Called whenever the screen is brought up to date. */
@@ -1022,13 +1031,25 @@ function fuse(){
   space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
   tidy(); select([made]);
 }
+/* puts the kept blocks of operations back among the blocks of s where each was: at its old place in the order (so
+   what was drawn over what still is) and in the frames it was in, a frame that has gone since being made again */
+function putBack(s, pairs){
+  for (const [o, b] of pairs.map(([o, b]) => [o, b, o.was?.[o.sources.indexOf(b)]?.order ?? Infinity]).sort((x, y) => x[2] - y[2])){
+    const was = o.was?.[o.sources.indexOf(b)] || {}, live = framesIn(s);
+    s.blocks.splice(Number.isInteger(was.order) ? Math.min(was.order, s.blocks.length) : s.blocks.length, 0, b);
+    (was.frames || []).forEach((f, i, all) => { if (i === 0) s.groupOf.set(b, f.id);
+      if (!live.has(f.id)){ if (f.name) s.groupNames.set(f.id, f.name); if (all[i + 1]) s.groupUp.set(f.id, all[i + 1].id); } }); }
+  if (s === space) view.world.append(...s.blocks.map(b => b.el));      /* on the canvas in the blocks' order, as when a project is opened */
+}
 /* a cut or an intersection: the two sources go off the canvas into a new operation, and a new shape is made for each
    part, [its source, its rectangle in units], unnamed and in the tensor colour, in whatever frame held both sources */
 function operate(op, sources, parts){
   const u = view.unit, held = chain(sources[0]).find(g => sources.every(b => chain(b).includes(g)));
+  /* where each source was, so that Revert can put it back exactly: its place among the blocks, and the frames it was in, innermost first */
+  const was = sources.map(b => ({ order: space.blocks.indexOf(b), frames: chain(b).map(g => ({ id: g, name: space.groupNames.get(g) ?? null })) }));
   select([]);
   for (const b of sources){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b); }
-  const record = { id: ids.id('o'), op, sources: [...sources], results: [] }, made = [];
+  const record = { id: ids.id('o'), op, sources: [...sources], results: [], was }, made = [];
   for (const [src, r] of parts){
     const b = makeBlock({ ...typeNamed('tensor') }, { x: r.x * u, y: r.y * u, w: r.w * u, h: r.h * u }, freeName());
     b.from = { id: src.id, range: rangeOf(unitsOf(src), r) };
@@ -1062,13 +1083,12 @@ function revertible(list = [...selected]){
 function revert(also = []){
   const list = [...selected], r = revertible(list);
   if (r.refused) return hud.say(r.refused);
-  const back = [], gone = r.ops.flatMap(o => o.results.map(blockOf));
-  for (const o of r.ops){ const group = space.groupOf.get(blockOf(o.results[0]));      /* the sources come back where they were, in the frame their shapes are in */
-    space.ops.splice(space.ops.indexOf(o), 1);
-    for (const b of o.sources){ space.blocks.push(b); view.world.append(b.el); if (group !== undefined) space.groupOf.set(b, group); back.push(b); } }
-  back.push(...unfuse(r.fused));
+  const gone = r.ops.flatMap(o => o.results.map(blockOf)), back = r.ops.flatMap(o => o.sources);
+  for (const o of r.ops) space.ops.splice(space.ops.indexOf(o), 1);
+  const apart = unfuse(r.fused);
+  putBack(space, r.ops.flatMap(o => o.sources.map(b => [o, b])));      /* first, so that nothing that names them finds them gone; what was made of them lies after them in the order, so each still falls where it was */
   selected.clear(); discard([...gone, ...also]);
-  select([...list.filter(b => space.blocks.includes(b)), ...back]);
+  select([...list.filter(b => space.blocks.includes(b)), ...back, ...apart]);
 }
 /* an operation none of whose shapes is left anywhere is forgotten, with the two blocks it kept */
 function pruneOps(){
@@ -1083,12 +1103,19 @@ function forget(b){                             /* one use fewer of its variable
 function remove(also = []){                      /* also: blocks anywhere that go with the selection (see doomed) */
   const gone = [...new Set([...selected, ...also])]; select([]); discard(gone); shown();
 }
-/* takes these blocks out of whatever spaces they are in, for good */
+/* takes these blocks out of whatever spaces they are in, for good. A block a cut keeps off the canvas can be among
+   them (its variable went, or everything made of it did: see doomed): its operation goes with it, with every shape
+   the operation made, and the operation's other kept block, if that is not going too, is put back where it was. */
 function discard(blocks){
-  const gone = [...new Set(blocks)], going = new Set(gone), touched = new Set([space]);
+  const going = new Set(blocks), touched = new Set([space]), spaces = everySpace(), ended = [];
+  for (const s of spaces) for (const o of s.ops) if (o.sources.some(b => going.has(b))){ ended.push([s, o]);
+    for (const id of o.results){ const made = everyKnown().find(k => k.id === id); if (made) going.add(made); } }
   /* a length taken from a shape that is going, while another use of that variable stays, is taken from that one instead */
   for (const d of everyBlock()) if (measures(d) && !going.has(d)){ const src = sourceOf(d), stay = src && going.has(src) && [...kinOf(src)].find(k => !going.has(k)); if (stay) d.from.id = stay.id; }
-  for (const b of gone){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
+  for (const b of going){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
+  for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); touched.add(s);
+    for (const b of o.sources) if (going.has(b)) forget(b);
+    putBack(s, o.sources.filter(b => !going.has(b)).map(b => [o, b])); }
   for (const s of touched) tidy(s);
   pruneOps();                                  /* a cut whose shapes have all gone is gone too */
 }
@@ -1103,21 +1130,31 @@ const originOf = b => [...kinOf(b)].find(k => !k.ref) || b;      /* the shape a 
 const sourceOf = b => b.from ? everyKnown().find(o => o.id === b.from.id) || null : null;
 const dimOf = (b, src) => b.from.side === 'm' ? 'm' : (b.from.side === 'x') !== turned(src) ? 'w' : 'h';      /* which of the source's sides, the way it now lies */
 const derived = b => { const src = sourceOf(b); if (!src || src === b) return null; const dim = dimOf(b, src), r = rootSide(src); if (dim === 'm') return scalarOf(src); if (unset(src)) return null; return r === null ? Math.round(src.rect[dim] / view.unit) : r; };
-function doomed(blocks){
-  const gone = new Set(blocks), all = everyBlock();
+function doomed(blocks, reverting = []){            /* reverting: operations being reverted, whose kept blocks come back and so do not go */
+  const gone = new Set(blocks), all = everyKnown(), byId = new Map(all.map(b => [b.id, b])), spaces = everySpace();
+  const holder = new Map(); for (const b of all) for (const m of b.members || []) holder.set(m.block, b);      /* a block fused into another goes when that one does */
+  const going = b => { for (let k = b; k; k = holder.get(k)) if (gone.has(k)) return true; return false; };
+  const add = b => { if (!gone.has(b)){ gone.add(b); return true; } return false; };
   for (let more = true; more;){ more = false;
     for (const set of new Set([...gone].map(b => kin.get(b)).filter(Boolean))){ const origins = [...set].filter(k => !k.ref);      /* every shape the variable was made as is going: its references go */
-      if (origins.length && origins.every(k => gone.has(k))) for (const k of set) if (!gone.has(k)){ gone.add(k); more = true; } }
-    for (const d of all) if (d.from && !gone.has(d)){ const src = sourceOf(d); if (src && gone.has(src) && ![...kinOf(src)].some(k => !gone.has(k))){ gone.add(d); more = true; } }
+      if (origins.length && origins.every(k => gone.has(k))) for (const k of set) if (add(k)) more = true; }
+    for (const d of all) if (d.from && !gone.has(d)){ const src = sourceOf(d); if (src && gone.has(src) && ![...kinOf(src)].some(k => !gone.has(k)) && add(d)) more = true; }
+    /* what a cut keeps off the canvas is part of this too. A kept block that goes (its variable went) takes every
+       shape its operation made. And when every shape an operation made goes, its two kept blocks go, with whatever
+       refers to them: they would be gone for good, and nothing may be left naming a block that is not there. */
+    for (const s of spaces) for (const o of s.ops){ if (reverting.includes(o)) continue;
+      const made = o.results.map(id => byId.get(id)).filter(Boolean);
+      if (o.sources.some(b => gone.has(b))){ for (const b of made) if (add(b)) more = true; }
+      else if (made.length && made.every(going)) for (const b of o.sources) if (add(b)) more = true; }
   }
-  return [...gone].filter(b => !blocks.includes(b) && spaceWith(b));      /* a block kept off the canvas by a cut stays: the shapes made of it are still there */
+  return [...gone].filter(b => !blocks.includes(b));
 }
 /* deleting or cutting the selection: if that would take other things with it, the user is shown them first, as a table
    of variables and how many instances of each would go, and can still say no */
 const warning = createWarning();
 /* sends a message that takes `list` away, with whatever else would go; asks first where anything else would */
-function warned(list, doing, proceed, send){
-  const also = doomed(list);
+function warned(list, doing, proceed, send, reverting = []){
+  const also = doomed(list, reverting);
   if (!also.length) return send(also);
   const count = new Map(); for (const b of also) count.set(bare(b.name), (count.get(bare(b.name)) || 0) + 1);
   const sources = [...new Set(list.filter(b => also.some(o => [...kinOf(b)].includes(o) || o.from?.id === b.id)).map(b => bare(b.name)))];
@@ -1134,7 +1171,7 @@ function removing(type){
 function reverting(){
   const list = [...selected], r = revertible(list);
   if (r.refused) return hud.say(r.refused);
-  warned(r.ops.flatMap(o => o.results.map(blockOf)), 'Reverting', 'Revert', also => bus.send('revert', { ids: idsOf(list), also: idsOf(also) }));
+  warned(r.ops.flatMap(o => o.results.map(blockOf)), 'Reverting', 'Revert', also => bus.send('revert', { ids: idsOf(list), also: idsOf(also) }), r.ops);
 }
 
 /* ---- saving and opening a project ----
@@ -1143,6 +1180,7 @@ function reverting(){
    Anywhere else (the published artifact, say) there is no server to keep them, so Save hands over one zip of the
    same tree and Open takes one back. */
 const typeNamed = name => shapes.find(s => s.name === name) || { name, label: name, draw: 'rectangle', color: 'tensor' };
+const wasOf = was => was ? was.map(w => ({ order: w.order, frames: w.frames.map(f => ({ ...f })) })) : null;      /* where an operation's kept blocks were, as plain data of its own */
 const fromOf = f => !f ? null : f.range ? { id: f.id, range: { ...f.range, toEnd: { ...f.range.toEnd } } } : { ...f };      /* a block's from, as plain data of its own */
 /* the page's spaces as plain data, lengths in units */
 function gather(){
@@ -1154,7 +1192,7 @@ function gather(){
   const plain = s => ({
     shapes: s.blocks.map(one),
     groups: tree(s, undefined),
-    operations: s.ops.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(one), results: [...o.results] })) });      /* what was cut here, each with the two blocks it keeps, whole */
+    operations: s.ops.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(one), results: [...o.results], was: wasOf(o.was) })) });      /* what was cut here, each with the two blocks it keeps, whole */
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
@@ -1181,7 +1219,7 @@ function rebuild(data){
     return b; };
   const fill = (plain, s) => {
     for (const d of plain.shapes) s.blocks.push(build(d, s));
-    for (const o of plain.operations || []) s.ops.push({ id: o.id || ids.id('o'), op: o.op, sources: o.sources.map(d => build(d, s)), results: [...o.results] });
+    for (const o of plain.operations || []) s.ops.push({ id: o.id || ids.id('o'), op: o.op, sources: o.sources.map(d => build(d, s)), results: [...o.results], was: wasOf(o.was) });
     const regroup = (g, up) => { const id = g.id || newGroup(); if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name);
       for (const i of g.members) s.groupOf.set(s.blocks[i], id); for (const inner of g.groups || []) regroup(inner, id); };
     for (const g of plain.groups) regroup(g, undefined);

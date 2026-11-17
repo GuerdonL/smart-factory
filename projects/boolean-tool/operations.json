@@ -3,13 +3,13 @@
   "version": 3,
   "operations": [
     {
-      "id": "oa2rh7u",
+      "id": "o5hg0hr",
       "op": "difference",
       "sources": [
         {
           "format": "smart-factory/shape",
           "version": 3,
-          "id": "b9q5a7a",
+          "id": "b4eu3g8",
           "type": "tensor",
           "name": "Keys",
           "named": true,
@@ -45,7 +45,7 @@
         {
           "format": "smart-factory/shape",
           "version": 3,
-          "id": "bvp83dt",
+          "id": "b1tkcvi",
           "type": "tensor",
           "name": "Head",
           "named": true,
@@ -71,18 +71,28 @@
         }
       ],
       "results": [
-        "b0qnxeh",
-        "byku68g"
+        "b80fi79",
+        "bxqquy7"
+      ],
+      "was": [
+        {
+          "order": 38,
+          "frames": []
+        },
+        {
+          "order": 40,
+          "frames": []
+        }
       ]
     },
     {
-      "id": "oj8ft1a",
+      "id": "ozpnfj5",
       "op": "intersect",
       "sources": [
         {
           "format": "smart-factory/shape",
           "version": 3,
-          "id": "borhr6k",
+          "id": "b3emmkr",
           "type": "tensor",
           "name": "Table",
           "named": true,
@@ -112,7 +122,7 @@
         {
           "format": "smart-factory/shape",
           "version": 3,
-          "id": "b6ygcsc",
+          "id": "b2d7zca",
           "type": "tensor",
           "name": "Window",
           "named": true,
@@ -138,7 +148,17 @@
         }
       ],
       "results": [
-        "b9xbk3m"
+        "b8kyrjs"
+      ],
+      "was": [
+        {
+          "order": 41,
+          "frames": []
+        },
+        {
+          "order": 42,
+          "frames": []
+        }
       ]
     }
   ]

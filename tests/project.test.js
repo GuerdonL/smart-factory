@@ -278,13 +278,13 @@ const cutSpace = () => space([
   shape('Shape 3', { id: 'bleft00', x: 0, cols: 2, rows: 4, from: { id: 'bwide00', range: range(0, 0, 2, 4, false, true) } }),
   shape('Tail', { id: 'bright0', x: 4, cols: 2, rows: 4, color: 'variable-2', from: { id: 'bwide00', range: range(4, 0, 2, 4, true, true) } }),
   shape('Keys', { id: 'bkeys00', x: 20, cols: 6, rows: 4, variable: 1, entries: { '3,1': 7 } }),
-], [], [{ id: 'o000001', op: 'difference', results: ['bleft00', 'bright0'], sources: [
+], [], [{ id: 'o000001', op: 'difference', results: ['bleft00', 'bright0'], was: [{ order: 0, frames: [{ id: 'g000009', name: 'Pair' }, { id: 'g000008', name: null }] }, { order: 2, frames: [] }], sources: [
   shape('Keys', { id: 'bwide00', cols: 6, rows: 4, variable: 1, reference: true, entries: { '3,1': 7 }, inside: space([shape('Inner', { id: 'binner0' })]) }),
   shape('Shape 2', { id: 'bband00', x: 2, cols: 2, rows: 4 })] }]);
 
 test('operations and ranges come back as they went, in every space', () => {
   const inner = space([shape('Shape 1', { id: 'bpart00', cols: 2, rows: 2, from: { id: 'bunder0', range: range(1, 1, 2, 2) } })], [],
-    [{ id: 'o000002', op: 'intersect', results: ['bpart00'], sources: [shape('Under', { id: 'bunder0', cols: 5, rows: 5 }),
+    [{ id: 'o000002', op: 'intersect', results: ['bpart00'], was: null, sources: [shape('Under', { id: 'bunder0', cols: 5, rows: 5 }),
       shape('Fused', { id: 'bfused0', x: 1, y: 1, cols: 2, rows: 2, joined: [{ fx: 0, fy: 0, fw: 0.5, fh: 1, shape: shape('L', { cols: 1, rows: 2 }) }, { fx: 0.5, fy: 0, fw: 0.5, fh: 1, shape: shape('R', { cols: 1, rows: 2 }) }] })] }]);
   const top = cutSpace(); top.shapes.push(shape('Holder', { id: 'bhold00', x: 40, inside: inner }));
   const p = project(top);
@@ -299,6 +299,7 @@ test('a space that was cut has operations.json, holding each operation with its 
   assert.equal(ops.format, 'smart-factory/operations'); assert.equal(ops.version, FORMAT); assert.equal(ops.operations.length, 1);
   const [o] = ops.operations;
   assert.deepEqual([o.id, o.op, o.results], ['o000001', 'difference', ['bleft00', 'bright0']]);
+  assert.deepEqual(o.was, [{ order: 0, frames: [{ id: 'g000009', name: 'Pair' }, { id: 'g000008', name: null }] }, { order: 2, frames: [] }]);      /* where each source was, for Revert */
   assert.deepEqual(o.sources.map(c => [c.format, c.id, c.name, c.position, c.size]), [['smart-factory/shape', 'bwide00', 'Keys', { x: 0, y: 0 }, { cols: 6, rows: 4 }], ['smart-factory/shape', 'bband00', 'Shape 2', { x: 2, y: 0 }, { cols: 2, rows: 4 }]]);
   assert.equal(o.sources[0].definition, 'Keys (2)/');
   assert.deepEqual(json(files, 'Shape 3.json').from, { id: 'bwide00', range: { col: 0, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } } });
@@ -331,13 +332,14 @@ test('operations and ranges with things missing or wrong are read with safe valu
   const src = n => config(n, { id: 'b' + n });
   const p = read([head(), file('P.json', config('P', { from: { id: 'bA', range: { col: -2, row: 1.4, cols: 0, toEnd: { cols: 1 } } } })), file('Q.json', config('Q', { from: { id: 'bA', range: 'all' } })),
     file('operations.json', { format: 'smart-factory/operations', version: FORMAT, operations: [
-      { id: 'o1', op: 'difference', sources: [src('A'), src('B')], results: ['bP', 7, null] },
+      { id: 'o1', op: 'difference', sources: [src('A'), src('B')], results: ['bP', 7, null], was: [{ order: -1, frames: [{ id: 'g1', name: 4 }, { name: 'no id' }, null] }, 'x'] },
       { id: 'o2', op: 'union', sources: [src('C'), src('D')], results: ['bQ'] },            /* no such operation */
       { id: 'o3', op: 'intersect', sources: [src('E')], results: ['bQ'] },                  /* not two sources */
       { id: 'o4', op: 'intersect', sources: [src('F'), src('G')], results: [] },            /* it made nothing */
       { op: 'intersect', sources: [src('H'), null], results: ['bR'] }, null, 'x'] })]);
   assert.deepEqual(p.top.shapes.map(s => s.from), [{ id: 'bA', range: { col: 0, row: 1, cols: 1, rows: 1, toEnd: { cols: true, rows: false } } }, { id: 'bA', side: 'x' }]);
   assert.deepEqual(p.top.operations.map(o => [o.id, o.op, o.sources.map(s => s.name), o.results]), [['o1', 'difference', ['A', 'B'], ['bP']], [null, 'intersect', ['H', 'Shape'], ['bR']]]);
+  assert.deepEqual(p.top.operations.map(o => o.was), [[{ order: null, frames: [{ id: 'g1', name: null }] }, { order: null, frames: [] }], null]);      /* where the sources were: what can be read of it, and nothing where it is not two places */
   assert.deepEqual(read([head(), file('operations.json', { format: 'smart-factory/operations', operations: 'none' })]).top.operations, []);
 });
 

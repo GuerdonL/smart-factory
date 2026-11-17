@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, wholeSide, sideLabel, nthOf } from '../algebra.js';
+import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -515,4 +515,39 @@ test('a shape with no value gives its piece none, alone or touching', () => {
   const [p] = pieces([rect(0, 0, 3, 2), { ...rect(3, 0, 4, 3), none: true }]);
   assert.deepEqual(p.type, { error: 'no value' }); assert.deepEqual(p.members, [0, 1]);
   assert.deepEqual(typeOf([rect(0, 0, 3, 2), rect(3, 0, 4, 3)]), type(4, 2));      /* and with a value, as ever */
+});
+
+test('a part has its source entries in its range: entry c,r is the source entry col + c, row + r', () => {
+  /* a 6 by 4 source holding, at column c and row r, the number 10c + r, but for one entry never given */
+  const entries = new Map(); for (let c = 1; c <= 6; c++) for (let r = 1; r <= 4; r++) if (!(c === 4 && r === 2)) entries.set(c + ',' + r, 10 * c + r);
+  const src = { cols: 6, rows: 4, entries, turned: false };
+  const mid = partEntries({ col: 2, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } }, src);      /* columns 3 and 4 */
+  assert.equal(mid.size, 7); assert.equal(mid.get('1,1'), 31); assert.equal(mid.get('2,1'), 41); assert.equal(mid.get('1,4'), 34);
+  assert.equal(mid.has('2,2'), false);                                              /* not given in the source: still a symbol in the part */
+  assert.equal(mid.has('3,1'), false); assert.equal(mid.has('0,1'), false);          /* the boundary: nothing from columns 2 or 5 */
+  const inner = partEntries({ col: 3, row: 1, cols: 2, rows: 2, toEnd: { cols: false, rows: false } }, src);
+  assert.deepEqual([...inner].sort(), [['1,2', 43], ['2,1', 52], ['2,2', 53]]);
+  assert.deepEqual([...partEntries({ col: 2, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: true } }, { ...src, entries: [['3,1', 7]] })], [['1,1', 7]]);      /* any pairs will do */
+});
+
+test('a part that reached its source edge takes whatever is there now, and one the source cannot hold has no entries', () => {
+  const entries = new Map(); for (let c = 1; c <= 9; c++) for (let r = 1; r <= 5; r++) entries.set(c + ',' + r, 10 * c + r);
+  const end = { col: 4, row: 0, cols: 2, rows: 4, toEnd: { cols: true, rows: true } };      /* made of a 6 by 4 source */
+  const grown = partEntries(end, { cols: 9, rows: 5, entries, turned: false });
+  assert.equal(grown.size, 25); assert.equal(grown.get('1,1'), 51); assert.equal(grown.get('5,5'), 95);
+  const shrunk = partEntries(end, { cols: 5, rows: 2, entries, turned: false });           /* entries left over from when it was larger are not the source's now */
+  assert.deepEqual([...shrunk].sort(), [['1,1', 51], ['1,2', 52]]);
+  assert.equal(partEntries(end, { cols: 4, rows: 5, entries, turned: false }).size, 0);    /* no column 5: no such part */
+  assert.equal(partEntries({ col: 2, row: 0, cols: 2, rows: 4, toEnd: { cols: false, rows: false } }, { cols: 3, rows: 4, entries, turned: false }).size, 0);
+});
+
+test('a part of a transposed source is of the source as it stands, and a transposed use of a part reads it turned', () => {
+  /* the variable is 4 wide and 2 tall; the source stands as its transpose, 2 wide and 4 tall */
+  const entries = new Map([['4,1', 9], ['1,2', 5], ['3,2', 6]]), src = { cols: 2, rows: 4, entries, turned: true };
+  const lastRow = partEntries({ col: 0, row: 3, cols: 2, rows: 1, toEnd: { cols: true, rows: true } }, src);
+  assert.deepEqual([...lastRow], [['1,1', 9]]);                                         /* the variable's 4,1 stands at column 1, row 4 */
+  const right = partEntries({ col: 1, row: 0, cols: 1, rows: 4, toEnd: { cols: true, rows: true } }, src);
+  assert.deepEqual([...right].sort(), [['1,1', 5], ['1,3', 6]]);
+  assert.deepEqual([...partEntries({ col: 1, row: 0, cols: 1, rows: 4, toEnd: { cols: true, rows: true } }, src, true)].sort(), [['1,1', 5], ['3,1', 6]]);      /* turned: a row */
+  assert.deepEqual([...partEntries({ col: 1, row: 0, cols: 1, rows: 4, toEnd: { cols: true, rows: true } }, { ...src, turned: false, cols: 4, rows: 2 })].sort(), [['2,2', 6], ['3,1', 9]]);      /* the same entries, not turned: columns 2 to 4 of 4 by 2 */
 });

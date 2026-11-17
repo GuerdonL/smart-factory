@@ -1,7 +1,7 @@
 {
   "format": "smart-factory/shape",
   "version": 3,
-  "id": "bvkggx8",
+  "id": "b1wudpz",
   "type": "tensor",
   "name": "Shape 1",
   "named": false,
@@ -35,7 +35,7 @@
       "shape": {
         "format": "smart-factory/shape",
         "version": 3,
-        "id": "blm1nix",
+        "id": "b1aem7d",
         "type": "tensor",
         "name": "Left",
         "named": true,
@@ -72,7 +72,7 @@
       "shape": {
         "format": "smart-factory/shape",
         "version": 3,
-        "id": "bvsavk6",
+        "id": "bx127k3",
         "type": "tensor",
         "name": "Right",
         "named": true,

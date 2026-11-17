@@ -8,7 +8,7 @@ A saved project is a directory in here. Shapes and files are the same tree:
 - a group is one combined `.group.json` file holding all of its shapes.
 
 - a space where Difference or Intersect has cut something has one more file, `operations.json`, holding each cut
-  with the two shapes it took off the canvas, whole.
+  with the two shapes it took off the canvas, whole, and where each was (its place in the order and its frames).
 
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).

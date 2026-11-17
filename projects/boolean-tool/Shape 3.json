@@ -1,7 +1,7 @@
 {
   "format": "smart-factory/shape",
   "version": 3,
-  "id": "byku68g",
+  "id": "bxqquy7",
   "type": "tensor",
   "name": "Shape 3",
   "named": false,
@@ -25,7 +25,7 @@
   },
   "order": 40,
   "from": {
-    "id": "b9q5a7a",
+    "id": "b4eu3g8",
     "range": {
       "col": 4,
       "row": 0,

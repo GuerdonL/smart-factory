@@ -93,6 +93,13 @@
        the range as it lies in a source that is now cols by rows: the same columns and rows as when it was made, or
        from the same one to the end. null where the source is too small to hold all of it (a range to the end needs
        at least one column or row left; any other needs every one it names).
+   partEntries(range, source, turned) -> a Map from "column,row" to a value: the entries of the part
+       source is { cols, rows, entries, turned }: the source's size as it stands, the entries of its variable (pairs
+       of "column,row", from 1, and a value: a Map will do) the variable's own way round, and whether the source
+       stands as the transpose of its variable. Entry c,r of the part is the entry in column range.col + c and row
+       range.row + r of the source as it stands, whatever that is now; an entry the source has not been given is not
+       in the Map. With turned, the part's entries are given turned, r,c for c,r (for a use of the part that is its
+       transpose). Empty where the source cannot hold the range.
    wholeSide(range, dim) -> whether the range takes in the source's whole side: dim is 'cols' or 'rows'
    sideLabel(range, dim, own, other, op, nth) -> what a side of such a shape is called, or null
        own and other are what the source and the other shape of the operation call that side (null where they call it
@@ -253,6 +260,13 @@ export const rangeOf = (source, part) => ({ col: part.x - source.x, row: part.y 
 export function rangeIn(range, cols, rows){
   const w = range.toEnd.cols ? cols - range.col : range.cols, h = range.toEnd.rows ? rows - range.row : range.rows;
   return w >= 1 && h >= 1 && range.col + w <= cols && range.row + h <= rows ? { col: range.col, row: range.row, cols: w, rows: h } : null;
+}
+export function partEntries(range, source, turned = false){
+  const at = rangeIn(range, source.cols, source.rows), out = new Map(); if (!at) return out;
+  for (const [key, v] of source.entries){ let [c, r] = key.split(',').map(Number); if (source.turned) [c, r] = [r, c];      /* where the entry stands in the source */
+    c -= at.col; r -= at.row;
+    if (c >= 1 && c <= at.cols && r >= 1 && r <= at.rows) out.set(turned ? r + ',' + c : c + ',' + r, v); }
+  return out;
 }
 export const wholeSide = (range, dim) => dim === 'cols' ? range.col === 0 && !!range.toEnd.cols : range.row === 0 && !!range.toEnd.rows;
 export function sideLabel(range, dim, own, other, op, nth = 0){

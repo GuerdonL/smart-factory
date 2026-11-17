@@ -150,7 +150,8 @@ intersected, though it cannot be cut.
 
 **Revert** undoes any of these: a fused shape comes apart into the shapes it was fused from, and for a shape made by
 a cut or an intersection every shape that command made is removed and the two original shapes come back where they
-were. If one of the shapes to be removed has been named and is used elsewhere, the usual warning is shown first.
+were: at the same place in the drawing order and in the same frames, so the project is as it was before the
+command. If one of the shapes to be removed has been named and is used elsewhere, the usual warning is shown first.
 
 A menu item that the selection does not allow is greyed. Choose it anyway and the readout says why.
 
@@ -160,17 +161,23 @@ a part of one of them, its source, in whole columns and rows:
 - It has no entries of its own. Its entries are the source's in those columns and rows, whatever they are now. If
   the source is one use of a variable, typing a number into the variable anywhere changes the part at once, and the
   variable itself is untouched by the cut. Nothing can be typed into a part: the readout says to change the source.
+  A named source stays in the list at the right edge while it is kept, so a use of it can be dragged out and
+  changed even when the cut took its only one.
 - Columns 3 and 4 stay columns 3 and 4 however the source is resized. A part that reached the source's right or
   bottom edge keeps reaching it as the source grows or shrinks. A part is always the size of its range, so it cannot
   be resized by hand.
 - If the source becomes too small to have the part at all, the part is drawn in the warning colour and has `no value`
-  until the source is large enough again.
+  until the source is large enough again. A shape fused from such a part is drawn and valued the same way.
+- Deleting every shape a cut made deletes the two kept shapes too, and with them whatever refers to them (a
+  reference, a length taken from one), after the usual warning. Deleting the variable a kept shape is a use of
+  takes that cut's shapes with it, also after the warning, and puts the other kept shape back on the canvas.
 - New shapes are unnamed and take the tensor colour. Named, a part is a variable like any other.
 - A side that takes in the source's whole side keeps the name given to that side. A side that was shortened shows a
   label made from what the two shapes called that side: `A-B` on what is left of a, `B-A` on what is left of b,
   `A&B` on an intersection, with `.1` and `.2` where one cut left two shapes of one source (`embed-Head.x.1`). A
   label is only a label, like a shape's automatic `Keys.x`: it makes no sides one length, lets no product pass by
-  name, and does not shorten the written matrix. Type a name on the side to give it a real one.
+  name, and does not shorten the written matrix. Type a name on the side to give it a real one; a part cannot
+  change size, so every side of that name then stays that length, and the readout says why when you try.
 
 Shapes standing in a definition's matrix that together cover it still define the variable with no command; that is
 the other way to append.
