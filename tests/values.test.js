@@ -42,6 +42,8 @@ test('what is not a single root goes to the solver and comes back symbolic, or s
   is('-', sym('1+sqrt(2)'), 1, q(2, 1, 1));                /* else exact */
   is('*', sym('1+sqrt(2)'), 2, sym('2*(1+sqrt(2))'));      /* else symbolic */
   assert.doesNotMatch(JSON.stringify(combine('+', q(2, 1, 1), q(3, 1, 1))), /\d\.\d/);      /* never a decimal */
+  /* the root of a square: the solver's abs( … ) comes off where the sign can be told */
+  is('^', combine('^', sym('1+sqrt(2)'), 2), q(1, 2), sym('1+sqrt(2)')); is('^', combine('^', sym('1-sqrt(2)'), 2), q(1, 2), sym('-1+sqrt(2)'));
 });
 
 test('division by zero is an error, and so is an even root of a negative number', () => {

@@ -169,6 +169,10 @@ function solveNow(N, typed){
     return c > 1 ? `((${c})^(${p})*(${n / c ** q})^(${p}/${q}))` : all; });
   try { if (finished !== text){ answer = N(finished); text = answer.toString(); }
     if (!text || /NaN|Infinity/.test(text)) return err(NONE);
+    /* and a third: the root of a square comes back as abs( … ), (1+√2)² under a root as abs(1+sqrt(2)). Its sign can be
+       told, so the bars come off: what is inside, or that turned round. Left as it is where the sign cannot be told. */
+    for (let m; (m = text.match(/^abs\((.*)\)$/)) && closes(m[1]);){ const n = numeric(N, m[1]); if (!(Math.abs(n) >= 1e-12)) break;
+      answer = N(n > 0 ? m[1] : `-(${m[1]})`); text = answer.toString(); }
     /* a single root comes out whole, or as a fraction, when it is squared enough times */
     for (let k = 0; k <= 3; k++){ let up; try { up = N(`expand((${text})^${2 ** k})`).toString(); } catch (e){ break; }
       const m = up.match(RATIONAL); if (!m) continue;
@@ -177,6 +181,8 @@ function solveNow(N, typed){
   } catch (e){ return err('that cannot be worked out'); }
   return { sym: text };
 }
+/* whether a text's brackets all close within it, so that abs(a)+abs(b) is not taken for one abs */
+const closes = t => { let d = 0; for (const c of t){ if (c === '(') d++; else if (c === ')' && --d < 0) return false; } return d === 0; };
 /* what the solver's text comes to as a number, at its own precision: used only to tell a sign, never shown */
 const numeric = (N, text) => { try { return Number(N(text).evaluate().text('decimals')); } catch (e){ return NaN; } };
 

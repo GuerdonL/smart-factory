@@ -7,7 +7,7 @@ import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
 import { createWarning } from './components/warning.js';
 import { createFormula } from './components/formula.js';
-import { evaluate, entered, typed as typedText, bound, guard, refersTo, repoint, label, wholeOf } from './expression.js';
+import { evaluate, entered, typed as typedText, bound, guard, refs, refersTo, repoint, label, wholeOf } from './expression.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds, createBackdrop } from './components/bounds.js';
@@ -730,10 +730,12 @@ function attributesOf(b){
   const r = rootSide(b), u = view.unit, v = scalarOf(b), one = single(b), len = dim => unset(b) ? '√' + symbolOf(b) : one && isError(v) ? '!' : r === null ? String(Math.round(b.rect[dim] / u)) : valueText(r);
   /* what a formula comes to, written after it where that says more than what was typed; why, where it comes to an error */
   const told = (text, v) => ({ error: isError(v) ? v.err : null, result: (w => w && !isError(v) && w.replace(/\s+/g, '') !== text.replace(/\s+/g, '') ? w : null)(valueText(v)) });
+  /* seen: how each capsule in a text is drawn just now, so that the panel is drawn again when a variable it names is renamed, recoloured or gone */
+  const seen = text => ({ seen: refs(text).map(fields.look) });
   const fixed = [{ key: 'x', label: sideName(b, 'w') || 'x', text: len('w') }, { key: 'y', label: sideName(b, 'h') || 'y', text: len('h') }];
   if (one){ const stored = measures(b) || rangedOf(b) ? undefined : b.values.get('1,1'), text = isFormula(stored) ? stored.expr : v === null ? symbolOf(b) : isError(v) ? '' : typedText(v);      /* a formula as it was typed; not yet given a value: its symbol */
-    fixed.push({ key: 'mass', label: massName(b) || 'mass', text, ...told(text, isFormula(stored) || isError(v) ? v : null) }); }
-  return [...fixed, ...attrsOf(b).map((a, i) => ({ key: 'a' + i, custom: true, label: a.name, text: a.text, ...told(a.text, attrValue(b, a)) }))];
+    fixed.push({ key: 'mass', label: massName(b) || 'mass', text, ...seen(text), ...told(text, isFormula(stored) || isError(v) ? v : null) }); }
+  return [...fixed, ...attrsOf(b).map((a, i) => ({ key: 'a' + i, custom: true, label: a.name, text: a.text, ...seen(a.text), ...told(a.text, attrValue(b, a)) }))];
 }
 /* the block an entry of the selected shape's matrix really belongs to, and its key there */
 const entryOfSelected = key => { const b = [...selected][0], [c, r] = key.split(',').map(Number); return b ? entryHome(b, c, r) : null; };

@@ -34,7 +34,7 @@ style('formula', `
   font: 600 .8em/1.55 var(--font-name); font-style: normal; white-space: nowrap; cursor: default; user-select: all; -webkit-user-select: all; }
 .capsule.missing { background: var(--warn); }
 /* a field opened over a matrix entry: wide enough for what is typed, and lying over its neighbours */
-.matrix > span > .formula { position: relative; z-index: 3; display: inline-block; min-width: 1.6em; padding: 0 .3em; line-height: 1.6; font-style: normal; font-weight: 400; font-family: var(--font-ui);
+.matrix > span > .formula { position: relative; z-index: 3; display: inline-block; min-width: 1.6em; font-size: calc(var(--cell) * .5); padding: 0 .3em; line-height: 1.6; font-style: normal; font-weight: 400; font-family: var(--font-ui);
   color: var(--fg); background: var(--panel); border-radius: .2em; box-shadow: 0 0 0 .1em var(--select); }
 .formula-list { position: fixed; z-index: 45; min-width: 120px; max-width: 260px; padding: 4px; display: flex; flex-direction: column; gap: 1px;
   background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 4px 16px var(--shadow); font: 13px/1.3 var(--font-name); }
