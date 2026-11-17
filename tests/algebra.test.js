@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
+import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -314,15 +314,6 @@ test('a shape that was part of a product was not stacked', () => {
   const rects = [rect(0, 0, 2, 2), rect(2, 0, 4, 2), rect(0, 2, 2, 2)];      /* the third is right under the first, which is in a product */
   const out = stacks(rects);
   assert.equal(out.length, 2); assert.ok(out.every(p => !p.stack)); assert.deepEqual(out.map(p => p.members.length).sort(), [1, 2]);
-});
-
-test('readEntry reads whole numbers and infinities, and nothing else', () => {
-  assert.equal(readEntry('7'), 7); assert.equal(readEntry('-3'), -3); assert.equal(readEntry('+12'), 12);
-  assert.equal(readEntry(' 4 2 '), 42); assert.equal(readEntry('−5'), -5); assert.equal(readEntry('0'), 0);
-  for (const t of ['inf', '+inf', 'infinity', 'INF', '∞', '+∞']) assert.equal(readEntry(t), Infinity, t);
-  for (const t of ['-inf', '-infinity', '-∞', '−∞']) assert.equal(readEntry(t), -Infinity, t);
-  assert.equal(readEntry(''), null); assert.equal(readEntry('   '), null);
-  for (const t of ['1.5', 'abc', '1e3', '--1', '3/2', '√2']) assert.equal(readEntry(t), undefined, t);
 });
 
 test('a value that comes out whole is a plain number; otherwise it is kept in algebraic form', () => {

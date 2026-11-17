@@ -358,3 +358,30 @@ test('projects/boolean-tool holds a fused shape, a cut and an intersection, each
   const kept = top.operations[0].sources[0], used = top.shapes.find(s => s.name === 'Keys');
   assert.ok(Number.isInteger(kept.variable)); assert.equal(kept.variable, used.variable);
 });
+
+test('entries: every kind that may be kept is written and read back; a formula is written as its text alone', () => {
+  const entries = { '1,1': 7, '2,1': -Infinity, '3,1': { n: 1, d: 2, k: 1 }, '1,2': true, '2,2': { expr: '1/√(@[b3k2m9x:x])' }, '3,2': false, '1,3': { sym: '1+sqrt(2)' }, '2,3': { n: 2, k: 1 }, '3,3': Infinity };
+  const files = write(project(space([shape('S', { cols: 3, rows: 3, entries })])));
+  assert.deepEqual(json(files, 'S.json').value.entries, { '1,1': 7, '2,1': '-inf', '3,1': { n: 1, d: 2, k: 1 }, '1,2': true, '2,2': { expr: '1/√(@[b3k2m9x:x])' }, '3,2': false, '1,3': { sym: '1+sqrt(2)' }, '2,3': { n: 2, k: 1 }, '3,3': 'inf' });
+  assert.equal(json(files, 'S.json').value.as, 'resolved');      /* a formula is something given */
+  assert.deepEqual(read(files).top.shapes[0].entries, entries);
+  assert.equal(typeof json(files, 'S.json').value.entries['1,2'], 'boolean');
+});
+
+test('entries: an error, a decimal and anything worked out are never written, and are dropped on reading', () => {
+  const files = write(project(space([shape('S', { cols: 3, rows: 2, entries: { '1,1': 7, '2,1': { err: 'divide by zero' }, '3,1': { f: 0.4375 }, '1,2': { expr: '1/0', value: { err: 'divide by zero' } }, '2,2': null, '3,2': 1.5 } })])));
+  assert.deepEqual(json(files, 'S.json').value.entries, { '1,1': 7, '1,2': { expr: '1/0' } });      /* a formula goes without its result */
+  const at = entries => read([head(3), file('S.json', { format: 'smart-factory/shape', version: 3, name: 'S', named: true, size: { cols: 3, rows: 2 }, value: { entries } })]).top.shapes[0].entries;
+  assert.deepEqual(at({ '1,1': 7, '2,1': { err: 'divide by zero' }, '3,1': { f: 0.4375 }, '1,2': { expr: '2 + 2', err: 'x' }, '2,2': 'nonsense', '3,2': { n: 'a', k: 0 }, '1,3': null, '2,3': 2.5, '3,3': { sym: 3 } }),
+    { '1,1': 7, '1,2': { expr: '2 + 2' } });
+  assert.deepEqual(at({ '1,1': { n: 3, d: 1, k: 0 }, '2,1': { n: 3, d: 4, k: 0, extra: 1 } }), { '1,1': { n: 3, k: 0 }, '2,1': { n: 3, d: 4, k: 0 } });
+});
+
+test('attributes keep their text, capsules and all; a format 2 project\'s entries and attributes read unchanged', () => {
+  const files = write(project(space([shape('S', { attributes: [{ name: 'heads', value: '@[b3k2m9x:x] / 2' }, { name: 'scale', value: '1/√(@[b3k2m9x:a:heads])' }] })])));
+  assert.deepEqual(json(files, 'S.json').attributes, [{ name: 'heads', value: '@[b3k2m9x:x] / 2' }, { name: 'scale', value: '1/√(@[b3k2m9x:a:heads])' }]);
+  assert.deepEqual(read(files).top.shapes[0].attributes, [{ name: 'heads', value: '@[b3k2m9x:x] / 2' }, { name: 'scale', value: '1/√(@[b3k2m9x:a:heads])' }]);
+  const old = read([head(2), file('S.json', { format: 'smart-factory/shape', version: 2, name: 'S', named: true, size: { cols: 2, rows: 2 }, attributes: [{ name: 'heads', value: '2^(3) + 1' }],
+    value: { entries: { '1,1': 0, '2,1': '-inf', '1,2': { n: 3, d: 4, k: 0 }, '2,2': 'inf' } } })]).top.shapes[0];
+  assert.deepEqual(old.entries, { '1,1': 0, '2,1': -Infinity, '1,2': { n: 3, d: 4, k: 0 }, '2,2': Infinity }); assert.deepEqual(old.attributes, [{ name: 'heads', value: '2^(3) + 1' }]);
+});

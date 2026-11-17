@@ -29,14 +29,18 @@
          "size": { "cols": 4, "rows": 6 },
          "sides": { "cols": "key", "rows": "context" },      the names of its sides, null where unnamed
          "value": { "as": "computation",         how its value stands (see below)
-                    "entries": { "2,1": 0, "3,1": "-inf" } },   entries given a number, by "column,row"
+                    "entries": { "1,1": 7, "2,1": "-inf", "3,1": { "n": 1, "d": 2, "k": 1 }, "1,2": true,
+                                 "2,2": { "expr": "1/√(@[b3k2m9x:x])" } } },
+                                                 entries given a value, by "column,row": a literal value or a
+                                                 formula (see "Entries", below)
          "definition": "Keys/",                  the directory holding its definition space, if it has one
          "order": 3,                             its place among the shapes of its space, back to front
          "tile": true,                           it stands in its owner's matrix: it was dropped onto that matrix, and its place in
                                                  the definition space is its place among the entries
          "attributes": [ { "name": "heads", "value": "2^(3) + 1" } ],
                                                  attributes given to the variable by hand: a name, and a value as it was
-                                                 typed (a number, or arithmetic; ^( ) is a power)
+                                                 typed (a number, or a formula; ^( ) is a power). It may hold
+                                                 capsules, @[b3k2m9x:x], as an entry's formula may
          "reference": true,                      it is a reference to its variable (it came from the list), not the shape the
                                                  variable was made as: delete that shape and this goes with it
          "from": { "id": "b3k…", "side": "x" },    it is a measure of the shape with that id (x its width, y its height, m a scalar's mass):
@@ -58,7 +62,22 @@
                                                  places: one name, size, colour, set of entries and definition
                                                  (each has the definition directory; they hold the same thing)
    value.as is "computation" when its definition space has shapes that work it out, "resolved" when every entry has
-   been given a number, and "variable" otherwise. Infinity is written "inf" and "-inf".
+   been given a value or a formula, and "variable" otherwise.
+
+   Entries. An entry is stored as one of two things, never as a formula with its result:
+       a literal value    7                               a whole number
+                          "inf", "-inf"                   an infinity
+                          { "n": 3, "d": 4, "k": 1 }      exact: n over d under k square roots, d left out where it is 1
+                          true, false                     a boolean, as a JSON boolean
+                          { "sym": "1+sqrt(2)" }          symbolic: text the solver reads back
+       a formula          { "expr": "1/√(@[b3k2m9x:x])" } the text as it was typed, worked out each time it is shown.
+                                                          A capsule in it names a measure of a variable by the id of
+                                                          the block it was made as: @[id:x], @[id:y], @[id:m] (a
+                                                          scalar's mass), @[id:a:name] (an attribute), @[id] (the
+                                                          whole matrix). expression.js has the language.
+   An entry that is absent is unknown: it is a symbol, not zero. Never written: an error ({ "err" }), a decimal
+   ({ "f" }), or anything else that was worked out. Reading, an entry holding either of those, or anything that is
+   none of the above, is dropped: the entry is unknown again.
 
    A named side's length is not stored anywhere else: it is the size of the sides that carry the name.
 
@@ -97,7 +116,9 @@
    pieces of an old project now read differently (see below for both); each 0 for a project of this format.
 
    The format is 3. Format 3 adds to format 2 a space's operations and a shape's from.range, both set out above; a
-   format 2 project has neither, and is read as having no operations. What else changed is what a file means: shapes of one width set one
+   format 2 project has neither, and is read as having no operations. It also adds to what an entry can hold:
+   booleans, symbolic values and formulas, and capsules in an attribute's value. A format 2 project's entries
+   (numbers, "inf" and "-inf", { n, d, k }) and attributes are read unchanged. What else changed is what a file means: shapes of one width set one
    directly on the next were a stack in format 2, its rows theirs (rows appended), and are a sum in format 3. Nothing
    in a file marks a stack, so the format number is all that tells the two apart. Reading format 2 or lower, every
    stack as it was then (lone shapes of one width, one directly on the next, in a space whose shapes are worked out:
@@ -119,19 +140,25 @@
    space:   { shapes: [shape], groups: [group], operations: [{ id, op: 'difference' | 'intersect', sources: [shape, shape], results: [shape ids],
               was: [{ order, frames: [{ id, name }] }, the same for the second source] | null }] }
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
-   shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": number }, inside: space | null,
+   shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": a literal value (Infinity for an infinity) or { expr } },
+              inside: space | null,
               variable: a number shared by shapes that are one variable, or null,
               from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | null,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
 
-import { stacks, pieces } from './algebra.js';
+import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.js';
 
 export const FORMAT = 3;
 const isCommented = name => /^\s*\/\//.test(name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');
 export const isNamed = name => !/^Shape \d+$/.test(bare(name));
-const out = v => v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v;
-const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v;
+/* an entry as it is written: a formula's text and nothing it came to, or a literal value. What may not be kept (an error, a decimal) is undefined. */
+const out = v => isFormula(v) ? { expr: v.expr } : !storable(v) ? undefined : v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v;
+/* and as it is read: undefined for what is no entry (an error, a decimal, or nothing this format knows) */
+const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : typeof v === 'boolean' || isWhole(v) ? v : !v || typeof v !== 'object' ? undefined
+  : typeof v.expr === 'string' ? { expr: v.expr } : isSurd(v) && (v.d === undefined || Number.isInteger(v.d)) ? { n: v.n, ...(v.d !== undefined && v.d !== 1 ? { d: v.d } : {}), k: v.k }
+  : typeof v.sym === 'string' ? { sym: v.sym } : undefined;
+const kept = (entries, as) => Object.fromEntries(Object.entries(entries || {}).map(([k, v]) => [k, as(v)]).filter(([, v]) => v !== undefined));
 
 /* a range as it is kept: whole numbers, a start not before 0, at least one column and one row, and toEnd's two fields true or false */
 const rangeOf = r => { const n = (v, least) => Math.max(least, Math.round(+v || 0));
@@ -146,7 +173,7 @@ function stem(name, taken){
 }
 
 function valueOf(shape){
-  const entries = Object.fromEntries(Object.entries(shape.entries || {}).map(([k, v]) => [k, out(v)]));
+  const entries = kept(shape.entries, out);
   const computed = !!shape.inside && shape.inside.shapes.some(s => !isCommented(s.name));
   let full = true; for (let c = 1; c <= shape.cols && full; c++) for (let r = 1; r <= shape.rows; r++) if (!(c + ',' + r in entries)){ full = false; break; }
   return { as: computed ? 'computation' : full ? 'resolved' : 'variable', entries };
@@ -207,7 +234,7 @@ export function read(files){
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
       return { id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
-        entries: Object.fromEntries(Object.entries(c.value?.entries || {}).map(([k, v]) => [k, back(v)])), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile, transposed: !!c.transposed,
+        entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile, transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
         reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? (c.from.range && typeof c.from.range === 'object' ? { id: c.from.id, range: rangeOf(c.from.range) } : { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' }) : null,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
