@@ -10,6 +10,11 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
+The format is 3. It has the same fields as format 2; what changed is what a stack means. Shapes of one width set one
+directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each
+of its stacks is fused into one joined shape on the way in, so it comes to what it did, and the readout says how many
+were fused. Saved again, it is format 3.
+
 ## Saving and opening
 
 Run `python3 server.py` in the repository and open the page it serves. Right-click the canvas:
@@ -38,7 +43,8 @@ is a hidden variable, and its name is made lower case with a dot in front.
 
 The program's own variables exist from the start, above the Menu. The tree is in `system.js`: `.config` holds
 `.integer_precision` (a whole number, not read yet), `.dark_mode` (0 for the light colours, 1 for the dark ones; left
-blank, whatever the computer asks for), `.dark_colors` (the colours used while `.dark_mode` is 1, laid out like
+blank, whatever the computer asks for), `.show_hadamard_copies` (in how many of its two hollows the result of a
+Times or Over pair is written: 0, 1 or 2; left blank, 1), `.dark_colors` (the colours used while `.dark_mode` is 1, laid out like
 `.colors`) and `.colors`, whose two groups hold the colours, each a shape of
 three entries, red, green, blue: `Shapes` (`.tensor_default`, `.data-in`, `.function`) and `UI` (`.bg`, `.fg`, `.select`, ...).
 `Shapes` also holds `.variable_colors`, an array of six colours, a row each: the ones a newly named shape takes at
@@ -57,8 +63,8 @@ own canvas, are only pieces and define nothing.
 Neither the program nor the stylesheet holds a value for any of these. They are written out, entry by entry, in the
 Menu's `.config` (the default Menu gives every one, light and dark), and that is the only place they are set. A
 colour no `.config` gives in full does not exist: a project with no `.config` has no canvas colour, no text colour
-and no shape colours, and is drawn in whatever the browser does with none. `.dark_mode` alone has a fallback: left
-blank, it is whatever the computer asks for.
+and no shape colours, and is drawn in whatever the browser does with none. Two variables that are not colours have a
+fallback: `.dark_mode`, left blank, is whatever the computer asks for, and `.show_hadamard_copies` is 1.
 
 A group named `.config` shadows the program's from its space downwards, and one further down shadows it again. It
 covers only what it gives: a colour shape with one entry filled changes that one entry. It is saved as a file called
@@ -76,3 +82,12 @@ rest of the Menu stays light.
 A small hand-written project showing every kind of file: a shape with a definition, a shape with numbers typed
 into it, a named group, a commented-out shape, two shapes with the same name, and a name that is not a legal file
 name.
+
+## touch-algebra/
+
+What touching means, one piece for each case, beside a copy of the default Menu's `.config`: a sum (`Signal` on
+`Bias`); Times (`Mask` and `Weights` at a rising diagonal, the result in the hollow between them); Over with a 1 by 1
+shape holding 1 (the reciprocal of `Scale`, written beside the piece since neither hollow is its size); Over with a
+single row (`Logits` over `Norm`, in the one hollow that is the result's size); and a product with a third shape
+stacked under it, which is `mixed rules`. Change `.show_hadamard_copies` in its `.config` to 2 or 0 to see the result
+of `Mask` and `Weights` move.

@@ -17,7 +17,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { joins, pieces, stacks, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
+import { touches, joins, pieces, hollows, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -194,21 +194,12 @@ function tilesOf(b){
 }
 const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: t.h, color: t.block.shape.color, name: t.block.name, id: t.block.id }));
 /* ---- the algebra of a space ----
-   algebraIn(s): the blocks of s that take part, their rectangles in units, and the pieces they make (products, stacks,
-   and shapes on their own).
-   */
+   algebraIn(s): the blocks of s that take part, their rectangles in units, every touch between them (a product, a
+   sum, times or over: algebra.js) and the pieces they make, each with its one rule. */
 function algebraIn(s){
   const u = view.unit, active = s.owner && tilesOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part */
   const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
-  return { active, rects, all: stacks(rects, pieces(rects)) };
-}
-/* the entries of a piece: a shape's own; a stack's, row under row; a product's are not worked out */
-function pieceValues({ piece, blocks }, depth){
-  if (blocks.length === 1) return valuesOf(blocks[0], depth);
-  if (!piece.stack) return null;
-  const all = new Map(), u = view.unit; let down = 0;
-  for (const b of blocks){ for (const [k, v] of valuesOf(b, depth)){ const [c, r] = k.split(',').map(Number); all.set(c + ',' + (r + down), v); } down += Math.round(b.rect.h / u); }
-  return all;
+  return { active, rects, touches: touches(rects), all: pieces(rects) };
 }
 /* a block's entries: its own; or, once shapes standing in its matrix (in its definition space) cover all of it,
    theirs. Nothing else defines it: shapes set anywhere else, there or beside it, are only pieces. */
@@ -480,7 +471,7 @@ const selected = new Set();
 let measure = null;                            /* the dimension lines of the one selected block */
 const bounds = createBounds(), roomFrame = createBounds();
 const results = [];                            /* the Menu's "= …", one for each piece */
-let marks = [];                                /* the product marks now on the canvas */
+let marks = [];                                /* the marks now on the canvas, one for each touch */
 /* ---- shadowing ----
    A variable is defined at the highest space that mentions it. A shape of the same name further down is a new
    definition that shadows the one above, from its own space downwards, but only in the parts it gives: an entry it
@@ -506,9 +497,9 @@ const root = document.documentElement, bySystemKey = new Map(SYSTEM.map(v => [v.
 let defaults = null;                           /* { light, dark }: the theme's own colours for each, read with nothing of ours laid over them */
 let hostTheme = root.dataset.theme || null, ourTheme;      /* what the app has put on the root element, and what the page last put there */
 const asksForDark = () => hostTheme ? hostTheme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-function programDefaults(){                    /* what the program itself says of each variable: nothing, but for .dark_mode, which left blank is whatever the computer asks for */
+function programDefaults(){                    /* what the program itself says of each variable: nothing, but for .dark_mode, which left blank is whatever the computer asks for, and one that system.js gives a fallback */
   if (defaults) return defaults;
-  const blank = v => v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : Array.from({ length: v.cssRows ? 3 * v.cssRows.length : v.css ? 3 : 1 }, () => undefined);
+  const blank = v => v.key === 'dark-mode' ? [asksForDark() ? 1 : 0] : 'fallback' in v ? [v.fallback] : Array.from({ length: v.cssRows ? 3 * v.cssRows.length : v.css ? 3 : 1 }, () => undefined);
   defaults = { light: new Map(SYSTEM.map(v => [v.key, blank(v)])), dark: new Map(SYSTEM.map(v => [v.key, blank(v)])) };
   return defaults;
 }
@@ -542,6 +533,8 @@ function systemValue(key, path, mode = 'light', said_only = false){      /* said
   return v;
 }
 const modeIn = path => systemValue('dark-mode', path)[0] ? 'dark' : 'light';
+/* .show_hadamard_copies, as it stands for a block of this space: in how many of a times or over pair's hollows the result is written (0, 1 or 2) */
+const hadamardCopies = b => { const n = systemValue('show-hadamard-copies', pathOf(chain(b)))[0]; return !(n > 0) ? 0 : n >= 2 ? 2 : 1; };
 function configure(){
   configs = null;
   const spaces = pathOf(), mode = modeIn(spaces), base = programDefaults()[mode], byte = n => Math.max(0, Math.min(255, n));
@@ -645,14 +638,6 @@ const rootOf = b => { const r = rootSide(b); if (r === null && unset(b)){ const 
    not whole, this is null, and no side can take it. */
 const sideLength = (b, dim) => { if (unset(b)) return null;      /* no number yet: no length to give */
   if (dim === 'm'){ const v = scalarOf(b); return isWhole(v) && v >= 1 ? v * view.unit : null; } const r = rootSide(b); return r === null ? b.rect[dim] : isWhole(r) && r >= 1 ? r * view.unit : null; };
-/* The circles on a shape: one over every entry whose number is known, its area in step with the number's size, the
-   largest on the shape filling its square. (A single entry has none: its number is written on it.) A negative number is a ring; zero is a speck (known, and nothing). */
-function dotsOf(b){
-  const cols = Math.round(b.rect.w / view.unit), rows = Math.round(b.rect.h / view.unit), known = [];
-  for (const [k, v] of valuesOf(b)){ const [c, r] = k.split(',').map(Number); if (typeof v === 'number' && !Number.isNaN(v) && c >= 1 && r >= 1 && c <= cols && r <= rows) known.push({ c, r, v }); }
-  const most = Math.max(0, ...known.map(d => Number.isFinite(d.v) ? Math.abs(d.v) : 0));
-  return known.map(({ c, r, v }) => ({ c, r, negative: v < 0, size: !Number.isFinite(v) ? 1 : v === 0 || !most ? .12 : Math.max(.2, +Math.sqrt(Math.abs(v) / most).toFixed(3)) }));
-}
 /* ---- attributes ----
    Everything a variable has, together, as the properties panel shows it: the lengths of its two sides (x and y),
    a scalar's mass (the number it holds), and whatever attributes have been added to it by hand. Each has a value
@@ -700,7 +685,7 @@ function shown(){                              /* brings what is on screen in li
   hush(); configure();
   for (const b of space.blocks) if (b.from){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
-  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.dots(v === null ? dotsOf(b) : null, Math.round(b.rect.w / view.unit), Math.round(b.rect.h / view.unit)); }
+  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
@@ -729,13 +714,14 @@ function shown(){                              /* brings what is on screen in li
     bounds.set(boxOf(list), { selected: true, tools: true, grouped: oneGroup !== null, grow: namedWithin(list) });
     view.world.append(bounds.el);
   } else bounds.el.remove();
-  /* the algebra of what is here: a mark wherever two blocks touch and multiply, and whether it all comes to the promised size */
+  /* the algebra of what is here: a mark wherever two blocks touch, whatever the touch means, and whether it all comes to the promised size */
   for (const b of space.blocks) b.off(isOff(b));
-  const u = view.unit, { active, rects, all } = algebraIn(space);
-  /* commented-out blocks take no part, nor what is in a .config */
+  const u = view.unit, { active, rects, touches: ts, all } = algebraIn(space);
+  /* commented-out blocks take no part */
   for (const j of marks) j.el.remove();
-  const js = joins(rects);
-  marks = js.map(j => createJoin({ x: j.x * u, y: j.y * u, ok: j.ok, note: j.note }));
+  const mixed = new Set(all.filter(p => p.rule === 'mixed').flatMap(p => p.members));      /* in a piece of more than one rule, every mark is a warning */
+  marks = ts.map(t => createJoin({ kind: t.kind, x: t.x * u, y: t.y * u, ok: t.ok, note: t.note, warn: mixed.has(t.a) }));
+  const js = ts.filter(t => t.kind === 'product').map(t => ({ ...t, left: t.a, right: t.b }));
   /* in a product the left block gives its rows and the right block its columns, so the left one is banded across
      and the right one down; a block in the middle of a chain does both */
   for (const b of space.blocks){ const i = active.indexOf(b), rows = i >= 0 && js.some(j => j.ok && j.left === i), cols = i >= 0 && js.some(j => j.ok && j.right === i);
@@ -743,9 +729,12 @@ function shown(){                              /* brings what is on screen in li
   view.world.append(...marks.map(j => j.el));
   /* how a piece's matrix is written. One block: its own initials, colour and numbers. A product: each entry as the
      row it takes from the first block against the column it takes from the last, each in its block's colour.
-     (A product is not worked out in numbers yet.) */
+     (A product is not worked out in numbers yet.) A sum or an elementwise chain: each entry as its members' entries
+     with the signs between them, a₁₁+b₁₁, each in its block's colour; these are not worked out in numbers yet either. */
   const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
-    if (piece.stack) return { letter: initials(first.name), values: pieceValues({ piece, blocks: bs }, 0) };      /* a stack: its shapes' entries, row under row */
+    if (piece.rule === 'sum' || piece.rule === 'elementwise') return { combined: {
+      parts: bs.map(b => ({ letter: initials(b.name), color: b.shape.color, cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u), transposed: turned(b) })),
+      signs: piece.members.slice(1).map((m, n) => piece.rule === 'sum' ? '+' : ts.some(t => t.kind === 'over' && t.a === piece.members[n] && t.b === m) ? '/' : '·') } };
     /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
     if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), tiles: tileLook(first) };
     if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), tiles: tileLook(first), transposed: turned(first) };
@@ -759,9 +748,9 @@ function shown(){                              /* brings what is on screen in li
     const ends = solid.length ? solid : bs; return { product: { rows: { letter: initials(ends[0].name), color: ends[0].shape.color }, cols: { letter: initials(ends[ends.length - 1].name), color: ends[ends.length - 1].shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
-  const stacked = new Set(all.filter(p => p.stack).flatMap(p => p.members.map(m => active[m])));
+  const stacked = new Set(ts.filter(t => t.kind === 'sum').flatMap(t => [active[t.a], active[t.b]]));
   const standing = new Set(((space.owner && tilesOf(space.owner)) || []).map(t => t.block));      /* shapes standing in the definition's matrix sit against one another too */
-  for (const b of space.blocks) b.inset(stacked.has(b) || standing.has(b));      /* in a stack, names go on the blocks */
+  for (const b of space.blocks) b.inset(stacked.has(b) || standing.has(b));      /* in a sum there is no room above a block for its name (the next one up is there): names go on the blocks */
   if (space.definition && space.definition.tiled !== JSON.stringify(tileLook(space.owner))) write();      /* shapes have gone into, or come out of, its block's matrix */
   const mine = all.filter(p => !p.members.some(m => inConfig(active[m], space)));      /* what is in a .config is no part of what the space comes to */
   space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? lookOf(mine[0]) : {});
@@ -771,13 +760,22 @@ function shown(){                              /* brings what is on screen in li
      same, over whatever is there. It never goes off looking for room. */
   const taken = space.blocks.map(b => b.rect),      /* commented-out blocks are still in the way */
      hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
-  /* a product can be named, folding its blocks into one; a block on its own already is one, and has its own name */
-  const writ = ps.map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1,
+  /* A times or over pair encloses two empty rectangles, its hollows, and its result is written in them, on the bare
+     canvas, in place of the "= …" beside the piece: in neither, one or both, as .show_hadamard_copies says (0, 1, 2).
+     Only a hollow the size of the result is used (with a broadcast operand one or both are not), and only where the
+     matrix as it is written fits it (a named side is written elided, as if long, and may not). With none to use,
+     and for a chain of three or more, the result goes beside the piece as any other does. */
+  const hollowsOf = piece => { if (piece.rule !== 'elementwise' || piece.members.length !== 2 || piece.type.error) return [];
+    const t = ts.find(t => t.a === piece.members[0] && t.b === piece.members[1]), type = piece.type;
+    return hollows(t, rects).filter(h => h.w === type.cols && h.h === type.rows && squares(type.cols, type.colsName) <= h.w && squares(type.rows, type.rowsName) <= h.h)
+      .slice(0, hadamardCopies(active[piece.members[0]])).map(h => ({ x: h.x * u, y: h.y * u, w: h.w * u, h: h.h * u })); };
+  /* a product, a sum or an elementwise result can be named, folding its blocks into one; a block on its own already is one, and has its own name */
+  const writ = ps.map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1, hollows: hollowsOf(piece),
     box: { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u } }));
-  writ.forEach(({ blocks, type, look, nameable, box }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
+  writ.forEach(({ blocks, type, look, nameable, box, hollows }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     r.piece = { blocks, type, box };            /* what this result is the result of */
     let at = null;
-    for (const where of [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}]){ at = r.set(box, type, { ...where, look, nameable }); if (!hits(at)) break; }
+    for (const where of hollows.length ? [{ hollows }] : [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}]){ at = r.set(box, type, { ...where, look, nameable }); if (where.hollows || !hits(at)) break; }
     r.piece.at = at; taken.push(at); });
   for (const r of results.slice(writ.length)) r.el.remove();
   /* a named group's frame takes in what is written beside its shapes, too */
@@ -797,7 +795,7 @@ function select(list, { toggle = false } = {}){
 }
 
 /* ---- naming a result ----
-   Click the matrix a product comes to and give it a name: the blocks that came to it fold away into a new block of that name,
+   Click the matrix a product, a sum or an elementwise piece comes to (beside it, or in a hollow) and give it a name: the blocks that came to it fold away into a new block of that name,
    the size of the result, in a bold colour picked at random. They become its definition: open it to find them on
    the left of its "=". */
 /* what folding these blocks would make: if they come to one thing (a product, say) the new block is that size;
@@ -883,12 +881,13 @@ function paste(at, clipboard, fresh = true){                             /* at: 
 /* transposes the selection. A shape on its own turns about its top-left corner: its width and height change places,
    with their names, and entry c,r becomes entry r,c. A product turns as a whole, (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ: each shape is
    transposed and their order reversed, laid out again from the product's top-left corner. A shape is a variable, so
-   it alone is turned: other uses of the variable stay as they are. (What is inside its definition space is left as it is.) */
+   it alone is turned: other uses of the variable stay as they are. (What is inside its definition space is left as it is.)
+   Only a row of products is laid out again; the shapes of a sum or an elementwise piece each turn where they are. */
 function transpose(){
   if (!selected.size) return;
   const u = view.unit, list = [...selected], act = list.filter(b => !isOff(b)), done = new Set();
   const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h })))
-    .map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x)).filter(c => c.length > 1)
+    .filter(p => p.rule === 'product').map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x))
     .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
   /* a shape becomes the transpose of what it was: this use alone, marked with a T. Its width and height change places,
      with their names; its entries stay as the variable has them and are read turned. A joined shape is turned bodily,
@@ -1080,7 +1079,8 @@ async function save(name){
 
 /* opening replaces everything on the page */
 function openFrom(files, name = null){ const data = project.read(files); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
-  hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes`); }
+  /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
+  hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
 const zipPicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true });
@@ -1102,7 +1102,7 @@ addEventListener('keydown', e => {
   if (e.key === 'Escape') return bus.send('escape');      /* with nothing selected, Escape steps out of a definition space */
   /* s: drag a box; every block it touches is selected, with its group. Press s again to leave without selecting. */
   if (e.key === 's' || e.key === 'S') return bus.send('select.box');
-  /* F2 or Enter: rename the one selected block (the way to rename a block in a stack, whose name is written on it) */
+  /* F2 or Enter: rename the one selected block (the way to rename a block in a sum, whose name is written on it) */
   if ((e.key === 'F2' || e.key === 'Enter') && selected.size === 1){ e.preventDefault(); return renaming([...selected][0]); }
   /* f frames the selection; on a selection that is one frame already, it takes the frame off */
   if ((e.key === 'f' || e.key === 'F') && selected.size){ e.preventDefault(); const list = [...selected], g = groupIs(list);

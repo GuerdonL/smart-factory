@@ -3,6 +3,8 @@
        .config
          .integer_precision            a whole number; nothing reads it yet
          .dark_mode                    0 for the light colours, 1 for the dark ones; left blank, whatever the computer asks for
+         .show_hadamard_copies         in how many of its two hollows the result of a times or over pair is written: 0, beside
+                                       the piece as any other result is; 1, in one hollow; 2, in both. Left blank, 1
          .colors
            .shapes                     the colours shapes are drawn in
              .tensor_default  .data-in  .function      .function: the arrow a function is drawn as
@@ -11,15 +13,18 @@
              .bg .panel .hover .focus  .fg .line .fade-to .dot  .muted .measure_bar .warn .select
          .dark_colors                  the same two groups again: the colours used while .dark_mode is 1
 
-   No values are written here. What each variable is comes from a project's .config (the default Menu's gives them
-   all); where no .config says, a variable has no value and a colour does not exist: nothing stands in for it.
+   No colours are written here. What each variable is comes from a project's .config (the default Menu's gives them
+   all); where no .config says, a variable has no value and a colour does not exist: nothing stands in for it. The
+   one exception is a variable given a fallback below, which is what it is where no .config says: a project saved
+   before the variable existed has to be drawn somehow.
 
    A .config's reach is the group it is in, or the whole space if it is in none: see "shadowing" in smart-factory.js.
 
    Each variable: name; key, the name as it is matched (lower case, no dot, - for _ and for spaces); css, the theme
    variable a colour sets (a colour is three entries: red, green, blue); cssRows, for an array of colours, the theme
    variable each row sets (a row no .config gives in full is no colour at all: what wears it is drawn without one); rows, how many rows its shape has; branch, the group of .colors it belongs to; at, where it sits in the default layout, in units; cols,
-   how many entries wide its shape is; color, the theme colour a variable that is not a colour is drawn in. */
+   how many entries wide its shape is; color, the theme colour a variable that is not a colour is drawn in; fallback, for
+   the few that have one, its value where no .config gives it. */
 const colour = (name, css, branch, at) => ({ name, key: name.slice(1).replace(/_/g, '-'), css, branch, at, cols: 3 });
 /* the six places a named shape's colour is kept: theme variables --variable-1 to --variable-6, which no stylesheet
    sets. They are the rows of .variable_colors, whatever those come to. OLD is what they were called in projects
@@ -29,6 +34,7 @@ export const OLD = { lavender: SLOTS[0], watermelon: SLOTS[1], lazuli: SLOTS[2],
 export const SYSTEM = [
   { name: '.integer_precision', key: 'integer-precision', branch: null, at: [2, 1], cols: 1, color: SLOTS[1] },
   { name: '.dark_mode', key: 'dark-mode', branch: null, at: [12, 1], cols: 1, color: SLOTS[2] },      /* with nothing said, the computer's own setting: see programDefaults */
+  { name: '.show_hadamard_copies', key: 'show-hadamard-copies', branch: null, at: [22, 1], cols: 1, color: SLOTS[3], fallback: 1 },
   colour('.tensor_default', 'tensor', '.shapes', [2, 6]), colour('.data-in', 'data-in', '.shapes', [2, 8]), colour('.function', 'function', '.shapes', [2, 10]),
   { name: '.variable_colors', key: 'variable-colors', cssRows: SLOTS,
     branch: '.shapes', at: [14, 6], cols: 3, rows: 6, color: SLOTS[0] },

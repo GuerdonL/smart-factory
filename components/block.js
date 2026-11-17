@@ -16,10 +16,8 @@
      grips    turns the resize grips on or off
      turn     says whether this block is the transpose of its variable (kept on the block as t): a small raised T is
               written after its name. The block itself is not resized; that is for whoever turns it.
-     dots     draws a circle over entries of the block: dots(list, cols, rows), list being [{ c, r, size, negative }] with c, r the
-              entry's column and row from 1, size from 0 to 1 (1 fills the entry's square), negative drawn as a ring. null or [] for none.
      face     writes a value in the middle of the block's face (text), or takes it off (null)
-     inset    writes the name on the block's face in place of above it (for a block with another directly above), or puts it back
+     inset    writes the name on the block's face in place of above it (for a block in a sum, with another directly above or below), or puts it back
      stripes  bands the block's face, one band to each `unit` of world length, paler and deeper by turns in the
               block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or
               null for a plain face
@@ -74,15 +72,10 @@ style('block', `
 .block.selected .block-name { color: var(--select); }
 /* a transpose: a small raised T after its name */
 .block.transposed .block-name::after { content: "T"; font-size: .68em; vertical-align: .55em; margin-left: calc(1 * var(--px)); letter-spacing: 0; }
-/* in a stack there is no room above a block for its name (the next block up is there), so it is written on the block */
+/* in a sum there is no room above a block for its name (the next block up is there), so it is written on the block */
 .block.name-inside .block-name, .block.name-inside.selected .block-name { bottom: auto; top: 50%; transform: translateY(-50%); left: calc(7 * var(--px)); margin: 0; padding: 0;
   max-width: calc(100% - 12 * var(--px)); overflow: hidden; text-overflow: ellipsis; font-size: calc(12 * var(--px)); color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); pointer-events: none; }      /* a press there is a press on the block */
 .block.name-inside .block-name[contenteditable] { pointer-events: auto; overflow: visible; max-width: none; }
-/* a circle over each entry whose value is known, as big as the value */
-.block-dots { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-.block-dots circle { fill: color-mix(in srgb, var(--on-block) 55%, transparent); stroke: var(--rim); stroke-width: var(--px); vector-effect: non-scaling-stroke; }
-.block-dots circle.negative { fill: none; stroke: var(--on-block); stroke-width: calc(1.5 * var(--px)); }
-.block.dim .block-dots, .block.off .block-dots { opacity: .3; }
 /* a single entry that holds a value shows it on its face, shrunk to fit where it is long */
 .block-value { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; font-family: var(--font-name);
   font-size: calc(min(13, 30 / var(--len, 2)) * var(--px)); line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); }
@@ -121,20 +114,15 @@ export function createBlock(shape, rect, name = ''){
   for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
-  let joinedAs = '', valueEl = null, dotsAs = '';
+  let joinedAs = '', valueEl = null;
   const block = { id: null, el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(), t: false,
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
     off(on){ el.classList.toggle('off', on); },
     grips(on){ el.classList.toggle('no-grips', !on); },
     inset(on){ el.classList.toggle('name-inside', on); },
-    dots(list, cols, rows){ const key = list && list.length ? JSON.stringify([list, cols, rows]) : ''; if (key === dotsAs) return; dotsAs = key;
-      el.querySelector('.block-dots')?.remove(); if (!key) return;
-      const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'); svg.setAttribute('class', 'block-dots'); svg.setAttribute('viewBox', `0 0 ${cols} ${rows}`); svg.setAttribute('preserveAspectRatio', 'none');
-      for (const d of list){ const c = document.createElementNS(ns, 'circle'); c.setAttribute('cx', d.c - .5); c.setAttribute('cy', d.r - .5); c.setAttribute('r', +(d.size * .42).toFixed(3)); if (d.negative) c.setAttribute('class', 'negative'); svg.append(c); }
-      el.insertBefore(svg, valueEl); },
     face(text){ if (text === null || text === undefined || text === ''){ valueEl?.remove(); valueEl = null; return; }      /* a single entry's value, written on the block itself */
-      if (!valueEl){ valueEl = html`<span class="block-value"></span>`; el.append(valueEl); }      /* last, so it is written over the circles */
+      if (!valueEl){ valueEl = html`<span class="block-value"></span>`; el.append(valueEl); }
       valueEl.textContent = text; valueEl.style.setProperty('--len', Math.max(2, String(text).length)); },
     turn(on){ block.t = !!on; el.classList.toggle('transposed', !!on); },
     stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');

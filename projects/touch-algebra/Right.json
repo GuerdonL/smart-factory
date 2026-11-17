@@ -1,0 +1,26 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "type": "tensor",
+  "name": "Right",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -24,
+    "y": 5
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 46
+}

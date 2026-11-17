@@ -1,0 +1,31 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "type": "tensor",
+  "name": ".lavender",
+  "named": true,
+  "commented": false,
+  "color": "variable-1",
+  "position": {
+    "x": -4,
+    "y": -3
+  },
+  "size": {
+    "cols": 3,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 154,
+      "2,1": 123,
+      "3,1": 234
+    }
+  },
+  "order": 0,
+  "tile": true
+}

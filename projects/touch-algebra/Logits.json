@@ -1,0 +1,26 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "type": "tensor",
+  "name": "Logits",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": -14,
+    "y": -3
+  },
+  "size": {
+    "cols": 4,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 43
+}

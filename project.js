@@ -66,6 +66,16 @@
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
    project: { top: space, saved: an ISO date, ids: where the project's source of ids has got to (ids.js), kept in project.json }
 
+   read's project also carries converted: how many old stacks were fused on the way in (see below); 0 for a project of this format.
+
+   The format is 3. Format 3 adds no field to format 2. What changed is what a file means: shapes of one width set one
+   directly on the next were a stack in format 2, its rows theirs (rows appended), and are a sum in format 3. Nothing
+   in a file marks a stack, so the format number is all that tells the two apart. Reading format 2 or lower, every
+   stack as it was then (lone shapes of one width, one directly on the next, in a space whose shapes are worked out:
+   not commented out, and not standing in their owner's matrix) is fused into one shape, as joining them would: a new
+   unnamed shape with the stack's shapes in "joined", in whatever frame held them all. A fused shape appends, so the
+   project comes to what it did. A format 3 project is never converted: its stacks are sums.
+
    Format 1 had two spaces at the top: the top level, in the project's directory, and the settings, in _settings/.
    Now there is one, the Menu, which is what the settings were. Reading a format 1 project, _settings/ becomes the
    top; if the old top level had shapes too, they are kept inside one block called "Top level", set beside it.
@@ -75,7 +85,9 @@
               variable: a number shared by shapes that are one variable, or null,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
 
-export const FORMAT = 2;
+import { stacks } from './algebra.js';
+
+export const FORMAT = 3;
 const isCommented = name => /^\s*\/\//.test(name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');
 export const isNamed = name => !/^Shape \d+$/.test(bare(name));
@@ -156,11 +168,55 @@ export function read(files){
     return { shapes, groups };
   };
   const top = space('');
+  let project = { top, saved: meta.saved || null, ids: meta.ids || null };
   if ((meta.version || 1) < 2 && [...at.keys()].some(p => p.startsWith('_settings/'))){      /* format 1: see the note above */
     const menu = space('_settings/');
     if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'variable-3', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
       cols: 3, rows: 2, colsName: null, rowsName: null, entries: {}, inside: top, variable: null });
-    return { top: menu, saved: meta.saved || null, ids: meta.ids || null };
+    project = { ...project, top: menu };
   }
-  return { top, saved: meta.saved || null, ids: meta.ids || null };
+  return { ...project, converted: (meta.version || 1) < 3 ? fuseStacks(project.top) : 0 };
+}
+
+/* Fuses every stack of a space read from format 2 or lower, and of every space below it, in place; gives how many.
+   owner: the shape whose definition space this is, or null for the Menu. */
+function fuseStacks(s, owner = null){
+  let count = 0;
+  const below = shape => { if (shape.inside) count += fuseStacks(shape.inside, shape); for (const j of shape.joined || []) below(j.shape); };
+  s.shapes.forEach(below);
+  /* the frames each shape is in, innermost first */
+  const chains = new Map(), walk = (g, up) => { const mine = [g, ...up]; for (const i of g.members) chains.set(i, mine); for (const inner of g.groups || []) walk(inner, mine); };
+  for (const g of s.groups) walk(g, []);
+  const chain = i => chains.get(i) || [];
+  const live = s.shapes.map((_, i) => i).filter(i => !isCommented(s.shapes[i].name));
+  /* shapes standing in their owner's matrix are its entries, and were never worked out as a stack: that is so when
+     every shape of the space outside a .config stands there, inside the matrix and over no other (as the page has it) */
+  const standing = (() => { if (!owner) return false;
+    const act = live.filter(i => !chain(i).some(g => (g.name || '').trim() === '.config')).map(i => s.shapes[i]), x0 = -1 - owner.cols, y0 = Math.round(-owner.rows / 2), placed = [];
+    for (const t of act){ const x = t.x - x0, y = t.y - y0;
+      if (!t.tile || x % 1 || y % 1 || x < 0 || y < 0 || x + t.cols > owner.cols || y + t.rows > owner.rows) return false;
+      if (placed.some(o => x < o.x + o.w && o.x < x + t.cols && y < o.y + o.h && o.y < y + t.rows)) return false;
+      placed.push({ x, y, w: t.cols, h: t.rows }); }
+    return act.length > 0; })();
+  if (standing) return count;
+  const runs = stacks(live.map(i => { const d = s.shapes[i]; return { x: d.x, y: d.y, w: d.cols, h: d.rows, wName: d.colsName, hName: d.rowsName }; })).filter(p => p.stack).map(p => p.members.map(m => live[m]));
+  if (!runs.length) return count;
+  const gone = new Set(), made = new Map();            /* made: the place among the shapes of a stack's first shape -> what the stack is fused into */
+  for (const run of runs){
+    const first = s.shapes[run[0]], rows = run.reduce((sum, i) => sum + s.shapes[i].rows, 0), used = new Set([...s.shapes.filter((_, i) => !gone.has(i) && !run.includes(i)), ...made.values()].map(d => d.name));
+    let n = 1; while (used.has('Shape ' + n)) n++;      /* a name no shape of the space has, as a newly joined shape is given */
+    const at = Math.min(...run), holder = chain(run[0]).find(g => run.every(i => chain(i).includes(g)));      /* the innermost frame holding them all */
+    made.set(at, { id: null, type: 'tensor', name: 'Shape ' + n, color: null, x: first.x, y: first.y, cols: first.cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null,
+      tile: false, transposed: false, attributes: [], reference: false, from: null,
+      joined: run.map(i => ({ fx: 0, fy: (s.shapes[i].y - first.y) / rows, fw: 1, fh: s.shapes[i].rows / rows, shape: s.shapes[i] })) });
+    for (const i of run){ gone.add(i); for (const g of chain(i)) g.members = g.members.filter(m => m !== i); }
+    if (holder) holder.members.push(at);
+    count++;
+  }
+  /* the shapes that are left, each stack's fused shape where its first shape was; the frames follow, and a frame the fusing emptied is no frame */
+  const kept = s.shapes.map((_, i) => i).filter(i => made.has(i) || !gone.has(i)), now = new Map(kept.map((i, n) => [i, n]));
+  s.shapes = kept.map(i => made.get(i) || s.shapes[i]);
+  const settle = g => { g.members = g.members.map(i => now.get(i)).sort((a, b) => a - b); g.groups = (g.groups || []).filter(settle); return g.members.length + g.groups.length > 0; };
+  s.groups = s.groups.filter(settle);
+  return count;
 }
