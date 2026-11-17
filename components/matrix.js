@@ -81,8 +81,13 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
   const symbol = combined ? combined.parts.reduce((sum, p) => sum + .5 * p.letter.length + .34 * (digits(Math.min(p.cols, cols)) + digits(Math.min(p.rows, rows))) + .1, .7 * combined.signs.length)
     : product ? .5 * (product.rows.letter.length + product.cols.letter.length) + .34 * (digits(rows) + digits(cols)) + .3
     : .5 * letter.length + .34 * (vector ? digits(Math.max(cols, rows)) : digits(cols) + digits(rows) + (comma ? .6 : 0));
-  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(v => written(v).length * .72));
-  el.style.fontSize = Math.min(cell * .6, cell * .8 / widest) + 'px';
+  /* a value written at length (1+exp(2), a long fraction) does not make the whole matrix small: past LONG it is
+     written smaller on its own, to fit its square, and carries what it says in full as its title */
+  const LONG = 2.9, wide = v => written(v).length * .72;
+  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(wide).filter(w => w <= LONG));
+  const size = Math.min(cell * .6, cell * .8 / widest);
+  const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cell * .92 / (written(v).length * .56) / size) + 'em'; if (!entry.title) entry.title = written(v); } };
+  el.style.fontSize = size + 'px';
   el.style.gridTemplateColumns = `repeat(${cs.length}, ${cell}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
   for (const re of rs) for (const ce of cs){
     if (re === null || ce === null){ el.append(html`<span class="dots">${re === null && ce === null ? '⋱' : re === null ? '⋮' : '⋯'}</span>`); continue; }
@@ -95,8 +100,8 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     if (combined) combined.parts.forEach((p, n) => { if (n){ const sign = html`<b></b>`; sign.textContent = combined.signs[n - 1]; entry.append(sign); } entry.append(part(p)); });
     else if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
-      if (values.has(key)){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; }
-      else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); }      /* not given here: what a definition higher up gives */
+      if (values.has(key)){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; fit(entry, v); }
+      else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); fit(entry, inherited.get(key)); }      /* not given here: what a definition higher up gives */
       else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? rn : cn) : transposed ? rn + comma + cn : cn + comma + rn; } }
     if (!elided && tiles.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
     el.append(entry);

@@ -1228,7 +1228,7 @@ function warned(list, doing, proceed, send, reverting = []){
   warning.ask({ title: also.length ? `${doing} ${sources.join(', ') || 'this'} also deletes what refers to it` : `${doing} ${named} leaves ${broken === 1 ? 'a formula' : broken + ' formulas'} without it`,
     note: [also.length ? `${also.length} other ${also.length === 1 ? 'instance' : 'instances'} would be removed with it, here or in other spaces.` : '',
       broken ? `${formulas}. ${broken === 1 ? 'It is' : 'They are'} left in place, and will show an error: missing variable.` : ''].filter(Boolean).join(' '),
-    head: also.length ? ['Variable', 'Instances'] : [], rows: [...count].sort((a, b) => b[1] - a[1]), proceed, onProceed: () => send(also) });
+    head: also.length ? ['Variable', 'Instances'] : [], rows: [...count].sort((a, b) => b[1] - a[1]), proceed: also.length ? proceed : proceed.replace(/ all$/, ''), onProceed: () => send(also) });      /* nothing else goes: there is no "all" */
 }
 /* how many formulas refer to a variable that would be gone with these blocks: every entry and attribute, anywhere,
    that holds a capsule naming one of them (expression.js: refersTo) and is not itself going. A variable's entries

@@ -5,7 +5,8 @@
                 title      what is about to happen, in a line
                 note       a sentence under it, if any
                 head       the table's column headings: ['Variable', 'Instances']
-                rows       the table's rows, an array of cells each; a number is set to the right
+                rows       the table's rows, an array of cells each; a number is set to the right. With no rows
+                           there is no table.
                 proceed    the label of the button that goes ahead ("Delete")
                 onProceed  called if the user goes ahead;  onCancel  called if not (Cancel, Escape, a click outside)
      open     whether it is up now
@@ -50,5 +51,6 @@ export function createWarning(){
       answer = { onProceed, onCancel }; title.textContent = t; note.textContent = n; note.hidden = !n; go.textContent = proceed;
       headRow.replaceChildren(...head.map((h, i) => { const c = cell('th', h); if (rows.some(r => typeof r[i] === 'number')) c.className = 'n'; return c; }));
       body.replaceChildren(...rows.map(r => { const tr = document.createElement('tr'); tr.append(...r.map(v => cell('td', v))); return tr; }));
+      box.querySelector('.warning-table').hidden = !rows.length;
       el.hidden = false; cancel.focus(); } };
 }
