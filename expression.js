@@ -58,6 +58,7 @@
    refersTo(text, ids)       -> whether the text has a capsule naming one of these ids (a Set)
    repoint(text, from, to)   -> the text with every capsule that names the block from naming to instead
    capsuleText(capsule)      -> "@[id:x]"
+   parts(text)               -> the text in order as plain runs and capsules: ["1/√(", { id, measure, name }, ")"]
    label(capsule, name)      -> what a capsule's pill reads, for a variable called name: up to ten characters of the
                                 name, then the measure: "Keys.x", "Tau.mass", "Keys.heads"
 
@@ -90,6 +91,9 @@ const capsuleOf = m => ({ id: m[1], measure: m[3] !== undefined ? 'a' : m[2] || 
 
 export const capsuleText = ({ id, measure, name }) => '@[' + id + (measure === 'a' ? ':a:' + name : measure ? ':' + measure : '') + ']';
 export const refs = text => [...String(text).matchAll(CAPSULE)].map(m => ({ ...capsuleOf(m), text: m[0] }));
+export function parts(text){ const s = String(text), out = []; let at = 0;
+  for (const m of s.matchAll(CAPSULE)){ if (m.index > at) out.push(s.slice(at, m.index)); out.push(capsuleOf(m)); at = m.index + m[0].length; }
+  if (at < s.length) out.push(s.slice(at)); return out; }
 export const refersTo = (text, ids) => refs(text).some(r => ids.has(r.id));
 export const repoint = (text, from, to) => String(text).replace(CAPSULE, (all, id) => id === from ? '@[' + to + all.slice(2 + id.length) : all);
 export const label = (capsule, name) => String(name).slice(0, 10) + (capsule.measure ? '.' + (capsule.measure === 'm' ? 'mass' : capsule.measure === 'a' ? capsule.name : capsule.measure) : '');

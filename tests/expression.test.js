@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate, written, entered, typed, refs, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard } from '../expression.js';
+import { evaluate, written, entered, typed, refs, parts, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard } from '../expression.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), sym = text => ({ sym: text }), E = why => ({ err: why });
 const is = (text, expected, lookup, options) => assert.deepEqual(evaluate(text, lookup, options), { value: expected }, text);
@@ -137,6 +137,7 @@ test('capsules in a text: found, pointed elsewhere, written, labelled', () => {
   assert.equal(refersTo(text, new Set(['b2'])), true); assert.equal(refersTo(text, new Set(['b9', 'b3'])), true); assert.equal(refersTo(text, new Set(['b9'])), false); assert.equal(refersTo('b1 + 2', new Set(['b1'])), false);
   assert.equal(repoint(text, 'b1', 'b7'), '1/√(@[b7:x]) + @[b2:m]*@[b7:a:heads] + @[b3]'); assert.equal(repoint(text, 'b', 'b7'), text);
   for (const r of refs(text)) assert.equal(capsuleText(r), r.text);
+  assert.deepEqual(parts('1/√(@[b1:x])+@[b2:m]'), ['1/√(', { id: 'b1', measure: 'x', name: null }, ')+', { id: 'b2', measure: 'm', name: null }]); assert.deepEqual(parts('x + 1'), ['x + 1']); assert.deepEqual(parts(''), []);
   assert.equal(label({ id: 'b1', measure: 'x' }, 'Keys'), 'Keys.x'); assert.equal(label({ id: 'b1', measure: 'm' }, 'Tau'), 'Tau.mass'); assert.equal(label({ id: 'b1', measure: 'a', name: 'heads' }, 'Keys'), 'Keys.heads');
   assert.equal(label({ id: 'b1', measure: 'y' }, 'Key Weights Matrix'), 'Key Weight.y'); assert.equal(label({ id: 'b1', measure: null }, 'Keys'), 'Keys');      /* up to ten characters of the name */
 });
