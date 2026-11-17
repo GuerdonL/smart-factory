@@ -25,6 +25,8 @@
    Nothing is ever rounded. The kinds of value, and how they combine, are set out in values.js.
    A name may have dots in it (Keys.x, index.x). What a name stands for is the lookup's to say: x, i and j in an
    arrow's formula are arrows.js's, and index.x and index.y, an entry's place in its tile, are tiles.js's.
+   $ and a number is a name too: $1, $2 and so on are how a formula in the graph (graph.js) names the nodes it
+   depends on. Nothing on the page knows such a name, so typed there it is an unknown name, as any other is.
 
    A capsule is a reference to a measure of a variable, by the id of the block the variable was made as, so that
    renaming the variable breaks nothing. In the text it is one of
@@ -111,6 +113,7 @@ function tokens(text){
     if (c === '@'){ const m = rest.match(ONE); if (!m) throw new Wrong('after @, choose a variable from the list'); out.push({ t: 'ref', v: capsuleOf(m) }); i += m[0].length; continue; }
     const n = rest.match(/^(\d+\.?\d*|\.\d+)/); if (n){ out.push({ t: 'num', v: typedNumber(n[0]) }); i += n[0].length; continue; }
     if (/[A-Za-z_]/.test(c)){ const id = rest.match(/^[A-Za-z_][\w.]*/)[0].replace(/\.+$/, ''); out.push({ t: 'name', v: id }); i += id.length; continue; }
+    const input = rest.match(/^\$\d+/); if (input){ out.push({ t: 'name', v: input[0] }); i += input[0].length; continue; }      /* $1: an input, in a formula of the graph */
     const two = c.length === 2 ? c : (c + (s[i + 1] || ''));
     if (['==', '!=', '<=', '>=', '&&', '||'].includes(two)){ out.push({ t: two }); i += c.length === 2 ? 1 : 2; continue; }
     if ('+-*/^(),<>!√∜∞'.includes(c)){ out.push({ t: c }); i++; continue; }

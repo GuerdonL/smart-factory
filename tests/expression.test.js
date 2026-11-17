@@ -262,3 +262,8 @@ test('where whole matrices are taken, all of a variable is offered before its me
   is('@[b1] + 1', 6, token => token.measure === null ? 5 : undefined, { matrices: true });
   unread('@[b1] + 1', 'choose one of its measures', () => 5);
 });
+test('$ and a number is a name: the graph\'s formulas name their inputs $1, $2', () => {
+  const lookup = token => token === '$1' ? 4 : token === '$2' ? { n: 1, d: 2, k: 0 } : undefined;
+  assert.equal(evaluate('1/√($1)', lookup).value.n, 1); assert.deepEqual(evaluate('2$1 + $2 * 2', lookup).value, 9);
+  assert.deepEqual(evaluate('$3 + 1', lookup), { value: { err: 'unknown name: $3' }, unread: true });      /* and on the page, where nothing knows one, it is an unknown name */
+});
