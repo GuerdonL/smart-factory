@@ -1,0 +1,27 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b4uqpp5",
+  "type": "tensor",
+  "name": "W",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -7,
+    "y": -1
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 1
+}

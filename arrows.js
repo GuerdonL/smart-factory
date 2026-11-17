@@ -222,13 +222,13 @@ export function seatable(b){
   const name = b.name || 'It';
   if (b.arrow) return { refused: 'An arrow cannot be seated on an output' };
   if (b.input) return { refused: 'in is the function\'s input: it cannot be seated' };
-  if (b.seated) return { refused: `${name} is seated already: a variable has only one seat` };
   if (b.part) return { refused: `${name} is part of another shape, which is what defines it` };
   if (b.measure) return { refused: `${name} is a measure of another shape, which is what defines it` };
   if (b.fused) return { refused: `${name} is fused from other shapes, which are what define it` };
   if (b.standing) return { refused: `${name} stands in a matrix: it is an entry there` };
-  if (!b.named) return { ok: true };
   if (b.reference) return { refused: `${name} is a reference: seat the shape the variable was made as` };
+  if (b.seated) return { refused: `${name} is seated already: a variable has only one seat` };
+  if (!b.named) return { ok: true };
   if (b.uses > 1) return { refused: `${name} is used in ${b.uses} places: only the one use of a variable can be seated` };
   if (b.defined) return { refused: `${name} is defined in its definition space: a seat would define it twice` };
   return { ok: true };

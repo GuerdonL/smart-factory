@@ -1,0 +1,41 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bkldpl0",
+  "type": "arrow",
+  "name": "mask",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -37,
+    "y": -14
+  },
+  "size": {
+    "cols": 2,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "mask/",
+  "order": 46,
+  "arrow": {
+    "input": {
+      "id": "brzla6k",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 3,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": "select(i > j, -inf, x)"
+  }
+}

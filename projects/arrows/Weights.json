@@ -1,0 +1,27 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bgs3i1z",
+  "type": "tensor",
+  "name": "Weights",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -22,
+    "y": -14
+  },
+  "size": {
+    "cols": 3,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 50
+}

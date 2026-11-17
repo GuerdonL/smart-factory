@@ -1,6 +1,6 @@
 /* What a piece (one shape, or several touching) comes to, written beside it:   [shapes]  =  ⎡ … ⎤
 
-   createResult({ unit }) -> { el, set(box, type, { side, drop, look, nameable, editable, hollows }) -> rect, name(done), body() }
+   createResult({ unit }) -> { el, set(box, type, { side, drop, look, nameable, editable, hollows, warn }) -> rect, name(done), body() }
      unit   world units to one "u"
      set    box is the rectangle round the piece's shapes ({ x, y, w, h }, world coordinates). side says where the
             "=" and the matrix go: 'right' (the default) puts them to the right of the box, level with its middle;
@@ -17,6 +17,8 @@
             written in a hollow.)
             nameable says the matrix can be pressed, to name the result (default false).
             editable says its entries can be pressed, to type a value over each (default false): for one shape on its own.
+            warn writes the matrix in the warning colour (default false): the output of an arrow that is not
+            what it promises.
             Returns the rectangle the "=" and the matrix now cover, so the caller can see what they would overlap.
      name   asks the user to name this result: the matrix is ringed and a field opens above it to type in.
             done(text) is called with the name, or with null if they gave none or pressed Escape.
@@ -44,6 +46,7 @@ style('result', `
 .result-name { position: absolute; pointer-events: auto; transform: translateY(-100%); margin-top: -12px; padding: 0 3px; min-width: 3ch;
   font-family: var(--font-name); font-size: 14px; line-height: 1.2; white-space: nowrap; color: var(--select); }
 .result-name:empty::before { content: "name"; color: var(--muted); }
+.result.warned .matrix, .result.warned .matrix span { color: var(--warn) !important; }
 .result-error { position: absolute; transform: translateY(-50%); color: var(--warn); font-family: var(--font-name); font-size: 13px; white-space: nowrap; }
 `);
 
@@ -52,8 +55,8 @@ export function createResult({ unit }){
   const el = html`<div class="result"><div class="result-sign">=</div></div>`, sign = el.firstElementChild;
   const nameEl = html`<span class="result-name" hidden></span>`; el.append(nameEl);
   let showing = '', body = null, width = 0, height = 0, copies = [];
-  return { el, set(box, type, { side = 'right', drop = 0, look = {}, nameable = false, editable = false, hollows = [] } = {}){
-    el.classList.toggle('nameable', nameable); el.classList.toggle('editable', editable);
+  return { el, set(box, type, { side = 'right', drop = 0, look = {}, nameable = false, editable = false, hollows = [], warn = false } = {}){
+    el.classList.toggle('nameable', nameable); el.classList.toggle('editable', editable); el.classList.toggle('warned', warn);
     el.hidden = !type; if (!type) return null;
     const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + (type.colsName || '') + '/' + (type.rowsName || '') + JSON.stringify({ ...look, values: look.values ? [...look.values] : [], inherited: look.inherited ? [...look.inherited] : [] });
     if (key !== showing){ showing = key; body?.remove();

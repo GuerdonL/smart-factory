@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bs61rkm",
+  "type": "tensor",
+  "name": "Gated",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": -14,
+    "y": -14
+  },
+  "size": {
+    "cols": 3,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 52,
+  "seat": "bg3kag6"
+}

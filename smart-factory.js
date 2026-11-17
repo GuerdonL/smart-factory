@@ -879,13 +879,15 @@ function paint(){
   for (const b of space.blocks) b.inset(stacked.has(b) || standing.has(b));      /* in a sum there is no room above a block for its name (the next one up is there): names go on the blocks */
   if (space.definition && space.definition.tiled !== defKey(space.owner)) write();      /* shapes have gone into, or come out of, its block's matrix; or an arrow's output is another size */
   /* what the space comes to: its ends, the pieces (and outputs) nothing reads from. What is in a .config is no part of it. */
-  const mine = space.definition ? endsOf(space, { active, all }) : [], outLook = a => ({ letter: initials(a.name), color: 'function', values: outputOf(a).values || new Map() });
+  const mine = space.definition ? endsOf(space, { active, all }) : [], outLook = a => ({ letter: initials(a.name), values: outputOf(a).values || new Map() });      /* in the ordinary text colour: the function colour is for the triangle */
   space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? (mine[0].piece ? lookOf(mine[0].piece) : outLook(mine[0].arrow)) : {});
   const ps = space.owner ? [] : all;
   /* a result stays by its piece: to the right; if something else is there (another block, or a result already placed),
      just below, to the left, or a little further below; and if every one of those is taken, to the right all the
      same, over whatever is there. It never goes off looking for room. */
-  const taken = space.blocks.map(b => b.rect),      /* commented-out blocks are still in the way */
+  /* (an arrow that reads a written result, and the block seated on it, are placed by where the result is written: they are not in its way, or it would run from them) */
+  const follows = b => (isArrow(b) && b.arrow.input.as === 'result') || (typeof b.seat === 'string' && space.blocks.some(a => a.id === b.seat && isArrow(a) && a.arrow.input.as === 'result'));
+  const taken = space.blocks.filter(b => !follows(b)).map(b => b.rect),      /* commented-out blocks are still in the way */
      hits = r => taken.some(t => t !== r && t.x < r.x + r.w && t.x + t.w > r.x && t.y < r.y + r.h && t.y + t.h > r.y);
   /* A times or over pair encloses two empty rectangles, its hollows, and its result is written in them, on the bare
      canvas, in place of the "= …" beside the piece: in neither, one or both, as .show_hadamard_copies says. Which
@@ -920,7 +922,7 @@ function paint(){
   for (const a of here){ const o = outputOf(a), seat = seatOn(a, space), r = outs.get(a) || createResult({ unit: u }); outs.set(a, r);
     if (!o.place || !o.type){ r.el.remove(); continue; }
     const at = { x: o.place.x * u, y: o.place.y * u, w: o.place.w * u, h: o.place.h * u };
-    view.world.prepend(r.el); r.set(at, o.type, { hollows: [at], look: seat ? { letter: initials(seat.name), color: seat.shape.color } : outLook(a), nameable: !seat }); r.at = at; }
+    view.world.prepend(r.el); r.set(at, o.type, { hollows: [at], look: seat ? { letter: initials(seat.name), color: seat.shape.color } : outLook(a), nameable: !seat, warn: !!o.warn }); r.at = at; }
   /* a selected arrow shows a frame round itself and its output */
   if (one && isArrow(one)){ const at = outs.get(one)?.el.isConnected ? outs.get(one).at : one.rect, x = Math.min(one.rect.x, at.x), y = Math.min(one.rect.y, at.y);
     arrowFrame.set({ x, y, w: Math.max(one.rect.x + one.rect.w, at.x + at.w) - x, h: Math.max(one.rect.y + one.rect.h, at.y + at.h) - y }, { selected: true }); view.world.append(arrowFrame.el); }
@@ -1413,7 +1415,10 @@ function writtenOf(s, blk, hollow){
     return { rect: { x: 0, y: 0, w: p.type.cols, h: p.type.rows }, ...p.type, values: p.members.length === 1 ? valuesOf(blk) : new Map() }; }
   const r = results.find(r => r.el.isConnected && !r.el.hidden && r.piece?.blocks.includes(blk)), p = r?.piece;
   if (!p || p.type.error || space.owner) return null;
-  const at = p.hollows.find(h => h.n === hollow) || p.hollows[0] || p.body; if (!at) return null;
+  /* the hollow it names, where results are written in hollows at all and that one is the result's size: it is where
+     the result is written once something reads from it (see hollowsOf). Otherwise wherever the result is written. */
+  const named = hollow && hadamardCopies(blk) > 0 && p.blocks.length === 2 ? hollowOf(idsOf(p.blocks), undefined, hollow) : null;
+  const at = (named && { x: named.rect.x * u, y: named.rect.y * u }) || p.hollows.find(h => h.n === hollow) || p.hollows[0] || p.body; if (!at) return null;
   return { rect: { x: at.x / u, y: at.y / u, w: p.type.cols, h: p.type.rows }, ...p.type, values: p.blocks.length === 1 ? valuesOf(blk) : new Map() };
 }
 /* An arrow as it stands (arrows.js: standing), with its output's entries where they are worked out: a pass-through's
@@ -1488,10 +1493,10 @@ function seatValues(st){
 }
 /* where a block seated in a hollow sits: the first hollow of its pair that is the size of the result (algebra.js:
    pieceHollows), as { n: which of the two, rect, type }; null where the two do not make such a pair now */
-function hollowOf(pair, alg = algebraIn(space)){
+function hollowOf(pair, alg = algebraIn(space), which = 0){      /* which: 1 or 2 for that hollow and no other */
   const { active, rects, all } = alg, p = all.find(p => p.members.length === 2 && p.members.every(m => pair.includes(active[m].id)));
   if (!p) return null;
-  const both = pieceHollows(rects, p), n = both.findIndex(Boolean);
+  const both = pieceHollows(rects, p), n = which ? (both[which - 1] ? which - 1 : -1) : both.findIndex(Boolean);
   return n < 0 ? null : { n: n + 1, rect: both[n], type: p.type };
 }
 /* a seated block whose seat is gone or has nowhere to be just now: it has no value */
@@ -1629,10 +1634,11 @@ function dragSeated(b, from){
       if (!to){ shown(); if (at !== home && (at.x !== home.x || at.y !== home.y)) hud.say('To carry it out of the hollow, drag it straight along its row or its column, at least one unit clear'); return; }
       bus.send('arrow.add', { input: { id: b.seat.hollow[0], as: 'result', hollow: h.n }, side: to.side, start: 1, span: along(to.side) === 'rows' ? h.rect.h : h.rect.w, gap: to.gap, seat: b.id }); } };
 }
-/* the arrow whose output a block has been let go on, if any: an output with no block seated on it that the block's middle is in */
+/* the arrow whose output a block has been let go on, if any: an output with no block seated on it that the block lies over, its corner within a unit of the output's */
 function outputUnder(b){
-  const u = view.unit, cx = (b.rect.x + b.rect.w / 2) / u, cy = (b.rect.y + b.rect.h / 2) / u;
-  return space.blocks.find(a => { if (!isArrow(a) || seatOn(a, space)) return false; const p = outputOf(a).place; return !!p && cx > p.x && cx < p.x + p.w && cy > p.y && cy < p.y + p.h; }) || null;
+  const r = unitsOf(b);
+  return space.blocks.find(a => { if (!isArrow(a) || seatOn(a, space)) return false; const p = outputOf(a).place;
+    return !!p && r.x < p.x + p.w && p.x < r.x + r.w && r.y < p.y + p.h && p.y < r.y + r.h && Math.abs(r.x - p.x) <= 1 && Math.abs(r.y - p.y) <= 1; }) || null;
 }
 /* what the properties panel shows of an arrow: a row for each thing that can be typed */
 const arrowRows = (a, fn) => [{ key: 'side', label: 'side', text: a.arrow.side }, { key: 'start', label: 'start', text: String(a.arrow.start) }, { key: 'span', label: 'span', text: String(a.arrow.span) },
@@ -1649,9 +1655,9 @@ function arrowTyped(a, key, text){
   if (key === 'output'){ const m = t.match(/^(\d+)\s*(?:[x×*,]|by)\s*(\d+)$/i);
     if (t && !m){ hud.say('An output size is written columns × rows, or left empty for no promise'); return shown(); }
     return bus.send('arrow.set', { id: a.id, output: m ? { cols: +m[1], rows: +m[2] } : null }); }
-  const got = readTyped(a, t), side = got.refused ? got : sideOf(got.value);
-  if (side.refused){ hud.say(`${key}: ${side.refused}`); return shown(); }
-  bus.send('arrow.set', { id: a.id, [key]: side.length });
+  const got = readTyped(a, t), n = got.refused ? got : isWhole(got.value) && got.value >= 1 ? { length: got.value } : { refused: `it is a whole number, at least 1, and that comes to ${isError(got.value) ? 'an error (' + got.value.err + ')' : got.value === null ? 'nothing yet' : valueText(got.value)}` };
+  if (n.refused){ hud.say(`${key[0].toUpperCase() + key.slice(1)}: ${n.refused}`); return shown(); }
+  bus.send('arrow.set', { id: a.id, [key]: n.length });
 }
 /* an arrow, a function's input and a seated block are where they are because of something else: they are not cut, fused, folded or turned. Why not, for the first of these that is one; null for none */
 const fixedIn = (list, doing) => { const b = list.find(b => isArrow(b) || b.in || b.seat); return !b ? null : isArrow(b) ? `An arrow cannot be ${doing}` : b.in ? `in is the function's input: it cannot be ${doing}` : `${bare(b.name)} is seated: it cannot be ${doing}. Unseat it first, or carry its value on with an arrow`; };

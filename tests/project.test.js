@@ -262,7 +262,7 @@ test('format 2: shapes standing in their owner\'s matrix were its entries, not a
 const here = fileURLToPath(new URL('../projects/', import.meta.url));
 const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const count = s => s.shapes.reduce((n, sh) => n + 1 + (sh.inside ? count(sh.inside) : 0), 0);
-for (const name of ['default-menu', 'example', 'touch-algebra', 'boolean-tool']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
+for (const name of ['default-menu', 'example', 'touch-algebra', 'boolean-tool', 'entries-and-values', 'arrows']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
   const p = read(tree(join(here, name)));
   assert.equal(p.converted, 0); assert.equal(p.changed, 0);
   assert.ok(count(p.top) > 0, 'it has shapes');
@@ -433,4 +433,24 @@ test('a seat that names nothing the project has is dropped; one that names an ar
 test('format 2 has no arrows and no seats', () => {
   const got = read([head(2), file('a.json', config('Keys', { id: 'b1' }))]).top.shapes[0];
   assert.equal(got.arrow, null); assert.equal(got.seat, null); assert.equal(got.in, false);
+});
+
+test('projects/arrows holds each kind of arrow, every input and seat naming something that is there', () => {
+  const dir = join(fileURLToPath(new URL('..', import.meta.url)), 'projects', 'arrows'), p = read(tree(dir)), top = p.top.shapes;
+  const arrows = top.filter(d => d.arrow), by = name => top.filter(d => d.name === name), ids = new Set(top.map(d => d.id));
+  assert.equal(arrows.length, 7);
+  for (const a of arrows){ assert.ok(ids.has(a.arrow.input.id), a.name + ' reads something on the canvas'); assert.ok(a.inside.shapes.some(d => d.in && d.name === 'in'), a.name + ' has its input block'); }
+  for (const d of top.filter(d => d.seat)) assert.ok(typeof d.seat === 'string' ? arrows.some(a => a.id === d.seat) : d.seat.hollow.every(id => ids.has(id)), d.name);
+  assert.deepEqual(top.filter(d => d.seat).map(d => d.name).sort(), ['Gated', 'H']);
+  /* a named arrow used twice is one variable with one formula; the second is a reference */
+  const [relu, again] = by('relu'); assert.equal(relu.arrow.formula, 'max(x, 0)'); assert.equal(again.arrow.formula, 'max(x, 0)'); assert.equal(relu.variable, again.variable); assert.equal(again.reference, true);
+  assert.equal(by('mask')[0].arrow.formula, 'select(i > j, -inf, x)');
+  /* a use of one of the program's functions carries no formula of its own, and reads another arrow's output */
+  const exp = by('.exp')[0]; assert.equal(exp.arrow.formula, null); assert.equal(exp.reference, true); assert.deepEqual(exp.arrow.input, { id: by('mask')[0].id, as: 'result' });
+  /* a definition space: in against W, with a promise */
+  const linear = by('linear')[0]; assert.deepEqual(linear.arrow.output, { cols: 2, rows: 3 }); assert.deepEqual(linear.inside.shapes.map(d => d.name).sort(), ['W', 'in']);
+  /* the result of a pair, carried out of its hollow */
+  const carried = arrows.find(a => a.arrow.input.hollow); assert.deepEqual(carried.arrow.input, { id: by('Weights')[0].id, as: 'result', hollow: 1 }); assert.equal(by('Gated')[0].seat, carried.id);
+  /* nothing that was worked out is in a file: H's entries are its arrow's, and are not written */
+  assert.deepEqual(by('H')[0].entries, {});
 });

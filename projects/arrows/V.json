@@ -1,0 +1,30 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bf9gjq7",
+  "type": "tensor",
+  "name": "V",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -40,
+    "y": -22
+  },
+  "size": {
+    "cols": 2,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 2,
+      "2,1": -5
+    }
+  },
+  "order": 41
+}
