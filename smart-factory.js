@@ -795,8 +795,10 @@ const properties = createProperties({ ...fields,
    the arrows and seats are put in their places again (arrange), and where any moved it is drawn once more. */
 function shown(){
   memo = new Map();
-  try { for (let pass = 0; pass < 4; pass++){ paint(); if (!arrange()) break; } } finally { memo = null; }
+  try { for (let pass = 0; pass < 4; pass++){ const was = paint(); memo.clear(); if (!arrange() && standingNow() === was) break; } } finally { memo = null; }
 }
+/* how every arrow on screen stands just now: whether it warns, and where its output is. What was drawn is drawn again where this is no longer so. */
+const standingNow = () => { const list = space.blocks.filter(isArrow); return !list.length ? '' : JSON.stringify(list.map(a => { const o = outputOf(a); return [o.warn, o.place, o.type]; })); };
 const outs = new Map();                        /* arrow -> its output as it is written (components/result.js) */
 const arrowFrame = createBounds();             /* the frame round a selected arrow and its output */
 function paint(){
@@ -929,6 +931,7 @@ function paint(){
   else arrowFrame.el.remove();
   dress();
   const reach = inReach(); variables.show(reach.main, reach.hidden);
+  return standingNow();                        /* as the arrows stood when this was drawn */
 }
 function select(list, { toggle = false } = {}){
   if (!toggle) selected.clear();
