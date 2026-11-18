@@ -20,6 +20,7 @@
                          values, tri }], one for each block in each drawn cell. cx, cy are the places of the slots
                          it is in (indexes into xs and ys); x, y its corner in units from the cell's corner; w, h its
                          size in units; color its theme colour. values, where given, is a Map from "column,row" to
+                         (a text; or, for a decimal, { level, text, stale }: drawn as its square, see matrix.js)
                          text, written on its face one to a square (a block that reads the index is a different
                          matrix in each cell). tri, where given, makes it an arrow: the triangle's three corners in
                          units from its own corner. A copy is a picture: it takes no press.
@@ -54,6 +55,8 @@ style('tile', `
 .tile-value { position: absolute; display: grid; place-items: center; color: var(--fg); font-family: var(--font-ui); font-weight: 600; font-variant-numeric: tabular-nums;
   font-size: calc(min(12, 26 / var(--len, 2)) * var(--px)); line-height: 1; text-shadow: 0 0 calc(2 * var(--px)) var(--bg), 0 0 calc(2 * var(--px)) var(--bg); }
 .tile-value.error { color: var(--warn); }
+.tile-square { display: block; width: calc(var(--tu) * .62); height: calc(var(--tu) * .62); box-sizing: border-box; border: 1px solid var(--muted); border-radius: 2px; background: color-mix(in srgb, #fff calc(var(--level) * 100%), #000); }
+.tile-value.stale { opacity: .4; }
 /* the name, and after it the counts, stand a line clear of the frame: the names of the blocks in the top row are written there */
 .tile-label { position: absolute; left: calc(-1 * var(--out)); bottom: calc(100% + var(--out) + (22 + 12 * var(--levels)) * var(--px)); display: flex; align-items: baseline; gap: calc(7 * var(--px)); white-space: nowrap; }
 .tile-name { pointer-events: auto; cursor: default; padding: 0 calc(3 * var(--px)); font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; color: var(--ink); }
@@ -79,7 +82,8 @@ export function createTile(){
   const body = el.children[1], [nameEl, countsEl] = el.children[2].children, overEl = html`<div class="tile-over"></div>`;
   let drawn = '';
   const values = (into, map) => { for (const [key, text] of map){ const [c, r] = key.split(',').map(Number), v = html`<span class="tile-value"></span>`;
-    v.textContent = text; if (text === '!') v.classList.add('error'); v.style.setProperty('--len', Math.max(2, String(text).length));
+    if (text && typeof text === 'object'){ v.classList.add('decimal'); v.title = text.text; if (text.stale) v.classList.add('stale'); const sq = html`<i class="tile-square"></i>`; sq.style.setProperty('--level', String(text.level)); v.append(sq); }      /* a decimal: its square, as in a matrix on the canvas */
+    else { v.textContent = text; if (text === '!') v.classList.add('error'); v.style.setProperty('--len', Math.max(2, String(text).length)); }
     Object.assign(v.style, { left: `calc(${c - 1} * var(--tu))`, top: `calc(${r - 1} * var(--tu))`, width: 'var(--tu)', height: 'var(--tu)' }); into.append(v); } };
   return { el, overEl, nameEl,
     set({ x, y, unit, xs, ys, w, h, name = '', counts = '', levels = 0, selected = false, warn = false, copies = [], written = [] }){

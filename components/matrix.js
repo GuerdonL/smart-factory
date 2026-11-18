@@ -34,7 +34,7 @@
                   A decimal ({ f }: a number from the backend, see decimals.js) is never written like an exact
                   number. With decimal: 'square' it is a filled square, black at 0 or below, white at 1 or above
                   and grey between, with its number as its title; otherwise it is written out to 9 significant
-                  digits. Where the Map is marked stale (the numbers are of an older state of the project, and
+                  digits, in columns three squares wide so that the digits can be read. Where the Map is marked stale (the numbers are of an older state of the project, and
                   new ones are on their way) its decimals are drawn dimmed. Where it carries a note ("needs the
                   backend") no entry is written, and the note is, across the middle.
      decimal      'square' for a matrix written on the canvas; left out, decimals are written as numbers
@@ -101,7 +101,9 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     : .5 * letter.length + .34 * (vector ? digits(Math.max(cols, rows)) : digits(cols) + digits(rows) + (comma ? .6 : 0));
   /* a value written at length (1+exp(2), a long fraction) does not make the whole matrix small: past LONG it is
      written smaller on its own, to fit its square, and carries what it says in full as its title */
-  const LONG = 2.9, wide = v => written(v).length * .72;
+  /* decimals written as numbers are nine digits each: a matrix that holds any is written with columns three squares wide, so that they can be read */
+  const roomy = decimal !== 'square' && !values.note && [...values.values()].some(isDecimal), cw = roomy ? cell * 3 : cell;
+  const LONG = 2.9 * cw / cell, wide = v => written(v).length * .72;
   const square = v => decimal === 'square' && isDecimal(v);
   const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].filter(v => !square(v)).map(wide).filter(w => w <= LONG));
   /* a value in its entry: an error as the mark, a decimal as its square or its digits, anything else as it is written */
@@ -109,10 +111,10 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     if (isDecimal(v) && values.stale) entry.classList.add('stale');
     if (square(v)){ entry.classList.add('decimal'); entry.title = written(v); const s = html`<i class="square"></i>`; s.style.setProperty('--level', String(level(v.f))); entry.replaceChildren(s); return; }
     entry.textContent = written(v); fit(entry, v); };
-  const size = Math.min(cell * .6, cell * .8 / widest);
-  const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cell * .92 / (written(v).length * .56) / size) + 'em'; if (!entry.title) entry.title = written(v); } };
+  const size = Math.min(cell * .6, cw * .8 / widest);
+  const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cw * .92 / (written(v).length * .56) / size) + 'em'; if (!entry.title) entry.title = written(v); } };
   el.style.fontSize = size + 'px';
-  el.style.gridTemplateColumns = `repeat(${cs.length}, ${cell}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
+  el.style.gridTemplateColumns = `repeat(${cs.length}, ${cw}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
   for (const re of rs) for (const ce of cs){
     if (re === null || ce === null){ el.append(html`<span class="dots">${re === null && ce === null ? '⋱' : re === null ? '⋮' : '⋯'}</span>`); continue; }
     const c = ce.i, r = re.i, ghost = ce.ghost || re.ghost, cn = num(ce, colsName), rn = num(re, rowsName);
@@ -137,5 +139,5 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     if (t.id){ b.el.dataset.standing = t.id; b.el.style.pointerEvents = 'auto'; b.el.style.cursor = 'pointer'; }      /* it can be pressed: the page hears of it by this id */
     Object.assign(b.el.style, { left: t.x * cell + 'px', top: t.y * cell + 'px' }); el.append(b.el); }
   if (values.note){ const n = html`<span class="matrix-note"></span>`; n.textContent = values.note; el.append(n); }
-  return { el, width: cs.length * cell, height: rs.length * cell };
+  return { el, width: cs.length * cw, height: rs.length * cell };
 }

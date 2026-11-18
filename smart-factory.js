@@ -32,7 +32,7 @@ import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColou
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds } from './sources.js';
-import { wanted, merged, noted, drawn as cellsDrawn, NEEDS } from './decimals.js';
+import { wanted, merged, noted, drawn as cellsDrawn, level as levelOf, NEEDS } from './decimals.js';
 import { createBackend } from './backend.js';
 import { squares } from './components/matrix.js';
 
@@ -306,7 +306,7 @@ const asMaps = new WeakMap();
    nothing is asked, and what is made of noise or of a data file says "needs the backend" where its numbers would
    be; everything else is as it is without one. A decimal is never kept: it is no entry of any block. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
-  changed: () => { if (!holding) shown(); }, project: () => (kept ? current : null) });
+  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null) });
 const laid = new WeakMap();                    /* an evaluator's answer -> the backend's laid over it: { result, stale, map } */
 function answerOf(node, binding = null){
   if (!node) return null;
@@ -1664,7 +1664,7 @@ function indexMatrix(o){
 /* whether a block is a different matrix in each cell: an entry of its reads the index, or an index matrix stands in its matrix */
 const readsIndex = b => [...b.values.values()].some(v => isFormula(v) && tiles.reads(v.expr)) || (standingOf(b) || []).some(t => indexedOf(t.block))
   || steadily(() => { const g = graphNow(), n = g.nodes[g.blocks[b.id]]; return !!n && (n.within || []).some(w => w[0] === 't'); });      /* or the graph marks it as following its cell: it is made of something that does (seated on an arrow that reads such a block, or that is repeated through an outer tile) */
-const texts = values => new Map([...values].map(([k, v]) => [k, isError(v) ? '!' : valueText(v)]));
+const texts = values => new Map([...values].map(([k, v]) => [k, isError(v) ? '!' : v && typeof v === 'object' && typeof v.f === 'number' ? { level: levelOf(v.f), text: valueText(v), stale: !!values.stale } : valueText(v)]));      /* (a decimal is drawn as its square: decimals.js) */
 /* what is drawn in the cells that are not the first: a copy of every block, and of every arrow, of the tile; and of
    every cell of every tile in its pattern, with what is in that (so a tile in a tile is seen repeated with it). How
    many cells of an inner tile are drawn was settled with its layout (tiles.js: laid), so that no tile is drawn more

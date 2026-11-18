@@ -13,6 +13,7 @@ What it does:
     sources read (data/weights.csv): no other path is kept, and none that climbs out of the project.
   - passes three addresses on to the backend (backend/, a separate process that works a model out in floating point):
         GET  /api/backend/health      -> the backend's /health, or { "ok": false, "error": why } where there is none
+                                         (a run or a file sent while there is none is answered likewise, with why)
         POST /api/backend/run         -> its /run
         POST /api/backend/data?project=<name>&path=data/<file>.csv     -> its /data
     The backend's address is the SMART_FACTORY_BACKEND environment variable (default http://127.0.0.1:8001). These
@@ -314,8 +315,9 @@ class Handler(SimpleHTTPRequestHandler):
                 c.close()
         except (OSError, http.client.HTTPException) as e:
             why = 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or type(e).__name__)
-            # asked whether there is one, "no" is an answer and not a failure: the page asks on every load, and is to log nothing
-            self.reply(200 if to == '/health' else 503, {'ok': False, 'error': why})
+            # that there is none is an answer and not a failure: the page asks on every load, and a browser writes every
+            # failed request to its console. Each address is answered in its own form, with why.
+            self.reply(200, {'ok': False, 'error': why, **({'results': {}, 'errors': {'*': why}} if to == '/run' else {})})
             return True
         if 300 <= status < 400:                                    # it is never followed: the request goes to the backend and nowhere else
             self.reply(502, {'error': 'the backend answered by sending the request elsewhere, which is not followed'})

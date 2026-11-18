@@ -122,11 +122,12 @@ class PassedOn(BackendCase):
     def test_with_no_backend_the_page_is_told_so(self):
         gone = StandIn(); port = gone.server_address[1]; gone.shutdown(); gone.server_close()
         server.BACKEND = ('127.0.0.1', port)
-        for method, path, want in [('GET', '/api/backend/health', 200), ('POST', '/api/backend/run', 503)]:      # "is there one?" is answered no; a run is a failure
+        for method, path in [('GET', '/api/backend/health'), ('POST', '/api/backend/run'), ('POST', '/api/backend/data?project=p&path=data/a.csv')]:
             status, _, text = self.request(method, path, b'{}' if method == 'POST' else None)
-            self.assertEqual(status, want)
+            self.assertEqual(status, 200)      # that there is none is an answer, said in the form the address answers in
             self.assertEqual(json.loads(text)['ok'], False)
             self.assertIn('the backend is not answering', json.loads(text)['error'])
+        self.assertEqual(json.loads(self.request('POST', '/api/backend/run', b'{}')[2])['errors'], {'*': json.loads(text)['error']})
         self.assertEqual(self.request('GET', '/api/projects')[0], 200)      # and everything else goes on as it did
 
     def test_the_limits_here_are_the_backends_own(self):
