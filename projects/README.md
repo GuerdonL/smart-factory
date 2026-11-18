@@ -16,7 +16,15 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 3. An entry is a literal value (a whole number, `"inf"` or `"-inf"`, `{ "n", "d", "k" }`, `true` or
+The format is 4. Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
+`size` (the lengths of the inner axes, at most six) and in its `sides` (their names, `null` where unnamed), as in
+`"size": { "cols": 3, "rows": 1, "inner": [2, 4] }, "sides": { "cols": null, "rows": null, "inner": ["key", "embed"] }`;
+its entries are keyed `"column,row,k1,k2,…"`, one more number from 1 for each inner axis (`"2,1,1,3"` is entry 2,1,
+column 1 and row 3 of the matrix it holds); and a block that is one entry of such a shape, taken out, has
+`"from": { "id", "entry": { "col": 2, "row": 1 } }` and no entries of its own. A format 3 project has none of these,
+opens exactly as it was, and saved again differs only in the format number.
+
+What follows is what format 3 holds. An entry is a literal value (a whole number, `"inf"` or `"-inf"`, `{ "n", "d", "k" }`, `true` or
 `false`, `{ "sym": "1+sqrt(2)" }`) or a formula, `{ "expr": "1/√(@[b3k2m9x:x])" }`, kept as its text and never with
 its result; `@[id:x]` in a formula or an attribute's value names a measure of the variable whose block has that id.
 An error or a decimal is never written, and one met in a file is dropped.
@@ -43,7 +51,7 @@ the `data/` directory. Their numbers are the backend's, and no decimal is ever i
 directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each
 of its stacks is fused into one joined shape on the way in, so it comes to what it did, and the readout says how many
 were fused. Shapes that met at a corner, or stood directly under a shape in a product, did not touch in format 2 and
-do now: they are not moved, and the readout says how many pieces read differently. Saved again, it is format 3.
+do now: they are not moved, and the readout says how many pieces read differently. Saved again, it is format 4.
 
 ## Saving and opening
 
@@ -216,6 +224,27 @@ In the third row, `Scale` holds two formulas, `1/√(X.x + 1)` and `Tau.mass × 
 `7/2`: give `Tau` another number, or make `X` wider, and it follows. `Loop` holds `Loop.mass + 1`: it depends on
 itself, so it has no value, its panel says so, and `After`, which reads it, has none either. Everything else on the
 canvas is worked out as if they were not there.
+
+## inner-data/
+
+Shapes whose entries are themselves matrices, beside a copy of the default Menu's `.config`. `QKV` is 3 by 1, and
+each of its entries holds a matrix of 2 columns (`key`) by 4 rows (`embed`): select it, and its panel says
+"vector of 2 × 4 matrices", with its data dimensions and each axis's length and name. Its numbers are not typed:
+open it, and `W_Q`, `W_K` and `W_V`, the three matrices above it in the Menu, stand one in each entry. Back in the
+Menu, press an entry in `QKV`'s panel to open it and see the matrix it holds.
+
+Under `QKV` is the arrow `attend`, which reads all three entries at once: the three matrices of an attention layer
+travelling as one input. Open it: `in` is 3 by 1 of 2 by 4, and `Q`, `K` and `V` are its three entries taken out
+(select `in`, open an entry in its panel, and drag the trail onto the canvas to take one out yourself). They touch
+`X` in one row of ordinary products, `X · Q · Kᵀ · Xᵀ · X · V`, and what that comes to is the arrow's output, 18,
+16 and 14 down each column.
+
+At the right, `X` against `Heads`, which is 2 by 4 and holds 3 numbers to an entry (`head`): one product for each
+head, written as brackets, `[3]`. Select `Heads` and press an entry to see its three numbers.
+
+In a file, `QKV` has `"size": { "cols": 3, "rows": 1, "inner": [2, 4] }` and
+`"sides": { …, "inner": ["key", "embed"] }`; `Heads` has entries keyed `"1,1,1"` to `"2,4,3"`; and each of `Q`, `K`
+and `V` has `"from": { "id": <in's id>, "entry": { "col": 1, "row": 1 } }`.
 
 ## noise-and-data/
 

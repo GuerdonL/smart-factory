@@ -56,6 +56,8 @@ who can reach the port can read and overwrite the projects.
   file, whose numbers the backend has), and what a tile
   means (its counts, which cells are drawn, the index, its matrix, how an arrow is repeated in it, when one tile
   is inside another and which tiles overlap); no drawing.
+- `inner.js`: what a shape holds where each of its entries is itself an array (its inner axes as they are kept,
+  the number of data dimensions as it is typed, what an entry opened holds, and how it is all said); no drawing.
 - `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
 - `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
@@ -81,7 +83,7 @@ who can reach the port can read and overwrite the projects.
 
 ## Tests
 
-    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, graph, evaluate, project, bus, history, ids, zip
+    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, inner data, graph, evaluate, project, bus, history, ids, zip
     python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, the PIN, and what it passes on to the backend
     backend/.venv/bin/python -B -m unittest discover -s backend/tests -t .      # the backend, with NumPy (see "The backend" for the environment)
 
@@ -535,6 +537,66 @@ One `max(x, 0)` arrow under column 1 of a matrix, in a tile with `across` 4, is 
 
 `projects/sources-and-tiles` shows each of these, and `projects/tiles-inside-tiles` a tile in a tile.
 
+## Inner data
+
+A shape on the canvas stays a scalar, a vector or a matrix: its two drawn sides. Each of its entries may itself be
+an array. The shape then has **inner axes**, an ordered list of lengths, each with a name or none, the same for
+every entry: a 3 by 1 shape whose inner axes are 2 and 4 is three entries, each a matrix of 2 columns by 4 rows, 24
+numbers in all. There are at most six. There are no lists: every entry of one shape holds the same inner size.
+
+- **Setting them.** Select the shape. Its panel has a row, **data dimensions**, a whole number from 0 to 6 (a
+  formula typed there is worked out once, when typed, and the number kept, as a side's length is). Raising it adds
+  axes of length 1 at the end, and every number typed into the shape stays, at the first position of the new axis.
+  Lowering it removes the last, after asking if numbers past its first position would be lost. Under it each axis
+  has two rows: `d1` its length, and `d1 name` its name. An axis with a name is one length with every side and axis
+  of that name, as a named side is: give a side that name and it takes the axis's length, and resizing either
+  resizes the other. A scalar holds one number and nothing else: a 1 by 1 block is refused data dimensions, and
+  says so. What something else defines holds what that gives it, and says so too: a part, an entry taken out, a
+  seated block, a function's `in`.
+- **How it looks.** The block has one paler sheet behind its face for each inner axis, up and to the right (at most
+  three are drawn), and its measurement gains a line: `· 2 key × 4 embed`. The panel says what it is, `3 wide × 1
+  tall · vector of 2 × 4 matrices`, and never counts dimensions. In a written matrix (a result, a definition's
+  equation, the panel) such an entry is not a number: one in which any number has been given is a small bracket
+  with its size, `[2×4]`, and one with nothing set in it is its symbol, `q₂`, as ever.
+- **Opening an entry.** Press a bracket or a symbol in the panel's matrix (or in the result written beside a named
+  shape on the canvas): the panel shows that entry's own matrix, written in full, under a trail, `‹ QKV › 2,1`.
+  Type a number or a formula into any of its entries as into any other. Where there are more axes, its entries are
+  brackets again, and pressing one goes a level further down. Press the trail, or Escape, to go back up. A number
+  never given is unknown, at any depth: an entry with half its numbers typed is half known.
+- **In a formula.** `k1`, `k2` and so on are the inner position of the entry the formula is in, as `index.x` is its
+  place in a tile; an arrow's entry formula reads them too (`x + k1`). `@QKV.d1`, `@QKV.d2` are the lengths of the
+  inner axes, beside `@QKV.x` and `@QKV.y`.
+- **Touching.** Every rule acts on the two drawn sides and is repeated at each inner position. Two shapes' inner
+  axes have to agree: as many, the same lengths, and no axis under two names. In a product, and in times and over,
+  a shape with no inner data may meet one that has some, and is used at every inner position: one `X` against a `W`
+  that holds three heads is three products. A sum never broadcasts: a shape with inner data and one with none do
+  not add. A touch that does not agree is drawn in the warning colour with what differs beside it, `inner 3 ≠ 2`
+  or `head ≠ layer`, as a side mismatch is. Nothing is broadcast, and nothing lines inner axes up from the right.
+- **A 1 by 1 that holds inner data** cannot be made by typing; it arises as a result (a cut down to one entry of a
+  shape of matrices). It is a matrix of one entry, not a scalar: it has no mass, does not scale what it touches,
+  and is not passed over in a row of products.
+- **Matrices into entries.** A shape dragged from the list onto the matrix of a shape whose entries hold matrices
+  (two inner axes or more) stands for one entry, and has to be that entry's size. In the receiving shape's
+  definition space its matrix is laid out entry for entry, each as large as the matrix it holds, and each standing
+  shape lies at its entry's place. As ever, standing shapes are all or nothing: they define the shape once every
+  entry has one, and are never mixed with typed numbers.
+- **An entry taken out.** With an entry open in the panel, drag its trail onto the canvas: the block set down is
+  that entry, the size of what it holds, and follows it, as a measure follows a side. It touches like any block.
+  Nothing is typed into it: its numbers are the entry's. Delete the shape, and it goes with it, after the warning.
+- **Functions.** An arrow set against a shape with inner data hands its function the covered rows or columns with
+  what they hold: `in` is then, say, 3 by 1 of 2 by 4, and its entries are taken out inside the function. That is
+  how several matrices travel as one input. A named arrow whose `in` holds no inner data can be set against a shape
+  that has some: its function is run at each inner position, and its output holds those axes (so the function may
+  not come to inner data of its own). An arrow's span, a cut's range and a tile's counts stay in drawn rows and
+  columns, and carry inner data along untouched.
+- **Sources** hold inner data like any shape: zeros and ones everywhere, an identity 1 where column equals row at
+  every inner position, noise a different number at each. A data file holds none.
+- **How much is worked out here.** The browser's limit counts numbers: columns times rows times every inner length,
+  4,096 as before. A 4 by 4 shape of 16 by 16 matrices is worked out; one of 17 by 16 is the backend's.
+
+`projects/inner-data` shows these. Not built: turning a use so that an inner axis is drawn (the graph has the
+operation, a `transpose` with `order`; nothing on the page makes one yet).
+
 ## The graph and the evaluator
 
 The page does no arithmetic. The whole project is built into a graph (`graph.js`), once for each state of the
@@ -550,9 +612,14 @@ of the model that anything else is to read: the backend (see "The backend"), an 
                                                // (deferred with backend: true: made of noise or a data file, which only the backend has)
 
 - A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
-  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat` and `mapalong`; its `inputs` are the nodes it is
+  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack` and `entry`; its `inputs` are the nodes it is
   worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`, holds no
-  other name but `index.x`, `index.y` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
+  other name but `index.x`, `index.y`, `k1` to `k6` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
+- A node's `type` is `{ cols, rows, colsName, rowsName }`, with `inner`, the list of its inner axes
+  (`[{ "length": 2, "name": "key" }, …]`), where its entries hold inner data, and no other key. An entry's key is
+  then `"column,row,k1,k2,…"`. The rules stay two-dimensional: the evaluator runs each once for every inner
+  position. `stack` puts matrices into the entries of one, `entry` takes one out, and a `transpose` with `order`
+  turns the axes. The graph's `version` is 2; a version 1 graph holds none of this and is still accepted.
 - A node's id says what it is, never where it sits: `matmul(v:b1,v:b2)`. The same product in two places is one
   node, and moving a block without changing what it touches leaves the graph exactly as it was.
 - `spaces` says what each canvas comes to (each piece, each arrow and each tile, with its node or its error), and
@@ -678,7 +745,9 @@ Keys", "asking the backend" while the first answer is waited for) and in the rea
 
 **What it answers.** `GET /health` gives `{ "ok": true, "version": 1 }`. `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
-`{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`;
+`{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
+(for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
+and each answer is `[c, r, k1, …, value]`; it holds every array with rows and columns as its last two axes);
 `POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`.
 `backend/run.py` has each in full.
 
