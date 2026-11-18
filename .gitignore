@@ -1,2 +1,12 @@
 # the server's PIN is set on each machine, never kept here (see README: The PIN)
 .pin
+runs/
+data/cache/
+__pycache__/
+models/_*
+jobs/_*
+.serve-token
+data/kaggle/
+data/hf/
+data/hfds/
+models/*.json.gz
