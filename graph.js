@@ -404,7 +404,8 @@ export const OPS = {
       /* in a later cell of a tile it is repeated through, it goes on where the cell before ended: as many rows or columns on as lie before that cell */
       const on = (n.through || []).reduce((sum, t) => { const c = at.cells.find(c => c.of && c.of.includes(t.tile)); return sum + (c ? (rows ? c.y : c.x) : 0); }, 0);
       for (let k = 1; k <= n.count; k++){ const run = runOf(n, k), part = covered({ ...run, start: run.start + on }, x); if (!part) continue; const given = passed(X, part), size = T(part.cols, part.rows), off = (k - 1) * n.span;
-        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + k)
+        /* the key names the rows or columns handed over, where they really begin: two arrows of one function on different runs of one input, or one arrow in two cells of a tile it is repeated through, do not share an answer */
+        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + n.axis + ':' + (run.start + on) + ':' + run.span)
           : worked(n.formula, { cols: part.cols, rows: part.rows, x: given, lookup: lookupIn(n, at, 1, size, p => n.at ? { x: n.at.col + p.c + (rows ? 0 : off), y: n.at.row + p.r + (rows ? off : 0) } : null) });
         const each = Math.round((rows ? n.type.rows : n.type.cols) / n.count);
         for (const [key, v] of got){ const [c, r] = key.split(',').map(Number); out.set(rows ? c + ',' + (r + (k - 1) * each) : (c + (k - 1) * each) + ',' + r, sound(v)); } }
