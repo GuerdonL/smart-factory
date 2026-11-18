@@ -1,2 +1,5 @@
 # the server's PIN is set on each machine, never kept here (see README: The PIN)
 .pin
+# the backend's own Python environment (see README: The backend), and what Python leaves behind
+backend/.venv/
+__pycache__/
