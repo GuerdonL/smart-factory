@@ -20,6 +20,7 @@ Making them
 Putting them together
     matmul(a, b)                     the matrix product
     transpose(a)
+    root(a, p, q)                    a to the power p/q, q odd (see below)
     binary(op, a, b)                 entry by entry: + - * / ^, == != < > <= >= (1 or 0), && ||. A side that is one
                                      entry, one row or one column is spread over the other
     call(fn, [args])                 entry by entry: neg ! abs sqrt exp ln tanh erf; max min; select(c, a, b), which
@@ -37,9 +38,10 @@ Reading them
 
 How the arithmetic differs from plain floating point, so that it is the browser's (values.js) wherever both have an
 answer: dividing by zero has no value (never an infinity); 0 to a power below 0 likewise; an infinity to the power
-0, 1 to an infinite power and a number below 0 to an infinite power have none; an odd root of a number below 0 is
-the real one ((-8)^(1/3) is -2), found by reading the power as a fraction with an odd number under the line of at
-most 1023; an even root of one has none. A comparison with something that has no value has none. Sums, products
+0, 1 to an infinite power and a number below 0 to an infinite power have none. A number below 0 to a power that is
+no whole number has none either, but for one case: root(a, p, q), which formula.py calls where the exponent is
+written in the formula as a fraction with an odd number under the line, is the real odd root ((-8)^(1/3) is -2).
+Whether a power is such a root is never guessed from a float. A comparison with something that has no value has none. Sums, products
 and quotients are 32-bit arithmetic; a power, a root, exp, ln, tanh and erf are worked out in 64 bits and then made
 32, so that each is the nearest 32-bit number to what it should be (exp(1) is 2.71828175).
 
@@ -178,22 +180,19 @@ def _power(x, y):
     whole = y == np.floor(y)
     none = np.isnan(x) | np.isnan(y) | ((x == 0) & (y < 0)) | (np.isinf(x) & (y == 0)) | (np.isinf(y) & ((x < 0) | (x == 1))) | ((x == -np.inf) & (y > 0) & ~whole)
     out[none] = NAN
-    odd = (x < 0) & np.isfinite(x) & np.isfinite(y) & ~whole      # a root of a number below 0: the real one where the root is odd
-    if odd.any():
-        at = np.nonzero(odd)
-        xs, ys = x[at].astype(np.float64), y[at].astype(np.float64)
-        got, left = np.full(xs.shape, np.nan), np.ones(xs.shape, dtype=bool)
-        for q in range(2, 1024):
-            p = np.rint(ys * q)
-            fits = left & (np.abs(ys * q - p) <= 1.2e-7 * q * np.maximum(np.abs(ys), 1e-30))
-            if fits.any():
-                if q % 2:
-                    got[fits] = np.where(p[fits] % 2 == 0, 1.0, -1.0) * np.power(-xs[fits], ys[fits])
-                left &= ~fits      # (under an even number it is an even root: none)
-                if not left.any():
-                    break
-        out[at] = got.astype(F)
     return out.reshape(as_it_was)
+
+
+def root(a, p, q):
+    """a to the power p/q, q odd: for a number below 0 the real one, the odd root ((-8)^(1/3) is -2)."""
+    with quiet():
+        a = np.asarray(a, dtype=F)
+        y = F(p / q)
+        out = np.atleast_1d(_power(a, y))
+        x = np.atleast_1d(a)
+        below = (x < 0) & np.isfinite(x)
+        out[below] = ((-1.0 if p % 2 else 1.0) * np.power(-x[below].astype(D), p / q)).astype(F)
+        return out.reshape(np.shape(a))
 
 
 def _erf(x):

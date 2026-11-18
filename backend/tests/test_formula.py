@@ -28,6 +28,24 @@ class Reading(unittest.TestCase):
             got = worked(text)
             self.assertTrue(close(got, float(want)), '%s came to %r, not %r' % (text, got, want))
 
+    def test_an_odd_root_is_decided_from_the_formula_as_written_never_from_a_float(self):
+        for text, want in [('(0-8)^(1/3)', -2), ('(0-8)^(2/3)', 4), ('(0-32)^0.2', -2), ('(0-32)^(0.6)', -8), ('(0-8)^(1/1025)', -(8 ** (1 / 1025))), ('(0-8)^(-1/3)', -.5), ('(0-8)^-(1/3)', -.5),
+                           ('(0-8)^((2-1)/(1+2))', -2), ('(0-8)^(2/6)', -2),
+                           ('(0-8)^0.33333334', math.nan), ('(0-8)^0.333333333333333333', math.nan), ('(0-8)^(1/2)', math.nan), ('(0-8)^(3/4)', math.nan), ('(0-8)^0.5', math.nan),
+                           ('(0-8)^(1/x)', math.nan), ('(0-8)^(x/9)', math.nan), ('(0-8)^(1/3 + x - x)', math.nan), ('(0-8)^sqrt(1/9)', math.nan), ('(0-8)^(1/3)^1', math.nan),
+                           ('8^(1/3)', 2), ('(0-8)^2', 64), ('(0-8)^(4/2)', 64), ('(0-8)^(0-1)', -.125)]:
+            got = worked(text, x=3)
+            self.assertTrue(close(got, float(want)), '%s came to %r, not %r' % (text, got, want))
+        from backend.formula import odd_root, rational
+        self.assertEqual(odd_root(parse('1/3')), (1, 3))
+        self.assertEqual(odd_root(parse('0.2')), (1, 5))
+        self.assertEqual(odd_root(parse('2/6')), (1, 3))
+        self.assertIsNone(odd_root(parse('1/2')))
+        self.assertIsNone(odd_root(parse('3')))
+        self.assertIsNone(odd_root(parse('1/0')))
+        self.assertIsNone(odd_root(parse('inf')))
+        self.assertIsNone(rational(parse('+'.join('1/%d' % k for k in range(3, 1200, 2)))))      # (not followed past what a fraction of this size is worth)
+
     def test_names_are_the_callers_to_say(self):
         self.assertEqual(worked('$1 + $2 * x', **{'$1': 1, '$2': 2, 'x': 5}), 11)
         self.assertEqual(worked('2x + index.x', x=3, **{'index.x': 4}), 10)

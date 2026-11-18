@@ -179,6 +179,7 @@ class Narrow(Plain):
     hold is an infinity at that step, not at the end."""
     number = staticmethod(lambda x: narrow(float(x)))
     binary = classmethod(lambda cls, op, a, b: narrow(Plain.binary(op, a, b)))
+    root = classmethod(lambda cls, a, p, q: narrow(Plain.root(a, p, q)))
     call = classmethod(lambda cls, fn, args: narrow(Plain.call(fn, args)))
 
 

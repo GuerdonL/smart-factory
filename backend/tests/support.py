@@ -103,11 +103,7 @@ class Plain:
         if (a == 0 and b < 0) or (math.isinf(a) and b == 0) or (math.isinf(b) and (a < 0 or a == 1)):
             return cls.nan
         if a < 0 and not math.isinf(a) and not math.isinf(b) and b != math.floor(b):
-            for q in range(2, 1024):
-                p = round(b * q)
-                if abs(b * q - p) <= 1.2e-7 * q * abs(b):
-                    return cls.nan if q % 2 == 0 else (1 if p % 2 == 0 else -1) * (-a) ** b
-            return cls.nan
+            return cls.nan      # (a real odd root is root(), asked for only where the formula writes one)
         if a == -math.inf and b > 0 and b != math.floor(b):
             return cls.nan
         try:
@@ -116,6 +112,12 @@ class Plain:
             return math.inf
         except ValueError:
             return cls.nan
+
+    @classmethod
+    def root(cls, a, p, q):
+        if math.isnan(a):
+            return cls.nan
+        return (-1 if p % 2 else 1) * (-a) ** (p / q) if a < 0 and not math.isinf(a) else cls.power(a, p / q)
 
     @classmethod
     def call(cls, fn, args):

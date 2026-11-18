@@ -30,15 +30,21 @@ the tree is walked with a list of its own, so a long sum is no deeper than a sho
     axis_of(name)               -> 'x' | 'y' for index.x and index.y, else None
     evaluate(tree, leaf, ops)   -> what it comes to. leaf(name) gives a name's value; ops does the arithmetic:
                                    ops.number(float), ops.binary(op, a, b) for + - * / ^ == != < > <= >= && ||,
-                                   ops.call(fn, [args]) for neg ! select max min abs sqrt exp ln tanh erf.
+                                   ops.call(fn, [args]) for neg ! select max min abs sqrt exp ln tanh erf, and
+                                   ops.root(a, p, q) for a to the power p/q where the exponent is written in the
+                                   formula as a fraction with an odd number under the line ((0-8)^(1/3), x^0.2):
+                                   only then has a number below 0 a real power, as in the browser. Whether it is
+                                   one is read off the formula's own text, exactly, never off a float.
+    rational(tree), odd_root(tree)   -> a tree of numbers alone as a Fraction; an exponent as (p, q) with q odd
                                    Every argument of a select is worked out: what is not chosen is dropped by ops.
     parse_symbolic(text)        -> the tree of a symbolic value's text ({ "sym": "1+sqrt(2)" }), as the browser's
                                    solver writes it: the same grammar, with log for ln and the names e and pi
     SYMBOLIC                    -> { 'e': …, 'pi': … }
 
-A tree is ('num', float) | ('name', text) | ('op', sign, a, b) | ('fn', name, [trees])."""
+A tree is ('num', float, Fraction | None) | ('name', text) | ('op', sign, a, b) | ('fn', name, [trees])."""
 import math
 import re
+from fractions import Fraction
 
 from .limits import MAX_FORMULA, MAX_NESTING
 
@@ -79,7 +85,7 @@ def tokens(text):
             raise Wrong('a capsule, which a formula of the graph does not hold')
         m = NUMBER.match(text, i)
         if m:
-            out.append(('num', float(m.group())))
+            out.append(('num', (float(m.group()), Fraction(m.group()) if len(m.group()) <= 40 else None)))      # as a float, and exactly as it was typed (0.2 is 1/5)
             i = m.end()
             continue
         m = NAME.match(text, i)
@@ -131,9 +137,9 @@ def _parse(text, arity):
         t, v = ts[at[0]]
         at[0] += 1
         if t == 'num':
-            return ('num', v)
+            return ('num', v[0], v[1])
         if t == '∞':
-            return ('num', math.inf)
+            return ('num', math.inf, None)
         if t == '(':
             deeper()
             e = binary(1)
@@ -276,6 +282,49 @@ def formula_ok(text, most, arrow=False, empty=False):
     return True
 
 
+def rational(tree):
+    """What a tree comes to exactly, where it is written out of numbers alone with + - * / and brackets: a Fraction.
+    None for anything else (a name, a function, a power, an infinity, a division by zero)."""
+    out, todo = [], [(tree, False)]
+    while todo:
+        node, ready = todo.pop()
+        kind = node[0]
+        if kind == 'num':
+            if node[2] is None:
+                return None
+            out.append(node[2])
+        elif kind == 'fn' and node[1] == 'neg':
+            if not ready:
+                todo.append((node, True))
+                todo.append((node[2][0], False))
+            else:
+                out.append(-out.pop())
+        elif kind == 'op' and node[1] in '+-*/' and len(node[1]) == 1:
+            if not ready:
+                todo.append((node, True))
+                todo.append((node[3], False))
+                todo.append((node[2], False))
+            else:
+                b = out.pop()
+                a = out.pop()
+                if node[1] == '/' and b == 0:
+                    return None
+                r = a + b if node[1] == '+' else a - b if node[1] == '-' else a * b if node[1] == '*' else a / b
+                if r.numerator.bit_length() > 256 or r.denominator.bit_length() > 256:
+                    return None
+                out.append(r)
+        else:
+            return None
+    return out[0]
+
+
+def odd_root(tree):
+    """For a power's exponent: (p, q) where it is written as a fraction that is no whole number, in lowest terms, with q
+    odd: then a number below 0 has a real power, the odd root. None for any other exponent."""
+    r = rational(tree)
+    return (r.numerator, r.denominator) if r is not None and r.denominator != 1 and r.denominator % 2 == 1 else None
+
+
 def evaluate(tree, leaf, ops):
     out, todo = [], [(tree, False)]
     while todo:
@@ -293,7 +342,8 @@ def evaluate(tree, leaf, ops):
         elif kind == 'op':
             b = out.pop()
             a = out.pop()
-            out.append(ops.binary(node[1], a, b))
+            odd = odd_root(node[3]) if node[1] == '^' else None      # read off the formula as it is written, never off a float
+            out.append(ops.root(a, odd[0], odd[1]) if odd else ops.binary(node[1], a, b))
         else:
             n = len(node[2])
             args = out[len(out) - n:]
