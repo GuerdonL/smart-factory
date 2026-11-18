@@ -422,7 +422,9 @@ panel.
 - **Make one.** Draw a tile inside another tile's pattern, or draw a tile round all of another tile; or drag a tile
   by its frame and let it go wholly inside a pattern. The readout says which tile it is now in. Tiles lie one inside
   the next at most 8 deep.
-- **It has to fit.** The inner tile's filled size (its pattern times its counts) lies inside the outer pattern.
+- **It has to fit.** The inner tile's filled size (its pattern times its counts) lies inside the outer pattern,
+  and clear of the filled size of any other tile in that pattern: inside a pattern it is the filled size that
+  counts, whatever is drawn (an ellipsis takes no room in the matrix).
   Pulling its edge, typing a count, or making the outer pattern smaller is refused where it would run past. A count
   that follows a size can still grow past it afterwards: both tiles are then drawn in the warning colour, their
   panels say why, neither has a matrix, and the outer tile's copies show only what fits their cell.
@@ -436,8 +438,10 @@ panel.
   when the inner tile has a matrix and the outer pattern is covered exactly by its own blocks and its inner tiles'
   filled sizes. An arrow on the inner tile reads the inner tile's matrix alone; where the two tiles share an edge,
   a click there means the inner tile, and the outer tile has the rest of that edge.
-- **The index** a block reads is the innermost tile's: `index.x` in a block of the inner tile counts across the
-  inner tile, and is the same in every cell of the outer tile.
+- **The index** a block reads is that of the innermost tile the block itself is in, whoever reads it: `index.x`
+  in a block of the inner tile counts across the inner tile, and is the same in every cell of the outer tile; a
+  block of the outer tile named in a formula of the inner tile, or read by an arrow there, still reads the outer
+  tile's index; and a block in no tile has no index, though an arrow in a tile reads it.
 - **What is drawn.** The outer tile's copies show the inner tile's cells too. No tile is drawn more than 64 times in
   all, counting the copies of it in the cells of the tiles it is in: an inner tile draws as many cells as that
   leaves it (its first three and its last each way, or just its first, with an ellipsis).
@@ -448,7 +452,9 @@ Two tiles may overlap only in that way. Drawing, moving or pulling a tile so tha
 is refused, with the reason in the readout. Tiles can still come to overlap: pasted over one another, opened from a
 project file, grown by a count that follows a size, or carried along by an arrow repeated in them. Both tiles of
 such a pair are then drawn in the warning colour, each one's panel says why, neither has a matrix, and an arrow on
-either says so. Move one clear by its frame (or wholly inside the other's pattern) and both are well again.
+either says so, naming the other tile where it has a name. Move one clear by its frame (or wholly inside the
+other's pattern) and both are well again. Framing blocks (F, or dragging them onto a frame) never moves a tile's
+pattern, so a framing gesture that would take a tile's frame out of the tile it lies in is refused.
 
 ### The index
 
@@ -487,7 +493,11 @@ side by side, seated and used like any other. If the last cell runs past the inp
 drawn in the warning colour. The tile follows the arrow when the input moves. An arrow in one tile cannot be
 repeated along another tile (it reads all of that tile): it warns, and says to seat the other tile's output first.
 An arrow in a tile that reads a tile in that tile's own pattern is not repeated: its input is inside. An arrow in a
-tile in a tile is repeated in the innermost, by that tile's counts.
+tile in a tile, whose input is outside both, is repeated along its input through both: in the next cell of the outer
+tile it goes on where the cell before ended, so with the inner tile 4 across and the outer tile twice across it
+covers eight columns. The same rules hold at each level (the outer tile repeats only along the arrow's edge, and its
+pattern is as long that way as what the inner tile covers); where one fails, the arrow and both tiles warn. Its
+output is one cell's; a block seated on it, in the outer pattern, holds each cell's numbers in that cell.
 
 One `max(x, 0)` arrow under column 1 of a matrix, in a tile with `across` 4, is that function on every column.
 
