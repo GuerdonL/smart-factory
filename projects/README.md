@@ -14,7 +14,11 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 3. It adds two things to format 2, both for the boolean tool: a space's `operations.json`, and on a
+The format is 3. An entry is a literal value (a whole number, `"inf"` or `"-inf"`, `{ "n", "d", "k" }`, `true` or
+`false`, `{ "sym": "1+sqrt(2)" }`) or a formula, `{ "expr": "1/√(@[b3k2m9x:x])" }`, kept as its text and never with
+its result; `@[id:x]` in a formula or an attribute's value names a measure of the variable whose block has that id.
+An error or a decimal is never written, and one met in a file is dropped.
+The format also adds two things to format 2, both for the boolean tool: a space's `operations.json`, and on a
 shape made by a cut or an intersection `from.range`, the columns and rows of its source that it is
 (`{ col, row, cols, rows, toEnd: { cols, rows } }`, counted from 0; `toEnd` marks a range that runs to the source's
 last column or row whatever size the source becomes). Such a shape's entries are its source's and are not written.
@@ -110,6 +114,16 @@ shape holding 1 (the reciprocal of `Scale`, written beside the piece since neith
 single row (`Logits` over `Norm`, in the one hollow that is the result's size); and a product with a third shape
 stacked under it, which is `mixed rules`. Change `.show_hadamard_copies` in its `.config` to 2 or 0 to see the result
 of `Mask` and `Weights` move.
+
+## entries-and-values/
+
+Formulas in entries, beside a copy of the default Menu's `.config`. `Scale` holds `1/√(@Keys.x)`, which shows `1/2`
+while `Keys` is 4 wide (make `Keys` 5 wide and it shows `√(1/5)`), a formula using `Keys`' attribute `heads`, the
+fraction `3/4`, and a root of `Heat`'s mass. `Logic` holds `select(2 > 3, 1/0, 5)`, which is 5; `1/0` alone, which is
+the error mark (select `Logic` and the panel says why); a comparison, `max`, and an infinity chosen by a `select`.
+`Functions` holds `exp(2) + 1`, shown as `1+exp(2)`, beside functions that come out (`exp(0)`, `tanh(inf)`,
+`exp(-inf)`). `Waits` uses the mass of `Tau`, a scalar not yet given a number, and shows a symbol, not 0; type a
+number as `Tau`'s mass and it follows. Delete `Keys` to see the warning and the formulas left without it.
 
 ## boolean-tool/
 

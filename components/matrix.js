@@ -25,8 +25,10 @@
      tiles        [{ x, y, w, h, color, name, id }]: shapes that stand in for the entries they cover, drawn in their
                   places inside the brackets (x, y from 0, in entries), each with its name on it. One given an id can
                   be pressed, and carries the id as data-tile for whoever handles the click. Left out where the matrix is elided.
-     values       a Map from "column,row" (say "2,1") to a number, for entries that have been given one. Those are
-                  written as the number, upright, in place of the symbol; infinity is +∞ or −∞.
+     values       a Map from "column,row" (say "2,1") to a value, for entries that have come to one: any kind of
+                  value but unknown (values.js). Those are written as the value, upright, in place of the symbol:
+                  7, 3/4, √2, 1+√2, T or F for a boolean, and infinity as ∞ or -∞. An error is written as ! in the
+                  warning colour, with why as the entry's title. An entry not in the Map is unknown, and is its symbol.
      width, height  the size of what was made, in world units (for placing it)
 
    One row or one column is a vector, written k₁ … kₙ. Otherwise it is a matrix, each entry carrying its column then
@@ -34,11 +36,11 @@
    a side, the middle is elided the way it is on paper: the first three, dots, and the last.
    Each entry's element carries data-c and data-r, its column and row, for whoever wants to act on a click. */
 
-/* a number as it is written in a matrix */
-export const written = v => isSurd(v) ? valueText(v) : v === Infinity ? '+∞' : v === -Infinity ? '−∞' : String(v).replace('-', '−');
+/* a value as it is written in a matrix */
+export const written = v => typeof v === 'number' && Number.isFinite(v) ? String(v).replace('-', '−') : valueText(v);
 import { html, style } from './dom.js';
 import { likeness } from './block.js';
-import { isSurd, valueText } from '../algebra.js';
+import { isError, valueText } from '../algebra.js';
 
 style('matrix', `
 .matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; line-height: 1; }
@@ -48,6 +50,7 @@ style('matrix', `
 .matrix > .likeness .block-name { left: 0; right: 0; bottom: auto; top: 50%; transform: translateY(-50%); margin: 0; padding: 0; text-align: center;
   font-size: 10px; font-style: normal; color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .matrix > span.set.inherited { opacity: .45; font-weight: 400; }
+.matrix > span.set.error { color: var(--warn) !important; }      /* an entry that came to an error: over the block's own colour */
 .matrix i { font-style: inherit; }           /* half of a product's entry, or one part of a combined one */
 .matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves, or the sign between two parts */
 .matrix > span.dots { font-style: normal; color: var(--muted); }
@@ -78,8 +81,13 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
   const symbol = combined ? combined.parts.reduce((sum, p) => sum + .5 * p.letter.length + .34 * (digits(Math.min(p.cols, cols)) + digits(Math.min(p.rows, rows))) + .1, .7 * combined.signs.length)
     : product ? .5 * (product.rows.letter.length + product.cols.letter.length) + .34 * (digits(rows) + digits(cols)) + .3
     : .5 * letter.length + .34 * (vector ? digits(Math.max(cols, rows)) : digits(cols) + digits(rows) + (comma ? .6 : 0));
-  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(v => written(v).length * .72));
-  el.style.fontSize = Math.min(cell * .6, cell * .8 / widest) + 'px';
+  /* a value written at length (1+exp(2), a long fraction) does not make the whole matrix small: past LONG it is
+     written smaller on its own, to fit its square, and carries what it says in full as its title */
+  const LONG = 2.9, wide = v => written(v).length * .72;
+  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(wide).filter(w => w <= LONG));
+  const size = Math.min(cell * .6, cell * .8 / widest);
+  const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cell * .92 / (written(v).length * .56) / size) + 'em'; if (!entry.title) entry.title = written(v); } };
+  el.style.fontSize = size + 'px';
   el.style.gridTemplateColumns = `repeat(${cs.length}, ${cell}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
   for (const re of rs) for (const ce of cs){
     if (re === null || ce === null){ el.append(html`<span class="dots">${re === null && ce === null ? '⋱' : re === null ? '⋮' : '⋯'}</span>`); continue; }
@@ -92,8 +100,8 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     if (combined) combined.parts.forEach((p, n) => { if (n){ const sign = html`<b></b>`; sign.textContent = combined.signs[n - 1]; entry.append(sign); } entry.append(part(p)); });
     else if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
-      if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
-      else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); }      /* not given here: what a definition higher up gives */
+      if (values.has(key)){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; fit(entry, v); }
+      else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); fit(entry, inherited.get(key)); }      /* not given here: what a definition higher up gives */
       else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? rn : cn) : transposed ? rn + comma + cn : cn + comma + rn; } }
     if (!elided && tiles.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
     el.append(entry);

@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bbs5zln",
+  "type": "tensor",
+  "name": "Heat",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": -27,
+    "y": -9
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": {
+        "n": 9,
+        "d": 4,
+        "k": 0
+      }
+    }
+  },
+  "order": 39
+}

@@ -1,0 +1,46 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b2k2mtb",
+  "type": "tensor",
+  "name": "Functions",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -14,
+    "y": -16
+  },
+  "size": {
+    "cols": 3,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": {
+        "expr": "exp(2) + 1"
+      },
+      "2,1": {
+        "expr": "exp(0)"
+      },
+      "3,1": {
+        "expr": "ln(2) + ln(3)"
+      },
+      "1,2": {
+        "expr": "tanh(inf)"
+      },
+      "2,2": {
+        "expr": "exp(-inf)"
+      },
+      "3,2": {
+        "expr": "abs(1 - √2)"
+      }
+    }
+  },
+  "order": 42
+}

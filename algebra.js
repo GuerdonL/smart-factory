@@ -111,17 +111,15 @@
    typeOf(rects) -> null | { cols, rows, colsName, rowsName } | { error }
        what everything comes to: nothing is null, one piece is that piece's type, and several pieces are not one
        thing: { error: 'n pieces' }.
-   readEntry(text) -> what was typed into a matrix entry: a whole number ("7", "-3", "+12"), plus or minus infinity
-       ("inf", "+inf", "-inf", "infinity", "∞", "-∞"), null for nothing typed (the entry goes back to being a
-       symbol), or undefined for anything else (not accepted)
    readSide(text) -> what was typed into a side's measurement, as { name, length }: "8" (or "8u") a length; "context" a
        name; "context 8", "context=8", "context: 8" both; "-" the name '-', which takes a side's name off ("-8": and
        gives it a length). A number is a length only where it stands alone or apart from the name, so "d2" and "h1"
        are names. name is '' where none was typed; length is a whole number, null where none was typed, or undefined
        where one was typed that is not whole ("2.5"): not accepted, and never rounded
+   combine(op, a, b), apply(fn, a), valueText(v), isWhole(v), isSurd(v), surd, rootOf, sideOf, exact, held and the rest
+       of what values are: values.js, which sets out the eight kinds of value (whole, infinity, exact, boolean,
+       symbolic, decimal, error, unknown) and the rules for combining them. Every one of them takes every kind.
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
-
-import { value as make, written as writtenExact } from './expression.js';
 
 export const isScalar = r => r.w === 1 && r.h === 1;
 const sized = r => ({ cols: r.w, rows: r.h, colsName: r.wName || null, rowsName: r.hName || null });
@@ -285,36 +283,15 @@ export function typeOf(rects){
   return !ps.length ? null : ps.length === 1 ? ps[0].type : { error: ps.length + ' pieces' };
 }
 
-export function readEntry(text){
-  const t = String(text).replace(/\s+/g, '').replace(/−/g, '-').toLowerCase();
-  if (!t) return null;
-  if (/^[+-]?\d+$/.test(t)) return parseInt(t, 10);
-  const m = t.match(/^([+-]?)(inf|infinity|∞)$/);
-  return m ? (m[1] === '-' ? -Infinity : Infinity) : undefined;
-}
-
 export function readSide(text){
   const t = String(text).trim(), m = t.match(/^(?:(.*?)[\s=:]+|(-?))(\d+(?:\.\d+)?)\s*u?$/i);      /* a name, then a space, = or : before the number; or no name, or only the "-" */
   if (!m) return { name: t.replace(/[\s=:]+$/, ''), length: null };
   return { name: (m[1] ?? m[2]).trim(), length: Number.isSafeInteger(Number(m[3])) ? Number(m[3]) : undefined };
 }
 
-/* A number that is not whole is kept in algebraic form, never as decimals: a fraction, a root, or a root of a
-   fraction. Such a value is { n, d, k }: n over d (d left out where it is 1), under k square roots (k 0: a
-   fraction; k 1: √; k 2: the fourth root), in lowest terms, and kept only where it is not itself a whole number.
-   surd(n, k, d)  -> that as a value: a plain number where it comes out whole (surd(9, 1) is 3), else { n, d, k }
-   rootOf(v)      -> the square root of a value, itself a value; null where v has none to write (negative, infinite, not a number)
-   isWhole(v)     -> whether a value is a plain whole number;   isSurd(v) -> whether it is one of the others
-   exact(v)       -> a value as expression.js has them ({ p, q, k }), or null (an infinity, or no value)
-   held(e)        -> the other way: what expression.js worked out, as a value an entry can hold
-   valueText(v)   -> a value written out: "7", "∞", "3/4", "√2", "2√3", "∜12" */
-export const isSurd = v => !!v && typeof v === 'object' && Number.isInteger(v.n) && Number.isInteger(v.k);
-export const isWhole = v => typeof v === 'number' && Number.isInteger(v);
-export const exact = v => isSurd(v) ? make(v.n, v.d || 1, v.k) : isWhole(v) ? make(v, 1, 0) : null;
-export const held = e => !e || e === 'inexact' ? null : !e.k && e.q === 1 ? e.p : { n: e.p, ...(e.q !== 1 ? { d: e.q } : {}), k: e.k };
-export function surd(n, k, d = 1){ return held(make(n, d, k)); }
-export function rootOf(v){ const e = exact(v); return !e || e.p < 0 ? null : held(make(e.p, e.q, e.k + 1)); }
-export function valueText(v){ return isSurd(v) ? writtenExact(exact(v)) : v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v); }
+/* The kinds of value an entry can come to, and how two combine, are set out in values.js, a pure module beside this
+   one. They are given from here too, since this is where the page and the evaluator look for what things mean. */
+export { combine, apply, truth, kind, written as valueText, isWhole, isSurd, isError, isFormula, storable, surd, rootOf, sideOf, exact, held } from './values.js';
 
 export function initials(name){
   return (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toLowerCase()).join('').slice(0, 3) || 'x';

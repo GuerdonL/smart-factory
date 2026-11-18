@@ -6,7 +6,8 @@ import { createMenu } from './components/menu.js';
 import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
 import { createWarning } from './components/warning.js';
-import { evaluate, written as writtenValue, whole as wholeValue, number as numberValue } from './expression.js';
+import { createFormula } from './components/formula.js';
+import { evaluate, entered, typed as typedText, bound, guard, refs, refersTo, repoint, label, wholeOf } from './expression.js';
 import { createBlock } from './components/block.js';
 import { createMeasure, sides } from './components/measure.js';
 import { createBounds, createBackdrop } from './components/bounds.js';
@@ -17,14 +18,14 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { touches, joins, pieces, resultHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readEntry, readSide, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
+import { touches, joins, pieces, resultHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
 import { SYSTEM, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { zip, unzip } from './zip.js';
-import { written, squares } from './components/matrix.js';
+import { squares } from './components/matrix.js';
 
 /* everything the user does takes effect as a message on the bus (bus.js); what each message does is set out under
    "messages", near the end. Blocks are named in messages by their ids. */
@@ -220,7 +221,21 @@ function algebraIn(s){
    its entries are already the way it stands.) */
 const turned = b => !!b.t && !b.members;
 const flipped = values => new Map([...values].map(([k, v]) => { const [c, r] = k.split(','); return [r + ',' + c, v]; }));
-const own = (b, plain = false) => turned(b) && !plain ? flipped(b.values) : b.values;
+/* An entry holds a literal value or a formula, { expr } (expression.js), never a formula with its result: a formula
+   is worked out each time it is read, so it follows whatever it refers to. worked(b) is b's own entries as values:
+   the block's Map itself where it holds no formula, else a new one, in which an entry whose formula comes to nothing
+   yet (unknown) is absent and so is drawn as its symbol. A formula that depends on itself, directly or through
+   others, comes to the error "depends on itself": working (expression.js: guard) keeps track of what is being
+   worked out, each thing by the id of the block its variable was made as. */
+const working = guard();
+const workedAt = (b, key) => { const v = b.values.get(key); return isFormula(v) ? working(originOf(b).id + ' ' + key, () => evaluate(v.expr, lookupFor(b)).value ?? null) : v; };
+function worked(b){
+  let any = false; for (const v of b.values.values()) if (isFormula(v)){ any = true; break; }
+  if (!any) return b.values;
+  const out = new Map(); for (const [k, v] of b.values){ const w = isFormula(v) ? workedAt(b, k) : v; if (w !== null && w !== undefined) out.set(k, w); }
+  return out;
+}
+const own = (b, plain = false) => turned(b) && !plain ? flipped(worked(b)) : worked(b);
 function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's own way round, whatever this use is */
   if (measures(b)){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
   const part = rangedOf(b);                    /* a part of another shape: that shape's entries there, whatever they are now */
@@ -293,6 +308,11 @@ const variables = createVariables({
   /* what a drop amounts to: a shape into a matrix, or onto the canvas as another use; a system variable into this
      space's .config; a length onto a side, or onto the canvas as a single entry holding it */
   onDrop: (item, x, y) => { const at = view.toWorld(x, y);
+    /* onto a formula that is open: a measure's capsule goes in at the cursor. A whole shape is its mass if it is a scalar, and otherwise is refused (expression.js: wholeOf). */
+    if (openField?.over(x, y)){
+      if (item.kind === 'length' && item.of) return openField.insert({ id: item.of, measure: item.side || 'x', name: null });
+      const whole = item.kind === 'shape' ? wholeOf(variableOf(item.block)) : { refused: 'only a variable or one of its measures can go into a formula' };
+      return whole.refused ? hud.say(`${item.name}: ${whole.refused}`) : openField.insert(whole.capsule); }
     if (item.kind === 'shape'){ const onto = matrixAt(x, y); if (!onto) return bus.send('use', { id: item.block.id, at, transposed: !!item.transposed });
       const r = onto.el.getBoundingClientRect(), u = view.unit, cols = Math.round(onto.block.rect.w / u), rows = Math.round(onto.block.rect.h / u), whole = cols <= 8 && rows <= 8;      /* a longer matrix is written with its middle left out, so the pointer cannot say where */
       return bus.send('slot', { into: onto.block.id, id: item.block.id, cx: whole ? (x - r.left) / (r.width / cols) : 0, cy: whole ? (y - r.top) / (r.height / rows) : 0 }); }
@@ -517,7 +537,7 @@ const rootStyle = document.documentElement.style;
 const isHidden = name => bare(name).trim().startsWith('.');
 const cells = b => { const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u), v = [];      /* a block's entries, row by row */
   const from = valuesOf(b);
-  for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) v.push(from.get(c + ',' + r)); return v; };
+  for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++){ const n = from.get(c + ',' + r); v.push(typeof n === 'boolean' ? +n : typeof n === 'number' ? n : undefined); } return v; };      /* a setting is a number: an entry that comes to anything else says nothing */
 /* The theme has two sets of colours, light and dark. Which is in use is .dark_mode's to say: 1 is dark, 0 light, and
    left blank it is whatever the computer (or the app the page sits in) asks for. The page then says so on the root
    element, which is what the stylesheet goes by, over whatever was there. A colour shape in a .config sets the light
@@ -616,7 +636,7 @@ function inheritedBy(b, s){
     return got; }                                /* in a .config: what the .configs above say of it (the program itself says nothing) */
   if (!isNamed(b)) return got;
   const name = bare(b.name).trim(), mine = new Set(kinOf(b));
-  for (const p of above) for (const o of p.blocks) if (!isOff(o) && !mine.has(o) && bare(o.name).trim() === name) for (const [k, n] of o.values) got.set(k, n);
+  for (const p of above) for (const o of p.blocks) if (!isOff(o) && !mine.has(o) && bare(o.name).trim() === name) for (const [k, n] of worked(o)) got.set(k, n);
   return got;
 }
 /* a system variable dragged in from the list: blank shapes that shadow it, in this space's .config (made if there is
@@ -654,7 +674,7 @@ function hush(){
    block still takes one square of the grid and is still one by one in a product; only what is written changes: the
    number on its face, and its sides as the root of the number: 9 has sides of 3u, 2 of √2u. A side elsewhere that carries one of
    its sides' names is that long and follows the number as it changes, so long as the root is a whole number. */
-const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || b.rect.h !== u) return null; const v = valuesOf(b).get('1,1'); return typeof v === 'number' || isSurd(v) ? v : null; };
+const scalarOf = b => { const u = view.unit; if (b.members || b.rect.w !== u || b.rect.h !== u) return null; const v = valuesOf(b).get('1,1'); return v === undefined ? null : v; };      /* a value of any kind; null for none yet */
 const asText = valueText;
 /* the length of each side of such an entry, in units: the root of its number (null where it has none, or none with a root) */
 const rootSide = b => { const v = scalarOf(b); return v === null ? null : rootValue(v); };      /* a value: a whole number, or a root left as a root */
@@ -674,42 +694,82 @@ const sideLength = (b, dim) => { if (unset(b)) return null;      /* no number ye
    arithmetic (expression.js, which hands the working out to a maths solver), in which the variable's other attributes can be used by name: x, y, mass, and the
    added ones. Added attributes belong to the variable: every reference to it has the same ones. */
 const attrsOf = b => (b.attrs ||= []);
-const asValue = v => v === null || v === undefined ? undefined : exact(v) || 'inexact';      /* an infinity is not a number arithmetic can use */
-function lookupFor(b, seen = new Set()){
-  const u = view.unit, r = rootSide(b), names = new Map([['x', asValue(r === null ? Math.round((turned(b) ? b.rect.h : b.rect.w) / u) : r)], ['y', asValue(r === null ? Math.round((turned(b) ? b.rect.w : b.rect.h) / u) : r)]]);
-  if (scalarOf(b) !== null) names.set('mass', asValue(scalarOf(b)));
-  return id => { const k = id.toLowerCase(), short = k.replace(/^.*\./, ''); if (names.has(k)) return names.get(k); if (names.has(short) && k.startsWith(bare(b.name).trim().slice(0, 10).toLowerCase() + '.')) return names.get(short);
-    const a = attrsOf(b).find(a => a.name.trim().toLowerCase() === k); if (!a) return undefined; if (seen.has(a)) return 'inexact';      /* an attribute that is worked out from itself has no value */
-    const got = evaluate(a.text, lookupFor(b, new Set([...seen, a]))); return got.value || (got.inexact ? 'inexact' : undefined); };
+/* what an attribute comes to: a value of any kind, null where nothing is typed */
+const attrValue = (b, a) => working(originOf(b).id + ' a ' + a.name.trim().toLowerCase(), () => evaluate(a.text, lookupFor(b)).value ?? null);
+/* one measure of a variable as a value: its width or height (x, y) the variable's own way round, a scalar's mass
+   (m), or an attribute (a, by name). null where it has no value yet (a named scalar not given a number: its mass and
+   its sides are still symbols); undefined for an attribute it has not got. */
+function measured(b, measure, name){
+  if (measure === 'm') return single(b) ? scalarOf(b) : { err: 'not a scalar: it has no mass' };
+  if (measure === 'a'){ const key = String(name).trim().toLowerCase(), a = attrsOf(b).find(a => a.name.trim().toLowerCase() === key); return a ? attrValue(b, a) : undefined; }
+  if (single(b)){ const v = scalarOf(b); if (unset(b)) return null; if (isError(v)) return v; const r = rootSide(b); if (r !== null) return r; }      /* a scalar's side is the root of its mass */
+  return Math.round(((measure === 'x') !== turned(b) ? b.rect.w : b.rect.h) / view.unit);
 }
+/* what a name or a capsule in one of b's formulas stands for (expression.js: evaluate's lookup). A capsule names a
+   measure of any variable, by its block's id. A bare name is one of b's own: x, y, mass, or an attribute it was given. */
+function lookupFor(b){
+  const mine = bare(b.name).trim().slice(0, 10).toLowerCase() + '.';
+  return token => {
+    if (typeof token !== 'string'){ const of = blockOf(token.id); if (!of) return undefined;      /* its variable is gone: "missing variable" */
+      const v = measured(of, token.measure, token.name); return v === undefined ? { err: 'missing attribute' } : v; }
+    const k = token.toLowerCase(), short = k.startsWith(mine) ? k.slice(mine.length) : k;
+    if (short === 'x' || short === 'y') return measured(b, short);
+    if (short === 'mass' && single(b)) return scalarOf(b);
+    return measured(b, 'a', k); };
+}
+/* ---- typing a formula ----
+   Every value is typed in a formula field (components/formula.js). What such a field needs from the page: how a
+   capsule is drawn, the variables an @ offers, and to say which field is open, so that a measure dragged from the
+   list at the right edge can be put into it. */
+let openField = null;
+const variableOf = b => ({ id: originOf(b).id, name: bare(b.name).trim(), color: b.shape.color, scalar: single(b), attributes: attrsOf(b).map(a => a.name.trim()).filter(Boolean) });
+/* the variables a formula typed here can refer to: every named shape in reach of this space */
+function reachList(){
+  const { main, hidden } = inReach(), out = [];
+  const add = list => { for (const i of list){ if (i.kind === 'shape') out.push(variableOf(i.block)); else if (i.children) add(i.children); } };
+  add(main); add(hidden); return out;
+}
+const fields = { reach: reachList, onOpen: f => { openField = f; }, onClose: f => { if (openField === f) openField = null; },
+  look: capsule => { const b = blockOf(capsule.id); return b ? { label: label(capsule, bare(b.name).trim()), color: b.shape.color } : null; } };
+/* a formula field opened over one entry of a matrix on the canvas: cell is the entry's element, o and key the block and the entry it really belongs to */
+function typeEntry(cell, o, key){
+  const was = [...cell.childNodes], back = () => cell.replaceChildren(...was);
+  const f = createFormula({ ...fields, text: typedText(o.values.get(key)), onKeep: text => { back(); bus.send('entry.set', { id: o.id, key, text: text || null }); }, onLeave: back });
+  cell.replaceChildren(f.el); f.focus();
+}
+/* what was typed, worked out now for b: names typed out after an @ are bound to their capsules first. { value } or { refused } */
+function readTyped(b, text){ const t = bound(text, reachList()); if (t.refused) return t; const got = evaluate(t.text, lookupFor(b)); return got.empty ? { refused: 'nothing was typed' } : { value: got.value }; }
 function attributesOf(b){
-  const r = rootSide(b), u = view.unit, len = dim => unset(b) ? '√' + symbolOf(b) : r === null ? String(Math.round(b.rect[dim] / u)) : valueText(r), v = scalarOf(b), one = single(b);
+  const r = rootSide(b), u = view.unit, v = scalarOf(b), one = single(b), len = dim => unset(b) ? '√' + symbolOf(b) : one && isError(v) ? '!' : r === null ? String(Math.round(b.rect[dim] / u)) : valueText(r);
+  /* what a formula comes to, written after it where that says more than what was typed; why, where it comes to an error */
+  const told = (text, v) => ({ error: isError(v) ? v.err : null, result: (w => w && !isError(v) && w.replace(/\s+/g, '') !== text.replace(/\s+/g, '') ? w : null)(valueText(v)) });
+  /* seen: how each capsule in a text is drawn just now, so that the panel is drawn again when a variable it names is renamed, recoloured or gone */
+  const seen = text => ({ seen: refs(text).map(fields.look) });
   const fixed = [{ key: 'x', label: sideName(b, 'w') || 'x', text: len('w') }, { key: 'y', label: sideName(b, 'h') || 'y', text: len('h') }];
-  if (one) fixed.push({ key: 'mass', label: massName(b) || 'mass', text: v === null ? symbolOf(b) : valueText(v) });      /* not yet given a number: its symbol */
-  return [...fixed, ...attrsOf(b).map((a, i) => { const got = evaluate(a.text, lookupFor(b, new Set([a])));
-    return { key: 'a' + i, custom: true, label: a.name, text: a.text, error: got.error || null, result: (r => r && r.replace(/\s+/g, '') !== a.text.replace(/\s+/g, '') ? r : null)(got.value ? writtenValue(got.value) : got.text || null) }; })];      /* what it comes to, where that says more than what was typed */
+  if (one){ const stored = measures(b) || rangedOf(b) ? undefined : b.values.get('1,1'), text = isFormula(stored) ? stored.expr : v === null ? symbolOf(b) : isError(v) ? '' : typedText(v);      /* a formula as it was typed; not yet given a value: its symbol */
+    fixed.push({ key: 'mass', label: massName(b) || 'mass', text, ...seen(text), ...told(text, isFormula(stored) || isError(v) ? v : null) }); }
+  return [...fixed, ...attrsOf(b).map((a, i) => ({ key: 'a' + i, custom: true, label: a.name, text: a.text, ...seen(a.text), ...told(a.text, attrValue(b, a)) }))];
 }
-/* a whole number typed, or arithmetic that comes to one, for a value that has to be whole: null (and a word why) otherwise */
-function wholeTyped(b, text, what){ const got = evaluate(text, lookupFor(b)), n = got.value ? wholeValue(got.value) : null;
-  if (n === null) hud.say(got.error ? `${what}: ${got.error}` : `a matrix's side is a whole number of squares: ${what} cannot be ${got.value ? writtenValue(got.value) : 'that'}`); return n; }
-const properties = createProperties({
+/* the block an entry of the selected shape's matrix really belongs to, and its key there */
+const entryOfSelected = key => { const b = [...selected][0], [c, r] = key.split(',').map(Number); return b ? entryHome(b, c, r) : null; };
+const properties = createProperties({ ...fields,
   onName: text => { const b = [...selected][0]; if (b) bus.send('rename', { id: b.id, name: text, color: isNamed(b) ? null : someColour() }); },
   onAdd: () => { const b = [...selected][0]; if (!b) return; properties.focus('a' + attrsOf(b).length + '.label'); bus.send('attr.add', { id: b.id }); },
   onLabel: (key, text) => { const b = [...selected][0]; if (b) bus.send('attr.set', { id: b.id, index: +key.slice(1), name: text }); },
-  onEntry: (key, text) => { const b = [...selected][0]; if (b) bus.send('entry.set', { id: b.id, key, text: text === '' ? null : text }); },
+  onEntry: (key, text) => { const home = entryOfSelected(key); if (home) bus.send('entry.set', { id: home[0].id, key: home[1], text: text === '' ? null : text }); },
+  /* what an entry holds, as it would be typed: its formula or its literal; for an entry that is another shape's (a measure, a part), what it shows */
+  textOf: key => { const home = entryOfSelected(key); return !home ? '' : home[0].values.has(home[1]) && !home[0].members ? typedText(home[0].values.get(home[1])) : typedText(valuesOf([...selected][0]).get(key)); },
   onValue: (key, text) => { const b = [...selected][0]; if (!b) return;
     if (key[0] === 'a') return bus.send('attr.set', { id: b.id, index: +key.slice(1), text });
-    /* a scalar's measures are numbers of any kind: whole, a fraction, a root. Whatever is typed is worked out exactly
-       and kept in that form; only something with no single exact value (√2 + 1, say) cannot be taken. */
-    const worked = what => { const got = evaluate(text, lookupFor(b)); if (!got.value) hud.say(got.error ? `${what}: ${got.error}` : `${what}: that does not come to one exact value`); return got.value || null; };
-    if (key === 'mass'){ if (text === '' || readEntry(text) !== undefined) return bus.send('entry.set', { id: b.id, key: '1,1', text: text === '' ? null : text });
-      const v = worked('mass'); return v === null ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', value: held(v) }); }
-    if (rootSide(b) !== null || (isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit)){      /* a scalar's side is the root of its mass: a side of 3 is a mass of 9, of √2 a mass of 2. It stays one square whatever is typed */
-      const v = worked(key), squared = v && evaluate(`(${text})^2`, lookupFor(b)), mass = squared && squared.value; if (v && !mass) hud.say(`${key}: its square does not come to one exact value`);
-      return !mass ? shown() : bus.send('entry.set', { id: b.id, key: '1,1', value: held(mass) }); }
-    /* any other shape is drawn on the grid: its sides are whole numbers of squares */
-    const n = wholeTyped(b, text, key); if (n === null || n < 1){ if (n !== null) hud.say(`${key} has to be at least 1`); return shown(); }
-    bus.send('side.set', { id: b.id, dim: key === 'x' ? 'w' : 'h', text: String(n) }); } });
+    /* a scalar's mass and sides take a value of any kind, or a formula. Its side is the root of its mass, so a side
+       typed is a mass of that squared: a side of 3 is a mass of 9, of √2 a mass of 2. It stays one square whatever is typed. */
+    if (key === 'mass') return bus.send('entry.set', { id: b.id, key: '1,1', text: text === '' ? null : text });
+    if (rootSide(b) !== null || (isNamed(b) && single(b))) return bus.send('entry.set', { id: b.id, key: '1,1', text: text === '' ? null : `(${text})^2`, settle: true });
+    /* any other shape is drawn on the grid: its side is a whole number of squares, at least 1 (algebra.js: sideOf).
+       A formula typed there is worked out once, now, and has to come to such a number. */
+    const got = readTyped(b, text), side = got.refused ? got : sideOf(got.value);
+    if (side.refused){ hud.say(`${key}: ${side.refused}`); return shown(); }
+    bus.send('side.set', { id: b.id, dim: key === 'x' ? 'w' : 'h', text: String(side.length) }); } });
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
   hush(); follow(); configure();
   for (const b of space.blocks) if (measures(b)){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
@@ -720,8 +780,10 @@ function shown(){                              /* brings what is on screen in li
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
   /* the properties of the one shape selected: its name, its shape, its value */
   if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
-    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar: cols === 1 && rows === 1 && !one.members, attributes: attributesOf(one),
-      matrix: { letter: initials(one.name), values: valuesOf(one), transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
+    const values = valuesOf(one), scalar = cols === 1 && rows === 1 && !one.members, wrong = scalar ? [] : [...values].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
+    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar, attributes: attributesOf(one),
+      notes: [...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      matrix: { letter: initials(one.name), values, transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
   else properties.show(null);
   if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one) }); }
   else measure?.el.remove();
@@ -770,9 +832,9 @@ function shown(){                              /* brings what is on screen in li
     /* scalars times at most one other shape: that shape's entries, each multiplied through where the numbers are known;
        an entry not known is written as the scalars against its symbol */
     const one = b => b.rect.w === u && b.rect.h === u && !b.members, scalars = bs.filter(one), solid = bs.filter(b => !one(b));
-    if (scalars.length && solid.length <= 1){ const of = solid[0] || scalars.pop(), ks = scalars.map(b => valuesOf(b).get('1,1'));
-      const known = ks.every(k => typeof k === 'number'), k = known ? ks.reduce((a, b) => a * b, 1) : null, values = new Map();
-      if (known) for (const [key, v] of valuesOf(of)) if (typeof v === 'number'){ const p = k * v; values.set(key, Number.isNaN(p) ? 0 : p); }      /* nothing times infinity is written as nothing */
+    if (scalars.length && solid.length <= 1){ const of = solid[0] || scalars.pop(), ks = scalars.map(b => valuesOf(b).get('1,1') ?? null);
+      const known = ks.every(k => k !== null), k = known ? ks.reduce((a, b) => combine('*', a, b), 1) : null, values = new Map();
+      if (known) for (const [key, v] of valuesOf(of)) values.set(key, combine('*', k, v));      /* values of any kind, by the rules for combining them (algebra.js): nothing times infinity is an error */
       return { letter: (known ? asText(k) : scalars.map(b => initials(b.name)).join('')) + initials(of.name), color: of.shape.color, values, transposed: turned(of) }; }
     const ends = solid.length ? solid : bs; return { product: { rows: { letter: initials(ends[0].name), color: ends[0].shape.color }, cols: { letter: initials(ends[ends.length - 1].name), color: ends[ends.length - 1].shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
@@ -797,11 +859,12 @@ function shown(){                              /* brings what is on screen in li
     .map(h => ({ x: h.x * u, y: h.y * u, w: h.w * u, h: h.h * u }));
   /* a product, a sum or an elementwise result can be named, folding its blocks into one; a block on its own already is one, and has its own name */
   const writ = ps.map(piece => ({ blocks: piece.members.map(m => active[m]), type: piece.type, look: lookOf(piece), nameable: piece.members.length > 1, hollows: hollowsOf(piece),
+    editable: piece.members.length === 1 && isNamed(active[piece.members[0]]),      /* a named shape on its own: its entries can be typed where they are written */
     box: { x: piece.box.x * u, y: piece.box.y * u, w: piece.box.w * u, h: piece.box.h * u } }));
-  writ.forEach(({ blocks, type, look, nameable, box, hollows }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
+  writ.forEach(({ blocks, type, look, nameable, editable, box, hollows }, i) => { const r = results[i] ||= createResult({ unit: u }); view.world.prepend(r.el);
     r.piece = { blocks, type, box };            /* what this result is the result of */
     let at = null;
-    for (const where of hollows.length ? [{ hollows }] : [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}]){ at = r.set(box, type, { ...where, look, nameable }); if (where.hollows || !hits(at)) break; }
+    for (const where of hollows.length ? [{ hollows }] : [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}]){ at = r.set(box, type, { ...where, look, nameable, editable }); if (where.hollows || !hits(at)) break; }
     r.piece.at = at; taken.push(at); });
   for (const r of results.slice(writ.length)) r.el.remove();
   /* a named group's frame takes in what is written beside its shapes, too */
@@ -862,7 +925,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)] : rangedOf(b) ? [...valuesOf(b, 0, true)] : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
+const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -1136,6 +1199,11 @@ function discard(blocks){
     for (const id of o.results){ const made = everyKnown().find(k => k.id === id); if (made) going.add(made); } }
   /* a length taken from a shape that is going, while another use of that variable stays, is taken from that one instead */
   for (const d of everyBlock()) if (measures(d) && !going.has(d)){ const src = sourceOf(d), stay = src && going.has(src) && [...kinOf(src)].find(k => !going.has(k)); if (stay) d.from.id = stay.id; }
+  /* and so is a formula that names it: its capsules are pointed at the use that stays (expression.js: repoint). A formula
+     naming a variable of which nothing stays is left as it is, broken: it comes to "missing variable". */
+  for (const b of going){ const stay = [...kinOf(b)].find(k => !going.has(k)), ids = new Set([b.id]); if (!stay) continue;
+    for (const d of everyKnown()){ for (const [k, v] of d.values) if (isFormula(v) && refersTo(v.expr, ids)) d.values.set(k, { expr: repoint(v.expr, b.id, stay.id) });
+      for (const a of attrsOf(d)) if (refersTo(a.text, ids)) a.text = repoint(a.text, b.id, stay.id); } }
   for (const b of going){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
   for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); touched.add(s);
     for (const b of o.sources) if (going.has(b)) forget(b);
@@ -1178,13 +1246,26 @@ function doomed(blocks, reverting = []){            /* reverting: operations bei
 const warning = createWarning();
 /* sends a message that takes `list` away, with whatever else would go; asks first where anything else would */
 function warned(list, doing, proceed, send, reverting = []){
-  const also = doomed(list, reverting);
-  if (!also.length) return send(also);
+  const also = doomed(list, reverting), broken = formulasOn([...list, ...also]);
+  if (!also.length && !broken) return send(also);
   const count = new Map(); for (const b of also) count.set(bare(b.name), (count.get(bare(b.name)) || 0) + 1);
   const sources = [...new Set(list.filter(b => also.some(o => [...kinOf(b)].includes(o) || o.from?.id === b.id)).map(b => bare(b.name)))];
-  warning.ask({ title: `${doing} ${sources.join(', ') || 'this'} also deletes what refers to it`,
-    note: `${also.length} other ${also.length === 1 ? 'instance' : 'instances'} would be removed with it, here or in other spaces.`,
-    head: ['Variable', 'Instances'], rows: [...count].sort((a, b) => b[1] - a[1]), proceed, onProceed: () => send(also) });
+  const named = [...new Set(list.filter(isNamed).map(b => bare(b.name)))].join(', ') || 'this', formulas = `${broken} ${broken === 1 ? 'formula refers' : 'formulas refer'} to it`;
+  warning.ask({ title: also.length ? `${doing} ${sources.join(', ') || 'this'} also deletes what refers to it` : `${doing} ${named} leaves ${broken === 1 ? 'a formula' : broken + ' formulas'} without it`,
+    note: [also.length ? `${also.length} other ${also.length === 1 ? 'instance' : 'instances'} would be removed with it, here or in other spaces.` : '',
+      broken ? `${formulas}. ${broken === 1 ? 'It is' : 'They are'} left in place, and will show an error: missing variable.` : ''].filter(Boolean).join(' '),
+    head: also.length ? ['Variable', 'Instances'] : [], rows: [...count].sort((a, b) => b[1] - a[1]), proceed: also.length ? proceed : proceed.replace(/ all$/, ''), onProceed: () => send(also) });      /* nothing else goes: there is no "all" */
+}
+/* how many formulas refer to a variable that would be gone with these blocks: every entry and attribute, anywhere,
+   that holds a capsule naming one of them (expression.js: refersTo) and is not itself going. A variable's entries
+   and attributes are counted once however many uses it has, and a block whose variable has a use that stays is not
+   gone: what names it is pointed at that use instead (see discard). */
+function formulasOn(blocks){
+  const going = new Set(blocks), ids = new Set(blocks.filter(b => ![...kinOf(b)].some(k => !going.has(k))).map(b => b.id)), seen = new Set(); let n = 0;
+  for (const b of everyKnown()){ if (going.has(b) || b.members) continue;      /* a fused shape's entries are those of the shapes it was fused from */
+    if (!seen.has(b.values)){ seen.add(b.values); for (const v of b.values.values()) if (isFormula(v) && refersTo(v.expr, ids)) n++; }
+    const attrs = attrsOf(b); if (!seen.has(attrs)){ seen.add(attrs); for (const a of attrs) if (refersTo(a.text, ids)) n++; } }
+  return n;
 }
 function removing(type){
   if (!selected.size) return;
@@ -1424,16 +1505,20 @@ function clicked(el, e){
   /* a shape standing in a matrix: it is the real shape, shown where it stands. A double click opens it, as it would on the canvas. */
   const tile = el.closest?.('[data-tile]');
   if (tile){ if (twice) bus.send('open', { id: tile.dataset.tile }); return; }
-  /* an entry of this space's own matrix, if its block has been named: type a whole number, or inf / -inf, over it. Nothing typed puts the symbol back. */
+  /* an entry of this space's own matrix, if its block has been named: type a value or a formula over it. Nothing typed puts the symbol back. */
   const entry = el.closest?.('.definition.editable [data-c]');
   if (entry){
+    if (entry.querySelector('.formula')) return;      /* a click in the field that is already open there */
     const [o, key] = space.owner.members ? entryHome(space.owner, +entry.dataset.c, +entry.dataset.r) : [space.owner, entry.dataset.c + ',' + entry.dataset.r];      /* the definition is written the variable's own way round */      /* in a joined shape, the entry belongs to the shape it came from */
-    pick([]); entry.textContent = o.values.has(key) ? written(o.values.get(key)) : '';
-    return editText(entry, text => bus.send('entry.set', { id: o.id, key, text }));
+    pick([]); return typeEntry(entry, o, key);
   }
   /* a result's matrix: name it, and the blocks that came to it fold into a new block */
   const r = results.find(r => r.el.isConnected && r.el.contains(el));
-  if (r){ const piece = r.piece; if (piece.blocks.length < 2) return; pick([]); return r.name(name => { if (name) bus.send('fold', { ids: idsOf(piece.blocks), name, color: someColour(), product: true }); }); }
+  if (r){ const piece = r.piece;
+    /* one named shape on its own: an entry of its matrix is typed over where it is written */
+    if (piece.blocks.length < 2){ const cell = el.closest?.('.result.editable .result-body [data-c]'); if (!cell || cell.querySelector('.formula')) return;
+      const [o, key] = entryHome(piece.blocks[0], +cell.dataset.c, +cell.dataset.r); pick([]); return typeEntry(cell, o, key); }
+    pick([]); return r.name(name => { if (name) bus.send('fold', { ids: idsOf(piece.blocks), name, color: someColour(), product: true }); }); }
   /* a measurement: double-click to type a length in whole units, a name for that side, or both; the block keeps its top-left corner */
   if (measure) for (const dim of ['w', 'h']) if (el === measure.labels[dim]){
     const b = [...selected][0];
@@ -1518,7 +1603,7 @@ bus.on('camera', camera => { hud.show(camera); menu.close(); shown(); });
 bus.on('camera.home', () => view.home());
 bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); if (b && !selected.has(b)) select(members(b));      /* a right click on a block that is not selected selects it first */
   menuAt = view.toWorld(x, y); menu.openAt(x, y); });
-bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size) select([]); if (kind === 'length') reach(x, y); });
+bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size && !openField) select([]); if (kind === 'length' && !openField?.over(x, y)) reach(x, y); });      /* while a formula is being typed the selection stays, and with it the panel the formula is in */
 bus.on('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); });
 bus.on('new', ({ type }) => { const shape = typeNamed(type); return draw[shape.draw]?.(shape); });      /* begins drawing; 'add' is the block */
 bus.on('copy', ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
@@ -1539,14 +1624,21 @@ bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return; b.call(name); renamed(b, color); }, changes);
-bus.on('entry.set', ({ id, key, text = null, value }) => { const o = blockOf(id), v = value !== undefined ? value : text === null ? null : readEntry(text);      /* value: a number already worked out (a fraction or a root, which cannot be typed as an entry) */      /* nothing typed puts the symbol back; anything that is not a number is not taken */
+/* what is typed into an entry: text is as it was typed (capsules in their stored form; a name typed out after an @ is
+   bound to its capsule here), null for nothing typed, which puts the symbol back. What is stored is expression.js's
+   to say (entered): a literal value or a formula, and never a formula's result. settle: a formula of numbers alone
+   is stored as what it comes to (a scalar's mass worked out from a side typed for it). What cannot be read is not kept. */
+bus.on('entry.set', ({ id, key, text = null, settle = false }) => { const o = blockOf(id);
   if (o && measures(o)){ const src = sourceOf(o); hud.say(`${bare(o.name)} is a length of ${src ? bare(src.name) : 'another shape'}: change it there`); return shown(); }
   if (o && rangedOf(o)){ hud.say(`${bare(o.name)} is part of ${partOf(o)}: change it there`); return shown(); }      /* a part has no entries of its own */
-  if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
-    keepTouching(() => { for (const k of kinOf(o)) agree(k); }); }      /* a single entry's number is its sides' length: whatever shares their names follows */
+  if (o){ const t = text === null ? { text: '' } : bound(text, reachList()), got = t.refused ? t : entered(t.text, lookupFor(o), { settle });
+    if (got.refused) hud.say(`Not kept: ${got.refused}`);
+    else { if (got.clear) o.values.delete(key); else o.values.set(key, got.value);
+      keepTouching(() => { for (const k of kinOf(o)) agree(k); }); } }      /* a single entry's number is its sides' length: whatever shares their names follows */
   write(); shown(); }, changes);
 bus.on('attr.add', ({ id }) => { const b = blockOf(id); if (b){ const list = attrsOf(b); let n = list.length + 1; while (list.some(a => a.name === 'attribute' + n)) n++; list.push({ name: 'attribute' + n, text: '' }); } shown(); }, changes);
-bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b && attrsOf(b)[index]; if (a){ if (name !== undefined) a.name = name; if (text !== undefined) a.text = text;
+bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b && attrsOf(b)[index]; if (a){ if (name !== undefined) a.name = name;
+    if (text !== undefined){ const t = bound(text, reachList()); if (t.refused) hud.say(`Not kept: ${t.refused}`); else a.text = t.text; }      /* a name typed out after an @ is bound to its capsule */
     if (!a.name.trim() && !a.text.trim()) attrsOf(b).splice(index, 1); }      /* with neither a name nor a value, it is gone */
   shown(); }, changes);
 bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(b, dim, text); shown(); }, changes);

@@ -18,7 +18,8 @@
      onDrag   called as it moves, with the item and the pointer's screen position
      onDrop   called when it is let go anywhere off this list, with the same
      onEnd    called when the drag is over, however it ended
-   While dragging, a copy of the item follows the pointer. */
+   While dragging, a copy of the item follows the pointer. Pressing an item does not take the cursor from wherever it
+   is, so an item can be dragged onto a formula that is being typed. */
 import { html, style } from './dom.js';
 
 const RULER = `<svg viewBox="0 0 24 12"><path d="M1.5 6h21M1.5 2v8M22.5 2v8M6.75 6v-2.5M12 6V2.5M17.25 6v-2.5"/></svg>`;
@@ -89,6 +90,7 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
     if (key === showing && !items.some(i => i.fresh)) return;      /* nothing to redraw: leave whatever is being hovered or dragged alone */
     showing = key; el.hidden = !items.length && !hidden.length; el.replaceChildren();
     const put = (item, depth = 0) => { const v = draw(item, depth); v.addEventListener('pointerdown', e => { if (e.button === 0) hold(v, item, e); }); el.append(v);
+      v.addEventListener('mousedown', e => e.preventDefault());      /* pressing an item leaves the cursor where it is: in a formula that is being typed, say, which the item can then be dragged onto */
       if (item.children?.length && opened.has(keyOf(item))) for (const c of item.children) put(c, depth + 1); };
     items.forEach(i => put(i));
     if (hidden.length){ more.firstChild.textContent = open ? '\u2212' : '+'; more.firstChild.setAttribute('aria-expanded', open); el.append(more); if (open) hidden.forEach(i => put(i)); } } };

@@ -1,6 +1,6 @@
 /* What a piece (one shape, or several touching) comes to, written beside it:   [shapes]  =  ⎡ … ⎤
 
-   createResult({ unit }) -> { el, set(box, type, { side, drop, look, nameable, hollows }) -> rect, name(done) }
+   createResult({ unit }) -> { el, set(box, type, { side, drop, look, nameable, editable, hollows }) -> rect, name(done) }
      unit   world units to one "u"
      set    box is the rectangle round the piece's shapes ({ x, y, w, h }, world coordinates). side says where the
             "=" and the matrix go: 'right' (the default) puts them to the right of the box, level with its middle;
@@ -16,6 +16,7 @@
             of each, on the dots, with no "=": one result, written once in every hollow given. (An error is never
             written in a hollow.)
             nameable says the matrix can be pressed, to name the result (default false).
+            editable says its entries can be pressed, to type a value over each (default false): for one shape on its own.
             Returns the rectangle the "=" and the matrix now cover, so the caller can see what they would overlap.
      name   asks the user to name this result: the matrix is ringed and a field opens above it to type in.
             done(text) is called with the name, or with null if they gave none or pressed Escape.
@@ -31,6 +32,8 @@ style('result', `
 .result .matrix { border-radius: 3px; }
 .result.nameable .matrix { pointer-events: auto; cursor: pointer; }
 .result.nameable .matrix:hover { background: var(--hover); }
+.result.editable .matrix > span[data-c] { pointer-events: auto; cursor: text; border-radius: 3px; }
+.result.editable .matrix > span[data-c]:hover { background: var(--hover); }
 .result.naming .matrix { background: var(--select-halo); outline: 2px solid var(--select); outline-offset: 5px; }
 /* in a hollow the matrix fills the space between its piece's shapes, so its brackets stand just inside it, clear of them */
 .result.in-hollow .matrix::before { left: 2px; } .result.in-hollow .matrix::after { right: 2px; }
@@ -46,8 +49,8 @@ export function createResult({ unit }){
   const el = html`<div class="result"><div class="result-sign">=</div></div>`, sign = el.firstElementChild;
   const nameEl = html`<span class="result-name" hidden></span>`; el.append(nameEl);
   let showing = '', body = null, width = 0, height = 0, copies = [];
-  return { el, set(box, type, { side = 'right', drop = 0, look = {}, nameable = false, hollows = [] } = {}){
-    el.classList.toggle('nameable', nameable);
+  return { el, set(box, type, { side = 'right', drop = 0, look = {}, nameable = false, editable = false, hollows = [] } = {}){
+    el.classList.toggle('nameable', nameable); el.classList.toggle('editable', editable);
     el.hidden = !type; if (!type) return null;
     const key = type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + (type.colsName || '') + '/' + (type.rowsName || '') + JSON.stringify({ ...look, values: look.values ? [...look.values] : [], inherited: look.inherited ? [...look.inherited] : [] });
     if (key !== showing){ showing = key; body?.remove();

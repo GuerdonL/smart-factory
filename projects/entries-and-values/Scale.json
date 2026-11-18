@@ -1,0 +1,42 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b0dcv3i",
+  "type": "tensor",
+  "name": "Scale",
+  "named": true,
+  "commented": false,
+  "color": "variable-1",
+  "position": {
+    "x": -22,
+    "y": -16
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": {
+        "expr": "1/√(@[bnu6sgx:x])"
+      },
+      "2,1": {
+        "expr": "@[bnu6sgx:a:heads] + 1"
+      },
+      "1,2": {
+        "n": 3,
+        "d": 4,
+        "k": 0
+      },
+      "2,2": {
+        "expr": "√(@[bbs5zln:m]) * √2"
+      }
+    }
+  },
+  "order": 40
+}
