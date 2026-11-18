@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
+import { zoneOf, touches, joins, pieces, hollows, resultHollows, stacks, typeOf, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -27,6 +27,22 @@ test('shapes in different tiles, or one in a tile and one outside it, do not tou
   const ps = pieces([zoned(a, 't1'), b]); assert.equal(ps.length, 2); assert.deepEqual(ps.map(p => p.rule), [null, null]);
   assert.equal(joins([zoned(a, 't1'), b]).length, 0);
   assert.equal(pieces([zoned(a, 't1'), zoned(b, 't1'), rect(7, 0, 1, 4)]).length, 2);      /* the third is outside, against the tile's last block */
+});
+
+test('a tile inside a tile: a block touches only blocks of the innermost tile it is in', () => {
+  assert.equal(zoneOf(['inner', 'outer']), 'inner'); assert.equal(zoneOf(['outer']), 'outer'); assert.equal(zoneOf([]), null); assert.equal(zoneOf(undefined), null);
+  /* a row of four that would be three products: outside | of the outer tile | of the inner tile, twice */
+  const z = (r, ...tiles) => ({ ...r, zone: zoneOf(tiles) });
+  const out = rect(0, 0, 2, 2), o = z(rect(2, 0, 2, 2), 'outer'), i1 = z(rect(4, 0, 2, 2), 'inner', 'outer'), i2 = z(rect(6, 0, 2, 2), 'inner', 'outer');
+  assert.equal(touches([out, rect(2, 0, 2, 2), rect(4, 0, 2, 2), rect(6, 0, 2, 2)]).length, 3);      /* with no tiles */
+  const ts = touches([out, o, i1, i2]); assert.equal(ts.length, 1); assert.deepEqual([ts[0].a, ts[0].b], [2, 3]);      /* only the two of the inner tile */
+  assert.equal(touches([o, i1]).length, 0);       /* the outer tile's block and the inner tile's: the inner tile has a boundary of its own */
+  assert.equal(touches([out, i1]).length, 0);     /* and the inner tile is inside the outer tile's boundary: nothing outside reaches it */
+  assert.equal(touches([out, o]).length, 0);
+  assert.equal(touches([o, z(rect(4, 0, 2, 2), 'outer')]).length, 1);      /* two blocks of the outer tile, beside the inner one, touch as any do */
+  /* two tiles side by side in one pattern are two zones */
+  assert.equal(touches([z(rect(0, 0, 2, 2), 'a', 'outer'), z(rect(2, 0, 2, 2), 'b', 'outer')]).length, 0);
+  assert.deepEqual(pieces([out, o, i1, i2]).map(p => p.members), [[0], [1], [2, 3]]);
 });
 
 test('the order shapes are given in does not matter, only where they are', () => {

@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { DEPTH, nest, laid, overlaps, overlapping, allowed, home, moved, indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -176,24 +176,167 @@ test('a block of a tile dragged the ordinary way stays inside the pattern', () =
   assert.deepEqual(held(rep(2, 1), rect(0, 0, 2, 1), 1, 0), { dx: 0, dy: 0, stopped: true });
 });
 
-test('a tile is drawn on whole units, at least 1 by 1, and not over another tile', () => {
-  assert.deepEqual(makable(rect(0, 0, 1, 1)), { ok: true });
+/* the tiles of a space as tiles.js takes them: T(id, the tile it is in, x, y, pattern cols, rows, across, down, formula) */
+const T = (id, up, x, y, cols, rows, across = 1, down = 1, formula = {}) => ({ id, in: up, repeat: rep(cols, rows, across, down, x, y), across, down, formula });
+
+test('a tile is drawn on whole units, at least 1 by 1, and over another tile only wholly inside its pattern or wholly round it', () => {
+  assert.deepEqual(makable(rect(0, 0, 1, 1)), { ok: true, in: null, holds: [] });
   assert.match(makable(rect(0, 0, 0, 2)).refused, /at least 1 by 1/); assert.match(makable(rect(.5, 0, 2, 2)).refused, /whole units/);
-  const other = [rect(0, 0, 6, 2)];      /* another tile's footprint: 3 by 2, twice across */
-  assert.match(makable(rect(5, 1, 2, 2), other).refused, /cannot lie over another tile/);
-  assert.match(makable(rect(4, 0, 1, 1), other).refused, /over another tile/);      /* over a drawn copy is over the tile */
-  assert.deepEqual(makable(rect(6, 0, 2, 2), other), { ok: true });                  /* edge to edge */
-  assert.deepEqual(makable(rect(0, 2, 6, 1), other), { ok: true });
-  /* a block inside the rectangle that is in a tile already: its tile's pattern may be elsewhere, but the block is that tile's */
-  assert.match(makable(rect(20, 20, 3, 3), other, 1).refused, /does not go inside a tile/);
-  assert.deepEqual(makable(rect(20, 20, 3, 3), other, 0), { ok: true });
+  const other = [T('t', null, 0, 0, 3, 2, 2, 1)];      /* another tile: 3 by 2, twice across, so drawn 6 by 2 */
+  assert.match(makable(rect(5, 1, 2, 2), other).refused, /cannot lie over another tile/);      /* partly over it */
+  assert.match(makable(rect(4, 0, 1, 1), other).refused, /over another tile/);      /* over a drawn copy is over the tile: the second cell is not the pattern */
+  assert.match(makable(rect(2, 0, 2, 1), other).refused, /over another tile/);      /* half in the pattern and half in the copy */
+  assert.deepEqual(makable(rect(6, 0, 2, 2), other), { ok: true, in: null, holds: [] });                  /* edge to edge */
+  assert.deepEqual(makable(rect(0, 2, 6, 1), other), { ok: true, in: null, holds: [] });
+  /* wholly inside the pattern: it is in that tile. The boundary: as large as the pattern is inside it */
+  assert.deepEqual(makable(rect(1, 0, 2, 1), other), { ok: true, in: 't', holds: [] });
+  assert.deepEqual(makable(rect(0, 0, 3, 2), other), { ok: true, in: 't', holds: [] });
+  assert.match(makable(rect(0, 0, 3, 3), other).refused, /over another tile/);      /* one row more: no longer inside, and not round all that is drawn of it */
+  /* wholly round all of it: that tile is then in the new one */
+  assert.deepEqual(makable(rect(0, 0, 6, 2), other), { ok: true, in: null, holds: ['t'] });
+  assert.deepEqual(makable(rect(-1, -1, 9, 4), other), { ok: true, in: null, holds: ['t'] });
+  /* between two levels: inside the outer pattern and round the inner tile */
+  const two = [T('o', null, 0, 0, 6, 2, 1, 3), T('i', 'o', 0, 0, 1, 1, 2, 1)];
+  assert.deepEqual(makable(rect(0, 0, 3, 1), two), { ok: true, in: 'o', holds: ['i'] });
+  assert.deepEqual(makable(rect(3, 0, 2, 2), two), { ok: true, in: 'o', holds: [] });      /* beside the inner tile, in the same pattern */
+  assert.match(makable(rect(1, 0, 3, 1), two).refused, /over another tile/);                /* over half of the inner tile */
+  assert.deepEqual(makable(rect(0, 0, 1, 1), two), { ok: true, in: 'i', holds: [] });      /* inside the inner tile's own pattern: three deep */
+  /* a block inside the rectangle that belongs to a tile which is neither: it cannot be taken from its tile by drawing round it */
+  assert.match(makable(rect(20, 20, 3, 3), other, 1).refused, /block of another tile/);
+  assert.deepEqual(makable(rect(20, 20, 3, 3), other, 0), { ok: true, in: null, holds: [] });
 });
 
-test('blocks go into a tile as into a frame, but a whole tile does not go into another', () => {
+test('blocks go into a tile as into a frame, and a whole tile only where it lies wholly inside the pattern', () => {
   assert.deepEqual(enterable(true, false), { ok: true });      /* plain blocks, or some of a tile's, into a tile */
   assert.deepEqual(enterable(false, true), { ok: true });      /* a whole tile, into an ordinary frame */
   assert.deepEqual(enterable(false, false), { ok: true });
-  assert.match(enterable(true, true).refused, /does not go inside another tile/);
+  assert.match(enterable(true, true).refused, /only where it lies wholly inside that tile's pattern/);
+  assert.match(enterable(true, true, false).refused, /wholly inside/);
+  assert.deepEqual(enterable(true, true, true), { ok: true });      /* it lies wholly inside the host tile's pattern */
+});
+
+test('a tile counts as inside another where the frames say so and its filled size lies wholly inside the pattern', () => {
+  /* the outer pattern is 4 by 1, three down; the inner pattern 2 by 1 */
+  const nestOf = across => [T('o', null, 0, 0, 4, 1, 1, 3), T('i', 'o', 0, 0, 2, 1, across, 1)];
+  assert.deepEqual(overlaps(nestOf(1)), []); assert.deepEqual(overlaps(nestOf(2)), []);      /* the boundary: its filled size is exactly the pattern */
+  assert.deepEqual(overlaps(nestOf(3)), [{ a: 'o', b: 'i', why: 'past' }]);                  /* one pattern more runs past it */
+  assert.deepEqual(overlaps([T('o', null, 0, 0, 4, 1, 1, 3), T('i', 'o', 0, 0, 2, 1, 1, 2)]), [{ a: 'o', b: 'i', why: 'past' }]);      /* down into the outer tile's second cell: a copy is not the pattern */
+  assert.deepEqual(overlaps([T('o', null, 0, 0, 4, 1), T('i', 'o', 3, 0, 2, 1)]), [{ a: 'o', b: 'i', why: 'past' }]);      /* half out of it */
+  assert.deepEqual(overlaps([T('o', null, 0, 0, 4, 1), T('i', 'o', 9, 9, 2, 1)]), [{ a: 'o', b: 'i', why: 'past' }]);      /* in it by its frame, and nowhere near: not inside its pattern */
+  /* it is the filled size that counts, whatever is drawn: a count that is a formula is drawn as one pattern and an ellipsis */
+  const f = { across: true };
+  assert.deepEqual(overlaps([T('o', null, 0, 0, 4, 1), T('i', 'o', 0, 0, 2, 1, 2, 1, f)]), []);
+  assert.deepEqual(overlaps([T('o', null, 0, 0, 4, 1), T('i', 'o', 0, 0, 2, 1, 3, 1, f)]), [{ a: 'o', b: 'i', why: 'past' }]);      /* the formula has grown: drawn 3 wide, and 6 wide filled */
+  /* the same rectangles with no frame saying one is in the other: it lies over the other, and is no part of its pattern */
+  assert.deepEqual(overlaps([T('o', null, 0, 0, 4, 1, 1, 3), T('i', null, 0, 0, 2, 1, 2, 1)]), [{ a: 'o', b: 'i', why: 'over' }]);
+  assert.equal(within(rep(4, 1, 1, 3), rect(0, 0, 4, 1)), true); assert.equal(within(rep(4, 1, 1, 3), rect(0, 0, 6, 1)), false);
+});
+
+test('which pairs of tiles overlap without one lying wholly inside the other\'s pattern', () => {
+  const a = T('a', null, 0, 0, 3, 2, 2, 1), pairs = list => overlaps(list).map(p => `${p.a} ${p.b} ${p.why}`);
+  assert.deepEqual(pairs([a, T('b', null, 6, 0, 2, 2)]), []);                    /* edge to edge */
+  assert.deepEqual(pairs([a, T('b', null, 5, 1, 2, 2)]), ['a b over']);          /* over its second cell, partly */
+  assert.deepEqual(pairs([a, T('b', null, 5, 1, 2, 2), T('c', null, 6, 2, 2, 2)]), ['a b over', 'b c over']);      /* every pair, and only those that do */
+  assert.deepEqual(pairs([a, T('b', null, 20, 20, 2, 2)]), []);
+  /* two tiles in one pattern that lie over each other; and one inside a tile against one outside it */
+  assert.deepEqual(pairs([T('o', null, 0, 0, 6, 2), T('i', 'o', 0, 0, 2, 1, 2, 1), T('j', 'o', 3, 0, 2, 1)]), ['i j over']);
+  assert.deepEqual(pairs([T('o', null, 0, 0, 6, 2), T('i', 'o', 0, 0, 2, 1), T('z', null, 5, 1, 3, 3)]), ['o z over']);      /* z is over the outer tile, and clear of the inner one */
+  /* what is drawn is what lies on the canvas: a tile drawn elided is over only what its drawn cells are over */
+  assert.deepEqual(pairs([T('a', null, 0, 0, 2, 1, 100, 1), T('b', null, 9, 0, 2, 1)]), []);      /* 100 across is drawn 9 wide */
+  assert.deepEqual(pairs([T('a', null, 0, 0, 2, 1, 100, 1), T('b', null, 8, 0, 2, 1)]), ['a b over']);
+  /* both tiles of a pair are warned of, each with its reason; a tile that is well is not there */
+  const w = overlapping([T('o', null, 0, 0, 4, 1), T('i', 'o', 0, 0, 2, 1, 3, 1), T('far', null, 30, 30, 1, 1)]);
+  assert.deepEqual([...w.keys()], ['o', 'i']); assert.match(w.get('o'), /^a tile in its pattern runs past the pattern/); assert.match(w.get('i'), /^it runs past the pattern of the tile it is in/);
+  const v = overlapping([a, T('b', null, 5, 1, 2, 2)]); assert.match(v.get('a'), /^it lies over another tile/); assert.match(v.get('b'), /^it lies over another tile/);
+  assert.equal(overlapping([a]).size, 0); assert.equal(overlapping([]).size, 0);
+});
+
+test('tiles nest deeper than two, as far as DEPTH, and every level has to lie inside every one above it', () => {
+  assert.equal(DEPTH, 8);
+  const three = [T('a', null, 0, 0, 8, 2, 2, 1), T('b', 'a', 0, 0, 4, 1, 2, 1), T('c', 'b', 0, 0, 2, 1, 2, 1)];
+  assert.deepEqual(overlaps(three), []);
+  assert.deepEqual([...laid(three).values()].map(t => t.depth), [0, 1, 2]);
+  /* the innermost grown past its own tile's pattern, but still inside the outermost: the pair with its own tile, and no other */
+  assert.deepEqual(overlaps([three[0], three[1], T('c', 'b', 0, 0, 2, 1, 3, 1)]), [{ a: 'b', b: 'c', why: 'past' }]);
+  /* past both */
+  assert.deepEqual(overlaps([three[0], three[1], T('c', 'b', 0, 0, 2, 1, 5, 1)]), [{ a: 'a', b: 'c', why: 'past' }, { a: 'b', b: 'c', why: 'past' }]);
+  /* eight deep is allowed (depths 0 to 7), a ninth level is refused, and one met in a project is warned of */
+  const chainOf = n => Array.from({ length: n }, (_, k) => T('t' + k, k ? 't' + (k - 1) : null, 0, 0, 1, 1));
+  assert.equal(overlapping(chainOf(DEPTH)).size, 0);
+  assert.deepEqual([...overlapping(chainOf(DEPTH + 1))], [['t8', 'it lies too deep: tiles lie one inside the next at most 8 deep']]);
+  assert.deepEqual(allowed(chainOf(DEPTH - 1), chainOf(DEPTH)), { ok: true });
+  assert.match(allowed(chainOf(DEPTH), chainOf(DEPTH + 1)).refused, /at most 8 deep/);
+  assert.match(makable(rect(0, 0, 1, 1), chainOf(DEPTH)).refused, /at most 8 deep/);
+  /* an `in` that names nothing, or comes back round, is none: it ends */
+  assert.equal(laid([T('a', 'gone', 0, 0, 1, 1)]).get('a').in, null);
+  const round = laid([T('a', 'b', 0, 0, 1, 1), T('b', 'a', 0, 0, 1, 1)]); assert.equal(round.get('a').depth + round.get('b').depth, 1);
+  assert.equal(laid([T('a', 'a', 0, 0, 1, 1)]).get('a').depth, 0);
+});
+
+test('what may come to stand: no pair that did not overlap before, so a tile already warned of can still be mended', () => {
+  const o = T('o', null, 0, 0, 4, 1, 1, 3), i = n => T('i', 'o', 0, 0, 2, 1, n, 1);
+  assert.deepEqual(allowed([o, i(1)], [o, i(2)]), { ok: true });
+  assert.match(allowed([o, i(2)], [o, i(3)]).refused, /^That would leave a tile running past the pattern of the tile it is in/);      /* an edge pulled, or a count typed */
+  assert.match(allowed([o, i(2)], [T('o', null, 0, 0, 3, 1, 1, 3), i(2)]).refused, /running past the pattern/);      /* the outer pattern made narrower than what is in it */
+  assert.deepEqual(allowed([o, i(5)], [o, i(4)]), { ok: true });      /* already past it (a formula grew): made smaller, though not yet small enough */
+  assert.deepEqual(allowed([o, i(5)], [o, i(2)]), { ok: true });
+  const a = T('a', null, 0, 0, 2, 2), b = x => T('b', null, x, 0, 2, 2);
+  assert.match(allowed([a, b(5)], [a, b(1)]).refused, /^A tile cannot lie over another tile/);
+  assert.deepEqual(allowed([a, b(5)], [a, b(2)]), { ok: true });      /* edge to edge */
+  assert.deepEqual(allowed([a, b(1)], [a, b(0)]), { ok: true });      /* pasted over it: it can be moved while it still lies over it */
+});
+
+test('where a tile is let go it is in the tile whose pattern it lies wholly inside, the innermost; and moving one takes the tiles inside it', () => {
+  const list = [T('o', null, 0, 0, 6, 2, 1, 2), T('i', 'o', 0, 0, 3, 1), T('k', 'i', 0, 0, 1, 1, 2, 1), T('free', null, 20, 0, 1, 1)];
+  assert.equal(home(list, 'k'), 'i'); assert.equal(home(list, 'i'), 'o'); assert.equal(home(list, 'o'), null); assert.equal(home(list, 'free'), null);
+  assert.equal(home(list, 'nothing'), null);
+  /* moved inside the same pattern it stays in it, and what is inside it goes with it */
+  let m = moved(list, 'i', 3, 1); assert.equal(m.in, 'o'); assert.deepEqual(m.list.map(t => [t.id, t.in, t.repeat.x, t.repeat.y]), [['o', null, 0, 0], ['i', 'o', 3, 1], ['k', 'i', 3, 1], ['free', null, 20, 0]]);
+  /* out of the pattern altogether it has left; onto another tile's pattern it is in that one */
+  m = moved(list, 'i', 30, 30); assert.equal(m.in, null); assert.equal(m.list[2].in, 'i');
+  m = moved(list, 'free', -20, 0); assert.equal(m.in, 'k');      /* onto the innermost pattern there: three deep */
+  m = moved(list, 'free', -15, 0); assert.equal(m.in, 'o');      /* onto the outer pattern, clear of the inner tile */
+  /* half out of the pattern, over a copy, or over a tile it is beside, it is refused */
+  assert.match(moved(list, 'i', 4, 0).refused, /cannot lie over another tile/);
+  assert.match(moved(list, 'i', 0, 2).refused, /cannot lie over another tile/);      /* the outer tile's second cell */
+  assert.match(moved(list, 'free', -19, 0).refused, /over another tile/);            /* over the second cell of the innermost tile: a copy is not its pattern */
+  assert.equal(moved(list, 'free', -18, 0).in, 'i');                                 /* beside it, in the middle tile's pattern */
+  /* a tile is never let go inside itself or inside a tile that is in it */
+  assert.equal(moved(list, 'o', 0, 0).in, null);
+});
+
+test('no tile is drawn more than 64 times: an inner tile draws as many cells as its outer tile leaves it', () => {
+  const cells = l => l.xs.filter(o => !o.dots).length * l.ys.filter(o => !o.dots).length;
+  let L = laid([T('o', null, 0, 0, 8, 1, 4, 4), T('i', 'o', 0, 0, 1, 1, 2, 1)]);
+  assert.equal(L.get('o').limit, 64); assert.equal(L.get('o').cells, 16); assert.equal(L.get('i').limit, 4); assert.equal(L.get('i').cells, 2);
+  /* five would be more than its four: it is its first cell and an ellipsis, since four is too few for the first three and the last */
+  L = laid([T('o', null, 0, 0, 8, 1, 4, 4), T('i', 'o', 0, 0, 1, 1, 5, 1)]);
+  assert.deepEqual(L.get('i').lay.xs.map(o => o.dots ? '…' : o.cell), [1, '…']); assert.equal(L.get('i').cells, 1); assert.deepEqual(L.get('i').rect, rect(0, 0, 2, 1)); assert.deepEqual(L.get('i').filled, rect(0, 0, 5, 1));
+  /* an outer tile drawn once leaves all 64 */
+  L = laid([T('o', null, 0, 0, 80, 8), T('i', 'o', 0, 0, 1, 1, 8, 8)]); assert.equal(L.get('i').cells, 64);
+  /* with 16 or more left, the first three and the last each way */
+  L = laid([T('o', null, 0, 0, 80, 8, 1, 2), T('i', 'o', 0, 0, 1, 1, 40, 1)]); assert.equal(L.get('i').limit, 32); assert.deepEqual(L.get('i').lay.xs.map(o => o.dots ? '…' : o.cell), [1, 2, 3, '…', 40]);
+  /* an outer tile drawn 64 times leaves one cell, and three levels multiply */
+  L = laid([T('o', null, 0, 0, 2, 1, 8, 8), T('i', 'o', 0, 0, 1, 1, 2, 1)]); assert.equal(L.get('i').limit, 1); assert.equal(L.get('i').cells, 1);
+  L = laid([T('a', null, 0, 0, 8, 1, 2, 2), T('b', 'a', 0, 0, 4, 1, 2, 2), T('c', 'b', 0, 0, 1, 1, 3, 3)]);
+  assert.deepEqual(['a', 'b', 'c'].map(k => [L.get(k).limit, L.get(k).cells]), [[64, 4], [16, 4], [4, 1]]);
+  for (const [a, d, limit] of [[9, 9, 64], [9, 9, 16], [5, 5, 15], [4, 4, 15], [3, 2, 5], [70, 70, 1], [2, 1, 1]]) assert.ok(cells(layout(rep(1, 1), a, d, {}, limit)) <= limit, `${a} × ${d} within ${limit}`);
+  assert.equal(slots(8, 8, {}, 64).xs.length, 8);      /* and a tile in no other is drawn as before */
+});
+
+test('a count goes with its tile\'s nest: the tile it is in and the tiles in its pattern', () => {
+  const list = [{ id: 'o', in: null }, { id: 'i', in: 'o' }, { id: 'j', in: 'o' }, { id: 'k', in: 'i' }, { id: 'far', in: null }];
+  assert.deepEqual(nest('o', list), ['i', 'j']); assert.deepEqual(nest('i', list), ['o', 'k']); assert.deepEqual(nest('k', list), ['i']); assert.deepEqual(nest('far', list), []); assert.deepEqual(nest('gone', list), []);
+  /* what follows what: each tile its nest; an arrow the tile it reads; a block seated on it the arrow */
+  const next = id => ({ aO: ['o'], BO: ['aO'], aI: ['i'], BI: ['aI'], aFar: ['far'], BFar: ['aFar'], keys: [] })[id] || nest(id, list);
+  assert.equal(circular('i', ['BO'], next), true);       /* the inner tile's count reads what comes of the tile it is in */
+  assert.equal(circular('o', ['BI'], next), true);       /* the outer tile's count reads what comes of a tile in its pattern */
+  assert.equal(circular('k', ['BO'], next), true);       /* two levels up */
+  assert.equal(circular('o', ['k'], next), true);        /* two levels down */
+  assert.equal(circular('i', ['BI'], next), true);       /* its own, as before */
+  assert.equal(circular('j', ['BI'], next), true);       /* a tile beside it in the same pattern is of the same nest */
+  assert.equal(circular('i', ['BFar'], next), false);    /* a tile outside the nest */
+  assert.equal(circular('far', ['BO'], next), false); assert.equal(circular('i', ['keys'], next), false);
 });
 
 test('an arrow that reads a tile keeps its start and its span: only what leaves them as they are is taken', () => {
@@ -252,6 +395,20 @@ test('a tile whose pattern has a gap, an overlap or a block outside it, or nothi
   assert.deepEqual(matrix(rep(3, 2), 2, 2, []), { error: 'its pattern is empty' });
   /* the right area, and still not a cover: two blocks one over the other beside a gap */
   assert.deepEqual(matrix(rep(2, 1), 1, 1, [rect(0, 0, 1, 1), rect(0, 0, 1, 1)]), { error: 'two blocks in its pattern overlap' });
+});
+
+test('a tile in the pattern is one part of it: its matrix set in its place, and none where it has none', () => {
+  /* the outer pattern is 4 by 2: an inner tile whose matrix is 4 by 1 over a 4 by 1 block */
+  const p = rep(4, 2, 1, 3), inner = rect(0, 0, 4, 1), under = rect(0, 1, 4, 1);
+  assert.deepEqual(matrix(p, 1, 3, [under, inner]), { cols: 4, rows: 6 });
+  assert.deepEqual(matrix(rep(4, 1, 1, 3), 1, 3, [inner]), { cols: 4, rows: 3 });      /* the inner tile alone covers the pattern */
+  assert.deepEqual(matrix(p, 1, 3, [under, rect(0, 0, 2, 1)]), { error: 'its pattern has a gap' });      /* the inner tile's matrix is narrower than the room left for it */
+  assert.deepEqual(matrix(p, 1, 3, [under, rect(0, 0, 6, 1)]), { error: 'a block of it lies outside its pattern' });
+  assert.deepEqual(matrix(p, 1, 3, [rect(0, 0, 4, 2), inner]), { error: 'two blocks in its pattern overlap' });      /* a block of the outer tile under the inner tile */
+  assert.deepEqual(matrix(p, 1, 3, [under, { error: 'its pattern has a gap' }]), { error: 'a tile in its pattern has no matrix: its pattern has a gap' });
+  /* its entries: the inner tile's own entries are handed over as one part's */
+  const m = entries(rep(4, 1, 1, 2), 1, 2, [inner], () => M({ '1,1': 1, '2,1': 2, '3,1': 1, '4,1': 2 }));
+  assert.deepEqual([1, 2].map(r => [1, 2, 3, 4].map(c => m.get(c + ',' + r)).join(' ')), ['1 2 1 2', '1 2 1 2']);
 });
 
 test('the entries of a tile\'s matrix are every cell\'s blocks set in their places', () => {

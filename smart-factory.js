@@ -21,8 +21,8 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
-import { build as buildGraph } from './graph.js';
+import { touches, zoneOf, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { build as buildGraph, indexAt } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge } from './evaluate.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
@@ -231,7 +231,7 @@ const standingLook = b => (standingOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t
    sum, times or over: algebra.js) and the pieces they make, each with its one rule. */
 function algebraIn(s){
   const u = view.unit, active = s.owner && standingOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part */
-  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, zone: tileOf(b, s) ?? null, ...(lost(b) ? { none: true } : {}) }));      /* zone: the tile it is in: nothing touches across a tile's boundary (algebra.js) */      /* none: a part its source is too small to have has no value */
+  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, zone: zoneOf(tilesOf(b, s)), ...(lost(b) ? { none: true } : {}) }));      /* zone: the tile it is in: nothing touches across a tile's boundary (algebra.js) */      /* none: a part its source is too small to have has no value */
   return { active, rects, touches: touches(rects), all: pieces(rects) };
 }
 /* a block's entries: its own; or, once shapes standing in its matrix (in its definition space) cover all of it,
@@ -287,9 +287,10 @@ function graphNow(){
 /* a graph's pieces and arrows, found by the blocks they are of */
 const found = new WeakMap();
 function findIn(g){
-  if (!found.has(g)){ const pieces = new Map(), arrows = new Map();
-    for (const s of Object.values(g.spaces)){ for (const p of s.pieces) if (!pieces.has(p.blocks.join(' '))) pieces.set(p.blocks.join(' '), p); for (const a of s.arrows) if (!arrows.has(a.arrow)) arrows.set(a.arrow, a); }
-    found.set(g, { pieces, arrows }); }
+  if (!found.has(g)){ const pieces = new Map(), arrows = new Map(), tiles = new Map();
+    for (const s of Object.values(g.spaces)){ for (const p of s.pieces) if (!pieces.has(p.blocks.join(' '))) pieces.set(p.blocks.join(' '), p); for (const a of s.arrows) if (!arrows.has(a.arrow)) arrows.set(a.arrow, a);
+      for (const t of s.tiles) if (!tiles.has(t.tile)) tiles.set(t.tile, t); }
+    found.set(g, { pieces, arrows, tiles }); }
   return found.get(g);
 }
 /* what the evaluator says of a node: its entries as a Map (infinities as numbers); an empty Map where it is too
@@ -305,24 +306,31 @@ const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), nod
 /* Where a node is looked at from (evaluate.js: binding). A block of a tile, or one in the definition space of a block
    of a tile, is in a cell: the first, or the one being drawn (cellNow). The cell says where every block of the
    pattern lies, and every arrow's output there, so that each reads its own place however it is reached (a product
-   of two blocks of one tile gives each its own index). A block in an arrow's definition space is in a function's
+   of two blocks of one tile gives each its own index). A block of a tile that is inside another tile's pattern is
+   in a cell of each: the whole chain is given, outermost first (cellsOf), and which of them the index is read from
+   is not said here (graph.js: indexAt). A block in an arrow's definition space is in a function's
    body: the function's input is what the arrow that space was opened through is given.
    of: the blocks whose node is asked for; a: the arrow, where it is an arrow's output; over: the node asked for is
    under a transpose that is not being asked for (a variable's own way round, through a use that is turned). */
-function cellIn(s, t, focus = null, over = false){
-  const rep = s.repeats.get(t), here = cellNow.of === rep, g = graphNow(), at = {};
-  for (const k of inGroup(t, s)) if (!isArrow(k) && g.blocks[k.id]){ const r = unitsOf(k); at[g.blocks[k.id]] = { col: r.x - rep.x, row: r.y - rep.y }; }
-  for (const k of inGroup(t, s)) if (isArrow(k)){ const id = findIn(g).arrows.get(k.id)?.node, r = id && !(id in at) ? outputOf(k).place : null; if (r) at[id] = { col: r.x - rep.x, row: r.y - rep.y }; }      /* an output lies where it is written */
-  const r = focus ? unitsOf(focus) : null;
-  return { x: ((here ? cellNow.cx : 1) - 1) * rep.cols, y: ((here ? cellNow.cy : 1) - 1) * rep.rows, dx: r ? r.x - rep.x : 0, dy: r ? r.y - rep.y : 0, turned: over, at };
+function cellIn(s, t, r = null, over = false){      /* r: where in the pattern what is asked for lies ({ x, y } in units on the canvas); none: the evaluator finds it by `at` */
+  const rep = s.repeats.get(t), now = cellNow.get(rep) || FIRST, g = graphNow(), at = {}, mine = inGroup(t, s).filter(k => tileOf(k, s) === t);
+  for (const k of mine) if (!isArrow(k) && g.blocks[k.id]){ const r = unitsOf(k); at[g.blocks[k.id]] = { col: r.x - rep.x, row: r.y - rep.y }; }
+  for (const [c, cr] of s.repeats) if (tileUp(s, c) === t){ const id = findIn(g).tiles.get('t:' + c)?.node; if (id && !(id in at)) at[id] = { col: cr.x - rep.x, row: cr.y - rep.y }; }      /* a tile in the pattern is one part of it */
+  for (const k of mine) if (isArrow(k)){ const id = findIn(g).arrows.get(k.id)?.node, r = id && !(id in at) ? outputOf(k).place : null; if (r) at[id] = { col: r.x - rep.x, row: r.y - rep.y }; }      /* an output lies where it is written */
+  return { x: (now.cx - 1) * rep.cols, y: (now.cy - 1) * rep.rows, dx: r ? r.x - rep.x : 0, dy: r ? r.y - rep.y : 0, turned: over, at };
+}
+/* the chain of cells something in tile t is in: a cell of every tile t is inside, outermost first, and last t's own */
+function cellsOf(s, t, r = null, over = false){
+  const ts = [t, ...tilesAbove(s, t)].reverse();
+  return ts.map((g, i) => i === ts.length - 1 ? cellIn(s, g, r, over) : cellIn(s, g, s.repeats.get(ts[i + 1])));
 }
 function bindingOf(of, s, over = false, a = null){
   const g = graphNow(), params = {}, first = a || of[0], t = s && first ? tileOf(first, s) : undefined;
-  let cells = t !== undefined ? [cellIn(s, t, over ? first : null, over)] : null;
+  let cells = t !== undefined ? cellsOf(s, t, over ? unitsOf(first) : null, over) : null;
   for (let at = s; at && at.owner; at = spaceWith(at.owner)){ const o = at.owner, up = spaceWith(o);
     if (isArrow(o)){ const inner = at.blocks.find(k => k.in), param = inner && g.blocks[inner.id], fn = param && (g.nodes[param].within || []).find(w => w[0] === 'f'), given = givenTo(o);
       if (fn && given && !(fn in params)) params[fn] = given; }
-    else if (!cells && up && tileOf(o, up) !== undefined) cells = [cellIn(up, tileOf(o, up), o, turned(o))]; }      /* what is in a block's definition is at that block's place, the variable's own way round */
+    else if (!cells && up && tileOf(o, up) !== undefined) cells = cellsOf(up, tileOf(o, up), unitsOf(o), turned(o)); }      /* what is in a block's definition is at that block's place, the variable's own way round */
   return cells || Object.keys(params).length ? { params, ...(cells ? { cells } : {}) } : null;
 }
 /* what an arrow gives its function: the covered part of its input, as the graph has it */
@@ -572,7 +580,7 @@ function agree(b){
 function keepTouching(change, except = () => false){
   const u = view.unit, pairs = [];
   for (const s of everySpace()){
-    const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, zone: tileOf(b, s) ?? null }));
+    const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, zone: zoneOf(tilesOf(b, s)) }));
     for (const j of joins(rects)) if (!except(live[j.left], live[j.right])) pairs.push([live[j.left], live[j.right]]);
   }
   change();
@@ -964,11 +972,12 @@ function paint(){
   /* the properties of the one shape selected: its name, its shape, its value */
   if (pickedTile && space.repeats.has(pickedTile)){ const t = tileInfo(space, pickedTile), r = t.rep, typedAs = v => typeof v === 'object' ? v.expr : String(v);
     const row = k => ({ key: k, label: k, text: typedAs(r[k]), seen: refs(typedAs(r[k])).map(fields.look), result: typeof r[k] === 'object' ? String(t[k]) : null });
-    const read = space.blocks.some(a => isArrow(a) && a.arrow.input.as === 'tile' && a.arrow.input.id === pickedTile), mapWarn = inGroup(pickedTile).filter(isArrow).map(a => outputOf(a).mapWarn).find(Boolean);
+    const read = space.blocks.some(a => isArrow(a) && a.arrow.input.as === 'tile' && a.arrow.input.id === pickedTile), mapWarn = t.members.filter(isArrow).map(a => outputOf(a).mapWarn).find(Boolean), up = tileUp(space, pickedTile);
     properties.show({ id: 'tile ' + pickedTile, name: space.groupNames.get(pickedTile) || 'tile', color: '', cols: r.cols, rows: r.rows, scalar: false, plain: true, fixed: true,
-      shape: `tile: a ${r.cols} × ${r.rows} pattern, ${t.across} across × ${t.down} down` + (t.matrix.error ? '' : `. Its matrix is ${t.matrix.cols} wide × ${t.matrix.rows} tall`),
+      shape: `tile: a ${r.cols} × ${r.rows} pattern, ${t.across} across × ${t.down} down` + (t.matrix.error ? '' : `. Its matrix is ${t.matrix.cols} wide × ${t.matrix.rows} tall`)
+        + (up !== undefined && !t.over ? `. It is inside ${space.groupNames.get(up) || 'a tile'}'s pattern, and is repeated with it` : ''),
       attributes: [{ key: 'cols', label: 'pattern x', text: String(r.cols) }, { key: 'rows', label: 'pattern y', text: String(r.rows) }, row('across'), row('down')],
-      notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : [])], matrix: null }); }
+      notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(t.over ? [cap(t.over) + '. It has no matrix while it lies so'] : read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : [])], matrix: null }); }
   else if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), wrong = [...(o.values || [])].filter(([, v]) => isError(v));
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: t?.cols || 1, rows: t?.rows || 1, scalar: false, plain: true, fixed: true,
       shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` : ''), attributes: arrowRows(one, fn),
@@ -1079,11 +1088,12 @@ function paint(){
     arrowFrame.set({ x, y, w: Math.max(one.rect.x + one.rect.w, at.x + at.w) - x, h: Math.max(one.rect.y + one.rect.h, at.y + at.h) - y }, { selected: true }); view.world.append(arrowFrame.el); }
   else arrowFrame.el.remove();
   /* every tile of the space: its frame, its cells, and the copies of what is in its first one */
-  for (const g of space.repeats.keys()){ const t = tileInfo(space, g), tile = space.tiles.get(g) || createTile(), list = inGroup(g).filter(b => !isOff(b) && !hollowSeat(b)); space.tiles.set(g, tile);
+  /* a tile inside another is drawn over it, so that its own frame and edges take the pointer: the innermost are set down last, each beneath those before it */
+  for (const g of [...space.repeats.keys()].sort((a, b) => tileInfo(space, b).depth - tileInfo(space, a).depth)){ const t = tileInfo(space, g), tile = space.tiles.get(g) || createTile(), list = t.members; space.tiles.set(g, tile);
     for (const e of tile.el.querySelectorAll('[data-tile-grab], [data-tile-edge]')) e.dataset.tile = g;
     const mapWarn = list.filter(isArrow).map(a => outputOf(a).mapWarn).find(Boolean);      /* an arrow repeated here that cannot be, or runs past its input */
-    tile.set({ x: t.rep.x * u, y: t.rep.y * u, unit: u, xs: t.lay.xs, ys: t.lay.ys, w: t.lay.w, h: t.lay.h, name: space.groupNames.get(g) || '', counts: `${t.across} × ${t.down}`,
-      selected: pickedTile === g || room.host === g, warn: !!(t.warn || mapWarn), copies: copiesOf(space, t, list), written: writtenOn(t, list) });
+    tile.set({ x: t.rep.x * u, y: t.rep.y * u, unit: u, xs: t.lay.xs, ys: t.lay.ys, w: t.lay.w, h: t.lay.h, name: space.groupNames.get(g) || '', counts: `${t.across} × ${t.down}`, levels: t.levels,
+      selected: pickedTile === g || room.host === g, warn: !!(t.warn || mapWarn || t.over), copies: copiesOf(space, t), written: writtenOn(t, list) });      /* over: it overlaps another tile without lying wholly inside its pattern (tiles.js: overlapping) */
     view.world.prepend(tile.el); view.world.append(tile.overEl); }
   for (const [g, tile] of space.tiles) if (!space.repeats.has(g)){ tile.el.remove(); tile.overEl.remove(); space.tiles.delete(g); }
   if (pickedTile && !space.repeats.has(pickedTile)) pickedTile = null;
@@ -1119,6 +1129,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
   const def = newSpace(made, space); spaceOf.set(made, def);
   /* groups lying wholly among the folded blocks go with them; the group being folded itself, if it is one, does not */
   const whole = groupIs(inside), going = new Set(inside.flatMap(b => chain(b)).filter(g => g !== whole && inGroup(g).every(b => inside.includes(b))));
+  for (let more = true; more;){ more = false; for (const [g, up] of space.groupUp) if (going.has(up) && !going.has(g)){ going.add(g); more = true; } }      /* and what is inside a group that goes, though it holds no block: an empty tile in a tile's pattern */
   for (const b of inside) if (going.has(space.groupOf.get(b))) def.groupOf.set(b, space.groupOf.get(b));
   for (const g of going){ if (going.has(space.groupUp.get(g))) def.groupUp.set(g, space.groupUp.get(g)); if (space.groupNames.has(g)) def.groupNames.set(g, space.groupNames.get(g)); }
   const dx = -u * (3 + squares(type.cols, type.colsName)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
@@ -1530,12 +1541,25 @@ function reverting(){
    a block is in a cell other than the first is worked out with cellNow saying which cell is meant.
    A tile touches nothing: every block of a tile carries the tile for its zone (algebra.js), so no touch crosses a
    tile's boundary. An arrow can take a tile for its input ({ id: the frame's, as: 'tile' }): it reads the tile's
-   matrix, all of it. An arrow in a tile whose input is outside the tile is repeated along its input (map). */
+   matrix, all of it. An arrow in a tile whose input is outside the tile is repeated along its input (map).
+   A tile may lie wholly inside another tile's pattern: its frame is then inside that tile's frame, as a block's is
+   (tileUp), and it is part of that pattern, repeated with it, while staying a tile in its own right (its own repeat,
+   counts, arrows, name and frame id). A block's zone, and the index it reads, are the innermost tile's (algebra.js:
+   zoneOf; graph.js: indexAt, which is handed the cell of every tile the block is in). Which tile a tile is in is kept
+   true to where it lies by every gesture: one drawn or let go wholly inside a pattern is in that tile, one let go
+   clear of it has left, and anything between is refused (tiles.js: makable, moved, allowed). Tiles that come to
+   overlap some other way (pasted, opened from a file, grown by a count that follows a size, carried off by an arrow
+   repeated in them) are drawn in the warning colour with the reason in their panels, and have no matrix until they
+   are moved apart (tiles.js: overlapping). */
 let pickedTile = null;                         /* the tile that is selected, by its frame's id: its counts and its pattern are in the properties panel */
-const cellNow = { of: null, cx: 1, cy: 1 };    /* the cell a tile's blocks are being worked out for (of: that tile's repeat); with none, the first */
+const cellNow = new Map(), FIRST = { cx: 1, cy: 1 };      /* the cell each tile's blocks are being worked out for: a tile's repeat -> { cx, cy }; a tile that is not there, its first. (A tile in a tile has a cell of each.) */
 let useNow = null;                             /* the use of a variable whose standing shapes are being read, for an index matrix among them */
-const firstCell = () => !cellNow.of || (cellNow.cx === 1 && cellNow.cy === 1);
+const firstCell = () => cellNow.size === 0;
+const tilesOf = (b, s = space) => chain(b, s).filter(g => s.repeats.has(g));      /* the tiles a block is in, innermost first */
 const tileOf = (b, s = space) => chain(b, s).find(g => s.repeats.has(g));      /* the tile a block is in, innermost; undefined for none */
+const tileUp = (s, g) => { for (let p = s.groupUp.get(g); p !== undefined; p = s.groupUp.get(p)) if (s.repeats.has(p)) return p; return undefined; };      /* the tile a tile is in (by the frames, as a block is); undefined for none */
+const tilesAbove = (s, g) => { const out = []; for (let p = tileUp(s, g); p !== undefined; p = tileUp(s, p)) out.push(p); return out; };      /* every tile a tile is in, innermost first */
+const tilesUnder = (s, g) => [...s.repeats.keys()].filter(k => tilesAbove(s, k).includes(g));      /* every tile inside a tile, at any depth */
 const repeatCopy = r => ({ ...r, across: typeof r.across === 'object' ? { expr: r.across.expr } : r.across, down: typeof r.down === 'object' ? { expr: r.down.expr } : r.down });
 /* what a capsule in a count's formula stands for: a measure of a variable, by its block's id (tiles.js lets only sizes through) */
 const sizeLookup = token => { if (typeof token === 'string') return undefined; const of = blockOf(token.id); return of ? measured(of, token.measure, token.name) : undefined; };
@@ -1544,7 +1568,8 @@ const sizeLookup = token => { if (typeof token === 'string') return undefined; c
    any use of a variable, the other uses; a function's input block, its arrow; a named side, the sides of that name;
    a single entry whose number is a formula, what that reads */
 function sizeDeps(id){
-  for (const s of everySpace()) if (s.repeats.has(id)){ const r = s.repeats.get(id); return ['across', 'down'].flatMap(k => typeof r[k] === 'object' ? refs(r[k].expr).map(c => c.id) : []); }
+  for (const s of everySpace()) if (s.repeats.has(id)){ const r = s.repeats.get(id);      /* a tile: what its counts read; and it goes with its nest, the tile it is in and the tiles in its pattern (tiles.js: nest) */
+    return [...['across', 'down'].flatMap(k => typeof r[k] === 'object' ? refs(r[k].expr).map(c => c.id) : []), ...tiles.nest(id, [...s.repeats.keys()].map(g => ({ id: g, in: tileUp(s, g) ?? null })))]; }
   const k = blockOf(id); if (!k) return [];
   const s = spaceWith(k), out = [...depsOf(id)];
   if (isArrow(k) && s){ const g = tileOf(k, s); if (g !== undefined && mapsIn(s, k, g)) out.push(g); if (k.arrow.input.as === 'tile') out.push(k.arrow.input.id); }      /* the tile it reads, and the tile it is repeated in */
@@ -1559,20 +1584,37 @@ function sizeDeps(id){
 const entryOf = id => { const b = blockOf(id), def = b && spaceOf.get(b); return !b || !single(b) || b.source || seatedOf(b) || givenOf(b) || b.from || rangedOf(b) || (def && def.blocks.some(k => !isOff(k) && !inConfig(k, def))) ? undefined : b.values.get('1,1'); };      /* (what is in its definition space defines it: graph.js) */
 /* whether a stored count of tile g depends on that tile's own size: such a count is refused, and one met in a project is 1 with a warning */
 const loopsOf = (g, stored) => ({ entryOf, loops: !!stored && typeof stored === 'object' && tiles.circular(g, refs(stored.expr || '').map(c => c.id), sizeDeps) });
-/* a tile as it stands: its repeat, what its counts come to, what is drawn of it, its blocks and its matrix. Worked out once for every time the screen is brought up to date. */
-function tileInfo(s, g){
-  const rep = s.repeats.get(g); if (!rep) return null;
-  if (memo?.has(rep)) return memo.get(rep);
-  const c = tiles.counts(rep, sizeLookup, { across: loopsOf(g, rep.across), down: loopsOf(g, rep.down) }), lay = tiles.layout(rep, c.across, c.down, c.formula);
-  const blocks = inGroup(g, s).filter(b => !isArrow(b) && !isOff(b) && !hollowSeat(b));
-  const info = { g, rep, ...c, lay, rect: { x: rep.x, y: rep.y, w: lay.w, h: lay.h }, blocks, matrix: tiles.matrix(rep, c.across, c.down, blocks.map(unitsOf)) };
-  memo?.set(rep, info); return info;
+/* every tile of a space as tiles.js takes them (which tile each is in, what its counts come to), and what tiles.js
+   says of them together: how each is laid out, and which overlap. Worked out once for every time the screen is brought up to date. */
+function tilesIn(s){
+  if (memo?.has(s.repeats)) return memo.get(s.repeats);
+  const list = [...s.repeats].map(([g, rep]) => { const c = tiles.counts(rep, sizeLookup, { across: loopsOf(g, rep.across), down: loopsOf(g, rep.down) }); return { id: g, in: tileUp(s, g) ?? null, repeat: rep, across: c.across, down: c.down, formula: c.formula, warn: c.warn }; });
+  const all = { list, laid: tiles.laid(list), over: tiles.overlapping(list), info: new Map() };
+  memo?.set(s.repeats, all); return all;
 }
-/* the index of one entry of a block or of an arrow's output (at: { c, r }, and cx or cy for an arrow repeated in its tile); null where it is in no tile */
+/* a tile as it stands: its repeat, what its counts come to, what is drawn of it, what is directly in it (members:
+   blocks and arrows; blocks; inner: the tiles in its pattern), why it is warned of for where it lies (over), and its
+   matrix: its blocks and its inner tiles' matrices set in their places. */
+function tileInfo(s, g, all = tilesIn(s)){
+  const rep = s.repeats.get(g); if (!rep) return null;
+  if (all.info.has(g)) return all.info.get(g);
+  const me = all.list.find(t => t.id === g), l = all.laid.get(g), members = inGroup(g, s).filter(b => tileOf(b, s) === g && !isOff(b) && !hollowSeat(b)), blocks = members.filter(b => !isArrow(b));
+  const info = { g, rep, across: me.across, down: me.down, formula: me.formula, warn: me.warn, lay: l.lay, rect: l.rect, depth: l.depth, members, blocks, inner: all.list.filter(t => t.in === g).map(t => t.id), over: all.over.get(g) || null, levels: 0, matrix: { error: 'it is inside itself' } };
+  all.info.set(g, info);
+  info.levels = info.inner.length ? 1 + Math.max(...info.inner.map(i => tileInfo(s, i, all).levels)) : 0;      /* how many levels of tiles lie inside it */
+  info.matrix = info.over ? { error: info.over } : tiles.matrix(rep, me.across, me.down, [...blocks.map(unitsOf),
+    ...info.inner.map(i => { const t = tileInfo(s, i, all); return t.matrix.error ? { error: t.matrix.error } : { x: t.rep.x, y: t.rep.y, w: t.matrix.cols, h: t.matrix.rows }; })]);
+  return info;
+}
+/* the tiles of a space as a list for tiles.js, as they would stand with some changed: change(t) gives the changed one, or nothing to leave it */
+const tileList = (s, change = () => null) => tilesIn(s).list.map(t => change(t) || t);
+/* the index of one entry of a block or of an arrow's output (at: { c, r }, and cx or cy for an arrow repeated in its
+   tile); null where it is in no tile. Which of the cells it is in the index is read from is graph.js's to say (indexAt). */
 function indexFor(b, at){
   const s = spaceWith(b), g = s && tileOf(b, s); if (!s || g === undefined || !at) return null;
-  const rep = s.repeats.get(g), r = unitsOf(b), here = cellNow.of === rep, [c, row] = turned(b) ? [at.r, at.c] : [at.c, at.r];      /* a transpose keeps its entries the variable's way round: its place is where it is drawn */
-  return tiles.index(rep, { x: r.x - rep.x, y: r.y - rep.y }, c, row, at.cx || (here ? cellNow.cx : 1), at.cy || (here ? cellNow.cy : 1));
+  const cells = cellsOf(s, g, unitsOf(b), turned(b)), last = cells[cells.length - 1], rep = s.repeats.get(g);      /* a transpose keeps its entries the variable's way round: its place is where it is drawn */
+  if (at.cx) last.x = (at.cx - 1) * rep.cols; if (at.cy) last.y = (at.cy - 1) * rep.rows;
+  return indexAt(cells, at.c, at.r);
 }
 /* an index matrix: a block that is index.x or index.y of another block, the one whose definition space it is in */
 const indexedOf = b => b.from?.index ? b : kin.has(b) ? [...kin.get(b)].find(k => k.from?.index) || null : null;
@@ -1580,21 +1622,32 @@ function indexMatrix(o){
   let of = blockOf(o.from.id); if (!of) return new Map();
   if (useNow && [...kinOf(useNow)].includes(of)) of = useNow;      /* read through another use of the variable, it is that use's place */
   const s = spaceWith(of), g = s && tileOf(of, s); if (!s || g === undefined) return new Map();
-  const rep = s.repeats.get(g), r = unitsOf(of), here = cellNow.of === rep;
-  return tiles.indexValues(rep, { x: r.x - rep.x, y: r.y - rep.y }, r.w, r.h, o.from.index, here ? cellNow.cx : 1, here ? cellNow.cy : 1);
+  const r = unitsOf(of), cells = cellsOf(s, g, r), out = new Map();
+  for (let row = 1; row <= r.h; row++) for (let c = 1; c <= r.w; c++) out.set(c + ',' + row, indexAt(cells, c, row)[o.from.index === 'y' ? 'y' : 'x']);
+  return out;
 }
 /* whether a block is a different matrix in each cell: an entry of its reads the index, or an index matrix stands in its matrix */
 const readsIndex = b => [...b.values.values()].some(v => isFormula(v) && tiles.reads(v.expr)) || (standingOf(b) || []).some(t => indexedOf(t.block));
 const texts = values => new Map([...values].map(([k, v]) => [k, isError(v) ? '!' : valueText(v)]));
-/* what is drawn in the cells that are not the first: a copy of every block, and of every arrow, of the tile */
-function copiesOf(s, t, list){
-  const out = [], was = { ...cellNow }, rep = t.rep;
+/* what is drawn in the cells that are not the first: a copy of every block, and of every arrow, of the tile; and of
+   every cell of every tile in its pattern, with what is in that (so a tile in a tile is seen repeated with it). How
+   many cells of an inner tile are drawn was settled with its layout (tiles.js: laid), so that no tile is drawn more
+   than 64 times in all. Nothing is drawn past the cell it is a copy in: an inner tile that runs past the pattern
+   is warned of, and its copies do not spill. */
+function copiesOf(s, t){
+  const out = [], was = new Map(cellNow), top = t.rep;
+  const put = (T, ix, iy, ox, oy) => {      /* all of tile T's cell (the one cellNow names), T's pattern set down at (ox, oy) units from the drawn cell's corner */
+    for (const b of T.members){ const r = unitsOf(b), at = { cx: ix, cy: iy, x: ox + r.x - T.rep.x, y: oy + r.y - T.rep.y, w: r.w, h: r.h, color: b.shape.color, name: isNamed(b) ? b.name : '' };
+      if (!isArrow(b) && (at.x < 0 || at.y < 0 || at.x + at.w > top.cols || at.y + at.h > top.rows)) continue;
+      if (isArrow(b)) out.push({ ...at, tri: cornersOf(b.arrow.side, r.w, r.h) });
+      else out.push({ ...at, values: readsIndex(b) ? texts(valuesOf(b)) : null }); }
+    for (const c of T.inner){ const C = tileInfo(s, c);
+      for (const sy of C.lay.ys) for (const sx of C.lay.xs){ if (sx.dots || sy.dots) continue;
+        cellNow.set(C.rep, { cx: sx.cell, cy: sy.cell }); put(C, ix, iy, ox + C.rep.x - T.rep.x + sx.at, oy + C.rep.y - T.rep.y + sy.at); }
+      cellNow.delete(C.rep); } };
   try { t.lay.ys.forEach((sy, iy) => t.lay.xs.forEach((sx, ix) => { if (sx.dots || sy.dots || (sx.cell === 1 && sy.cell === 1)) return;
-      Object.assign(cellNow, { of: rep, cx: sx.cell, cy: sy.cell });
-      for (const b of list){ const r = unitsOf(b), at = { cx: ix, cy: iy, x: r.x - rep.x, y: r.y - rep.y, w: r.w, h: r.h, color: b.shape.color, name: isNamed(b) ? b.name : '' };
-        if (isArrow(b)) out.push({ ...at, tri: cornersOf(b.arrow.side, r.w, r.h) });
-        else out.push({ ...at, values: readsIndex(b) ? texts(valuesOf(b)) : null }); } })); }
-  finally { Object.assign(cellNow, was); }
+      cellNow.set(top, { cx: sx.cell, cy: sy.cell }); put(t, ix, iy, 0, 0); })); }
+  finally { cellNow.clear(); for (const [k, v] of was) cellNow.set(k, v); }
   return out;
 }
 /* and what is written over the real blocks, in the first cell: the entries of one that reads the index (a single entry shows its own on its face) */
@@ -1602,37 +1655,57 @@ const writtenOn = (t, list) => list.filter(b => !isArrow(b) && !single(b) && rea
 /* a frame's rectangle, for whatever is held over it: a tile's pattern, or the box round an ordinary frame's blocks */
 const frameBox = id => { const r = space.repeats.get(id), u = view.unit; return r ? { x: r.x * u, y: r.y * u, w: r.cols * u, h: r.rows * u } : boxOf(inGroup(id)); };
 /* whether an arrow in tile g is repeated there: its input is outside the tile */
-const mapsIn = (s, a, g) => { const inp = a.arrow.input; if (inp.as === 'tile') return inp.id !== g && s.repeats.has(inp.id);      /* another tile is outside this one too: tiles.js says what comes of that */
+const mapsIn = (s, a, g) => { const inp = a.arrow.input; if (inp.as === 'tile') return inp.id !== g && s.repeats.has(inp.id) && !tilesAbove(s, inp.id).includes(g);      /* another tile is outside this one too, unless it is in this one's pattern: tiles.js says what comes of that */
   const blk = s.blocks.find(k => k.id === inp.id); return !!blk && !chain(blk, s).includes(g); };
-const mapsAny = (s, g) => inGroup(g, s).some(a => isArrow(a) && mapsIn(s, a, g));      /* whether any arrow is repeated in the tile */
-/* moves a tile and its blocks (dx, dy in units). Arrows and seated blocks are placed by what they read, so they are left to that. */
+const mapsAny = (s, g) => inGroup(g, s).some(a => isArrow(a) && mapsIn(s, a, g));      /* whether any arrow is repeated in the tile, or in a tile inside it, along something outside it */
+/* moves a tile, the tiles inside it and its blocks (dx, dy in units). Arrows and seated blocks are placed by what they read, so they are left to that. */
 function shiftTile(s, g, dx, dy){
-  const rep = s.repeats.get(g), u = view.unit; rep.x += dx; rep.y += dy;
+  const u = view.unit; for (const k of [g, ...tilesUnder(s, g)]){ const rep = s.repeats.get(k); rep.x += dx; rep.y += dy; }
   for (const b of inGroup(g, s)) if (!isArrow(b) && !b.seat) b.set({ ...b.rect, x: b.rect.x + dx * u, y: b.rect.y + dy * u });
 }
 const placesOfTiles = () => everySpace().flatMap(s => [...s.repeats.values()].map(r => [r, r.x, r.y]));      /* where every tile is, to put them back after a drag's preview */
 const cap = text => text[0].toUpperCase() + text.slice(1);
 function addTile(rect){
   const u = view.unit, r = { x: Math.round(rect.x / u), y: Math.round(rect.y / u), w: Math.round(rect.w / u), h: Math.round(rect.h / u) };
-  const inside = tiles.members(r, space.blocks.map(unitsOf)).map(i => space.blocks[i]);
-  const can = tiles.makable(r, [...space.repeats.keys()].map(g => tileInfo(space, g).rect), inside.filter(b => tileOf(b) !== undefined).length);
+  const inside = tiles.members(r, space.blocks.map(unitsOf)).map(i => space.blocks[i]), list = tileList(space);
+  /* where it would be among the tiles there are: inside one's pattern, round others, or clear of them all (tiles.js: makable) */
+  const first = tiles.makable(r, list), goes = first.refused ? [] : first.holds, into = first.refused ? null : first.in;
+  const strays = inside.filter(b => { const t = tileOf(b); return t !== undefined && t !== (into ?? undefined) && !goes.some(k => k === t || tilesAbove(space, t).includes(k)); }).length;
+  const can = first.refused ? first : tiles.makable(r, list, strays);
   if (can.refused) return hud.say(can.refused);
-  const g = inside.length ? group(inside) : newGroup();
+  /* its frame: round the blocks inside it that are in no tile going in whole, and round those tiles; and itself inside
+     the innermost frame that held them all, which is the tile whose pattern it was drawn in, or a frame in that */
+  const g = newGroup(), loose = inside.filter(b => { const t = tileOf(b); return t === undefined || !goes.some(k => k === t || tilesAbove(space, t).includes(k)); });
+  const frames = [...loose.map(b => chain(b)), ...goes.map(k => upFrom(k).slice(1))], wholly = c => inGroup(c).every(x => inside.includes(x));
+  let holder = frames.length ? frames[0].find(c => frames.every(f => f.includes(c))) : undefined;
+  if (into !== null && (holder === undefined || !upFrom(holder).includes(into))) holder = into;
+  for (const b of loose){ let unit = null; for (const c of chain(b)){ if (c === holder) break; if (wholly(c)) unit = c; }      /* a frame wholly inside goes in as a frame */
+    if (unit === null) space.groupOf.set(b, g); else space.groupUp.set(unit, g); }
+  for (const k of goes){ let unit = k; for (const c of upFrom(k).slice(1)){ if (c === holder) break; if (wholly(c)) unit = c; } space.groupUp.set(unit, g); }      /* a tile it was drawn round is in it, though it holds nothing */
+  if (holder !== undefined) space.groupUp.set(g, holder);
   space.repeats.set(g, { x: r.x, y: r.y, cols: r.w, rows: r.h, across: 1, down: 1 });
   tidy(); selected.clear(); pickedTile = g; shown();
-  hud.say(`A tile: ${r.w} × ${r.h}, ${inside.length ? 'holding ' + inside.length + (inside.length === 1 ? ' block' : ' blocks') : 'empty'}. Pull its right or bottom edge to repeat it`);
+  const holds = loose.length ? 'holding ' + loose.length + (loose.length === 1 ? ' block' : ' blocks') : goes.length ? 'with no block of its own' : 'empty';
+  hud.say(into !== null ? `A tile inside ${space.groupNames.get(into) || 'a tile'}'s pattern: ${r.w} × ${r.h}, ${holds}. It is part of that pattern, and is repeated with it`
+    : `A tile: ${r.w} × ${r.h}, ${holds}${goes.length ? ', with ' + (goes.length === 1 ? 'a tile' : goes.length + ' tiles') + ' inside it' : ''}. Pull its right or bottom edge to repeat it`);
 }
 function setTile({ frame, ...patch }){
-  const rep = space.repeats.get(frame), u = view.unit; if (!rep) return;
+  const rep = space.repeats.get(frame); if (!rep) return;
   const geo = {}; for (const k of ['x', 'y', 'cols', 'rows']) if (k in patch) geo[k] = patch[k];
   const got = tiles.settable(rep, geo); if (got.refused){ hud.say(got.refused); return shown(); }
   const next = got.repeat;
   if (next.x !== rep.x || next.y !== rep.y){ const can = tiles.movable(mapsAny(space, frame)); if (can.refused){ hud.say(can.refused); return shown(); } }
   for (const k of ['across', 'down']) if (k in patch){ const c = tiles.count(patch[k], sizeLookup, loopsOf(frame, patch[k])); if (c.refused){ hud.say(`${cap(k)}: ${c.refused}`); return shown(); } next[k] = c.formula ? { expr: patch[k].expr } : c.count; }
-  const cs = tiles.counts(next, sizeLookup, { across: loopsOf(frame, next.across), down: loopsOf(frame, next.down) }), clear = tiles.makable(tiles.footprint(next, cs.across, cs.down, cs.formula), [...space.repeats.keys()].filter(g => g !== frame).map(g => tileInfo(space, g).rect));
-  if (clear.refused){ hud.say(clear.refused); return shown(); }
-  const dx = next.x - rep.x, dy = next.y - rep.y;
-  Object.assign(rep, next, { x: rep.x, y: rep.y }); if (dx || dy) shiftTile(space, frame, dx, dy);
+  /* as the tiles would then stand: this one resized or with other counts where it is, then moved with every tile inside
+     it. Whether they may, and which tile it is in once it is let go there, is tiles.js's to say (allowed, moved). */
+  const cs = tiles.counts(next, sizeLookup, { across: loopsOf(frame, next.across), down: loopsOf(frame, next.down) }), dx = next.x - rep.x, dy = next.y - rep.y, before = tileList(space), was = tileUp(space, frame) ?? null;
+  const sized = tileList(space, t => t.id === frame ? { ...t, repeat: { ...next, x: rep.x, y: rep.y }, across: cs.across, down: cs.down, formula: cs.formula } : null);
+  const can = dx || dy ? tiles.moved(sized, frame, dx, dy) : tiles.allowed(before, sized), fits = can.refused || !(dx || dy) ? can : tiles.allowed(before, can.list);
+  if (fits.refused){ hud.say(fits.refused); return shown(); }
+  Object.assign(rep, next, { x: rep.x, y: rep.y });
+  if (dx || dy){ shiftTile(space, frame, dx, dy);
+    if (can.in !== was){ if (can.in === null) space.groupUp.delete(frame); else space.groupUp.set(frame, can.in); tidy();      /* let go wholly inside a tile's pattern it is in that tile; out of the one it was in, it has left */
+      hud.say(can.in !== null ? `The tile is inside ${space.groupNames.get(can.in) || 'a tile'}'s pattern now: it is part of that pattern, and is repeated with it` : 'The tile has left the tile it was in: it repeats on its own'); } }
   shown();
 }
 /* what was typed in the panel of a tile: a count takes a whole number or a formula of sizes; the pattern's sides a whole number, worked out once, now */
@@ -1648,19 +1721,25 @@ function tileTyped(g, key, text){
 /* taking a tile off: its blocks stay, once, and the copies go. An arrow that reads the tile goes with it, after the warning. */
 function untiling(g){
   const name = space.groupNames.get(g) || 'the tile';
-  warned([], 'Taking off', 'Take off', also => bus.send('tile.remove', { frame: g, also: idsOf(also) }), [], [g], name, idsOf(inGroup(g)));      /* its blocks are in no tile then: their index matrices go */
+  warned([], 'Taking off', 'Take off', also => bus.send('tile.remove', { frame: g, also: idsOf(also) }), [], [g], name, tileUp(space, g) !== undefined ? [] : idsOf(tileInfo(space, g).members));      /* its own blocks are in no tile then: their index matrices go. (In a tile's pattern, they are that tile's then, and have its index; a tile inside it stays a tile.) */
 }
 /* a drag that begins on a tile's frame: by its right or bottom edge it changes that count, in whole patterns; anywhere else it moves the tile and what is in it. One message says where it ended. */
-function dragTile(g, edge, from){
+function dragTile(g, edge, from, shift = false){
   const u = view.unit, rep = space.repeats.get(g), was = repeatCopy(rep), rects = inGroup(g).map(b => [b, b.rect]), had = tileInfo(space, g);      /* had: what its counts came to when the drag began */
+  const under = tilesUnder(space, g).map(k => [space.repeats.get(k), space.repeats.get(k).x, space.repeats.get(k).y]);      /* the tiles inside it go with it */
+  const up = tileUp(space, g), outer = up !== undefined && !shift ? space.repeats.get(up) : null, size = tiles.filled(rep, had.across, had.down); let said = false;
   if (pickedTile !== g) bus.send('tile.pick', { frame: g });
   if (!edge && tiles.movable(mapsAny(space, g)).refused){ hud.say(tiles.movable(true).refused); return { move(){}, end(){} }; }
   return { move(p){
       if (edge) rep[edge] = edge === 'across' ? tiles.dragged(had.across, rep.cols, (p.x - from.x) / u) : tiles.dragged(had.down, rep.rows, (p.y - from.y) / u);      /* by the patterns the pointer has moved, whatever is drawn */
-      else { const dx = Math.round((p.x - from.x) / u), dy = Math.round((p.y - from.y) / u); rep.x = was.x + dx; rep.y = was.y + dy;
+      else { let dx = Math.round((p.x - from.x) / u), dy = Math.round((p.y - from.y) / u);
+        /* a tile inside a tile stays inside that tile's pattern, as a block does (tiles.js: held), unless it is being pulled out with Shift */
+        if (outer && tiles.within(outer, { x: was.x, y: was.y, w: size.cols, h: size.rows })){ const to = tiles.held(outer, { x: was.x, y: was.y, w: size.cols, h: size.rows }, dx, dy); dx = to.dx; dy = to.dy;
+          if (to.stopped && !said){ said = true; hud.say('The tile is inside a tile: it stays inside that pattern. Hold Shift to drag it out'); } }
+        rep.x = was.x + dx; rep.y = was.y + dy; for (const [r, x, y] of under){ r.x = x + dx; r.y = y + dy; }
         for (const [b, r] of rects) if (!isArrow(b) && !b.seat) b.set({ ...r, x: r.x + dx * u, y: r.y + dy * u }); }
       view.el.style.cursor = edge === 'across' ? 'ew-resize' : edge ? 'ns-resize' : 'move'; shown(); },
-    end(){ const now = repeatCopy(rep); Object.assign(rep, was); for (const [b, r] of rects) b.set(r); view.el.style.cursor = '';
+    end(){ const now = repeatCopy(rep); Object.assign(rep, was); for (const [r, x, y] of under){ r.x = x; r.y = y; } for (const [b, r] of rects) b.set(r); view.el.style.cursor = '';
       if (edge && typeof now[edge] === 'number' && now[edge] !== had[edge]) return bus.send('tile.set', { frame: g, [edge]: now[edge] });      /* a count that is a formula is replaced only where the drag changed what it comes to */
       if (!edge && (now.x !== was.x || now.y !== was.y)) return bus.send('tile.set', { frame: g, x: now.x, y: now.y });
       shown(); } };
@@ -1775,7 +1854,7 @@ function depsOf(id){
 }
 /* the ids of the blocks joined to blk by touching, itself included */
 function touching(s, blk){
-  const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), ts = touches(live.map(b => ({ ...unitsOf(b), zone: tileOf(b, s) ?? null }))), seen = new Set([live.indexOf(blk)]);
+  const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), ts = touches(live.map(b => ({ ...unitsOf(b), zone: zoneOf(tilesOf(b, s)) }))), seen = new Set([live.indexOf(blk)]);
   for (let more = true; more;){ more = false; for (const t of ts) if (seen.has(t.a) !== seen.has(t.b)){ seen.add(t.a); seen.add(t.b); more = true; } }
   return [...seen].filter(i => i >= 0).map(i => live[i].id);
 }
@@ -1832,7 +1911,7 @@ function innerOf(a){ const o = originOf(a), input = isArrow(o) ? sized(inputOf(o
 function endsOf(s, alg = algebraIn(s)){
   const { active, all } = alg, arrows = s.blocks.filter(k => isArrow(k) && !isOff(k));
   /* a piece in a tile is read where an arrow reads the tile: the tile's id goes with its blocks' */
-  return ends(all.map(p => ({ ids: [...p.members.map(m => active[m].id), ...new Set(p.members.map(m => tileOf(active[m], s)).filter(g => g !== undefined))], type: p.type, config: p.members.some(m => inConfig(active[m], s)), of: p })),
+  return ends(all.map(p => ({ ids: [...p.members.map(m => active[m].id), ...new Set(p.members.flatMap(m => tilesOf(active[m], s)))], type: p.type, config: p.members.some(m => inConfig(active[m], s)), of: p })),
     arrows.map(k => { const seated = !!seatOn(k, s), o = seated ? null : outputOf(k); return { id: k.id, reads: k.arrow.input.id, seated, type: o ? o.type || { error: o.warn || 'no value' } : null, of: k }; }))
     .map(e => e.piece ? { type: e.type, piece: e.piece.of } : { type: e.type, arrow: e.arrow.of });
 }
@@ -1915,7 +1994,7 @@ function arrangeAll(){
    and, in the Menu, each written result of a piece of several shapes (each hollow it is written in). */
 function edgesHere(){
   const u = view.unit, out = [];
-  for (const g of space.repeats.keys()) out.push({ input: { id: g, as: 'tile' }, rect: tileInfo(space, g).rect });      /* first: where a tile's edge is also a block's, it is the tile that is meant */
+  for (const g of [...space.repeats.keys()].sort((a, b) => tileInfo(space, b).depth - tileInfo(space, a).depth)) out.push({ input: { id: g, as: 'tile' }, rect: tileInfo(space, g).rect });      /* first: where a tile's edge is also a block's, it is the tile that is meant; and where it is also the edge of a tile it is in, the inner tile (the outer has the rest of that edge, and its other cells) */
   for (const b of space.blocks){ if (isOff(b) || hollowSeat(b)) continue;
     if (isArrow(b)){ const o = outputOf(b); if (o.place && o.type && !seatOn(b, space)) out.push({ input: { id: b.id, as: 'result' }, rect: o.place }); }
     else out.push({ input: { id: b.id, as: 'block' }, rect: unitsOf(b) }); }
@@ -2192,7 +2271,7 @@ addEventListener('keydown', e => {
    screen. Anything else is left to the view, which pans. */
 function dragged(el, from, e){
   const onTile = el.closest?.('[data-tile]');      /* a tile's frame: its edge, or the rest of it */
-  if (onTile && space.repeats.has(onTile.dataset.tile) && !el.isContentEditable) return dragTile(onTile.dataset.tile, onTile.dataset.tileEdge || null, from);
+  if (onTile && space.repeats.has(onTile.dataset.tile) && !el.isContentEditable) return dragTile(onTile.dataset.tile, onTile.dataset.tileEdge || null, from, !!e?.shiftKey);
   const b = blockAt(el);
   if (!b || el.isContentEditable) return;
   if (isArrow(b) && selected.has(b) && selected.size === 1) return dragArrow(b, el, from);
@@ -2241,7 +2320,7 @@ function dragged(el, from, e){
       if (onto){ cursor(''); for (const [k, r] of before) if (k.rect !== r) k.set(r); for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; } return bus.send('seat', { arrow: onto.id, id: b.id }); }
       if (pulled && host === null){ const stays = pulled.find(([, r]) => within(last, r)), t = tileOf(b);      /* innermost first */
         /* out of its tile, its index matrices would be left defining it as nothing: they go with it, after the warning. Nothing is done until that is answered. */
-        const leaves = t !== undefined && !(stays && upFrom(stays[0]).includes(t)), rects = (cursor(''), collect()); shown();
+        const leaves = t !== undefined && !(stays && upFrom(stays[0]).some(g => space.repeats.has(g))), rects = (cursor(''), collect()); shown();      /* still in a tile (the one round the tile it left), it still has an index */
         return warned([], 'Taking out', 'Take out', also => { if (rects.length) bus.send('place', { rects }); bus.send('frame.leave', { id: b.id, frame: stays ? stays[0] : null, also: idsOf(also) }); }, [], [], bare(b.name), leaves ? [b.id] : []); }
       end();
       if (host !== null) bus.send('frame.enter', { ids: idsOf(held), frame: host }); },
@@ -2452,14 +2531,20 @@ bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) retur
 /* tiles (tiles.js has every rule; see "tiles", above).
    tile.pick { frame }: the tile is selected, in place of any blocks. Changes nothing.
    tile.add { rect }: a tile drawn as that rectangle (world coordinates): its pattern. The blocks wholly inside it are
-       in it; with none it is empty. Counts start at 1. Refused over another tile.
-   tile.set { frame, x, y, cols, rows, across, down }: whichever are given, changed. x, y move the tile and its blocks;
-       cols, rows are the pattern's size; across, down a count: a whole number of at least 1, or { expr } that comes
-       to one from what is settled (a width, a height, a settled scalar's mass). Refused, with a sentence, where a
-       count is no such number or depends on the tile's own size, the tile would lie over another, or it is to be
-       moved and an arrow is repeated in it.
-   frame.leave { id, frame, also }, tile.remove { frame, also }: also carries the index matrices of a block that leaves its tile.
-   tile.remove { frame, also }: the tile is taken off. Its blocks stay; also: the arrows that read it, and what goes with them.
+       in it; with none it is empty. Counts start at 1. Drawn wholly inside another tile's pattern it is in that
+       tile; drawn round all of other tiles they are in it. Refused over another tile in any other way.
+   tile.set { frame, x, y, cols, rows, across, down }: whichever are given, changed. x, y move the tile, its blocks and
+       the tiles inside it: let go wholly inside another tile's pattern it is then in that tile, and clear of the
+       one it was in it has left it. cols, rows are the pattern's size; across, down a count: a whole number of at
+       least 1, or { expr } that comes to one from what is settled (a width, a height, a settled scalar's mass).
+       Refused, with a sentence, where a count is no such number or depends on its own tile or a tile of its nest,
+       the tiles would come to overlap where they did not (one lying over another, or a tile running past the
+       pattern of the tile it is in), or it is to be moved and an arrow is repeated in it.
+   frame.enter { ids, frame }: as for any frame; a whole tile among the blocks goes into a tile only where it lies
+       wholly inside that tile's pattern.
+   frame.leave { id, frame, also }, tile.remove { frame, also }: also carries the index matrices of a block that is then in no tile.
+   tile.remove { frame, also }: the tile is taken off. Its blocks, and the tiles in its pattern, stay: they are then in
+       the tile it was in, or in none. also: the arrows that read it, and what goes with them.
    index.add { of, axis, at, stand }: the index of the block `of` (which is in a tile) as a matrix, index.x or
        index.y, set down in that block's definition space at a point; with stand, standing in the definition's matrix. */
 bus.on('tile.pick', ({ frame }) => { selected.clear(); pickedTile = space.repeats.has(frame) ? frame : null; shown(); });
@@ -2504,10 +2589,13 @@ bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown();
 bus.on('unframe', ({ frame: g }) => { if (space.repeats.has(g)){ hud.say('That frame is a tile: select the tile by its edge or its name, and press Delete to take it off'); return shown(); }
   ungroup(g); tidy(); shown(); hud.say('Frame taken off'); }, changes);
 bus.on('frame.enter', ({ ids, frame: host }) => { const held = new Set(ids.map(blockOf).filter(Boolean));
-  const into = tiles.enterable(upFrom(host).some(g => space.repeats.has(g)), [...held].some(b => { const g = tileOf(b); return g !== undefined && inGroup(g).every(x => held.has(x)); }));      /* a whole tile among what is let go would go in as a tile */
+  /* a whole tile among what is let go goes in as a tile: into a tile, only where it lies wholly inside that tile's pattern (tiles.js: enterable, allowed) */
+  const to = upFrom(host).find(g => space.repeats.has(g)), whole = [...new Set([...held].flatMap(b => tilesOf(b)).filter(g => inGroup(g).every(x => held.has(x))))].filter((g, _, all) => !tilesAbove(space, g).some(k => all.includes(k)));
+  const fits = to === undefined || whole.every(g => g !== to && !tilesAbove(space, to).includes(g)) && !tiles.allowed(tileList(space), tileList(space, t => whole.includes(t.id) ? { ...t, in: to } : null)).refused;
+  const into = tiles.enterable(to !== undefined, whole.length > 0, fits);
   if (into.refused){ hud.say(into.refused); return shown(); }
-  for (const b of held){ const outer = chain(b).at(-1);
-    if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group */
+  for (const b of held){ const outer = chain(b).at(-1), tile = tilesOf(b).find(g => whole.includes(g));
+    if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else if (tile !== undefined) space.groupUp.set(tile, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group, and a whole tile as a tile */
   tidy(); shown(); }, changes);
 /* a whole frame set down again from the list: everything in it, made anew, centred where it was dropped */
 bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupNames.has(frame) || s.repeats.has(frame)); if (!s) return;

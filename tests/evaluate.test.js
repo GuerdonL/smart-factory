@@ -308,6 +308,37 @@ test('every project that comes with the repository: every node is answered, and 
 
 /* ---- after review ---- */
 const tileOf = (repeat, members, shapes) => snap(shapes, [{ id: 't1', name: null, members, groups: [], repeat }]);
+
+const make = s => { const g = build(s); assert.deepEqual(validate(g), []); return g; };
+/* a tile inside a tile, built from a snapshot as the page saves one: the inner tile round block 0, in the outer tile */
+const nested = (shapes, outer, inner, outerMembers = []) => snap(shapes, [{ id: 'outer', name: null, members: outerMembers, repeat: { x: 0, y: 0, across: 1, down: 1, ...outer }, groups: [{ id: 'inner', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, across: 1, down: 1, ...inner } }] }]);
+test('a tile inside a tile, from a snapshot: the outer tile\'s matrix is the inner tile\'s set in its place, in every cell', () => {
+  /* a 2 by 1 block holding 1, 2 in an inner tile twice across, inside an outer tile whose pattern is 4 by 1, three down */
+  const g = make(nested([B('A', 0, 0, 2, 1, { entries: { '1,1': 1, '2,1': 2 } }), arrow('out', { id: 'outer', as: 'tile' }), arrow('in', { id: 'inner', as: 'tile' }, { side: 'n' })], { cols: 4, rows: 1, down: 3 }, { cols: 2, rows: 1, across: 2 }));
+  assert.deepEqual(g.nodes[g.spaces.top.arrows[0].node].type, t(4, 3));
+  assert.deepEqual(text(out(g, 0)), text(rowsOf([[1, 2, 1, 2], [1, 2, 1, 2], [1, 2, 1, 2]])));
+  assert.deepEqual(text(out(g, 1)), text(rowsOf([[1, 2, 1, 2]])));      /* an arrow on the inner tile alone reads the inner tile's matrix */
+});
+test('the index a block of the inner tile reads is the inner tile\'s, the same in every cell of the outer tile', () => {
+  /* index.x in both entries: 1 2 in the inner tile's first cell and 3 4 in its second, whichever cell of the outer tile it is in */
+  const shapes = [B('A', 0, 0, 2, 1, { entries: { '1,1': { expr: 'index.x' }, '2,1': { expr: 'index.x' } } }), B('U', 0, 1, 4, 1, { entries: { '1,1': { expr: 'index.x' }, '4,1': { expr: 'index.y' } } }), arrow('out', { id: 'outer', as: 'tile' }), arrow('in', { id: 'inner', as: 'tile' }, { side: 'n' })];
+  const g = make(nested(shapes, { cols: 4, rows: 2, across: 2, down: 2 }, { cols: 2, rows: 1, across: 2 }, [1]));
+  assert.deepEqual(text(out(g, 1)), text(rowsOf([[1, 2, 3, 4]])));
+  /* the outer tile, 2 by 2 cells: the inner tile's row is 1 2 3 4 in each, and the outer tile's own block beside it reads the outer tile's index */
+  assert.deepEqual(text(out(g, 0)), text(rowsOf([[1, 2, 3, 4, 1, 2, 3, 4], [1, null, null, 2, 5, null, null, 2], [1, 2, 3, 4, 1, 2, 3, 4], [1, null, null, 4, 5, null, null, 4]])));
+  /* asked for as the page asks, under the chain of both cells (the outer tile's second cell, the inner tile's second): 3 4 */
+  const cells = [{ x: 4, y: 0, dx: 0, dy: 0 }, { x: 2, y: 0, dx: 0, dy: 0 }];
+  assert.deepEqual(text(worked(g, 'v:A', { binding: { cells } })), text(rowsOf([[3, 4]])));
+  assert.deepEqual(text(worked(g, 'v:A', { binding: { cells: [{ x: 0, y: 0, dx: 0, dy: 0 }, { x: 0, y: 0, dx: 0, dy: 0 }] } })), text(rowsOf([[1, 2]])));
+});
+test('three tiles, one inside the next: the bindings compose from a snapshot too', () => {
+  const g = make(snap([B('A', 0, 0, 1, 1, { entries: { '1,1': { expr: 'index.x * 10 + index.y' } } }), arrow('out', { id: 'a', as: 'tile' })],
+    [{ id: 'a', name: null, members: [], repeat: { x: 0, y: 0, cols: 4, rows: 2, across: 2, down: 1 }, groups: [{ id: 'b', name: null, members: [], repeat: { x: 0, y: 0, cols: 2, rows: 2, across: 2, down: 1 },
+      groups: [{ id: 'c', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 2, down: 2 } }] }] }]));
+  assert.deepEqual(g.nodes['v:A'].within, ['t:a', 't:b', 't:c']);
+  const row1 = [11, 21, 11, 21, 11, 21, 11, 21], row2 = [12, 22, 12, 22, 12, 22, 12, 22];
+  assert.deepEqual(text(out(g)), text(rowsOf([row1, row2])));
+});
 test('an arrow in a tile whose formula reads the index: every cell has its own', () => {
   const g = build(tileOf({ x: 0, y: 0, cols: 2, rows: 2, across: 3, down: 1 }, [0, 1, 2], [B('P', 0, 0, 2, 1, { entries: { '1,1': 0, '2,1': 0 } }),
     arrow('f', { id: 'P', as: 'block' }, { side: 's', span: 2, gap: 1, formula: 'x + index.x' }, { x: 0, y: 1 }), B('H', 0, 1, 2, 1, { seat: 'f' }), arrow('out', { id: 't1', as: 'tile' })]));

@@ -89,7 +89,9 @@
        param       a function's in block: a type and no value of its own. It is in the graph only with its function.
        repeat      a tile's matrix: its pattern's nodes (at for each, pattern { cols, rows }) set down across by
                    down times, each worked out once for every cell. An input may itself be a repeat: a tile wholly
-                   inside another's pattern is one part of it.
+                   inside another's pattern is one part of it. Which tile a tile is in is said by the frames; that
+                   it lies wholly inside the pattern, by its filled size. Tiles that overlap in any other way have
+                   no matrix (tiles.js: overlapping): the tile, and an arrow that reads it, have no-source with why.
        mapalong    an arrow repeated in a tile: fn or formula applied to each run of span rows or columns (axis)
                    of its first input from start, count times, the outputs set side by side
    A formula in the graph names what it depends on as $1, $2 and so on: for a variable its inputs in order, for a
@@ -119,9 +121,11 @@
    Reading a canvas. A block whose name begins with // and a block in a frame named .config take no part. A
    definition space whose blocks are all standing shapes has no pieces. Otherwise the pieces are algebra.js's, each
    turned into a node by its rule; an arrow's output is a slice, a map, an apply or a mapalong of what it reads.
-   Sizes are settled here: a tile's count that is a formula is worked out from sizes alone (tiles.js: settled).
+   Sizes are settled here: a tile's count that is a formula is worked out from sizes alone (tiles.js: settled), and
+   may not read what comes of its own tile or of a tile of its nest (the tile it is in, a tile in its pattern).
+   A block's zone, for what it touches, is the innermost tile it is in (algebra.js: zoneOf).
    Definitions are read 64 deep, one inside the next, and no deeper. */
-import { pieces, touches, rangeIn, combine, rootOf, isError, isFormula, exact, held as fromExact } from './algebra.js';
+import { pieces, touches, zoneOf, rangeIn, combine, rootOf, isError, isFormula, exact, held as fromExact } from './algebra.js';
 import { ROOTS } from './values.js';
 import { parts as textParts, evaluate as work, namesIn, refs } from './expression.js';
 import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES } from './arrows.js';
@@ -491,6 +495,7 @@ export function build(snapshot){
   const inConfig = rec => chain(rec).some(g => g.name === CONFIG);
   const tileOf = rec => chain(rec).find(g => g.repeat) || null;      /* the innermost tile it is in */
   const tileUp = grp => { for (let g = grp.up; g; g = g.up) if (g.repeat) return g; return null; };      /* the tile a tile is in */
+  const upTiles = grp => { const out = []; for (let g = tileUp(grp); g; g = tileUp(g)) out.push(g); return out; };      /* every tile a tile is in, innermost first */
   const takesPart = rec => !isOff(rec.d) && !inConfig(rec);
   const arrowsIn = ctx => ctx.recs.filter(r => r.arrow && !isOff(r.d));
   const spaceKey = ctx => !ctx.owner ? 'top' : ctx.owner.arrow ? 'f:' + ctx.owner.v.src.id : ctx.owner.v.nid;
@@ -647,7 +652,7 @@ export function build(snapshot){
     if (ctx.read) return ctx.read;
     const owner = ctx.owner && !ctx.owner.arrow ? ctx.owner.v : null, stood = !!owner && owner.inside === ctx && !!standingIn(owner);      /* shapes standing in the matrix are entries, not pieces */
     const active = stood ? [] : ctx.recs.filter(r => !r.arrow && takesPart(r) && !hollowSeat(r.d));
-    const rects = active.map(r => ({ x: r.x, y: r.y, w: r.cols, h: r.rows, wName: sideName(r.d.colsName), hName: sideName(r.d.rowsName), zone: tileOf(r)?.id ?? null }));
+    const rects = active.map(r => ({ x: r.x, y: r.y, w: r.cols, h: r.rows, wName: sideName(r.d.colsName), hName: sideName(r.d.rowsName), zone: zoneOf(chain(r).filter(g => g.repeat).map(g => g.id)) }));
     const ts = touches(rects), ps = pieces(rects);
     return ctx.read = { active, rects, ts, ps, out: ps.map(() => null), stood };
   }
@@ -741,7 +746,8 @@ export function build(snapshot){
      or an index matrix, its source; a use of a variable, the other uses; a function's input, its arrow; a named
      side, the sides of that name on its canvas; a single entry whose number is a formula, what that reads */
   function sizeNext(id){
-    const grp = groupsById.get(id); if (grp && grp.repeat) return ['across', 'down'].flatMap(k => grp.repeat[k] && typeof grp.repeat[k] === 'object' ? capsulesOf(grp.repeat[k].expr).map(c => c.id) : []);
+    const grp = groupsById.get(id); if (grp && grp.repeat) return [...['across', 'down'].flatMap(k => grp.repeat[k] && typeof grp.repeat[k] === 'object' ? capsulesOf(grp.repeat[k].expr).map(c => c.id) : []),
+      ...tiles.nest(grp.id, tilesIn(grp.ctx).map(t => ({ id: t.id, in: t.in })))];      /* and a tile goes with its nest: the tile it is in, the tiles in its pattern */
     const rec = blocks.get(id); if (!rec) return [];
     const out = [], ctx = rec.ctx;
     if (rec.arrow){ const inp = rec.arrow.input && typeof rec.arrow.input === 'object' ? rec.arrow.input : {}, at = ctx.recs.find(r => r.id === inp.id), home = homeOf(rec), mine = tileOf(rec);
@@ -764,15 +770,29 @@ export function build(snapshot){
     if (grp.counts) return grp.counts;
     const out = {};
     for (const k of ['across', 'down']){ const stored = grp.repeat[k], formula = stored && typeof stored === 'object' ? stored.expr : null;
-      const c = tiles.count(stored, sizeLookup, { entryOf, loops: formula !== null && tiles.circular(grp.id, capsulesOf(formula).map(c => c.id), sizeNext) });
+      const c = tiles.count(stored, sizeLookup, loopsIn(grp, k));
       if (c.refused) return grp.counts = { error: E('size-unknown', formula !== null ? formula : String(stored)) }; out[k] = c.count; }
     return grp.counts = out;
   }
-  /* a tile's matrix: { node } | { error }. A tile wholly inside its pattern is one part of it: that tile's matrix. */
+  /* the tiles of a space as tiles.js takes them: which tile each is in (by the frames), and what its counts come to,
+     with 1 standing for a count that cannot be settled, as the page draws it */
+  const loopsIn = (grp, k) => { const stored = grp.repeat[k]; return { entryOf, loops: !!stored && typeof stored === 'object' && tiles.circular(grp.id, capsulesOf(stored.expr).map(c => c.id), sizeNext) }; };
+  function tilesIn(ctx){
+    if (!ctx.tilesList) ctx.tilesList = [...ctx.groups.values()].filter(t => t.repeat).map(t => ({ id: t.id, in: tileUp(t)?.id ?? null, grp: t }));
+    return ctx.tilesList;
+  }
+  function overlapsIn(ctx){
+    if (!ctx.overlaps) ctx.overlaps = tiles.overlapping(tilesIn(ctx).map(t => { const c = tiles.counts(t.grp.repeat, sizeLookup, { across: loopsIn(t.grp, 'across'), down: loopsIn(t.grp, 'down') });
+      return { id: t.id, in: t.in, repeat: t.grp.repeat, across: c.across, down: c.down, formula: c.formula }; }));
+    return ctx.overlaps;
+  }
+  /* a tile's matrix: { node } | { error }. A tile wholly inside its pattern is one part of it: that tile's matrix.
+     A tile that overlaps another without lying wholly inside its pattern, or being lain in so, has none (tiles.js: overlapping). */
   function tileNode(ctx, grp){
     if (ctx.tile.has(grp.id)) return ctx.tile.get(grp.id);
     ctx.tile.set(grp.id, { error: E('loop') });
     const done = out => { ctx.tile.set(grp.id, out); return out; }, c = countsOf(grp); if (c.error) return done({ error: c.error });
+    const lies = overlapsIn(ctx).get(grp.id); if (lies) return done({ error: E('no-source', lies) });
     const rep = grp.repeat, parts = ctx.recs.filter(r => !r.arrow && !isOff(r.d) && !hollowSeat(r.d) && tileOf(r) === grp).map(r => ({ node: () => blockNode(r), rect: { x: r.x, y: r.y, w: r.cols, h: r.rows } }));
     for (const t of ctx.groups.values()) if (t.repeat && tileUp(t) === grp){ const made = tileNode(ctx, t);
       if (made.error) return done({ error: E(made.error.code === 'size-unknown' ? 'size-unknown' : 'no-source', made.error.code === 'size-unknown' ? made.error.note : 'a tile in its pattern has no matrix: ' + made.error.note) });
@@ -810,7 +830,7 @@ export function build(snapshot){
     const part = coveredType(use, type);
     if (!part) return { error: E('size', `${rows ? 'rows' : 'columns'} ${use.start} to ${use.start + use.span - 1} of ${n}`) };
     /* in a tile, with its input outside it, it is repeated along that input: how often, and whether it can be, is tiles.js's to say */
-    const mine = tileOf(a), isMapped = !!mine && (inp.as === 'tile' ? outside !== mine : !chain(outside).includes(mine)); let count = 1;
+    const mine = tileOf(a), isMapped = !!mine && (inp.as === 'tile' ? outside !== mine && !upTiles(outside).includes(mine) : !chain(outside).includes(mine)); let count = 1;      /* a tile in this tile's pattern is not outside it */
     if (isMapped){ const c = countsOf(mine); if (c.error) return { error: c.error };
       const m = tiles.mapped(use, mine.repeat, c.across, c.down, n, { tile: inp.as === 'tile' });
       if (m.warn) return { error: E(/runs past/.test(m.warn) ? 'size' : 'mismatch', m.warn) }; count = m.count; }
