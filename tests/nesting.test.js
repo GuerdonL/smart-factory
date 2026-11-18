@@ -100,3 +100,14 @@ test('what can be turned: a use that holds inner data and is not the shape its v
   assert.match(inner.turnable({ name: 'W', inner: 0 }).refused, /holds no inner data/);
   for (const k of ['arrow', 'input', 'part', 'entry', 'measure', 'seated', 'fused', 'standing']) assert.ok(inner.turnable({ name: 'W', inner: 2, [k]: true }).refused, k);
 });
+
+/* ---- after review ---- */
+test('an axis is at most 16,000,000 long, where it is typed and where it is kept; a shape with inner data is not made one by one', () => {
+  assert.equal(inner.LONGEST, 16000000);
+  assert.deepEqual(inner.lengthOk(16000000), { ok: true }); assert.deepEqual(inner.lengthOk(1), { ok: true });
+  for (const n of [16000001, 5000000000, 1e12, Infinity, 0, 1.5, NaN, '3']) assert.ok(inner.lengthOk(n).refused, String(n));
+  assert.match(inner.lengthOk(5000000000).refused, /at most 16000000/); assert.match(inner.axisTyped('embed 5000000000').refused, /at most 16000000/);
+  assert.deepEqual(inner.kept([{ length: 1e12, name: null }, { length: Infinity, name: null }]).map(a => a.length), [16000000, 16000000]);
+  assert.deepEqual(inner.sizable(1, 1, 0), { ok: true }); assert.deepEqual(inner.sizable(2, 1, 3), { ok: true }); assert.deepEqual(inner.sizable(1, 2, 1), { ok: true });
+  assert.match(inner.sizable(1, 1, 1).refused, /cannot be made one by one/);
+});

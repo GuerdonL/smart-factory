@@ -23,7 +23,7 @@ import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
-import { evaluate as workOut, carry, toMap, tooLarge } from './evaluate.js';
+import { evaluate as workOut, carry, toMap, tooLarge, MOST as MOST_HERE } from './evaluate.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -271,6 +271,7 @@ const working = guard();
 const workedAt = (b, key) => { const v = b.values.get(key); if (!isFormula(v)) return v; const [c, r, ...ks] = key.split(',').map(Number); return working(originOf(b).id + ' ' + key, () => evaluate(v.expr, lookupFor(b, { c, r, ks })).value ?? null); };      /* the entry's place, for a formula that reads the index */
 function worked(b){
   if (b.source){ const all = orderOf(b) ? variableAxes(b) : null, u = view.unit, w = Math.round(b.rect.w / u), h = Math.round(b.rect.h / u);      /* (a turned use: by its variable's own columns and rows) */
+    if (dataOf(b).length && nesting.numbers(w, h, dataOf(b)) > MOST_HERE) return new Map();      /* more numbers than are worked out here: none are made, whatever its size */
     return all ? sourceValues(b.source, all[0].length, all[1].length, all.slice(2).map(a => a.length)) : sourceValues(b.source, turned(b) ? h : w, turned(b) ? w : h, dataOf(b).map(a => a.length)); }      /* a source stores no entries: they follow from its kind and its size (sources.js), the variable's own way round */
   let any = false; for (const v of b.values.values()) if (isFormula(v)){ any = true; break; }
   if (!any) return b.values;
@@ -620,6 +621,8 @@ function dataOf(b, depth = 0){
   return b.inner || NO_DATA;
 }
 const NO_DATA = Object.freeze([]);
+/* whether giving b that size by hand would make a one by one shape that holds inner data, which exists only as a result */
+const madeOne = (b, w, h) => w === view.unit && h === view.unit && !(b.rect.w === view.unit && b.rect.h === view.unit) && !isArrow(b) && dataOf(b).length > 0 && !rangedOf(b) && !takenOf(b) && !seatedOf(b) && !givenOf(b) && !orderOf(b);
 /* ---- turning ----
    A use of a variable that holds inner data can be turned: block.axes is an order of all the variable's axes (its
    columns 0, its rows 1, then its inner axes), and the use draws the first two and holds the rest (inner.js). Its
@@ -710,7 +713,9 @@ function agree(b){
         for (const [o, d] of group) if (d[0] === 'k'){ const a = axesOf(o)[+d.slice(1)]; if (a && a.name){ hud.say(`${a.name} is not a whole number now: ${bare(o.name)} no longer follows it`); a.name = null; } }
           else if (rootSide(o) === null && o.sides[d]){ hud.say(`${o.sides[d]} is not a whole number now: ${bare(o.name)} no longer follows it`); o.sides[d] = null; }
         continue; }
-      for (const [o, d] of group) if ((d[0] === 'k' || (rootSide(o) === null && !unset(o))) && lenOf(o, d) !== length){ setLen(o, d, length); done.delete(o); todo.push(o); } }
+      for (const [o, d] of group) if ((d[0] === 'k' || (rootSide(o) === null && !unset(o))) && lenOf(o, d) !== length){
+        if (d[0] !== 'k' && madeOne(o, d === 'w' ? length : o.rect.w, d === 'h' ? length : o.rect.h)){ hud.say(`${o.sides[d]} is 1 now, and ${bare(o.name)} holds inner data, so it cannot be one by one: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* a named length that comes to 1 */
+        setLen(o, d, length); done.delete(o); todo.push(o); } }
   }
 }
 /* Runs change(), then puts back together whatever it pulled apart: blocks that were touching side by side, in any
@@ -719,7 +724,7 @@ function agree(b){
 function keepTouching(change, except = () => false){
   const u = view.unit, pairs = [];
   for (const s of everySpace()){
-    const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, zone: zoneOf(tilesOf(b, s)) }));
+    const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), rects = live.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, zone: zoneOf(tilesOf(b, s)), inner: dataOf(b) }));
     for (const j of joins(rects)) if (!except(live[j.left], live[j.right])) pairs.push([live[j.left], live[j.right]]);
   }
   change();
@@ -749,6 +754,8 @@ function typedNow(b, dim, text){
   if (takenOf(b) && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is an entry of ${partOf(b)}: its size is that entry's`);
   if (single && measures(b)){ hud.say(`${bare(b.name)} is a measure of another shape: change it there`); return; }
   if (single && b.source && n !== null){ hud.say(`${bare(b.name)} is a source: a length typed on a single entry sets its number, and a source's is not typed. Pull it larger by an edge`); return; }
+  const oneNow = length => madeOne(b, dim === 'w' ? length : b.rect.w, dim === 'h' ? length : b.rect.h);
+  if ((n !== null && oneNow(n * view.unit)) || (n === null && name && name !== '-' && lengthCalled(name, space, b) !== undefined && oneNow(lengthCalled(name, space, b)))){ hud.say(nesting.sizable(1, 1, 1).refused); return; }      /* typed, or through a name whose length is 1 */
   const size = length => { if (single){ b.values.set('1,1', (length / view.unit) ** 2); touched(b.values); } else b.set({ ...b.rect, [dim]: length }); };
   if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) size(n * view.unit); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
   if (name && sidesCalled(name, space).some(([o, d]) => o !== b && sideLength(o, d) === null)){ hud.say(`${name} is not a whole number: it cannot be a side's length`); return; }
@@ -1325,7 +1332,7 @@ function select(list, { toggle = false } = {}){
 /* what folding these blocks would make: if they come to one thing (a product, say) the new block is that size;
    if not, it is the size of the box round them */
 function foldable(list){
-  const u = view.unit, box = boxOf(list), type = typeOf(list.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h })));
+  const u = view.unit, box = boxOf(list), type = typeOf(list.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, inner: dataOf(b) })));
   return { blocks: list, box, type: type && !type.error ? type : { cols: box.w / u, rows: box.h / u, colsName: null, rowsName: null } };
 }
 function fold({ blocks: inside, type, box }, name, color = someColour()){
@@ -1432,7 +1439,7 @@ function transpose(){
   if (!selected.size) return;
   const fixed = fixedIn([...selected], 'transposed'); if (fixed){ hud.say(fixed); return shown(); }
   const u = view.unit, list = [...selected], act = list.filter(b => !isOff(b)), done = new Set();
-  const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h })))
+  const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, inner: dataOf(b) })))
     .filter(p => p.rule === 'product').map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x))
     .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
   /* a shape becomes the transpose of what it was: this use alone, marked with a T. Its width and height change places,
@@ -2088,7 +2095,7 @@ function depsOf(id){
 }
 /* the ids of the blocks joined to blk by touching, itself included */
 function touching(s, blk){
-  const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), ts = touches(live.map(b => ({ ...unitsOf(b), zone: zoneOf(tilesOf(b, s)) }))), seen = new Set([live.indexOf(blk)]);
+  const live = s.blocks.filter(b => !isOff(b) && !isArrow(b) && !hollowSeat(b)), ts = touches(live.map(b => ({ ...unitsOf(b), zone: zoneOf(tilesOf(b, s)), inner: dataOf(b) }))), seen = new Set([live.indexOf(blk)]);
   for (let more = true; more;){ more = false; for (const t of ts) if (seen.has(t.a) !== seen.has(t.b)){ seen.add(t.a); seen.add(t.b); more = true; } }
   return [...seen].filter(i => i >= 0).map(i => live[i].id);
 }
@@ -2506,12 +2513,19 @@ ask().then(() => { if (kept) backend.health(); else backend.absent();
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(name){
+  let made; try { made = savedNow(); } catch (e){ return hud.say('Could not save: ' + (e && e.message ? e.message : e)); }      /* nothing a save meets is left unsaid */
+  const { data, files } = made, what = `${count(data)} shapes in ${files.length} files`;
+  return sendSaved(name, files, what);
+}
+function savedNow(){
   const data = gather();
   /* a data file no block reads now is still saved while undoing or redoing can come back to a block that reads it:
      the backend reads a file from the project's directory, so it has to be there when a step back needs it */
   for (const state of history.states()) for (const path of Object.keys(state.data.data || {})) if (!(path in data.data) && dataFiles.has(path)) data.data[path] = dataFiles.get(path);
   data.data = Object.fromEntries(Object.keys(data.data).sort().map(k => [k, data.data[k]]));
-  const files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
+  return { data, files: project.write(data) };
+}
+async function sendSaved(name, files, what){
   try {
     if (kept){                                   /* on the server, under a name */
       if (!name) return hud.say('Not saved');
@@ -2527,7 +2541,8 @@ async function save(name){
 }
 
 /* opening replaces everything on the page */
-function openFrom(files, name = null){ const data = project.read(files); dataFiles.clear(); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
+function openFrom(files, name = null){ let data; try { data = project.read(files); } catch (e){ hud.say('Could not open: ' + (e && e.message ? e.message : e)); return shown(); }      /* what is no project this program reads is said, and nothing is replaced */
+   dataFiles.clear(); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
   hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
@@ -2582,13 +2597,17 @@ function dragged(el, from, e){
   /* while a drag lasts the blocks follow the pointer directly. When it ends they are put back as they were, and one
      message, 'place', says where every block that moved or changed size now goes. */
   const before = new Map(everyKnown().map(b => [b, b.rect])), tilesBefore = placesOfTiles();      /* a tile that followed its arrow during the drag is put back too */
-  const collect = () => { const rects = []; for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; }      /* everything back as it was; gives where what moved was let go */
+  /* a side pulled longer takes with it every length of its name, an inner axis's among them: those are put back too, and go in the message */
+  const axesBefore = []; for (const b of everyKnown()) (b.inner || []).forEach((a, i) => { if (!axesBefore.some(x => x[1] === a)) axesBefore.push([b, a, i, a.length]); });
+  const collect = () => { const rects = [], axes = []; for (const [r, x, y] of tilesBefore){ r.x = x; r.y = y; }      /* everything back as it was; gives where what moved was let go */
+    for (const [b, a, i, length] of axesBefore) if (a.length !== length){ axes.push({ id: b.id, index: i, length: a.length }); a.length = length; }
     for (const [b, r] of before) if (b.rect !== r){ if (b.rect.x !== r.x || b.rect.y !== r.y || b.rect.w !== r.w || b.rect.h !== r.h) rects.push({ id: b.id, ...b.rect }); b.set(r); }
-    return rects; };
-  const settle = () => { const rects = collect(); if (rects.length) bus.send('place', { rects }); else shown(); };
+    return { rects, axes }; };
+  const settle = () => { const { rects, axes } = collect(); if (rects.length || axes.length) bus.send('place', { rects, ...(axes.length ? { axes } : {}) }); else shown(); };
   const end = () => { cursor(''); settle(); };
   const grip = el.dataset.grip;
   if (grip && rangedOf(b)){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); return { end(){}, move(){} }; }      /* it is as large as its range, and cannot be pulled larger or smaller */
+  if (grip && orderOf(b)){ hud.say(`${bare(b.name)} is turned here: its sides are its variable's axes. Change them on the shape it was made as`); return { end(){}, move(){} }; }
   if (grip){                                    /* the opposite side or corner stays where it is; never smaller than one square */
     if (!selected.has(b) || selected.size > 1) pick([b]);
     const r = b.rect, right = r.x + r.w, bottom = r.y + r.h;
@@ -2597,6 +2616,7 @@ function dragged(el, from, e){
       const x0 = grip.includes('w') ? Math.min(snap(p.x), right - g) : r.x, x1 = grip.includes('e') ? Math.max(snap(p.x), r.x + g) : right;
       const y0 = grip.includes('n') ? Math.min(snap(p.y), bottom - g) : r.y, y1 = grip.includes('s') ? Math.max(snap(p.y), r.y + g) : bottom;
       /* what touches its right side follows that side; pulling its own left side away from a neighbour is allowed */
+      if (madeOne(b, x1 - x0, y1 - y0)){ hud.say(nesting.sizable(1, 1, 1).refused); return; }      /* pulled down to one square: it stays as it was */
       keepTouching(() => { b.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }); agree(b); }, (left, right) => right === b || (left === b && !grip.includes('e') && !b.sides.w));
       shown(); } };
   }
@@ -2820,7 +2840,16 @@ bus.on('source.set', ({ id, seed, dist, file, cols, rows }) => { const b = block
     o.set({ ...o.rect, w: (over ? rows : cols) * u, h: (over ? cols : rows) * u }); agree(o); hud.say(`${bare(b.name)} reads ${next.file}: ${cols} wide × ${rows} tall`); }
   shown(); }, changes);
 bus.on('add', ({ type, rect, name, source = null }) => { const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
-bus.on('place', ({ rects }) => { for (const r of rects) blockOf(r.id)?.set({ x: r.x, y: r.y, w: r.w, h: r.h }); shown(); }, changes);      /* where blocks go, and how big: the end of a move or a resize */
+/* place { rects, axes }: where blocks go, and how big: the end of a move or a resize. axes, where a side that was
+   pulled carries the name of an inner axis: [{ id, index, length }], that axis of that block's variable at its new
+   length. Every length the gesture changed is in the message, so that a step back puts every one of them back.
+   A block that holds inner data is not made one by one (inner.js: sizable): it keeps the size it had. */
+bus.on('place', ({ rects, axes = [] }) => { const u = view.unit;
+  for (const a of axes){ const b = blockOf(a.id), axis = b && (b.inner || [])[a.index]; if (axis && nesting.lengthOk(a.length).ok) axis.length = a.length; }
+  for (const r of rects){ const b = blockOf(r.id); if (!b) continue;
+    if (madeOne(b, r.w, r.h)){ hud.say(nesting.sizable(1, 1, 1).refused); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }
+    b.set({ x: r.x, y: r.y, w: r.w, h: r.h }); }
+  shown(); }, changes);
 /* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
 const chosen = fn => ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(); };
 const going = fn => ({ ids: list, also = [] }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(also.map(blockOf).filter(Boolean)); };      /* also: what goes with them, in any space */
@@ -2923,7 +2952,7 @@ bus.on('inner.count', ({ id, count }) => { const b = blockOf(id), o = b && origi
 bus.on('inner.set', ({ id, index, length, name }) => { const b = blockOf(id), a = b && axesOf(b)[index];
   if (!a){ if (b) hud.say(`${bare(b.name)} has no such axis of its own to change`); return shown(); }
   keepTouching(() => {
-    if (length !== undefined){ if (!Number.isInteger(length) || length < 1){ hud.say('An axis\'s length is a whole number, at least 1'); return; } a.length = length; }
+    if (length !== undefined){ const can = nesting.lengthOk(length); if (can.refused){ hud.say(can.refused); return; } a.length = length; }
     if (name !== undefined){ const called = String(name).trim();
       if (!called) a.name = null;
       else if (sidesCalled(called, space).some(([o, d]) => sideLength(o, d) === null)){ hud.say(`${called} is not a whole number: it cannot be an axis's length`); return; }

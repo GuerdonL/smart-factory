@@ -24,6 +24,13 @@
                                  input, entry }. A scalar holds one number and nothing else, so a 1 by 1 block is
                                  refused any; what is defined by something else (a part, a measure, a seat, an
                                  entry taken out, a function's input) holds what that holds; a data file holds none.
+   LONGEST                       16,000,000: the most an inner axis is long, the most numbers anything holds at all
+                                 (the backend's limit for one node). kept holds a length to it.
+   lengthOk(length)              { ok: true } | { refused }: a length typed for an axis: whole, from 1 to LONGEST
+   sizable(cols, rows, axes)     { ok: true } | { refused }: whether a shape with that many inner axes can be given
+                                 that drawn size by hand. Not one by one: a one by one shape that holds inner data
+                                 exists only as a result (a part cut down to one entry), and is never made by typing
+                                 a side, by a named length that comes to 1, or by pulling a grip.
    resized(inner, count)         the axes with that many of them: raising adds axes of length 1 at the end, lowering
                                  removes the last
    rekeyed(entries, from, to)    { entries: a Map, lost: how many were dropped }: a shape's entries (pairs of key and
@@ -78,9 +85,10 @@
 import { readSide } from './algebra.js';
 
 export const MOST = 6;
+export const LONGEST = 16000000;               /* the most an inner axis is long: as many numbers as anything holds at all (backend/limits.py: MAX_ENTRIES) */
 const whole = (v, least = 1) => Number.isInteger(v) && v >= least;
 export const kept = inner => (Array.isArray(inner) ? inner : []).filter(a => a && typeof a === 'object').slice(0, MOST)
-  .map(a => ({ length: whole(a.length) ? a.length : Math.max(1, Math.round(+a.length || 1)), name: typeof a.name === 'string' && a.name ? a.name : null }));
+  .map(a => ({ length: Math.min(LONGEST, whole(a.length) ? a.length : Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null }));
 export function tails(inner){ let out = ['']; for (const a of kept(inner)) out = out.flatMap(p => Array.from({ length: a.length }, (_, k) => p + ',' + (k + 1))); return out; }
 export const numbers = (cols, rows, inner) => kept(inner).reduce((n, a) => n * a.length, cols * rows);
 
@@ -101,6 +109,9 @@ export function countable(shape, count){
   if (shape.source === 'file') return { refused: `${name} is a data file: a CSV file holds no inner data` };
   return { ok: true };
 }
+export const lengthOk = length => !whole(length) ? { refused: 'An axis\'s length is a whole number, at least 1' }
+  : length > LONGEST ? { refused: `An axis is at most ${LONGEST} long: nothing here holds more numbers than that` } : { ok: true };
+export const sizable = (cols, rows, axes) => cols === 1 && rows === 1 && axes > 0 ? { refused: 'A shape that holds inner data cannot be made one by one: a scalar holds one number and nothing else' } : { ok: true };
 export function resized(inner, count){
   const now = kept(inner), n = Math.max(0, Math.min(MOST, Math.round(+count || 0)));
   return n <= now.length ? now.slice(0, n) : [...now, ...Array.from({ length: n - now.length }, () => ({ length: 1, name: null }))];
@@ -115,6 +126,7 @@ export function rekeyed(entries, from, to){
 }
 export function axisTyped(text){
   const read = readSide(text);
+  if (read.length !== null && read.length !== undefined && read.length > LONGEST) return { refused: lengthOk(read.length).refused };
   if (read.length === undefined || (read.length !== null && read.length < 1)) return { refused: `${String(text).trim()}: only a whole number, at least 1, can be an axis's length` };
   if (!read.name && read.length === null) return { refused: 'Type a length, a name, or both: "4", "embed", "embed 4"' };
   return { name: read.name === '-' ? null : read.name || undefined, length: read.length === null ? undefined : read.length };

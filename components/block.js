@@ -28,8 +28,8 @@
               block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or
               null for a plain face
      nest     nest(n): draws it as a shape whose entries hold inner data, with n inner axes: one offset outline
-              behind its face for each, up and to the right, at most three drawn (0: none). Its name moves up clear
-              of them.
+              behind its face for each, down and to the right, at most three drawn (0: none). Its name stays
+              where every block's is.
      dim      fades the block and its name most of the way to the theme's --fade-to, or brings them back
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
@@ -89,22 +89,21 @@ style('block', `
 .block.input { --face: color-mix(in srgb, var(--function) 20%, var(--bg)); --rim: transparent; --lit: transparent; --shade: transparent; --cast: transparent; --ink: var(--function); }
 .block.input:not(.selected) { outline: calc(1.5 * var(--px)) dashed var(--function); outline-offset: calc(-1.5 * var(--px)); }
 /* a shape whose entries hold inner data: behind its face, one outline for each inner axis (at most three), each a step
-   further up and to the right and a little paler, like sheets under the top one. They lie on the layer below every
+   further down and to the right and a little paler, like sheets under the top one (down, not up: above a block is its
+   name, and above that a frame's or a tile's own label, which a sheet or a raised name would lie over). They lie on the layer below every
    block, as its cast shadow does, so that a block set against this one is not drawn over. A selected block is a
    layer of its own, where such a sheet would lie over its own face: there the sheets are shadows of its box with no
    blur, which are drawn only outside the box (and over what is beside it, as its halo is). */
-.block.nested { --step: calc(5 * var(--px)); --sheet-1: color-mix(in srgb, var(--face) 64%, var(--fade-to)); --sheet-2: color-mix(in srgb, var(--face) 46%, var(--fade-to)); --sheet-3: color-mix(in srgb, var(--face) 32%, var(--fade-to));
-  --at-1: var(--step) calc(-1 * var(--step)) 0; --at-2: calc(2 * var(--step)) calc(-2 * var(--step)) 0; --at-3: calc(3 * var(--step)) calc(-3 * var(--step)) 0; }
+.block.nested { --step: calc(4 * var(--px)); --sheet-1: color-mix(in srgb, var(--face) 64%, var(--fade-to)); --sheet-2: color-mix(in srgb, var(--face) 46%, var(--fade-to)); --sheet-3: color-mix(in srgb, var(--face) 32%, var(--fade-to));
+  --at-1: var(--step) var(--step) 0; --at-2: calc(2 * var(--step)) calc(2 * var(--step)) 0; --at-3: calc(3 * var(--step)) calc(3 * var(--step)) 0; }
 .block-depth { position: absolute; inset: 0; z-index: -1; pointer-events: none; box-sizing: border-box; border-radius: inherit; box-shadow: inset 0 0 0 var(--px) var(--rim); }
-.block-depth[data-n="1"] { transform: translate(var(--step), calc(-1 * var(--step))); background: var(--sheet-1); }
-.block-depth[data-n="2"] { transform: translate(calc(2 * var(--step)), calc(-2 * var(--step))); background: var(--sheet-2); }
-.block-depth[data-n="3"] { transform: translate(calc(3 * var(--step)), calc(-3 * var(--step))); background: var(--sheet-3); }
+.block-depth[data-n="1"] { transform: translate(var(--step), var(--step)); background: var(--sheet-1); }
+.block-depth[data-n="2"] { transform: translate(calc(2 * var(--step)), calc(2 * var(--step))); background: var(--sheet-2); }
+.block-depth[data-n="3"] { transform: translate(calc(3 * var(--step)), calc(3 * var(--step))); background: var(--sheet-3); }
 .block.selected > .block-depth { display: none; }
 .block.selected.nest-1 { --sheets: var(--at-1) 0 var(--sheet-1), var(--at-1) var(--px) var(--rim); }
 .block.selected.nest-2 { --sheets: var(--at-1) 0 var(--sheet-1), var(--at-1) var(--px) var(--rim), var(--at-2) 0 var(--sheet-2), var(--at-2) var(--px) var(--rim); }
 .block.selected.nest-3 { --sheets: var(--at-1) 0 var(--sheet-1), var(--at-1) var(--px) var(--rim), var(--at-2) 0 var(--sheet-2), var(--at-2) var(--px) var(--rim), var(--at-3) 0 var(--sheet-3), var(--at-3) var(--px) var(--rim); }
-.block.nested .block-name { bottom: calc(100% + (9 + 5 * var(--depth)) * var(--px)); }
-.block.nested.name-inside .block-name { bottom: auto; }
 /* a block makes no layer of its own, so its name (z-index 2) sits above every block on the canvas, not just this one */
 .block-name { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--ink); transition: color .15s; border-radius: calc(3 * var(--px)); cursor: default; }

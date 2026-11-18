@@ -553,7 +553,7 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
   resizes the other. A scalar holds one number and nothing else: a 1 by 1 block is refused data dimensions, and
   says so. What something else defines holds what that gives it, and says so too: a part, an entry taken out, a
   seated block, a function's `in`.
-- **How it looks.** The block has one paler sheet behind its face for each inner axis, up and to the right (at most
+- **How it looks.** The block has one paler sheet behind its face for each inner axis, down and to the right (at most
   three are drawn), and its measurement gains a line: `· 2 key × 4 embed`. The panel says what it is, `3 wide × 1
   tall · vector of 2 × 4 matrices`, and never counts dimensions. In a written matrix (a result, a definition's
   equation, the panel) such an entry is not a number: one in which any number has been given is a small bracket

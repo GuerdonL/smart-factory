@@ -195,7 +195,9 @@
    The format is 4. Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
    that go with it, from.entry, and a use's "axes". A format 3 project has none of them and is read exactly as it is: no field is
    converted, and saved again it differs only in the format number. Reading, inner is given whole lengths of at least
-   1 and at most six axes (an arrow has none), and an entry whose key is not one of its shape's is kept in the file's
+   1 and at most six axes (an arrow has none); a length past 16,000,000 (as many numbers as anything holds) is no
+   project this program reads, and read says which shape has it; writing, a length is held to that. What a shape
+   costs to write is what its stored entries cost, whatever its size, and an entry whose key is not one of its shape's is kept in the file's
    own words and takes no part, as an entry beyond a shape's size always has.
    Format 3 added to format 2 a space's operations and a shape's from.range, both set out above; a
    format 2 project has neither, and is read as having no operations. It adds arrows: a shape of type "arrow" with
@@ -252,12 +254,19 @@ import { kept as repeatOf } from './tiles.js';
 
 export const FORMAT = 4;
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
-const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.max(1, Math.round(+a.length || 1)), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
-const innerBack = (size, sides) => innerOf((Array.isArray(size?.inner) ? size.inner : []).map((length, i) => ({ length, name: Array.isArray(sides?.inner) ? sides.inner[i] : null })));
+const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
+const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */
+const innerBack = (size, sides, name = 'A shape') => { for (const length of Array.isArray(size?.inner) ? size.inner.slice(0, 6) : []) if (typeof length === 'number' && !(length <= LONGEST)) throw new Error(`${name} has an inner axis ${length} long: the most is ${LONGEST}`);
+  return innerRead(size, sides); };
+const innerRead = (size, sides) => innerOf((Array.isArray(size?.inner) ? size.inner : []).map((length, i) => ({ length, name: Array.isArray(sides?.inner) ? sides.inner[i] : null })));
 /* a use's axis order as it is kept: every axis of its variable once (two drawn, then the inner ones), moving an inner one; null for none. Only a reference is turned. */
 const axesOf = shape => { const n = (innerOf(shape.inner) || []).length + 2, o = shape.axes;
   return shape.reference && Array.isArray(o) && o.length === n && n > 2 && o.every((i, k) => Number.isInteger(i) && i >= 0 && i < n && o.indexOf(i) === k) && !o.slice(2).every((i, k) => i === k + 2) ? [...o] : null; };
-const tails = inner => { let out = ['']; for (const a of inner || []) out = out.flatMap(p => Array.from({ length: a.length }, (_, k) => p + ',' + (k + 1))); return out; };
+/* whether every number of a shape has been given: as many of its entries' keys are its own (a column, a row and an inner position, each within its length) as it holds numbers. Counted over what is stored, never over its size. */
+const fullOf = (shape, entries) => { const ax = [shape.cols, shape.rows, ...(innerOf(shape.inner) || []).map(a => a.length)], all = ax.reduce((n, a) => n * a, 1), keys = Object.keys(entries);
+  if (keys.length < all) return false; let mine = 0;
+  for (const key of keys){ const p = key.split(','); if (p.length === ax.length && p.every((x, i) => /^[1-9]\d*$/.test(x) && +x <= ax[i])) mine++; }
+  return mine === all; };
 const isCommented = name => /^\s*\/\//.test(name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');
 export const isNamed = name => !/^Shape \d+$/.test(bare(name));
@@ -306,7 +315,7 @@ function valueOf(shape, inside){                  /* inside: its definition spac
   if (sourceOf(shape.source)) return { as: 'resolved', entries: {} };      /* a source has every entry, and stores none */
   const entries = kept(shape.entries, out);
   const computed = !!inside && inside.shapes.some(s => !isCommented(s.name));
-  let full = true; for (const tail of tails(innerOf(shape.inner))) for (let c = 1; c <= shape.cols && full; c++) for (let r = 1; r <= shape.rows; r++) if (!(c + ',' + r + tail in entries)){ full = false; break; }      /* every number, at every inner position */
+  const full = fullOf(shape, entries);          /* every number, at every inner position */
   return { as: computed ? 'computation' : full ? 'resolved' : 'variable', entries };
 }
 
@@ -373,9 +382,9 @@ export function read(files){
     found.sort((a, b) => (a[0].order ?? 0) - (b[0].order ?? 0));
     const make = c => {
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
-      const turned = axesOf({ reference: !!c.reference, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides), axes: c.axes });
+      const turned = axesOf({ reference: !!c.reference, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides, String(c.name ?? 'A shape')), axes: c.axes });
       return { ...(turned ? { axes: turned } : {}), id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
-        cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides),
+        cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides, String(c.name ?? 'A shape')),
         entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
         reference: !!c.reference, from: fromBack(c.from),

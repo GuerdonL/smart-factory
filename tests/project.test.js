@@ -759,3 +759,14 @@ test('format 4: a turned use keeps its axis order, beside its own size as it is 
   const back = c => read([head(), file('S.json', config('S', { named: true, size: { cols: 3, rows: 1, inner: [2] }, sides: {}, ...c }))]).top.shapes[0];
   assert.deepEqual(back({ reference: true, axes: [2, 1, 0] }).axes, [2, 1, 0]); assert.equal('axes' in back({ axes: [2, 1, 0] }), false); assert.equal('axes' in back({ reference: true, axes: [5, 1, 0] }), false);
 });
+test('after review: writing a shape costs what its entries cost, never its size; an inner length past 16,000,000 is not read', () => {
+  const huge = shape('H', { cols: 3000, rows: 3000, inner: [{ length: 16000000, name: null }, { length: 16000000, name: null }], entries: { '1,1,1,1': 5 } });
+  const t0 = Date.now(), files = write(project(space([huge]))); assert.ok(Date.now() - t0 < 500, 'written at once');
+  assert.equal(json(files, 'H.json').value.as, 'variable'); assert.deepEqual(json(files, 'H.json').size.inner, [16000000, 16000000]);
+  assert.deepEqual(json(write(project(space([shape('H', { inner: [{ length: 1e12, name: null }] })]))), 'H.json').size.inner, [16000000]);      /* held to the most on the way out */
+  for (const length of ['16000001', '1e12', '1e999']) assert.throws(() => read([head(), { path: 'S.json', text: `{"format":"smart-factory/shape","version":4,"name":"S","named":true,"size":{"cols":2,"rows":1,"inner":[${length}]}}` }]), /S has an inner axis .* long: the most is 16000000/);
+  assert.deepEqual(read([head(), file('S.json', config('S', { named: true, size: { cols: 2, rows: 1, inner: [16000000] } }))]).top.shapes[0].inner, [{ length: 16000000, name: null }]);
+  /* full is counted over the keys that are its own */
+  const as = entries => json(write(project(space([shape('S', { cols: 2, rows: 1, inner: [{ length: 2, name: null }], entries })]))), 'S.json').value.as;
+  assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '2,1,2': 1 }), 'resolved'); assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '3,1,2': 1 }), 'variable'); assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '2,1,2': 1, '9,9': 1 }), 'resolved');
+});
