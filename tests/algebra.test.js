@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { joins, pieces, stacks, typeOf, readEntry, readSide, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials } from '../algebra.js';
+import { touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readEntry, readSide, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -18,11 +18,11 @@ test('the order shapes are given in does not matter, only where they are', () =>
   assert.equal(j.left, 1); assert.equal(j.right, 0); assert.equal(j.ok, true);
 });
 
-test('touching at a corner, a gap, or an overlap is no product', () => {
-  assert.deepEqual(joins([rect(0, 0, 3, 2), rect(3, 2, 4, 3)]), []);      /* corner */
-  assert.deepEqual(joins([rect(0, 0, 3, 2), rect(4, 0, 4, 3)]), []);      /* gap */
-  assert.deepEqual(joins([rect(0, 0, 3, 2), rect(2, 0, 4, 3)]), []);      /* overlap */
-  assert.deepEqual(joins([rect(0, 0, 3, 2), rect(0, 2, 3, 2)]), []);      /* one on top of the other */
+test('a gap or an overlap is no touch at all, and a corner or a stack is no product', () => {
+  assert.deepEqual(touches([rect(0, 0, 3, 2), rect(4, 0, 4, 3)]), []);      /* gap */
+  assert.deepEqual(touches([rect(0, 0, 3, 2), rect(2, 0, 4, 3)]), []);      /* overlap */
+  assert.deepEqual(joins([rect(0, 0, 3, 2), rect(3, 2, 4, 3)]), []);        /* corner: a touch, but not a product */
+  assert.deepEqual(joins([rect(0, 0, 3, 2), rect(0, 2, 3, 2)]), []);        /* one on top of the other: likewise */
 });
 
 test('a product is undefined when columns do not meet rows, and says what differs', () => {
@@ -70,9 +70,9 @@ test('an undefined product makes its piece undefined', () => {
 });
 
 test('one shape touching two on the same side has no one reading', () => {
-  const rects = [rect(0, 0, 2, 4), rect(2, 0, 3, 2), rect(2, 2, 3, 2)];
+  const rects = [rect(0, 0, 2, 4), rect(2, 0, 3, 2), rect(2, 2, 4, 2)];      /* the two on the right differ in width, so they are not a sum */
   const [p] = pieces(rects);
-  assert.deepEqual(p.type, { error: 'undefined' }); assert.deepEqual([...p.members].sort(), [0, 1, 2]);
+  assert.equal(p.rule, 'product'); assert.deepEqual(p.type, { error: 'undefined' }); assert.deepEqual([...p.members].sort(), [0, 1, 2]);
 });
 
 test('nothing is null, one shape is itself, and shapes apart are several pieces', () => {
@@ -82,22 +82,237 @@ test('nothing is null, one shape is itself, and shapes apart are several pieces'
   assert.deepEqual(typeOf([rect(0, 0, 3, 2), rect(10, 0, 3, 2), rect(20, 9, 1, 1)]), { error: '3 pieces' });
 });
 
-test('shapes of one width set directly on top of each other are a stack', () => {
-  const rects = [rect(0, 2, 3, 4, 'embed'), rect(0, 0, 3, 2, 'embed'), rect(0, 6, 3, 1)];
-  const out = stacks(rects, pieces(rects));
-  assert.equal(out.length, 1);
-  assert.deepEqual(out[0], { members: [1, 0, 2], stack: true, box: { x: 0, y: 0, w: 3, h: 7 }, type: type(3, 7, 'embed', null) });
+/* ---- the four touches ---- */
+const only = rects => { const ts = touches(rects); assert.equal(ts.length, 1); return ts[0]; };
+
+test('product: the right edge against the left edge, along more than a corner', () => {
+  assert.deepEqual(only([rect(0, 0, 3, 2), rect(3, 0, 4, 3)]), { kind: 'product', a: 0, b: 1, x: 3, y: 1, ok: true, note: '' });
+  assert.deepEqual(only([rect(0, 0, 3, 2), rect(3, 1, 4, 3)]), { kind: 'product', a: 0, b: 1, x: 3, y: 1.5, ok: true, note: '' });      /* one row of overlap is enough */
+  assert.equal(only([rect(0, 0, 3, 2), rect(3, 2, 4, 3)]).kind, 'over');       /* no overlap, only the corner: not a product */
+  assert.deepEqual(only([rect(0, 0, 4, 2), rect(4, 0, 2, 3)]), { kind: 'product', a: 0, b: 1, x: 4, y: 1, ok: false, note: '4 ≠ 3' });
+  assert.equal(only([rect(0, 0, 1, 1), rect(1, 0, 4, 3)]).ok, true);           /* either being one by one always matches */
 });
 
-test('a gap, a different width or a sideways step breaks a stack', () => {
+test('sum: the same x and width, one directly on the other; defined when the heights agree too', () => {
+  assert.deepEqual(only([rect(0, 0, 3, 2), rect(0, 2, 3, 2)]), { kind: 'sum', a: 0, b: 1, x: 1.5, y: 2, ok: true, note: '' });
+  assert.deepEqual(only([rect(0, 2, 3, 2), rect(0, 0, 3, 2)]), { kind: 'sum', a: 1, b: 0, x: 1.5, y: 2, ok: true, note: '' });      /* a is the upper one, whatever the order given */
+  assert.deepEqual(only([rect(0, 0, 3, 2), rect(0, 2, 3, 3)]), { kind: 'sum', a: 0, b: 1, x: 1.5, y: 2, ok: false, note: '2 ≠ 3' });      /* they touch, and are an error */
+  assert.equal(only([rect(4, 0, 1, 1), rect(4, 1, 1, 1)]).ok, true);           /* two single entries add */
+});
+
+test('sum: a shared horizontal edge without the same x and width is no touch, nor is a gap', () => {
+  assert.deepEqual(touches([rect(0, 0, 3, 2), rect(0, 2, 4, 2)]), []);      /* a different width */
+  assert.deepEqual(touches([rect(0, 0, 3, 2), rect(1, 2, 3, 2)]), []);      /* a step sideways */
+  assert.deepEqual(touches([rect(0, 0, 3, 2), rect(0, 3, 3, 2)]), []);      /* a gap */
+  assert.deepEqual(touches([rect(0, 0, 3, 2), rect(0, 1, 3, 2)]), []);      /* an overlap */
+  assert.deepEqual(touches([rect(0, 0, 3, 1), rect(0, 1, 1, 1)]), []);      /* a sum never broadcasts: a scalar under a row does not touch it */
+});
+
+test('sum: sides that are both named must carry the same name', () => {
+  assert.equal(only([rect(0, 0, 3, 2, 'embed', 'context'), rect(0, 2, 3, 2, 'embed', 'context')]).ok, true);
+  assert.equal(only([rect(0, 0, 3, 2, 'embed'), rect(0, 2, 3, 2)]).ok, true);      /* only one named: lengths decide */
+  assert.deepEqual(only([rect(0, 0, 3, 2, 'embed'), rect(0, 2, 3, 2, 'key')]), { kind: 'sum', a: 0, b: 1, x: 1.5, y: 2, ok: false, note: 'embed ≠ key' });
+  assert.equal(only([rect(0, 0, 3, 2, null, 'context'), rect(0, 2, 3, 2, null, 'batch')]).note, 'context ≠ batch');
+});
+
+test('times: b\'s bottom-left corner on a\'s top-right corner', () => {
+  assert.deepEqual(only([rect(0, 2, 3, 2), rect(3, 0, 3, 2)]), { kind: 'times', a: 0, b: 1, x: 3, y: 2, ok: true, note: '' });
+  assert.deepEqual(only([rect(3, 0, 3, 2), rect(0, 2, 3, 2)]), { kind: 'times', a: 1, b: 0, x: 3, y: 2, ok: true, note: '' });      /* a is the left one */
+  assert.deepEqual(touches([rect(0, 2, 3, 2), rect(4, 0, 3, 2)]), []);      /* a column away from the corner */
+  assert.deepEqual(touches([rect(0, 3, 3, 2), rect(3, 0, 3, 2)]), []);      /* a row away from it */
+});
+
+test('over: b\'s top-left corner on a\'s bottom-right corner; a is divided by b', () => {
+  assert.deepEqual(only([rect(0, 0, 3, 2), rect(3, 2, 3, 2)]), { kind: 'over', a: 0, b: 1, x: 3, y: 2, ok: true, note: '' });
+  assert.deepEqual(only([rect(3, 2, 3, 2), rect(0, 0, 3, 2)]), { kind: 'over', a: 1, b: 0, x: 3, y: 2, ok: true, note: '' });
+  assert.deepEqual(touches([rect(0, 0, 3, 2), rect(3, 3, 3, 2)]), []);
+});
+
+test('times and over: equal sizes, or one of exactly three broadcasts', () => {
+  const pair = (kind, a, b) => only(kind === 'times' ? [rect(0, 10, ...a), rect(a[0], 10 - b[1], ...b)] : [rect(0, 0, ...a), rect(a[0], a[1], ...b)]);
+  for (const kind of ['times', 'over']){
+    assert.equal(pair(kind, [4, 3], [4, 3]).kind, kind);
+    assert.equal(pair(kind, [4, 3], [4, 3]).ok, true);       /* equal */
+    assert.equal(pair(kind, [1, 1], [4, 3]).ok, true);       /* one by one, either side: every entry */
+    assert.equal(pair(kind, [4, 3], [1, 1]).ok, true);
+    assert.equal(pair(kind, [4, 1], [4, 3]).ok, true);       /* a single row with the other's columns: every row */
+    assert.equal(pair(kind, [4, 3], [4, 1]).ok, true);
+    assert.equal(pair(kind, [1, 3], [4, 3]).ok, true);       /* a single column with the other's rows: every column */
+    assert.equal(pair(kind, [4, 3], [1, 3]).ok, true);
+    assert.equal(pair(kind, [1, 4], [1, 1]).ok, true);
+    assert.deepEqual([pair(kind, [4, 3], [5, 3]).ok, pair(kind, [4, 3], [5, 3]).note], [false, '4 ≠ 5']);          /* the boundary: one column out */
+    assert.deepEqual([pair(kind, [4, 3], [4, 2]).ok, pair(kind, [4, 3], [4, 2]).note], [false, '3 ≠ 2']);
+    assert.deepEqual([pair(kind, [4, 3], [5, 2]).ok, pair(kind, [4, 3], [5, 2]).note], [false, '4×3 ≠ 5×2']);
+    assert.deepEqual([pair(kind, [3, 1], [4, 3]).ok, pair(kind, [3, 1], [4, 3]).note], [false, '3 ≠ 4']);          /* a row, but not of the other's columns: the columns are what fail */
+    assert.deepEqual([pair(kind, [1, 2], [4, 3]).ok, pair(kind, [1, 2], [4, 3]).note], [false, '2 ≠ 3']);          /* a column, but not of the other's rows: the rows are what fail */
+    assert.deepEqual([pair(kind, [4, 1], [1, 3]).ok, pair(kind, [4, 1], [1, 3]).note], [false, '4×1 ≠ 1×3']);      /* a row against a column is none of the three */
+    assert.equal(pair(kind, [2, 2], [4, 4]).ok, false);      /* nothing repeats but a single entry, row or column */
+  }
+});
+
+test('times and over: names decide as they do for a sum, on the sides that are matched', () => {
+  const times = (a, b) => only([{ ...a, x: 0, y: 10 }, { ...b, x: a.w, y: 10 - b.h }]);
+  assert.equal(times({ w: 3, h: 2, wName: 'embed' }, { w: 3, h: 2, wName: 'embed' }).ok, true);
+  assert.equal(times({ w: 3, h: 2, wName: 'embed' }, { w: 3, h: 2, wName: 'key' }).note, 'embed ≠ key');
+  assert.equal(times({ w: 3, h: 2, wName: 'embed' }, { w: 3, h: 1, wName: 'key' }).ok, false);          /* a row is matched on its columns */
+  assert.equal(times({ w: 3, h: 2, hName: 'context' }, { w: 3, h: 1, hName: 'one' }).ok, true);         /* and not on its rows */
+  assert.equal(times({ w: 3, h: 2, wName: 'embed', hName: 'context' }, { w: 1, h: 1, wName: 'a', hName: 'b' }).ok, true);      /* a single entry is matched on nothing */
+});
+
+test('a refused broadcast names the side that fails, not the one that was free to differ', () => {
+  /* one column against four is the column broadcast; what is wrong is the rows' names */
+  const column = [{ x: 0, y: 3, w: 1, h: 3, hName: 'ctx' }, { x: 1, y: 0, w: 4, h: 3, hName: 'batch' }];
+  assert.deepEqual(only(column), { kind: 'times', a: 0, b: 1, x: 1, y: 3, ok: false, note: 'ctx ≠ batch' });
+  assert.equal(only([{ ...column[0], hName: 'batch' }, column[1]]).ok, true);                                    /* the same names: defined */
+  assert.equal(only([{ x: 0, y: 3, w: 1, h: 2 }, { x: 1, y: 0, w: 4, h: 3 }]).note, '2 ≠ 3');                    /* a column of the wrong height */
+  /* one row against three is the row broadcast; what is wrong is the columns */
+  const row = [{ x: 0, y: 0, w: 4, h: 1, wName: 'embed' }, { x: 4, y: 1, w: 4, h: 3, wName: 'key' }];
+  assert.deepEqual(only(row), { kind: 'over', a: 0, b: 1, x: 4, y: 1, ok: false, note: 'embed ≠ key' });
+  assert.equal(only([{ x: 0, y: 0, w: 5, h: 1 }, { x: 5, y: 1, w: 4, h: 3 }]).note, '5 ≠ 4');
+  /* neither a row nor a column: both lengths differ, and both sizes are given */
+  assert.equal(only([{ x: 0, y: 0, w: 2, h: 2 }, { x: 2, y: 2, w: 4, h: 4 }]).note, '2×2 ≠ 4×4');
+});
+
+/* ---- pieces: one rule each ---- */
+test('a sum of any number of shapes is one piece, read top to bottom, the size of each', () => {
+  const rects = [rect(0, 4, 3, 2), rect(0, 0, 3, 2), rect(0, 2, 3, 2, 'embed')];
+  const [p] = pieces(rects);
+  assert.deepEqual(p, { rule: 'sum', members: [1, 2, 0], box: { x: 0, y: 0, w: 3, h: 6 }, type: type(3, 2, 'embed') });      /* the name of the first member that has one */
+  assert.deepEqual(typeOf([rect(0, 0, 3, 2), rect(0, 2, 3, 2)]), type(3, 2));
+});
+
+test('a sum with one member the wrong height, or two different names in it, is undefined', () => {
+  const tall = pieces([rect(0, 0, 3, 2), rect(0, 2, 3, 3)])[0];
+  assert.equal(tall.rule, 'sum'); assert.deepEqual(tall.type, { error: 'undefined' });
+  /* each touch is defined (the middle one has no names), but the first and the last do not agree */
+  const rects = [rect(0, 0, 3, 2, 'embed'), rect(0, 2, 3, 2), rect(0, 4, 3, 2, 'key')];
+  assert.ok(touches(rects).every(t => t.ok)); assert.deepEqual(typeOf(rects), { error: 'undefined' });
+});
+
+test('an elementwise chain mixes times and over, and is read left to right', () => {
+  const rects = [rect(6, 2, 3, 2), rect(0, 2, 3, 2), rect(3, 0, 3, 2)];      /* (B ∘ C) ⊘ A, given out of order */
+  const [p] = pieces(rects);
+  assert.deepEqual(touches(rects).map(t => t.kind).sort(), ['over', 'times']);
+  assert.deepEqual(p, { rule: 'elementwise', members: [1, 2, 0], box: { x: 0, y: 0, w: 9, h: 4 }, type: type(3, 2) });
+});
+
+test('an elementwise result is the size of its larger operand', () => {
+  assert.deepEqual(typeOf([rect(0, 0, 1, 1), rect(1, 1, 4, 4)]), type(4, 4));            /* s ⊘ A: every entry of A under s */
+  assert.deepEqual(typeOf([rect(0, 1, 4, 3), rect(4, 0, 4, 1)]), type(4, 3));            /* a row, over every row */
+  assert.deepEqual(typeOf([rect(0, 0, 1, 3), rect(1, 3, 4, 3)]), type(4, 3));            /* a column, over every column */
+  assert.deepEqual(typeOf([rect(0, 0, 1, 1), rect(1, 1, 1, 1)]), type(1, 1));
+  assert.deepEqual(typeOf([rect(0, 2, 3, 2), rect(3, 0, 4, 2)]), { error: 'undefined' });
+});
+
+test('a side of an elementwise result is named by the first member that names a side of that length', () => {
+  assert.deepEqual(typeOf([rect(0, 2, 3, 2, null, 'context'), rect(3, 0, 3, 2, 'embed', 'other')]), { error: 'undefined' });
+  assert.deepEqual(typeOf([rect(0, 2, 3, 2, null, 'context'), rect(3, 0, 3, 2, 'embed')]), type(3, 2, 'embed', 'context'));
+  /* a scalar's sides, and a row's one row, do not name the sides of what they are broadcast over */
+  assert.deepEqual(typeOf([rect(0, 1, 1, 1, 'a', 'b'), rect(1, -3, 4, 4, 'embed')]), type(4, 4, 'embed', null));
+  assert.deepEqual(typeOf([rect(0, 1, 4, 1, 'embed', 'one'), rect(4, -2, 4, 3, null, 'context')]), type(4, 3, 'embed', 'context'));
+});
+
+test('a chain is worked out from the left, so a scalar in the middle does not excuse the shapes round it', () => {
+  const fits = [rect(0, 4, 3, 2), rect(3, 3, 1, 1), rect(4, 1, 3, 2)], not = [rect(0, 4, 3, 2), rect(3, 3, 1, 1), rect(4, -1, 4, 4)];
+  assert.deepEqual(typeOf(fits), type(3, 2));
+  assert.ok(touches(not).every(t => t.ok)); assert.deepEqual(typeOf(not), { error: 'undefined' });
+});
+
+test('one shape with two at its corners on the same side has no one reading', () => {
+  const [p] = pieces([rect(0, 2, 3, 2), rect(3, 0, 3, 2), rect(3, 4, 3, 2)]);      /* A ∘ B and A ⊘ C at once */
+  assert.equal(p.rule, 'elementwise'); assert.deepEqual(p.type, { error: 'undefined' });
+});
+
+test('a piece whose touches are not all of one rule is mixed rules', () => {
+  const rects = [rect(0, 0, 2, 2), rect(2, 0, 4, 2), rect(0, 2, 2, 2)];      /* A · B, with a third stacked under A */
+  const [p] = pieces(rects);
+  assert.equal(pieces(rects).length, 1);
+  assert.equal(p.rule, 'mixed'); assert.deepEqual(p.type, { error: 'mixed rules' }); assert.deepEqual([...p.members].sort(), [0, 1, 2]);
+  assert.deepEqual(typeOf([rect(0, 2, 3, 2), rect(3, 0, 3, 2), rect(0, 4, 3, 2)]), { error: 'mixed rules' });      /* times and a sum */
+  assert.deepEqual(typeOf([rect(0, 2, 3, 2), rect(3, 0, 3, 2), rect(6, 0, 2, 3)]), { error: 'mixed rules' });      /* times and a product */
+  assert.equal(pieces([rect(0, 2, 3, 2), rect(3, 0, 3, 2), rect(6, 2, 3, 2)])[0].rule, 'elementwise');             /* times and over are one rule */
+});
+
+test('a shape on its own has no rule, and a row of products has the rule product', () => {
+  assert.equal(pieces([rect(0, 0, 3, 2)])[0].rule, null);
+  assert.equal(pieces([rect(0, 0, 3, 2), rect(3, 0, 4, 3)])[0].rule, 'product');
+});
+
+test('the hollows of a times or over pair: where its result is read', () => {
+  const times = [rect(0, 2, 3, 2), rect(3, 0, 3, 2)], over = [rect(0, 0, 3, 2), rect(3, 2, 3, 2)];
+  assert.deepEqual(hollows(touches(times)[0], times), [{ x: 3, y: 2, w: 3, h: 2 }, { x: 0, y: 0, w: 3, h: 2 }]);      /* beside a under b, then above a */
+  assert.deepEqual(hollows(touches(over)[0], over), [{ x: 0, y: 2, w: 3, h: 2 }, { x: 3, y: 0, w: 3, h: 2 }]);        /* under a beside b, then beside a above b */
+  const row = [rect(0, 1, 4, 3), rect(4, 0, 4, 1)];                                                                   /* broadcast: only one hollow is the result's size */
+  assert.deepEqual(hollows(touches(row)[0], row), [{ x: 4, y: 1, w: 4, h: 3 }, { x: 0, y: 0, w: 4, h: 1 }]);
+  const product = [rect(0, 0, 3, 2), rect(3, 0, 2, 3)];
+  assert.deepEqual(hollows(touches(product)[0], product), []);
+});
+
+/* ---- which hollows a result is written in ---- */
+const used = (rects, copies, written) => resultHollows(rects, pieces(rects)[0], copies, written);
+const timesPair = [rect(0, 2, 3, 2), rect(3, 0, 3, 2)], overPair = [rect(0, 0, 3, 2), rect(3, 2, 3, 2)];
+const lowerRight = { x: 3, y: 2, w: 3, h: 2 }, upperLeft = { x: 0, y: 0, w: 3, h: 2 };
+
+test('.show_hadamard_copies: 0 is no hollow, 1 the first, 2 both; left out it is 1', () => {
+  assert.deepEqual(used(timesPair, 0), []);
+  assert.deepEqual(used(timesPair, 1), [lowerRight]);
+  assert.deepEqual(used(timesPair, 2), [lowerRight, upperLeft]);
+  assert.deepEqual(used(timesPair), [lowerRight]);
+  assert.deepEqual(used(overPair, 1), [{ x: 0, y: 2, w: 3, h: 2 }]);                                   /* over: the lower one */
+  assert.deepEqual(used(overPair, 2), [{ x: 0, y: 2, w: 3, h: 2 }, { x: 3, y: 0, w: 3, h: 2 }]);
+});
+
+test('.show_hadamard_copies: anything not above 0 is none, 2 or more is both, anything between is one', () => {
+  for (const none of [-1, -0.5, 0, NaN, null, 'two', -Infinity]) assert.deepEqual(used(timesPair, none), [], String(none));
+  for (const one of [0.5, 1, 1.5, 1.999]) assert.equal(used(timesPair, one).length, 1, String(one));
+  for (const both of [2, 2.5, 3, 100, Infinity]) assert.equal(used(timesPair, both).length, 2, String(both));
+});
+
+test('only a hollow of the result\'s size is used', () => {
+  const row = [rect(0, 1, 4, 3), rect(4, 0, 4, 1)];                      /* a row over every row: the hollow above a is 4 by 1, the one beside it 4 by 3 */
+  assert.deepEqual(used(row, 2), [{ x: 4, y: 1, w: 4, h: 3 }]);
+  const under = [rect(0, 0, 4, 3), rect(4, 3, 4, 1)];                    /* over, with the row: the first hollow (under a) is the wrong size, so one copy is the other */
+  assert.deepEqual(used(under, 1), [{ x: 4, y: 0, w: 4, h: 3 }]);
+  assert.deepEqual(used(under, 2), [{ x: 4, y: 0, w: 4, h: 3 }]);
+  assert.deepEqual(used([rect(0, 0, 1, 1), rect(1, 1, 4, 4)], 2), []);   /* a single entry: neither hollow is 4 by 4 */
+  assert.deepEqual(used([rect(0, 1, 1, 1), rect(1, 0, 1, 1)], 2), [{ x: 1, y: 1, w: 1, h: 1 }, { x: 0, y: 0, w: 1, h: 1 }]);      /* two single entries: both are */
+});
+
+test('a chain of three or more, a piece of another rule, and an undefined pair have no hollow', () => {
+  assert.deepEqual(used([rect(0, 4, 3, 2), rect(3, 2, 3, 2), rect(6, 0, 3, 2)], 2), []);      /* three along the diagonal */
+  assert.deepEqual(used([rect(0, 0, 3, 2), rect(0, 2, 3, 2)], 2), []);                         /* a sum */
+  assert.deepEqual(used([rect(0, 0, 3, 2), rect(3, 0, 2, 3)], 2), []);                         /* a product */
+  assert.deepEqual(used([rect(0, 0, 3, 2)], 2), []);                                           /* a shape on its own */
+  assert.deepEqual(used([rect(0, 2, 3, 2), rect(3, 0, 4, 2)], 2), []);                         /* times, not defined */
+  assert.deepEqual(used([rect(0, 2, 2, 2), rect(2, 0, 4, 2), rect(0, 4, 2, 2)], 2), []);       /* mixed rules */
+});
+
+test('a hollow is used only where the matrix as it is written is no larger than it', () => {
+  assert.deepEqual(used(timesPair, 2, { cols: 3, rows: 2 }), [lowerRight, upperLeft]);      /* written in full: exactly fits */
+  assert.deepEqual(used(timesPair, 2, { cols: 4, rows: 2 }), []);                           /* one square too wide (a short named side is written as five) */
+  assert.deepEqual(used(timesPair, 2, { cols: 3, rows: 3 }), []);                           /* one too tall */
+  const long = [rect(0, 2, 12, 2), rect(12, 0, 12, 2)];                                     /* a long side is written elided, as five squares: smaller, and it fits */
+  assert.equal(used(long, 2, { cols: 5, rows: 2 }).length, 2);
+});
+
+/* ---- what a stack was, kept to convert old projects ---- */
+test('stacks finds what was a stack before format 3: lone shapes of one width, one directly on the next', () => {
+  const rects = [rect(0, 2, 3, 4, 'embed'), rect(0, 0, 3, 2, 'embed'), rect(0, 6, 3, 1)];
+  const out = stacks(rects);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], { members: [1, 0, 2], stack: true, box: { x: 0, y: 0, w: 3, h: 7 }, type: type(3, 7, 'embed', null) });      /* then, its rows were theirs */
+  assert.equal(pieces(rects)[0].rule, 'sum');      /* now, the same shapes are a sum (and this one undefined) */
+});
+
+test('a gap, a different width or a sideways step was no stack', () => {
   for (const second of [rect(0, 3, 3, 2), rect(0, 2, 4, 2), rect(1, 2, 3, 2)]){
-    const rects = [rect(0, 0, 3, 2), second], out = stacks(rects, pieces(rects));
+    const out = stacks([rect(0, 0, 3, 2), second]);
     assert.equal(out.length, 2); assert.ok(out.every(p => !p.stack)); }
 });
 
-test('a shape that is part of a product is not stacked', () => {
+test('a shape that was part of a product was not stacked', () => {
   const rects = [rect(0, 0, 2, 2), rect(2, 0, 4, 2), rect(0, 2, 2, 2)];      /* the third is right under the first, which is in a product */
-  const out = stacks(rects, pieces(rects));
+  const out = stacks(rects);
   assert.equal(out.length, 2); assert.ok(out.every(p => !p.stack)); assert.deepEqual(out.map(p => p.members.length).sort(), [1, 2]);
 });
 

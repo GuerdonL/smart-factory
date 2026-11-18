@@ -1,7 +1,7 @@
 # Smart Factory
 
-A canvas for building models by hand out of shapes: tensors you draw, touch together to multiply, name, and open
-to define.
+A canvas for building models by hand out of shapes: tensors you draw, touch together to multiply, add or combine
+entry by entry, name, and open to define.
 
 ## Run it
 
@@ -48,7 +48,8 @@ who can reach the port can read and overwrite the projects.
 
 - `smart-factory.html`, `.css`, `.js`: the page, its theme (every colour and typeface), and the wiring.
 - `components/`: one file per thing on screen, each carrying its own markup, styles and behaviour.
-- `algebra.js`, `project.js`, `zip.js`: what shapes mean, how a project is written to files, and zip; no drawing.
+- `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules), how a project is
+  written to files, and zip; no drawing.
 - `bus.js`: the message bus. Everything the user does takes effect as a named message of plain data (blocks by id)
   sent through it; it keeps a log and can be tapped before and after each message, which is where history and undo
   will attach. What each message does is listed under "messages" in `smart-factory.js`.
@@ -69,6 +70,58 @@ who can reach the port can read and overwrite the projects.
 Nothing to install: the tests use Node's own test runner (Node 20 or later) and Python's unittest. `tests/solver.js`
 loads the maths solver the way the page does. The server's tests run a server of their own over an empty directory,
 so they never touch `projects/`.
+
+## Touching
+
+Shapes are combined by touching, and only by touching. There are four ways to touch, and each draws a mark where
+the shapes meet:
+
+    PRODUCT  A · B          SUM  A + B        TIMES  A ∘ B            OVER  A ⊘ B
+
+    +-----+-----+           +-----+                  +-----+           +-----+
+    |  A  |  B  |           |  A  |                  |  B  |           |  A  |
+    +-----+-----+           +-----+            +-----+-----+           +-----+-----+
+                            |  B  |            |  A  |                       |  B  |
+                            +-----+            +-----+                       +-----+
+
+- **Product**: side by side along an edge. A's columns must be B's rows (by name where both sides are named). The
+  mark is a `·` on the shared edge. A 1 by 1 shape scales whatever it touches.
+- **Sum**: one directly on the other, the same width and the same left edge. They must be the same height too. The
+  mark is a `+` on the shared edge. Any number of shapes can be stacked in one sum. A stack never appends rows, and a
+  sum never repeats a smaller shape to fit a larger one.
+- **Times**: B's bottom-left corner on A's top-right corner. Entry by entry, A times B. The mark is a `∘` in a ring
+  on the corner.
+- **Over**: B's top-left corner on A's bottom-right corner. Entry by entry, A divided by B. The mark is a `÷` in a
+  ring on the corner.
+
+Times and Over need equal sizes, or one of three repeats: a 1 by 1 shape is applied to every entry (a scalar holding
+1 over A is A's reciprocal, entry by entry); a single row with the other's number of columns is applied to every row;
+a single column with the other's number of rows is applied to every column. Several shapes can run along diagonals
+in one chain, mixing the two; it is read left to right, `(A ∘ B) ⊘ C`. There is no touch for subtraction: scale by a
+scalar holding -1, name the result, and stack it.
+
+A touch that is not defined draws its mark in the warning colour with what does not agree (`2 ≠ 3`, `embed ≠ key`).
+
+**One rule per piece.** Shapes joined by touching are a piece, and a piece is all products, all one sum, or all
+times and over. A piece that mixes them is `mixed rules`, and every mark in it turns to the warning colour. To use
+one result inside another rule, name it first (click its matrix and type a name: its shapes fold into a new shape of
+the result's size), then touch that. So `x · W + b` is two steps.
+
+**Where a result is written.** Beside its piece, after an `=`. A Times or Over pair is different: the two shapes
+enclose two empty rectangles, and the result is written in one of them, on the bare canvas (the lower right one for
+Times, the lower one for Over). `.show_hadamard_copies` in the `.config` chooses: `1` (the default) writes it in one,
+`2` in both, `0` beside the piece like any other result. Only a rectangle the size of the result is used, so with a
+repeated operand there may be one, or none, and the result goes beside the piece. Clicking the matrix names the
+result, wherever it is written.
+
+The result of a sum, or of times and over, is written as its size and its entries in symbols (`a₁₁+b₁₁`), as a
+product's is; it is not worked out in numbers yet.
+
+Projects saved before this (format 2) took a stack to mean rows appended. Opening one, each such stack is fused into
+one joined shape, which still appends, so the project means what it did; the readout says how many were fused.
+Two other arrangements meant nothing then and mean something now: shapes that meet at a corner, and a shape directly
+under one that is in a product. Those are left exactly where they are, and the readout says how many pieces read
+differently, so that you can look for them.
 
 ## How results are written
 

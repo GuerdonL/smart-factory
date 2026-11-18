@@ -1,6 +1,6 @@
 /* A variable written out in matrix notation, laid on the dot grid.
 
-   createMatrix({ cols, rows, cell, letter, color, values, product }) -> { el, width, height }
+   createMatrix({ cols, rows, cell, letter, color, values, product, combined }) -> { el, width, height }
      cols, rows   the variable's promised shape
      cell         the size of one entry's square, in world units
      letter       what the entries are called: the variable's initials, say "k" for Keys (default "x")
@@ -10,6 +10,12 @@
                   its rows come from (the first of the chain) and the block its columns come from (the last).
                   Each entry is then written as the pair it is made from, each half in its block's colour:
                   k₂·q₃ is the second row of k against the third column of q.
+     combined     for a matrix that is a sum or an elementwise chain: { parts: [{ letter, color, cols, rows,
+                  transposed }], signs: ['+' | '·' | '/'] }, the blocks it is made from, in order, each with its size,
+                  and the sign between each and the next. Each entry is then written as the entries it is made from
+                  with the signs between them, each in its block's colour: a₁₁+b₁₁. A part that is broadcast is
+                  written as what is repeated: a single entry by its letter alone, a single row by its column, a
+                  single column by its row.
      inherited    a Map of the same kind: entries not given here but given by a definition this one shadows. They are
                   written faintly, and a value of the block's own covers them.
      transposed   the matrix is a variable's transpose: each symbol carries the variable's own column and row, so the
@@ -42,8 +48,8 @@ style('matrix', `
 .matrix > .likeness .block-name { left: 0; right: 0; bottom: auto; top: 50%; transform: translateY(-50%); margin: 0; padding: 0; text-align: center;
   font-size: 10px; font-style: normal; color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .matrix > span.set.inherited { opacity: .45; font-weight: 400; }
-.matrix i { font-style: inherit; }           /* half of a product's entry */
-.matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves */
+.matrix i { font-style: inherit; }           /* half of a product's entry, or one part of a combined one */
+.matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves, or the sign between two parts */
 .matrix > span.dots { font-style: normal; color: var(--muted); }
 .matrix > span.ghost { opacity: .5; }      /* an entry a variable side would have were it longer */
 .matrix sub { font-style: normal; font-size: .68em; vertical-align: -0.35em; line-height: 0; margin-left: .04em; }
@@ -62,14 +68,15 @@ const short = name => (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toL
 /* how many squares a side of n takes once written (the elided middle is one) */
 export const squares = (n, name = null) => shown(n, name).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, tiles = [], transposed = false, colsName = null, rowsName = null }){
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, tiles = [], transposed = false, colsName = null, rowsName = null }){
   const cs = shown(cols, colsName), rs = shown(rows, rowsName), vector = (cols === 1 && !colsName) || (rows === 1 && !rowsName);
   const num = (e, name) => e.last && name ? short(name) : e.i;      /* an entry's number along a side: the last of a variable side is that side's name */
   const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
   /* one size of type for the whole matrix, small enough that its widest entry fits its square:
      a letter is about half an em wide and a subscript digit about a third */
   const comma = cols > 9 || rows > 9 || colsName || rowsName ? ',' : '', digits = n => String(n).length;      /* a name among the numbers needs the comma too */
-  const symbol = product ? .5 * (product.rows.letter.length + product.cols.letter.length) + .34 * (digits(rows) + digits(cols)) + .3
+  const symbol = combined ? combined.parts.reduce((sum, p) => sum + .5 * p.letter.length + .34 * (digits(Math.min(p.cols, cols)) + digits(Math.min(p.rows, rows))) + .1, .7 * combined.signs.length)
+    : product ? .5 * (product.rows.letter.length + product.cols.letter.length) + .34 * (digits(rows) + digits(cols)) + .3
     : .5 * letter.length + .34 * (vector ? digits(Math.max(cols, rows)) : digits(cols) + digits(rows) + (comma ? .6 : 0));
   const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(v => written(v).length * .72));
   el.style.fontSize = Math.min(cell * .6, cell * .8 / widest) + 'px';
@@ -79,7 +86,11 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     const c = ce.i, r = re.i, ghost = ce.ghost || re.ghost, cn = num(ce, colsName), rn = num(re, rowsName);
     const entry = ghost ? html`<span class="ghost"></span>` : html`<span data-c="${c}" data-r="${r}"></span>`, key = ghost ? '' : c + ',' + r;
     const half = (from, n) => { const h = html`<i><sub></sub></i>`; h.prepend(from.letter); h.lastChild.textContent = n; if (from.color) h.style.color = `var(--${from.color})`; return h; };
-    if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
+    /* one part of a combined entry: its own entry at this place. A part smaller than the matrix is broadcast, and is numbered only along the side it has */
+    const part = p => { const one = p.cols === 1 && p.rows === 1 && !(cols === 1 && rows === 1), row = p.rows === 1 && rows > 1, col = p.cols === 1 && cols > 1;
+      return half(p, one ? '' : row ? cn : col ? rn : vector ? (cols === 1 ? rn : cn) : p.transposed ? rn + comma + cn : cn + comma + rn); };
+    if (combined) combined.parts.forEach((p, n) => { if (n){ const sign = html`<b></b>`; sign.textContent = combined.signs[n - 1]; entry.append(sign); } entry.append(part(p)); });
+    else if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
       if (values.has(key)){ entry.className = 'set'; entry.textContent = written(values.get(key)); }
       else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); }      /* not given here: what a definition higher up gives */

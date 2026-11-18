@@ -5,12 +5,13 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { write, read, isNamed, FORMAT } from '../project.js';
+import { pieces } from '../algebra.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
   entries: {}, inside: null, variable: null, tile: false, transposed: false, attributes: [], reference: false, from: null, joined: null, ...more });
 const space = (shapes = [], groups = []) => ({ shapes, groups });
-const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, ...more });
+const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 const paths = files => files.map(f => f.path).sort();
 const file = (path, body) => ({ path, text: JSON.stringify(body) });
@@ -192,7 +193,7 @@ test('what is not a project is refused, with the reason', () => {
   assert.throws(() => read([]), /no project\.json/);
   assert.throws(() => read([file('A.json', config('A'))]), /no project\.json/);
   assert.throws(() => read([file('project.json', { format: 'other' })]), /not a smart-factory project/);
-  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 3\)/);
+  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 4\)/);
   assert.throws(() => read([head(), { path: 'Bad.json', text: '{ not json' }]), /Bad\.json is not valid JSON/);
 });
 
@@ -214,12 +215,128 @@ test('format 1: the settings become the Menu, and the old top level one block be
   assert.deepEqual(plain.top.shapes.map(s => s.name), ['A']);
 });
 
+/* ---- a stack: rows appended in format 2, a sum in format 3 ---- */
+const at = (name, x, y, cols, rows, more = {}) => config(name, { position: { x, y }, size: { cols, rows }, ...more });
+const rectsOf = shapes => shapes.map(d => ({ x: d.x, y: d.y, w: d.cols, h: d.rows, wName: d.colsName, hName: d.rowsName }));
+
+test('the format is 3', () => { assert.equal(FORMAT, 3); });
+
+test('format 2: a stack is fused into one shape, which holds its shapes top to bottom', () => {
+  const p = read([head(2), file('Top.json', at('Top', 4, 0, 3, 2, { id: 'btop', order: 1, value: { entries: { '1,1': 5 } } })), file('Under.json', at('Under', 4, 2, 3, 1, { id: 'bunder', order: 0 })),
+    file('Apart.json', at('Apart', 20, 0, 3, 2, { order: 2 }))]);
+  assert.equal(p.converted, 1); assert.equal(p.changed, 0);
+  assert.deepEqual(p.top.shapes.map(d => d.name), ['Shape 1', 'Apart']);      /* where the stack's first shape was, back to front */
+  const fused = p.top.shapes[0];
+  assert.deepEqual([fused.x, fused.y, fused.cols, fused.rows, fused.color, fused.id, fused.variable], [4, 0, 3, 3, null, null, null]);
+  assert.deepEqual(fused.joined.map(j => [j.shape.name, j.shape.id, j.fx, j.fy, j.fw, j.fh]), [['Top', 'btop', 0, 0, 1, 2 / 3], ['Under', 'bunder', 0, 2 / 3, 1, 1 / 3]]);
+  assert.deepEqual(fused.joined[0].shape.entries, { '1,1': 5 });       /* its entries are theirs, as they were */
+  assert.equal(pieces(rectsOf(p.top.shapes)).length, 2);               /* one shape now, and no sum */
+});
+
+test('format 3: a stack is left alone, and is a sum', () => {
+  const files = [head(3), file('Top.json', at('Top', 4, 0, 3, 2, { order: 0 })), file('Under.json', at('Under', 4, 2, 3, 2, { order: 1 }))];
+  const p = read(files);
+  assert.equal(p.converted, 0); assert.equal(p.changed, 0);      /* a sum in a format 3 project is what it was saved as: nothing has changed */
+  assert.deepEqual(p.top.shapes.map(d => [d.name, d.joined]), [['Top', null], ['Under', null]]);
+  const [piece] = pieces(rectsOf(p.top.shapes));
+  assert.equal(piece.rule, 'sum'); assert.deepEqual(piece.type, { cols: 3, rows: 2, colsName: null, rowsName: null });
+  assert.equal(read([head(2), ...files.slice(1)]).converted, 1);      /* the very same files, marked format 2, are a stack */
+});
+
+test('a converted project, saved, is format 3 and is not converted again', () => {
+  const old = read([head(2), file('Top.json', at('Top', 0, 0, 3, 2, { order: 0 })), file('Under.json', at('Under', 0, 2, 3, 2, { order: 1 })), file('Last.json', at('Last', 0, 4, 3, 1, { order: 2 }))]);
+  assert.equal(old.converted, 1); assert.equal(old.top.shapes.length, 1); assert.equal(old.top.shapes[0].joined.length, 3);
+  const files = write(old);
+  assert.equal(json(files, 'project.json').version, 3);
+  const again = read(files);
+  assert.equal(again.converted, 0); assert.deepEqual(again.top, old.top);
+});
+
+test('format 2: what was no stack is not fused', () => {
+  const none = (changed, ...files) => { const p = read([head(2), ...files]); assert.equal(p.converted, 0); assert.ok(p.top.shapes.every(d => !d.joined)); assert.equal(p.changed, changed);
+    assert.deepEqual(p.top.shapes.map(d => [d.name, d.x, d.y, d.cols, d.rows]).sort(), files.map(f => JSON.parse(f.text)).map(c => [c.name, c.position.x, c.position.y, c.size.cols, c.size.rows]).sort());      /* and nothing is moved */
+    return p; };
+  none(0, file('A.json', at('A', 0, 0, 3, 2)), file('B.json', at('B', 0, 3, 3, 2)));                  /* a gap */
+  none(0, file('A.json', at('A', 0, 0, 3, 2)), file('B.json', at('B', 0, 2, 4, 2)));                  /* a different width */
+  none(0, file('A.json', at('A', 0, 0, 3, 2)), file('B.json', at('B', 1, 2, 3, 2)));                  /* a step sideways */
+  none(0, file('A.json', at('A', 0, 0, 3, 2)), file('B.json', at('// B', 0, 2, 3, 2, { commented: true })));      /* a commented-out shape took no part */
+  none(0, file('A.json', at('A', 0, 0, 3, 2)), file('B.json', at('B', 3, 0, 2, 3)));                  /* a product reads as it did */
+  /* these two were no stack either, but they do not read as they did: they are left as they are, and counted */
+  none(1, file('A.json', at('A', 0, 0, 2, 2)), file('B.json', at('B', 2, 0, 4, 2)), file('C.json', at('C', 0, 2, 2, 2)));      /* a shape under one in a product was on its own: now the piece is mixed rules */
+  none(1, file('D.json', at('D', 0, 0, 3, 2)), file('E.json', at('E', 3, 2, 3, 2)));                  /* a corner meant nothing: now it is over */
+  none(1, file('A.json', at('A', 0, 2, 3, 2)), file('B.json', at('B', 3, 0, 3, 2)));                  /* and the other corner, times */
+});
+
+test('format 2: pieces that read differently are counted in every space, beside the stacks, and never in format 3', () => {
+  const files = [file('Top.json', at('Top', 0, 0, 3, 2, { order: 0 })), file('Under.json', at('Under', 0, 2, 3, 2, { order: 1 })),      /* a stack: fused, and so not counted as changed */
+    file('D.json', at('D', 10, 0, 3, 2, { order: 2 })), file('E.json', at('E', 13, 2, 3, 2, { order: 3 })),                               /* a corner */
+    file('Keys.json', at('Keys', 30, 0, 4, 4, { definition: 'Keys/', order: 4 })),
+    file('Keys/A.json', at('A', 0, 0, 2, 2)), file('Keys/B.json', at('B', 2, 0, 4, 2)), file('Keys/C.json', at('C', 0, 2, 2, 2)),         /* mixed rules, in a definition */
+    file('Keys/F.json', at('F', 20, 2, 1, 1)), file('Keys/G.json', at('G', 21, 1, 1, 1)), file('Keys/Off.json', at('// Off', 22, 0, 1, 1, { commented: true }))];      /* a corner; the commented one takes no part */
+  const old = read([head(2), ...files]);
+  assert.deepEqual([old.converted, old.changed], [1, 3]);
+  const now = read([head(3), ...files]);
+  assert.deepEqual([now.converted, now.changed], [0, 0]);
+});
+
+test('format 2: a variable used in several places has one definition, and what is in it is counted once', () => {
+  const use = (name, x, more = {}) => file(name + '.json', at('Keys', x, 0, 4, 4, { variable: 1, definition: name + '/', ...more }));
+  const inside = dir => [file(dir + '/A.json', at('A', 0, 0, 2, 1, { order: 0 })), file(dir + '/B.json', at('B', 0, 1, 2, 1, { order: 1 })),      /* one stack */
+    file(dir + '/D.json', at('D', 10, 0, 3, 2, { order: 2 })), file(dir + '/E.json', at('E', 13, 2, 3, 2, { order: 3 }))];                          /* and one corner */
+  const p = read([head(2), use('Keys', 0), use('Keys (2)', 10, { reference: true }), use('Keys (3)', 20, { reference: true }),
+    ...inside('Keys'), ...inside('Keys (2)'), ...inside('Keys (3)')]);
+  assert.deepEqual([p.converted, p.changed], [1, 1]);
+  for (const s of p.top.shapes) assert.deepEqual(s.inside.shapes.map(d => d.name), ['Shape 1', 'D', 'E']);      /* every copy is fused all the same, so they stay alike */
+  /* two different variables, each with a stack, are two */
+  const two = read([head(2), file('P.json', at('P', 0, 0, 4, 4, { variable: 1, definition: 'P/' })), file('Q.json', at('Q', 10, 0, 4, 4, { variable: 2, definition: 'Q/' })),
+    file('R.json', at('R', 20, 0, 4, 4, { definition: 'R/' })), file('S.json', at('S', 30, 0, 4, 4, { definition: 'S/' })),      /* and two that are no variable shared with anything */
+    ...['P', 'Q', 'R', 'S'].flatMap(d => inside(d).slice(0, 2))]);
+  assert.equal(two.converted, 4);
+});
+
+test('format 2: a fused stack keeps the name its columns had, which was its first shape\'s', () => {
+  const p = read([head(2), file('Top.json', at('Top', 0, 0, 3, 2, { order: 0, sides: { cols: 'embed', rows: 'context' } })), file('Under.json', at('Under', 0, 2, 3, 1, { order: 1, sides: { cols: 'embed', rows: null } }))]);
+  const fused = p.top.shapes[0];
+  assert.deepEqual([fused.cols, fused.rows, fused.colsName, fused.rowsName], [3, 3, 'embed', null]);      /* as the stack's type was: its rows had no name */
+  assert.deepEqual(read(write(p)).top.shapes[0].colsName, 'embed');                                         /* and it is kept when saved */
+  const plain = read([head(2), file('Top.json', at('Top', 0, 0, 3, 2, { order: 0 })), file('Under.json', at('Under', 0, 2, 3, 1, { order: 1, sides: { cols: 'embed', rows: null } }))]);
+  assert.equal(plain.top.shapes[0].colsName, null);      /* the first shape's, not any shape's */
+});
+
+test('format 2: stacks are fused in every space, and in the frame that held them', () => {
+  const p = read([head(2), file('Keys.json', at('Keys', 0, 0, 4, 4, { definition: 'Keys/' })),
+    file('Keys/A.json', at('A', 3, 0, 2, 1, { order: 0 })), file('Keys/B.json', at('B', 3, 1, 2, 1, { order: 1 })), file('Keys/Shape 1.json', at('Shape 1', 9, 9, 1, 1, { order: 2 })),
+    file('Pair.frame.json', { format: 'smart-factory/frame', version: 2, id: 'gpair', name: 'Pair', named: true, shapes: [at('C', 10, 0, 2, 2, { order: 1 })],
+      groups: [{ id: 'ginner', name: null, named: false, shapes: [at('D', 10, 2, 2, 2, { order: 2 })], groups: [] }] }),
+    file('E.json', at('E', 10, 4, 2, 2, { order: 3 })), file('F.json', at('F', 30, 0, 1, 1, { order: 4 })), file('G.json', at('G', 30, 1, 1, 1, { order: 5 })),
+    file('Lone.frame.json', { format: 'smart-factory/frame', version: 2, id: 'glone', name: 'Lone', named: true, shapes: [at('H', 40, 0, 1, 1, { order: 6 }), at('I', 40, 1, 1, 1, { order: 7 })], groups: [] })]);
+  assert.equal(p.converted, 4); assert.equal(p.changed, 0);
+  const inside = p.top.shapes[0].inside;
+  assert.deepEqual(inside.shapes.map(d => d.name), ['Shape 2', 'Shape 1']);      /* a name the space is not using */
+  assert.deepEqual(inside.shapes[0].joined.map(j => j.shape.name), ['A', 'B']);
+  /* C (in Pair), D (in a frame inside Pair) and E (in none) were one stack: no frame held them all, so the fused shape is in none,
+     and the frames it emptied are gone. F and G likewise. H and I were both in Lone, and so is what they became. */
+  assert.deepEqual(p.top.shapes.map(d => [d.name, d.joined ? d.joined.map(j => j.shape.name).join('') : null]), [['Keys', null], ['Shape 1', 'CDE'], ['Shape 2', 'FG'], ['Shape 3', 'HI']]);
+  assert.deepEqual(p.top.groups, [{ id: 'glone', name: 'Lone', members: [3], groups: [] }]);
+});
+
+test('format 2: shapes standing in their owner\'s matrix were its entries, not a stack', () => {
+  /* a 3 by 2 shape: the left side of its equation is 3 wide, ending one unit before the origin, from one row above it */
+  const rows = [file('Colours/red.json', at('red', -4, -1, 3, 1, { tile: true, order: 0 })), file('Colours/blue.json', at('blue', -4, 0, 3, 1, { tile: true, order: 1 }))];
+  const stood = read([head(2), file('Colours.json', at('Colours', 0, 0, 3, 2, { definition: 'Colours/' })), ...rows]);
+  assert.equal(stood.converted, 0); assert.deepEqual(stood.top.shapes[0].inside.shapes.map(d => d.name), ['red', 'blue']);
+  /* the same two with a third shape beside them that stands nowhere: then nothing stood, and they were a stack */
+  const loose = read([head(2), file('Colours.json', at('Colours', 0, 0, 3, 2, { definition: 'Colours/' })), ...rows, file('Colours/Shape 1.json', at('Shape 1', 8, 8, 2, 2, { order: 2 }))]);
+  assert.equal(loose.converted, 1);
+});
+
 /* the projects that come with the repository */
 const here = fileURLToPath(new URL('../projects/', import.meta.url));
 const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const count = s => s.shapes.reduce((n, sh) => n + 1 + (sh.inside ? count(sh.inside) : 0), 0);
-for (const name of ['default-menu', 'example']) test(`projects/${name} reads, and survives being written and read again`, () => {
+for (const name of ['default-menu', 'example', 'touch-algebra']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
   const p = read(tree(join(here, name)));
+  assert.equal(p.converted, 0); assert.equal(p.changed, 0);
   assert.ok(count(p.top) > 0, 'it has shapes');
   const again = read(write(p));
   assert.deepEqual(again, read(write(again)));
