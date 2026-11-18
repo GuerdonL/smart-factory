@@ -1,0 +1,27 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bw80dsp",
+  "type": "tensor",
+  "name": "B",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -30,
+    "y": -30
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 40
+}

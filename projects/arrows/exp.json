@@ -1,0 +1,42 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bko5ddf",
+  "type": "arrow",
+  "name": ".exp",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -32,
+    "y": -14
+  },
+  "size": {
+    "cols": 2,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "exp/",
+  "order": 47,
+  "reference": true,
+  "arrow": {
+    "input": {
+      "id": "bkldpl0",
+      "as": "result"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 3,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}

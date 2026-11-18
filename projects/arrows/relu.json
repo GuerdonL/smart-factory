@@ -1,0 +1,42 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bhhapr4",
+  "type": "arrow",
+  "name": "relu",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -38,
+    "y": -22
+  },
+  "size": {
+    "cols": 2,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "relu/",
+  "order": 42,
+  "variable": 1,
+  "arrow": {
+    "input": {
+      "id": "bf9gjq7",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 1,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": "max(x, 0)"
+  }
+}

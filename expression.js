@@ -29,9 +29,10 @@
        @[b3k2m9x:x]   @[b3k2m9x:y]      the variable's width and height
        @[b3k2m9x:m]                     a scalar's mass
        @[b3k2m9x:a:heads]               an attribute, by name
+       @[b3k2m9x:g]                     an arrow's gap, where it has been given a name (it is layout, and a number)
        @[b3k2m9x]                       the whole matrix: read here, and refused everywhere but in an arrow's entry
                                         formula ({ matrices: true }), with "choose one of its measures"
-   and as an object { id, measure: 'x' | 'y' | 'm' | 'a' | null, name: the attribute's or null }.
+   and as an object { id, measure: 'x' | 'y' | 'm' | 'g' | 'a' | null, name: the attribute's or null }.
 
    evaluate(text, lookup, { matrices }) -> { value }             what it comes to: any kind of value (values.js)
                                          | { value, unread: true }   the text itself cannot be read (not arithmetic, an
@@ -65,10 +66,12 @@
 
    Choosing a variable. A variable is { id, name, scalar, attributes: [names] } (anything else on it is kept).
    measuresOf(variable)      -> its measures: [{ measure, name, label }]: x, y, a scalar's mass, then its attributes
-   offers(typed, variables)  -> what the list under an @ offers for what has been typed after it:
+   offers(typed, variables, { matrices }) -> what the list under an @ offers for what has been typed after it:
                                 { options: [variable] } while a variable is being chosen (those whose names begin
                                 with what was typed, then those that have it anywhere), and { of: variable,
-                                options: [measure] } once a variable's name and a dot have been typed
+                                options: [measure] } once a variable's name and a dot have been typed. Where whole
+                                matrices are taken, the first thing offered of a variable that is not a scalar is
+                                all of it: { measure: null, name: null, label: 'all of it' }
    wholeOf(variable, matrices) -> { capsule } | { refused }: a whole shape used as a value. A scalar is its mass; any
                                 other is refused with "choose one of its measures" (unless matrices are taken)
    bound(text, variables, { matrices }) -> { text } | { refused: why }
@@ -87,7 +90,7 @@ class Wrong extends Error {}
 const ARITY = { select: 3, max: 2, min: 2, abs: 1, sqrt: 1, exp: 1, ln: 1, tanh: 1, erf: 1 };
 const CONSTANT = { inf: Infinity, infinity: Infinity, true: true, false: false };
 const SIGN = { '×': '*', '·': '*', '∙': '*', '÷': '/', '−': '-', '–': '-', '≠': '!=', '≤': '<=', '≥': '>=' };
-const ONE = /^@\[([^\]:\s]+)(?::([xym])|:a:([^\]]+))?\]/, CAPSULE = new RegExp(ONE.source.slice(1), 'g');
+const ONE = /^@\[([^\]:\s]+)(?::([xymg])|:a:([^\]]+))?\]/, CAPSULE = new RegExp(ONE.source.slice(1), 'g');
 const capsuleOf = m => ({ id: m[1], measure: m[3] !== undefined ? 'a' : m[2] || null, name: m[3] ?? null });
 
 export const capsuleText = ({ id, measure, name }) => '@[' + id + (measure === 'a' ? ':a:' + name : measure ? ':' + measure : '') + ']';
@@ -97,7 +100,7 @@ export function parts(text){ const s = String(text), out = []; let at = 0;
   if (at < s.length) out.push(s.slice(at)); return out; }
 export const refersTo = (text, ids) => refs(text).some(r => ids.has(r.id));
 export const repoint = (text, from, to) => String(text).replace(CAPSULE, (all, id) => id === from ? '@[' + to + all.slice(2 + id.length) : all);
-export const label = (capsule, name) => String(name).slice(0, 10) + (capsule.measure ? '.' + (capsule.measure === 'm' ? 'mass' : capsule.measure === 'a' ? capsule.name : capsule.measure) : '');
+export const label = (capsule, name) => String(name).slice(0, 10) + (capsule.measure ? '.' + (capsule.measure === 'm' ? 'mass' : capsule.measure === 'g' ? 'gap' : capsule.measure === 'a' ? capsule.name : capsule.measure) : '');
 
 function tokens(text){
   const s = String(text), out = [];
@@ -205,9 +208,10 @@ function named(text, variables){
     if (n && t.startsWith(n) && (!best || n.length > best[1])) best = [v, n.length]; }
   return best;
 }
-export function offers(typed, variables){
+export function offers(typed, variables, { matrices = false } = {}){
   const t = String(typed).toLowerCase(), of = named(typed, variables);
-  if (of && t[of[1]] === '.'){ const rest = t.slice(of[1] + 1); return { of: of[0], options: measuresOf(of[0]).filter(m => m.label.toLowerCase().startsWith(rest)) }; }
+  if (of && t[of[1]] === '.'){ const rest = t.slice(of[1] + 1), all = matrices && !of[0].scalar ? [{ measure: null, name: null, label: 'all of it' }] : [];
+    return { of: of[0], options: [...all, ...measuresOf(of[0])].filter(m => m.label.toLowerCase().startsWith(rest)) }; }
   const has = variables.filter(v => v.name.toLowerCase().includes(t));
   return { options: [...has.filter(v => v.name.toLowerCase().startsWith(t)), ...has.filter(v => !v.name.toLowerCase().startsWith(t))] };
 }

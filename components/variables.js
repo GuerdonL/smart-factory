@@ -6,6 +6,7 @@
                                                               Its children (its side lengths) open under it on a click, as a frame's do
                 { kind: 'length', name, units, label }        drawn as a ruler, with its name and its length (label, where
                                                               given, is written in place of the units: "√2u")
+                { kind: 'arrow',  name, color }               a named arrow, a function: drawn as a small triangle, with its name
                 { kind: 'frame',  name, children }            drawn as an outline, with its name. Its children are items
                                                               of any kind, kept out of sight under it until it is
                                                               clicked, when it opens to show them (and shuts again).
@@ -33,6 +34,7 @@ style('variables', `
   opacity: .42; filter: saturate(.45); transform: scale(.86); transform-origin: right center; transition: transform .12s, opacity .12s, filter .12s; }
 .variable:hover, .variable.held, .variable-ghost { opacity: 1; filter: none; transform: scale(1.12); background: var(--panel); box-shadow: 0 1px 4px var(--shadow); }
 .variable-mini { flex: none; border-radius: 2.5px; background: var(--mini); box-shadow: inset 0 0 0 1px var(--edge), inset 0 -1.5px 0 var(--raise-dark); }
+.variable-arrow { flex: none; width: 0; height: 0; margin: 0 4px; border-style: solid; border-width: 8px 0 8px 14px; border-color: transparent transparent transparent var(--mini); }
 .variable svg { flex: none; width: 24px; height: 12px; fill: none; stroke: var(--measure); stroke-width: 1.3; stroke-linecap: round; }
 .variable small { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* the copy that follows the pointer hangs below and to the right of it, so it never covers what it is about to land on */
@@ -58,7 +60,8 @@ export function createVariables({ onDrag = () => {}, onDrop = () => {}, onEnd = 
     const v = html`<div class="variable"></div>`;
     if (depth){ v.classList.add('child'); v.style.setProperty('--depth', depth); }
     if (item.children?.length && item.kind !== 'shape'){ v.append(html`<b></b>`);      /* a shape carries no mark: it is clicked to show its sides all the same */ v.firstChild.textContent = opened.has(keyOf(item)) ? '\u25be' : '\u25b8'; }
-    if (item.kind !== 'length'){ const k = 22 / Math.max(item.cols, item.rows), mini = html`<i class="variable-mini"></i>`;      /* the shape's proportions, 22px on its longer side */
+    if (item.kind === 'arrow'){ const mini = html`<i class="variable-arrow"></i>`; mini.style.setProperty('--mini', `var(--${item.color})`); v.append(mini, html`<span></span>`); v.lastChild.textContent = item.name; }
+    else if (item.kind !== 'length'){ const k = 22 / Math.max(item.cols, item.rows), mini = html`<i class="variable-mini"></i>`;      /* the shape's proportions, 22px on its longer side */
       Object.assign(mini.style, { width: Math.max(5, item.cols * k) + 'px', height: Math.max(5, item.rows * k) + 'px' }); mini.style.setProperty('--mini', `var(--${item.color})`); mini.classList.toggle('group', !!item.group || item.kind === 'frame');
       v.append(mini, html`<span></span>`); v.lastChild.textContent = item.name; }
     else { v.insertAdjacentHTML('beforeend', RULER); v.append(html`<span></span>`, html`<small></small>`); v.lastChild.previousSibling.textContent = item.name; v.lastChild.textContent = item.label || item.units + 'u'; }

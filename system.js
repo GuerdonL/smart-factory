@@ -13,6 +13,13 @@
              .bg .panel .hover .focus  .fg .line .fade-to .dot  .muted .measure_bar .warn .select
          .dark_colors                  the same two groups again: the colours used while .dark_mode is 1
 
+   Beside the tree, the program's own functions: FUNCTIONS, seven named arrows (see arrows.js), each a name and an
+   entry formula in which x is the input's entry:
+       .recip  1/x      .sqrt  sqrt(x)      .exp  exp(x)      .ln  ln(x)      .abs  abs(x)      .tanh  tanh(x)      .erf  erf(x)
+   What is here is the function, not an arrow on a canvas: an arrow needs an input, and these have none until they
+   are used. They are listed with the other dotted names; dragged onto a free edge, one makes an arrow there that
+   refers to it by its name. An arrow of a project's own with one of these names shadows it, from its space down.
+
    No colours are written here. What each variable is comes from a project's .config (the default Menu's gives them
    all); where no .config says, a variable has no value and a colour does not exist: nothing stands in for it. The
    one exception is a variable given a fallback below, which is what it is where no .config says: a project saved
@@ -42,6 +49,8 @@ export const SYSTEM = [
   colour('.fg', 'fg', '.ui', [2, 18]), colour('.line', 'line', '.ui', [12, 18]), colour('.fade-to', 'fade-to', '.ui', [22, 18]), colour('.dot', 'dot', '.ui', [32, 18]),
   colour('.muted', 'muted', '.ui', [2, 20]), colour('.measure_bar', 'measure', '.ui', [12, 20]), colour('.warn', 'warn', '.ui', [22, 20]), colour('.select', 'select', '.ui', [32, 20]),
 ];
+export const FUNCTIONS = [{ name: '.recip', formula: '1/x' }, { name: '.sqrt', formula: 'sqrt(x)' }, { name: '.exp', formula: 'exp(x)' }, { name: '.ln', formula: 'ln(x)' },
+  { name: '.abs', formula: 'abs(x)' }, { name: '.tanh', formula: 'tanh(x)' }, { name: '.erf', formula: 'erf(x)' }];
 export const CONFIG = '.config', COLORS = '.colors', DARK = '.dark_colors';
 export const DARK_DOWN = 24;                    /* how far below .colors the same shapes sit in .dark_colors, in the default layout */
 export const isColour = v => !!(v.css || v.cssRows);

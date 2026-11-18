@@ -1,13 +1,15 @@
 /* A place where a value is typed: a number, or a formula (expression.js has the language). Everywhere a value is
    typed is one of these: an attribute's value, the x, y and mass rows, and every matrix entry.
 
-   createFormula({ text, look(capsule), reach(), onKeep(text, next), onLeave(next), onOpen(field), onClose(field) })
-       -> { el, focus(), insert(capsule), over(x, y), text }
+   createFormula({ text, look(capsule), reach(), matrices, onKeep(text, next), onLeave(next), onOpen(field), onClose(field) })
+       -> { el, focus(), insert(capsule), over(x, y), text, matrices }
      text     what is there to begin with, as it is stored: capsules as @[id:x]
      look     asked for each capsule to be drawn: { label, color } (a theme colour's name), or null where the
               variable it names is gone, which is drawn as "missing" in the warning colour
      reach    asked whenever an @ is typed: the variables that can be referred to, [{ id, name, color, scalar,
               attributes }] (see expression.js, "choosing a variable")
+     matrices whether a whole matrix can be referred to here (an arrow's entry formula): the list then offers all of a
+              variable before its measures, and the field says so (matrices) to whoever drops a shape on it
      onKeep   Enter, or clicking away, with what is there now where that is different; onLeave where it is the same,
               and after Escape, which puts back what was there. next is whatever the cursor went to, if anything.
      onOpen, onClose   the cursor came into the field, and left it: the page keeps track of the one that is open
@@ -77,7 +79,7 @@ function putCaret(root, at){
 }
 const FLAT = /\^\([^()]*\)/;                    /* a power written out whose bracket is closed: to be raised */
 
-export function createFormula({ text = '', look = () => null, reach = () => [], onKeep = () => {}, onLeave = () => {}, onOpen = () => {}, onClose = () => {} } = {}){
+export function createFormula({ text = '', look = () => null, reach = () => [], matrices = false, onKeep = () => {}, onLeave = () => {}, onOpen = () => {}, onClose = () => {} } = {}){
   const el = html`<span class="formula"></span>`; el.contentEditable = 'true'; el.spellcheck = false;
   const pill = capsule => { const seen = look(capsule), c = document.createElement('span'); c.className = 'capsule' + (seen ? '' : ' missing'); c.contentEditable = 'false'; c.dataset.ref = capsuleText(capsule);
     c.textContent = seen ? seen.label : 'missing'; if (seen?.color) c.style.setProperty('--pill', `var(--${seen.color})`); return c; };
@@ -115,13 +117,13 @@ export function createFormula({ text = '', look = () => null, reach = () => [], 
     if (sel.rangeCount && sel.isCollapsed && node?.nodeType === 3 && el.contains(node)){
       const before = node.data.slice(0, sel.anchorOffset), m = before.match(/@([^@()+*\/^,<>=!&|√∜​]*)$/);
       if (m) token = { node, from: before.length - m[0].length, to: sel.anchorOffset, typed: m[1] }; }
-    const got = token ? offers(token.typed, reach()) : { options: [] };
+    const got = token ? offers(token.typed, reach(), { matrices }) : { options: [] };
     options = got.options.slice(0, 9).map(o => got.of ? { of: got.of, measure: o } : { variable: o });
     if (!options.length) return shut();
     on = Math.min(on, options.length - 1);
     list.replaceChildren(...options.map((o, n) => { const row = html`<div role="option"><i></i><span></span></div>`; row.dataset.n = n; row.classList.toggle('at', n === on);
       const v = o.variable || o.of; if (v.color) row.firstChild.style.setProperty('--pill', `var(--${v.color})`);
-      row.lastChild.textContent = o.variable ? v.name : v.name.slice(0, 10) + '.' + o.measure.label; if (o.variable && v.scalar) row.append(html`<small>scalar</small>`); return row; }));
+      row.lastChild.textContent = o.variable ? v.name : o.measure.measure === null ? v.name.slice(0, 10) + ', ' + o.measure.label : v.name.slice(0, 10) + '.' + o.measure.label; if (o.variable && v.scalar) row.append(html`<small>scalar</small>`); return row; }));
     const r = document.createRange(); r.setStart(token.node, token.from); r.collapse(true); const box = r.getBoundingClientRect(), base = box.width || box.height ? box : el.getBoundingClientRect();
     Object.assign(list.style, { left: Math.max(4, Math.min(base.left, innerWidth - 270)) + 'px', top: base.bottom + 5 + 'px' }); list.hidden = false; if (!list.isConnected) document.body.append(list);
   }
@@ -177,7 +179,7 @@ export function createFormula({ text = '', look = () => null, reach = () => [], 
     const flat = [el, ...el.querySelectorAll('sup')].some(s => [...s.childNodes].some(n => n.nodeType === 3 && FLAT.test(n.data)));      /* a ^( … ) whose bracket has just been closed is raised */
     if (flat){ const t = read(el), at = caretIn(el); draw(t); putCaret(el, at ?? t.length); }
     on = 0; suggest(); });
-  const self = { el, focus(){ el.focus(); }, get text(){ return read(el); },
+  const self = { el, matrices, focus(){ el.focus(); }, get text(){ return read(el); },
     over(x, y){ const r = el.getBoundingClientRect(); return x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12; },
     insert(capsule){
       const sel = getSelection(); let r;

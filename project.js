@@ -64,6 +64,21 @@
                                                  only on a shape joined from several: the shapes it was joined from,
                                                  whole, each with the part of this one it takes up (as fractions).
                                                  Its entries are theirs: they are written there, not here.
+         "type": "arrow", "arrow": { "input": { "id": "b3k…", "as": "block" }, "side": "e", "start": 1, "span": 3, "gap": 2,
+                                     "gapName": null, "output": { "cols": 4, "rows": 3 }, "formula": "max(x, 0)" },
+                                                 an arrow, a function drawn as a triangle (arrows.js has what each field
+                                                 means). input.as is "block", or "result" for the drawn result of the
+                                                 piece holding that block (with "hollow": 1 or 2 for a times or over
+                                                 pair's hollow) or, where the id is an arrow's, that arrow's output.
+                                                 output is null where nothing is promised, formula null where there is
+                                                 no entry formula. An arrow's definition space is written as any
+                                                 shape's is. Its position and size are where it is drawn, worked out
+                                                 from its input on opening: nothing reads them back. Where its output
+                                                 is drawn is never written.
+         "seat": "b7q…",                         it is seated on the output of the arrow with that id: its value is that
+                                                 output, and the entries written here are kept and not used
+         "seat": { "hollow": ["b3k…", "b9z…"] }, or in the hollow of the times or over pair those two blocks make
+         "in": true,                             it is the input block of the arrow whose definition space it is in
          "variable": 2 }                         shapes carrying the same number are one variable used in several
                                                  places: one name, size, colour, set of entries and definition.
                                                  The definition is written once: one of them has the definition
@@ -125,7 +140,11 @@
    pieces of an old project now read differently (see below for both); each 0 for a project of this format.
 
    The format is 3. Format 3 adds to format 2 a space's operations and a shape's from.range, both set out above; a
-   format 2 project has neither, and is read as having no operations. It also adds to what an entry can hold:
+   format 2 project has neither, and is read as having no operations. It adds arrows: a shape of type "arrow" with
+   its "arrow", a shape's "seat", and "in" on an arrow's input block; a format 2 project has no arrows. Reading, an
+   arrow with a field missing or wrong is given a safe one (side e, start, span and gap 1, no promise, no formula; an
+   input with no id is an input that is gone), and a seat that names an arrow or a block the project has not got is
+   dropped, so that nothing is left naming what is not there. It also adds to what an entry can hold:
    booleans, symbolic values and formulas, and capsules in an attribute's value. A format 2 project's entries
    (numbers, "inf" and "-inf", { n, d, k }) and attributes are read unchanged. What else changed is what a file means: shapes of one width set one
    directly on the next were a stack in format 2, its rows theirs (rows appended), and are a sum in format 3. Nothing
@@ -153,6 +172,8 @@
               inside: space | null,
               variable: a number shared by shapes that are one variable, or null,
               from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | null,
+              arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
+              seat: an arrow's id | { hollow: [id, id] } | null, in: true for an arrow's input block,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
 
 import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.js';
@@ -172,6 +193,14 @@ const kept = (entries, as) => Object.fromEntries(Object.entries(entries || {}).m
 /* a range as it is kept: whole numbers, a start not before 0, at least one column and one row, and toEnd's two fields true or false */
 const rangeOf = r => { const n = (v, least) => Math.max(least, Math.round(+v || 0));
   return { col: n(r.col, 0), row: n(r.row, 0), cols: n(r.cols, 1), rows: n(r.rows, 1), toEnd: { cols: !!r.toEnd?.cols, rows: !!r.toEnd?.rows } }; };
+
+/* an arrow as it is kept: every field there and of its kind (arrows.js) */
+const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => Math.max(1, Math.round(+v || 1)), as = a.input?.as === 'result' ? 'result' : 'block';
+  return { input: { id: typeof a.input?.id === 'string' ? a.input.id : '', as, ...(as === 'result' && (a.input.hollow === 1 || a.input.hollow === 2) ? { hollow: a.input.hollow } : {}) },
+    side: ['n', 'e', 's', 'w'].includes(a.side) ? a.side : 'e', start: n(a.start), span: n(a.span), gap: n(a.gap), gapName: typeof a.gapName === 'string' && a.gapName.trim() ? a.gapName.trim() : null,
+    output: a.output && typeof a.output === 'object' && +a.output.cols >= 1 && +a.output.rows >= 1 ? { cols: n(a.output.cols), rows: n(a.output.rows) } : null,
+    formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null }; };
+const seatOf = s => typeof s === 'string' && s ? s : s && typeof s === 'object' && Array.isArray(s.hollow) && s.hollow.length === 2 && s.hollow.every(id => typeof id === 'string' && id) ? { hollow: [...s.hollow] } : null;
 
 /* a name made safe to be a file's name, and different from every other in its directory.
    taken: every name used in the directory so far, in lower case: each stem (which is also the name of a shape's
@@ -212,6 +241,7 @@ export function write(project){
         sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.tile ? { tile: true } : {}), ...(shape.transposed ? { transposed: true } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: shape.from.range ? { id: shape.from.id, range: rangeOf(shape.from.range) } : { id: shape.from.id, side: shape.from.side } } : {}),
+        ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
@@ -258,6 +288,7 @@ export function read(files){
         entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile, transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
         reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? (c.from.range && typeof c.from.range === 'object' ? { id: c.from.id, range: rangeOf(c.from.range) } : { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' }) : null,
+        arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });
     /* an operation that is not one (no such op, not two sources, nothing made) is passed over */
@@ -274,6 +305,11 @@ export function read(files){
       cols: 3, rows: 2, colsName: null, rowsName: null, entries: {}, inside: top, variable: null });
     project = { ...project, top: menu };
   }
+  /* a seat names an arrow, or the two blocks of a pair: one that names what the project has not got is no seat */
+  const every = [], walk = s => { const one = d => { every.push(d); if (d.inside) walk(d.inside); for (const j of d.joined || []) one(j.shape); }; s.shapes.forEach(one); for (const o of s.operations || []) o.sources.forEach(one); };
+  walk(project.top);
+  const arrows = new Set(every.filter(d => d.arrow && d.id).map(d => d.id)), known = new Set(every.map(d => d.id).filter(Boolean));
+  for (const d of every) if (d.seat && !(typeof d.seat === 'string' ? arrows.has(d.seat) : d.seat.hollow.every(id => known.has(id)))) d.seat = null;
   const old = (meta.version || 1) < 3 ? fuseStacks(project.top) : { fused: 0, changed: 0 };
   return { ...project, converted: old.fused, changed: old.changed };
 }
@@ -317,7 +353,7 @@ function fuseStacks(s, owner = null, seen = new Set()){
     let n = 1; while (used.has('Shape ' + n)) n++;      /* a name no shape of the space has, as a newly joined shape is given */
     const at = Math.min(...run), holder = chain(run[0]).find(g => run.every(i => chain(i).includes(g)));      /* the innermost frame holding them all */
     made.set(at, { id: null, type: 'tensor', name: 'Shape ' + n, color: null, x: first.x, y: first.y, cols: first.cols, rows, colsName: first.colsName || null, rowsName: null, entries: {}, inside: null, variable: null,      /* the stack's columns had its first shape's name */
-      tile: false, transposed: false, attributes: [], reference: false, from: null,
+      tile: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false,
       joined: run.map(i => ({ fx: 0, fy: (s.shapes[i].y - first.y) / rows, fw: 1, fh: s.shapes[i].rows / rows, shape: s.shapes[i] })) });
     for (const i of run){ gone.add(i); for (const g of chain(i)) g.members = g.members.filter(m => m !== i); }
     if (holder) holder.members.push(at);

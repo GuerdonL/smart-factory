@@ -22,7 +22,14 @@ The format also adds two things to format 2, both for the boolean tool: a space'
 shape made by a cut or an intersection `from.range`, the columns and rows of its source that it is
 (`{ col, row, cols, rows, toEnd: { cols, rows } }`, counted from 0; `toEnd` marks a range that runs to the source's
 last column or row whatever size the source becomes). Such a shape's entries are its source's and are not written.
-A format 2 project has neither and opens with no operations. What else changed is what a stack means. Shapes of one width set one
+A format 2 project has neither and opens with no operations. The format adds three more for arrows: a shape of
+`"type": "arrow"` carries `"arrow"` (`{ input: { id, as }, side, start, span, gap, gapName, output, formula }`: what
+it reads, where it stands against it, the output size it promises or `null`, and its entry formula or `null`), and
+has a definition directory holding its space, in which the block called `in` carries `"in": true`; and a shape
+seated on an arrow's output carries `"seat"`, that arrow's id, or `{ "hollow": [id, id] }` where it sits in the
+hollow of the pair those two shapes make. Where an output is written, and what it comes to, are never in a file: a
+seated shape's `entries` are whatever it held before it was seated, and are not used while it is. A format 2 project
+has no arrows. What else changed is what a stack means. Shapes of one width set one
 directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each
 of its stacks is fused into one joined shape on the way in, so it comes to what it did, and the readout says how many
 were fused. Shapes that met at a corner, or stood directly under a shape in a product, did not touch in format 2 and
@@ -69,7 +76,7 @@ The program's own variables exist from the start, above the Menu. The tree is in
 blank, whatever the computer asks for), `.show_hadamard_copies` (in how many of its two hollows the result of a
 Times or Over pair is written: 0, 1 or 2; left blank, 1), `.dark_colors` (the colours used while `.dark_mode` is 1, laid out like
 `.colors`) and `.colors`, whose two groups hold the colours, each a shape of
-three entries, red, green, blue: `Shapes` (`.tensor_default`, `.data-in`, `.function`) and `UI` (`.bg`, `.fg`, `.select`, ...).
+three entries, red, green, blue: `Shapes` (`.tensor_default`, `.data-in`, and `.function`, the colour of an arrow's triangle) and `UI` (`.bg`, `.fg`, `.select`, ...).
 `Shapes` also holds `.variable_colors`, an array of six colours, a row each: the ones a newly named shape takes at
 random. The stylesheet has no colours for these (they are `--variable-1` to `--variable-6`, set from the array), and
 the program has none of its own either. In the default Menu each `.variable_colors` (light and dark) is defined in its own definition
@@ -99,6 +106,10 @@ A `.config` reaches as far as the group it is in. One in no group covers its who
 inside a group covers that group alone, with everything below its shapes. The default Menu uses this: `.dark_colors`
 holds a small `.config` of its own with `.dark_mode` = 1, so that group is drawn in the dark colours it sets while the
 rest of the Menu stays light.
+
+The program's seven functions (`.recip`, `.sqrt`, `.exp`, `.ln`, `.abs`, `.tanh`, `.erf`) are in `system.js` too, each a
+name and a formula. They have no shape in a `.config`: a function is not on a canvas until it is used. An arrow of
+a project's own with one of their names shadows it from its space downwards, as above.
 
 ## example/
 
@@ -134,3 +145,14 @@ use was cut by `Head`, a 2 by 4 shape laid over its columns 3 and 4: the two sha
 the matching part shows it at once. Select a part to see its side's label (`embed-Head.x.1`). At the top right,
 `Window` (2 by 2) lay in the middle of `Table` (8 by 6), touching no edge, where a Difference is refused; Intersect
 made the one 2 by 2 shape that is there now. Revert on any of these puts the original shapes back.
+
+## arrows/
+
+Arrows, beside a copy of the default Menu's `.config`. At the top, an arrow carries `Keys` across unchanged: `H` is
+seated on its output, and `B`, set against `H`, makes a product. Below, `relu` is a named arrow with the formula
+`max(x, 0)`, used on `V` (2 and -5 give 2 and 0) and again on `U`: select either and change the formula, and both
+change. `mask` writes `-∞` above the diagonal of `Scores` (`select(i > j, -inf, x)`), and `.exp`, one of the
+program's functions, is set against `mask`'s output. `linear` is defined in its space: open it to find `in` against
+`W`, a product, and the size it promises, 2 by 3; type another output size in its panel and it turns to the warning
+colour. On the right, the result of `Weights` and `Gate` was named `Gated` in its hollow and dragged out along its
+row, which made the arrow that carries it.

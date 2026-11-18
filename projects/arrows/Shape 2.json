@@ -1,0 +1,42 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bg3kag6",
+  "type": "arrow",
+  "name": "Shape 2",
+  "named": false,
+  "commented": false,
+  "color": null,
+  "position": {
+    "x": -16,
+    "y": -14
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Shape 2/",
+  "order": 53,
+  "arrow": {
+    "input": {
+      "id": "bgs3i1z",
+      "as": "result",
+      "hollow": 1
+    },
+    "side": "e",
+    "start": 1,
+    "span": 2,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}
