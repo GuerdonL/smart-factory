@@ -642,6 +642,21 @@ test('tiles that overlap without one lying wholly inside the other\'s pattern ha
   const clear = make(snap(shapes([B('C', 4, 1, 2, 1), arrow('c', { id: 'third', as: 'tile' })]), G2({ across: 2 }, [], [{ ...third, repeat: { ...third.repeat, x: 4 } }])));
   assert.deepEqual(clear.spaces.top.tiles.map(t => !!t.node), [true, true, true]);
 });
+test('after review: a tile and a block that overlap are called that, and a tile nine deep is the one reason, said once', () => {
+  const inner = { id: 'inner', name: 'Twice', members: [0], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 2, down: 1 } };
+  const g = make(snap([B('A', 0, 0, 2, 1), B('Under', 2, 0, 2, 1), arrow('out', { id: 'outer', as: 'tile' })], [{ id: 'outer', name: 'Rows', members: [1], repeat: { x: 0, y: 0, cols: 4, rows: 1, across: 1, down: 1 }, groups: [inner] }]));
+  assert.deepEqual(g.spaces.top.arrows[0].error, { code: 'no-source', note: 'a tile and a block in its pattern overlap' });
+  /* named in the reason, as on the page */
+  const past = make(snap([B('A', 0, 0, 2, 1), arrow('out', { id: 'outer', as: 'tile' })], [{ id: 'outer', name: 'Rows', members: [], repeat: { x: 0, y: 0, cols: 3, rows: 1, across: 1, down: 1 }, groups: [inner] }]));
+  assert.match(past.spaces.top.tiles[0].error.note, /^the tile Twice in its pattern runs past the pattern: /); assert.match(past.spaces.top.tiles[1].error.note, /^it runs past the pattern of the tile Rows: /);
+  /* nine tiles, one inside the next, from a file */
+  let nest = null; for (let k = 8; k >= 0; k--) nest = { id: 't' + k, name: null, members: k === 8 ? [0] : [], groups: nest ? [nest] : [], repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 1, down: 1 } };
+  const deep = make(snap([B('A', 0, 0, 1, 1), arrow('out', { id: 't0', as: 'tile' })], [nest]));
+  assert.deepEqual(deep.spaces.top.tiles.map(t => t.tile), ['t:t0', 't:t1', 't:t2', 't:t3', 't:t4', 't:t5', 't:t6', 't:t7', 't:t8']);
+  assert.equal(deep.spaces.top.tiles[8].error.note, 'it lies too deep: tiles lie one inside the next at most 8 deep');
+  for (let k = 0; k < 8; k++) assert.equal(deep.spaces.top.tiles[k].error.note, 'a tile in its pattern has no matrix: it lies too deep: tiles lie one inside the next at most 8 deep');
+  assert.equal(deep.spaces.top.arrows[0].error.note, 'a tile in its pattern has no matrix: it lies too deep: tiles lie one inside the next at most 8 deep');
+});
 test('a count that reads what comes of a tile of its own nest is not settled, at whatever level; one that reads elsewhere is', () => {
   const nest = (outer, inner) => [{ id: 'outer', name: null, members: [], repeat: { x: 0, y: 0, cols: 4, rows: 1, across: 1, down: 1, ...outer }, groups: [{ id: 'inner', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 2, down: 1, ...inner } }] }];
   const shapes = [B('A', 0, 0, 2, 1), arrow('out', { id: 'outer', as: 'tile' }), B('SO', 6, 0, 4, 1, { seat: 'out' }), arrow('in', { id: 'inner', as: 'tile' }, { side: 'n' }), B('SI', 0, -4, 4, 1, { seat: 'in' }), B('Other', 20, 20, 2, 3)];

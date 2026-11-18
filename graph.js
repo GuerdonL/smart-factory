@@ -792,7 +792,7 @@ export function build(snapshot){
   }
   function overlapsIn(ctx){
     if (!ctx.overlaps) ctx.overlaps = tiles.overlapping(tilesIn(ctx).map(t => { const c = tiles.counts(t.grp.repeat, sizeLookup, { across: loopsIn(t.grp, 'across'), down: loopsIn(t.grp, 'down') });
-      return { id: t.id, in: t.in, repeat: t.grp.repeat, across: c.across, down: c.down, formula: c.formula }; }));
+      return { id: t.id, in: t.in, name: t.grp.name || null, repeat: t.grp.repeat, across: c.across, down: c.down, formula: c.formula }; }));
     return ctx.overlaps;
   }
   /* a tile's matrix: { node } | { error }. A tile wholly inside its pattern is one part of it: that tile's matrix.
@@ -804,8 +804,8 @@ export function build(snapshot){
     const lies = overlapsIn(ctx).get(grp.id); if (lies) return done({ error: E('no-source', lies) });
     const rep = grp.repeat, parts = ctx.recs.filter(r => !r.arrow && !isOff(r.d) && !hollowSeat(r.d) && tileOf(r) === grp).map(r => ({ node: () => blockNode(r), rect: { x: r.x, y: r.y, w: r.cols, h: r.rows } }));
     for (const t of ctx.groups.values()) if (t.repeat && tileUp(t) === grp){ const made = tileNode(ctx, t);
-      if (made.error) return done({ error: E(made.error.code === 'size-unknown' ? 'size-unknown' : 'no-source', made.error.code === 'size-unknown' ? made.error.note : 'a tile in its pattern has no matrix: ' + made.error.note) });
-      const size = typeOf(made.node); parts.push({ node: () => made.node, rect: { x: t.repeat.x, y: t.repeat.y, w: size.cols, h: size.rows } }); }
+      if (made.error) return done({ error: E(made.error.code === 'size-unknown' ? 'size-unknown' : 'no-source', made.error.code === 'size-unknown' ? made.error.note : tiles.lostWithin(made.error.note)) });
+      const size = typeOf(made.node); parts.push({ node: () => made.node, rect: { x: t.repeat.x, y: t.repeat.y, w: size.cols, h: size.rows, tile: true } }); }
     const m = tiles.matrix(rep, c.across, c.down, parts.map(p => p.rect)); if (m.error) return done({ error: E('no-source', m.error) });
     const node = N('repeat', parts.map(p => p.node()), { at: parts.map(p => ({ col: p.rect.x - rep.x, row: p.rect.y - rep.y })), pattern: { cols: rep.cols, rows: rep.rows }, across: c.across, down: c.down });
     return done(node ? { node } : { error: E('no-source', 'its blocks are not the sizes they are drawn') });

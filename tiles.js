@@ -91,7 +91,7 @@
    that it lies wholly inside is said by the rectangles: its filled size (its pattern times its counts, what its
    matrix would be, whatever is drawn of it) has to lie inside the other's pattern. Tiles nest as deep as DEPTH.
    Two tiles that overlap in any other way are both warned of, and neither has a matrix.
-   The tiles of a space are given as a list: [{ id, in, repeat, across, down, formula }], in: the id of the tile
+   The tiles of a space are given as a list: [{ id, in, repeat, across, down, formula, name }], in: the id of the tile
    it is in (the nearest, by the frames) or null; across and down as numbers (counts); formula as counts gives it.
    laid(list)                    -> a Map from id: { in, depth, limit, lay, cells, rect, filled, pattern } for every
                                     tile. depth: how many tiles it is inside. limit: the most cells of it that are
@@ -104,10 +104,15 @@
    overlaps(list)                -> [{ a, b, why }]: the pairs that overlap without one lying wholly inside the
                                     other's pattern. why 'past': b is in a (at any depth) and its filled size
                                     does not lie inside a's pattern. why 'over': neither is in the other, and
-                                    what is drawn of the two overlaps (edge to edge is not over), so a tile lying
-                                    on another's pattern without being in it is over it too.
+                                    the two overlap (edge to edge is not over), so a tile lying on another's
+                                    pattern without being in it is over it too. A tile that is in another tile
+                                    is taken at its filled size, since that is what is set in the outer matrix,
+                                    whatever is drawn of it (an ellipsis takes no room there); a tile in no other
+                                    at what is drawn of it, which is what it takes up on the canvas.
    overlapping(list)             -> a Map from id to why that tile is warned of and has no matrix: it is one of
                                     such a pair, or lies more than DEPTH deep. Tiles that are well are absent.
+                                    The other tile of the pair is called by its name where the list gives one
+                                    (name, on an item).
    allowed(before, after)        -> { ok: true } | { refused }: whether the tiles may come to stand as `after`,
                                     having stood as `before`: not where a pair overlaps that did not before, or a
                                     tile comes to lie deeper than DEPTH. (So a tile already warned of can still be
@@ -164,10 +169,12 @@
                                     its pattern is covered exactly by blocks (rects, in units on the canvas), with
                                     no gap and no overlap: every cell's blocks set in their places, the filled size.
                                     error says what is wrong: a block outside the pattern, two that overlap, a gap.
-                                    A tile in the pattern is one of the rects: its matrix set in its place (its
-                                    corner, and its matrix's size), or { error } where it has no matrix, and then
-                                    this tile has none. (A tile that overlapping names has no matrix: whoever
-                                    asks says so before asking this.)
+                                    A tile in the pattern is one of the rects, marked tile: true: its matrix set
+                                    in its place (its corner, and its matrix's size), or { error } where it has
+                                    no matrix, and then this tile has none (lostWithin: the reason is the
+                                    innermost tile's, said once however deep it lies). What overlaps is named
+                                    for what it is: two blocks, a tile and a block, two tiles. (A tile that
+                                    overlapping names has no matrix: whoever asks says so before asking this.)
    entries(repeat, across, down, rects, valuesIn) -> a Map from "column,row": that matrix's entries, every cell's.
                                     valuesIn(n, cx, cy) gives the entries (a Map) of the n-th rect's block as it is
                                     in cell (cx, cy): a block differs from cell to cell only through the index.
@@ -307,20 +314,23 @@ export function laid(list){
   return out;
 }
 const upsOf = (L, id) => { const out = []; for (let p = L.get(id).in; p !== null && !out.includes(p); p = L.get(p).in) out.push(p); return out; };      /* the tiles it is in, innermost first */
+/* what a tile takes up among tiles it is not inside: in another tile's pattern, its filled size, which is what is set in that tile's matrix; on the bare canvas, what is drawn of it */
+const extent = t => t.in !== null ? t.filled : t.rect;
 export function overlaps(list){
   const L = laid(list), ids = [...L.keys()], ups = new Map(ids.map(id => [id, upsOf(L, id)])), out = [];
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++){ const a = ids[i], b = ids[j];
     const outer = ups.get(b).includes(a) ? a : ups.get(a).includes(b) ? b : null, inner = outer === a ? b : a;
     if (outer !== null){ if (!inside(L.get(outer).pattern, L.get(inner).filled)) out.push({ a: outer, b: inner, why: 'past' }); }
-    else if (over(L.get(a).rect, L.get(b).rect)) out.push({ a, b, why: 'over' }); }
+    else if (over(extent(L.get(a)), extent(L.get(b)))) out.push({ a, b, why: 'over' }); }
   return out;
 }
 const PAST = 'a tile inside a tile lies wholly inside that tile\'s pattern', OVER = 'two tiles overlap only where one lies wholly inside the other\'s pattern, as part of it', DEEP = `tiles lie one inside the next at most ${DEPTH} deep`;
 export function overlapping(list){
-  const out = new Map(), say = (id, why) => { if (!out.has(id)) out.set(id, why); };
+  const out = new Map(), say = (id, why) => { if (!out.has(id)) out.set(id, why); }, names = new Map(list.map(t => [t.id, typeof t.name === 'string' && t.name.trim() ? t.name.trim() : null]));
+  const called = (id, unnamed) => names.get(id) ? 'the tile ' + names.get(id) : unnamed;
   for (const p of overlaps(list)){
-    if (p.why === 'past'){ say(p.a, 'a tile in its pattern runs past the pattern: ' + PAST); say(p.b, 'it runs past the pattern of the tile it is in: ' + PAST); }
-    else { say(p.a, 'it lies over another tile: ' + OVER); say(p.b, 'it lies over another tile: ' + OVER); } }
+    if (p.why === 'past'){ say(p.a, `${called(p.b, 'a tile')} in its pattern runs past the pattern: ` + PAST); say(p.b, `it runs past the pattern of ${called(p.a, 'the tile it is in')}: ` + PAST); }
+    else { say(p.a, `it lies over ${called(p.b, 'another tile')}: ` + OVER); say(p.b, `it lies over ${called(p.a, 'another tile')}: ` + OVER); } }
   for (const [id, t] of laid(list)) if (t.depth >= DEPTH) say(id, 'it lies too deep: ' + DEEP);
   return out;
 }
@@ -367,12 +377,15 @@ export function indexValues(repeat, offset, cols, rows, axis, cx = 1, cy = 1){
   return out;
 }
 
+const WITHIN = 'a tile in its pattern has no matrix: ';
+export const lostWithin = why => String(why).startsWith(WITHIN) ? String(why) : WITHIN + why;      /* said once, with the innermost tile's reason, however deep that tile lies */
 export function matrix(repeat, across, down, rects){
   const p = pattern(repeat);
   if (!rects.length) return { error: 'its pattern is empty' };
-  const lost = rects.find(r => r.error); if (lost) return { error: 'a tile in its pattern has no matrix: ' + lost.error };
-  if (rects.some(r => !inside(p, r))) return { error: 'a block of it lies outside its pattern' };
-  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) if (over(rects[i], rects[j])) return { error: 'two blocks in its pattern overlap' };
+  const lost = rects.find(r => r.error); if (lost) return { error: lostWithin(lost.error) };
+  const out = rects.find(r => !inside(p, r)); if (out) return { error: out.tile ? 'a tile in it lies outside its pattern' : 'a block of it lies outside its pattern' };
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) if (over(rects[i], rects[j]))
+    return { error: rects[i].tile && rects[j].tile ? 'two tiles in its pattern overlap' : rects[i].tile || rects[j].tile ? 'a tile and a block in its pattern overlap' : 'two blocks in its pattern overlap' };
   if (rects.reduce((sum, r) => sum + r.w * r.h, 0) !== p.w * p.h) return { error: 'its pattern has a gap' };
   return filled(repeat, across, down);
 }

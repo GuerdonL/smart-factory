@@ -1588,7 +1588,7 @@ const loopsOf = (g, stored) => ({ entryOf, loops: !!stored && typeof stored === 
    says of them together: how each is laid out, and which overlap. Worked out once for every time the screen is brought up to date. */
 function tilesIn(s){
   if (memo?.has(s.repeats)) return memo.get(s.repeats);
-  const list = [...s.repeats].map(([g, rep]) => { const c = tiles.counts(rep, sizeLookup, { across: loopsOf(g, rep.across), down: loopsOf(g, rep.down) }); return { id: g, in: tileUp(s, g) ?? null, repeat: rep, across: c.across, down: c.down, formula: c.formula, warn: c.warn }; });
+  const list = [...s.repeats].map(([g, rep]) => { const c = tiles.counts(rep, sizeLookup, { across: loopsOf(g, rep.across), down: loopsOf(g, rep.down) }); return { id: g, in: tileUp(s, g) ?? null, name: s.groupNames.get(g) || null, repeat: rep, across: c.across, down: c.down, formula: c.formula, warn: c.warn }; });
   const all = { list, laid: tiles.laid(list), over: tiles.overlapping(list), info: new Map() };
   memo?.set(s.repeats, all); return all;
 }
@@ -1603,7 +1603,7 @@ function tileInfo(s, g, all = tilesIn(s)){
   all.info.set(g, info);
   info.levels = info.inner.length ? 1 + Math.max(...info.inner.map(i => tileInfo(s, i, all).levels)) : 0;      /* how many levels of tiles lie inside it */
   info.matrix = info.over ? { error: info.over } : tiles.matrix(rep, me.across, me.down, [...blocks.map(unitsOf),
-    ...info.inner.map(i => { const t = tileInfo(s, i, all); return t.matrix.error ? { error: t.matrix.error } : { x: t.rep.x, y: t.rep.y, w: t.matrix.cols, h: t.matrix.rows }; })]);
+    ...info.inner.map(i => { const t = tileInfo(s, i, all); return t.matrix.error ? { error: t.matrix.error } : { x: t.rep.x, y: t.rep.y, w: t.matrix.cols, h: t.matrix.rows, tile: true }; })]);
   return info;
 }
 /* the tiles of a space as a list for tiles.js, as they would stand with some changed: change(t) gives the changed one, or nothing to leave it */

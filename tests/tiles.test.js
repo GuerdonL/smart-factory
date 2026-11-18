@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEPTH, nest, laid, overlaps, overlapping, allowed, home, moved, indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { lostWithin, DEPTH, nest, laid, overlaps, overlapping, allowed, home, moved, indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -489,4 +489,45 @@ test('after review: an arrow in a tile in a tile is repeated along its input thr
   assert.match(mapped(e, rep(1, 2), 1, 1, 12, { outer: [O(3, 2, 1, 3), O(3, 4, 1, 2)] }).warn, /pattern 4 tall, and the arrow covers 6 rows/);
   /* the innermost tile's own rules come first, as before */
   assert.match(mapped(a, rep(2, 2), 2, 1, 8, { outer: [O(4, 3, 2, 1)] }).warn, /pattern is 2 wide and the arrow's span is 1/);
+});
+
+test('after review: inside another tile\'s pattern tiles are judged by their filled size, which is what is set in the matrix', () => {
+  const pairs = list => overlaps(list).map(p => `${p.a} ${p.b} ${p.why}`);
+  /* an outer pattern 70 wide; an inner tile 1 by 1, 70 across, drawn 5 wide; a second tile at column 11, clear of what is drawn of the first and under its filled size */
+  const o = T('o', null, 0, 0, 70, 1), long = T('i', 'o', 0, 0, 1, 1, 70, 1);
+  assert.deepEqual(laid([o, long]).get('i').rect, rect(0, 0, 5, 1)); assert.deepEqual(laid([o, long]).get('i').filled, rect(0, 0, 70, 1));
+  assert.deepEqual(pairs([o, long, T('j', 'o', 10, 0, 2, 1)]), ['i j over']);
+  assert.match(makable(rect(10, 0, 2, 1), [o, long]).refused, /cannot lie over another tile/);
+  assert.deepEqual(pairs([o, T('i', 'o', 0, 0, 1, 1, 10, 1), T('j', 'o', 10, 0, 2, 1)]), []);      /* the boundary: flush after its filled size */
+  assert.deepEqual(pairs([o, T('i', 'o', 0, 0, 1, 1, 11, 1), T('j', 'o', 10, 0, 2, 1)]), ['i j over']);
+  /* a count that is a formula and comes to 1, with a tile flush after it: the ellipsis takes a unit on the canvas and none in the matrix, so nothing overlaps */
+  const one = T('i', 'o', 0, 0, 2, 1, 1, 1, { across: true });
+  assert.deepEqual(laid([o, one]).get('i').rect, rect(0, 0, 3, 1));      /* drawn as its pattern and an ellipsis */
+  assert.deepEqual(pairs([o, one, T('j', 'o', 2, 0, 2, 1)]), []);
+  assert.deepEqual(makable(rect(2, 0, 2, 1), [o, one]), { ok: true, in: 'o', holds: [] });
+  assert.deepEqual(allowed([o, one], [o, one, T('j', 'o', 2, 0, 2, 1)]), { ok: true });
+  /* tiles in no other tile are still judged by what is drawn of them: that is what lies on the canvas */
+  assert.deepEqual(pairs([T('a', null, 0, 0, 2, 1, 1, 1, { across: true }), T('b', null, 2, 0, 2, 1)]), ['a b over']);      /* the ellipsis is on the canvas */
+  assert.deepEqual(pairs([T('a', null, 0, 0, 1, 1, 70, 1), T('b', null, 10, 0, 2, 1)]), []);
+  /* a tile inside a pattern against a tile that is not: the one by its filled size, the other by what is drawn */
+  assert.deepEqual(pairs([T('o', null, 0, 0, 4, 1), T('i', 'o', 0, 0, 1, 1, 4, 1), T('z', null, 4, 0, 1, 1)]), []);
+});
+
+test('after review: what is wrong is named for what it is, and once', () => {
+  const named = (t, name) => ({ ...t, name });
+  const w = overlapping([named(T('o', null, 0, 0, 4, 1), 'Rows'), named(T('i', 'o', 0, 0, 2, 1, 3, 1), 'Twice'), T('j', 'o', 3, 0, 1, 1)]);
+  assert.match(w.get('o'), /^the tile Twice in its pattern runs past the pattern: /); assert.match(w.get('i'), /^it runs past the pattern of the tile Rows: /);
+  assert.match(w.get('j'), /^it lies over the tile Twice: /);
+  const v = overlapping([named(T('a', null, 0, 0, 2, 2), 'A'), T('b', null, 1, 1, 2, 2)]); assert.match(v.get('a'), /^it lies over another tile: /); assert.match(v.get('b'), /^it lies over the tile A: /);
+  /* in a tile's matrix: two blocks, a tile and a block, two tiles */
+  const p = rep(4, 2), tile = r => ({ ...r, tile: true });
+  assert.deepEqual(matrix(p, 1, 1, [rect(0, 0, 4, 2), rect(0, 0, 2, 1)]), { error: 'two blocks in its pattern overlap' });
+  assert.deepEqual(matrix(p, 1, 1, [rect(0, 0, 4, 2), tile(rect(0, 0, 2, 1))]), { error: 'a tile and a block in its pattern overlap' });
+  assert.deepEqual(matrix(p, 1, 1, [tile(rect(0, 0, 4, 1)), tile(rect(0, 0, 2, 1))]), { error: 'two tiles in its pattern overlap' });
+  assert.deepEqual(matrix(p, 1, 1, [tile(rect(0, 0, 6, 1))]), { error: 'a tile in it lies outside its pattern' });
+  assert.deepEqual(matrix(p, 1, 1, [tile(rect(0, 0, 4, 1)), rect(0, 1, 4, 1)]), { cols: 4, rows: 2 });
+  /* a tile with no matrix, however deep: the reason is said once */
+  assert.equal(lostWithin('its pattern has a gap'), 'a tile in its pattern has no matrix: its pattern has a gap');
+  assert.equal(lostWithin(lostWithin(lostWithin('its pattern has a gap'))), 'a tile in its pattern has no matrix: its pattern has a gap');
+  const deep = matrix(p, 1, 1, [{ error: matrix(p, 1, 1, [{ error: 'it lies too deep' }]).error }]); assert.deepEqual(deep, { error: 'a tile in its pattern has no matrix: it lies too deep' });
 });
