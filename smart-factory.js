@@ -249,16 +249,10 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   if (w > cols || h > rows) return hud.say(`${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
-<<<<<<< HEAD
-  const def = spaceOf.get(a);
-  if (def === spaceOf.get(v)) return hud.say('A shape cannot go into its own matrix');
-  if (loops(v, def)) return hud.say(`${bare(a.name)} is inside ${bare(v.name)}'s definition: ${bare(v.name)} cannot go into ${bare(a.name)}'s matrix`);
-  const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
-=======
   const def = spaceOf.get(a), vdef = spaceOf.get(v), family = [...kinOf(v)];      /* v's definition and uses, noted now: v may itself be among what is taken out below */
   if (def === vdef) return hud.say('A shape cannot go into its own matrix');
+  if (loops(v, def)) return hud.say(`${bare(a.name)} is inside ${bare(v.name)}'s definition: ${bare(v.name)} cannot go into ${bare(a.name)}'s matrix`);
   const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b, vdef); };
->>>>>>> review-fixes
   let tiles = tilesOf(a);
   if (!tiles){ for (const b of [...def.blocks]) out(b); tiles = [];      /* the first shape in: whatever was in its definition goes */
     def.groupUp.clear(); def.groupNames.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear(); }
@@ -1043,18 +1037,14 @@ function gather(){
      several blocks with one space, and written under each, a space inside a space, the whole would multiply */
   const written = new Set(), once = s => !written.has(s) && !!written.add(s);
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-<<<<<<< HEAD
-    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && !writing.has(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
-=======
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
->>>>>>> review-fixes
     tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: b.from ? { ...b.from } : null,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
-  /* writing: the spaces being written out just now, one inside the next. A space is never written inside itself: no
-     definition should hold itself (see loops), and if one ever does, it is written once and the page goes on working. */
-  const writing = new Set();
-  const plain = s => { writing.add(s);
-    try { return { shapes: s.blocks.map(one), groups: tree(s, undefined) }; } finally { writing.delete(s); } };
+  /* (written once, a space is never written inside itself either: no definition should hold itself (see loops), and
+     if one ever does, the page goes on working) */
+  const plain = s => ({
+    shapes: s.blocks.map(one),
+    groups: tree(s, undefined) });
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));

@@ -1,6 +1,5 @@
 # the server's PIN is set on each machine, never kept here (see README: The PIN)
 .pin
-<<<<<<< HEAD
 runs/
 data/cache/
 __pycache__/
@@ -11,11 +10,9 @@ data/kaggle/
 data/hf/
 data/hfds/
 models/*.json.gz
-=======
 
 # what Python leaves behind when it runs the server
 __pycache__/
 
 # a project's own .config is each machine's: the one that comes with a project is projects/<name>.config (see projects/README.md)
 projects/*/.config
->>>>>>> review-fixes
