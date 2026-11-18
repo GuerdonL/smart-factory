@@ -51,6 +51,8 @@ who can reach the port can read and overwrite the projects.
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
 - `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
   and worked out. No drawing. `algebra.js` gives `combine` and the value helpers from `values.js` too.
+- `graph.js`, `evaluate.js`: a whole project as one graph of matrix operations, plain JSON, and that graph worked
+  out exactly. No drawing. Every number the page shows comes from these two: see "The graph and the evaluator".
 - `bus.js`: the message bus. Everything the user does takes effect as a named message of plain data (blocks by id)
   sent through it; it keeps a log and can be tapped before and after each message, which is where history and undo
   will attach. What each message does is listed under "messages" in `smart-factory.js`.
@@ -65,7 +67,7 @@ who can reach the port can read and overwrite the projects.
 
 ## Tests
 
-    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, project, bus, history, ids, zip
+    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, graph, evaluate, project, bus, history, ids, zip
     python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, and the PIN
 
 Nothing to install: the tests use Node's own test runner (Node 20 or later) and Python's unittest. `tests/solver.js`
@@ -117,8 +119,9 @@ repeated operand there may be one, or none, and the result goes beside the piece
 result, wherever it is written. Named in a hollow, the result is not folded away: a block of that name is seated in
 the hollow and the two shapes stay where they are (see "Arrows").
 
-The result of a sum, or of times and over, is written as its size and its entries in symbols (`a₁₁+b₁₁`), as a
-product's is; it is not worked out in numbers yet.
+The result of a product, a sum, or times and over is worked out: an entry whose numbers are all known is written as
+its number, exactly (`3/4`, `2√3`, `1+√2`). An entry that depends on one not yet given stays in symbols, as what it is
+made from (`a₁₁+b₁₁`; for a product, the row and the column it takes). See "The graph and the evaluator".
 
 Projects saved before this (format 2) took a stack to mean rows appended. Opening one, each such stack is fused into
 one shape, as Difference would fuse it, which still appends, so the project means what it did; the readout says how many were fused.
@@ -301,9 +304,10 @@ not free) is said in the readout, and the arrow stays as it was.
 A formula comes first; with none, the definition space; and where that holds only `in`, the input passes through. A
 function never changes its input.
 
-**What the output shows.** A pass-through and an entry formula show their numbers, worked out exactly. An arrow
-defined in its space shows its size and its entries as symbols; so does one whose input is a product, a sum or an
-elementwise result, which are not worked out in numbers yet.
+**What the output shows.** Its numbers, worked out exactly, whatever the function is: a pass-through, an entry
+formula, or a definition space, which is worked out for whatever this arrow is given (a named arrow on two inputs
+gives two outputs). Inside an arrow's space, `in` and everything made from it show the numbers of the arrow the space
+was opened through. An arrow that reads a product, a sum or an elementwise result reads its numbers.
 
 **Checking.** With no output size set, the output is whatever size the function comes to. With one set, an arrow
 whose function does not come to it is drawn in the warning colour, with its output, and its definition space shows
@@ -428,8 +432,8 @@ The matrix exists when the pattern is covered exactly by blocks, with no gap and
 drawn in the warning colour and its panel says what is wrong. Such an arrow always reads the whole tile, so its
 start and span are not typed: seat a block on the output and take rows from that. Against a tile drawn elided, the
 arrow's base runs along the edge as it is drawn, and only what lies against that drawn edge is in its way; the
-output is the matrix's real size. A matrix of more than 4096 entries is not worked out in the page: the output
-shows its size, and the arrow's panel says why.
+output is the matrix's real size. A matrix of more than 4096 entries, or one worked out from such a matrix, is not
+worked out in the page: the output shows its size, and the arrow's panel says why.
 
 That is how a bias is added to every row: a tile round the 1-row bias, `down` set to the matrix's `y`, an arrow out,
 and the seated result stacked under the matrix.
@@ -446,6 +450,46 @@ repeated along another tile (it reads all of that tile): it warns, and says to s
 One `max(x, 0)` arrow under column 1 of a matrix, in a tile with `across` 4, is that function on every column.
 
 `projects/sources-and-tiles` shows each of these.
+
+## The graph and the evaluator
+
+The page does no arithmetic. After every change the whole project is built into a graph (`graph.js`), and every
+number that is drawn is asked of the evaluator (`evaluate.js`). The graph is plain JSON, and is the one description
+of the model that anything else is to read: a backend, an export.
+
+    import { build, validate } from './graph.js';
+    import { evaluate } from './evaluate.js';
+    const graph = build(snapshot);             // snapshot: what project.js read() gives
+    validate(graph);                           // [] when well formed, else what is wrong
+    evaluate(graph, graph.blocks['b0x7m2c']);  // { type, entries } | { type, deferred: true } | { error: { code, note, node } }
+
+- A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
+  `slice`, `source`, `measure`, `map`, `apply`, `param`, `repeat` and `mapalong`; its `inputs` are the nodes it is
+  worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`.
+- A node's id says what it is, never where it sits: `matmul(v:b1,v:b2)`. The same product in two places is one
+  node, and moving a block without changing what it touches leaves the graph exactly as it was.
+- `spaces` says what each canvas comes to (each piece and each arrow, with its node or its error), and `blocks`
+  which node each block stands for.
+- What is wrong is written in the graph, never thrown: a piece whose touches do not agree, a variable whose
+  definition is another size, an arrow whose span runs past its input. An error is `{ code, note }`, on a piece, a
+  variable or an arrow. A variable with an error keeps its size, so everything round it is still checked.
+
+What changes on the canvas with this:
+
+- **A definition is a value.** A shape whose definition space comes to one matrix of its own size has that matrix
+  for its value, wherever it is used; entries typed into it are kept and not used. Where its definition comes to
+  another size, or to more than one piece, it keeps the entries typed into it, and its panel says why.
+- **Unknown stays unknown.** An entry that depends on one not given is not worked out: a known zero times an
+  unknown is still unknown, since the unknown could be an infinity.
+- **One entry's error is one entry's.** A division by zero, or `∞ − ∞`, is the error mark in that entry and the rest
+  of the matrix is worked out. Nothing times an infinity is such an error.
+- **A variable that depends on itself** (through its definition, a formula or a seat) has no value, and its panel
+  says so; everything that does not depend on it is worked out as usual.
+- **Large matrices.** A result of more than 4096 entries, or one worked out from a matrix that large, is not
+  worked out in the browser: its size is shown, and its entries stay symbols. (A length read off a large matrix
+  is still a number: `@Big.x` does not wait on `Big`.)
+
+`projects/graph-and-evaluator` shows each of these.
 
 ## How results are written
 

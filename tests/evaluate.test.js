@@ -183,6 +183,12 @@ test('repeat: a tile\'s matrix; a block that reads the index differs from cell t
   assert.deepEqual(worked(wide, 'p', { binding: { cells: [{ x: 4, y: 1 }] } }), { '1,1': 7, '2,1': 62 });      /* one cell, looked at on its own */
   assert.equal(worked(wide, 'p')['1,1'].err, 'not in a tile: there is no index');
 });
+test('a tile past the limit is deferred at once: no cell is worked out, however many there are', () => {
+  const tile = (across, down) => G({ r: V([[7]]), tile: N('repeat', ['r'], t(across, down), { at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across, down }) });
+  assert.equal(Object.keys(worked(tile(64, 64), 'tile')).length, 4096);      /* exactly the limit */
+  assert.deepEqual(evaluate(tile(4097, 1), 'tile'), { type: t(4097, 1), deferred: true });
+  const before = performance.now(); assert.equal(evaluate(tile(1e9, 1e9), 'tile').deferred, true); assert.ok(performance.now() - before < 50);
+});
 test('the index goes through a transpose and through the parts of a block to where the entry stands', () => {
   const p = { ...V([[{ expr: 'index.x' }], [{ expr: 'index.x' }]]), within: ['t:g'] };      /* one column, two rows */
   const g = G({ p, tr: N('transpose', ['p'], t(2, 1), { within: ['t:g'] }), tile: N('repeat', ['tr'], t(4, 1), { at: [{ col: 0, row: 0 }], pattern: { cols: 2, rows: 1 }, across: 2, down: 1 }) });

@@ -21,13 +21,15 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { touches, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, valueText } from './algebra.js';
+import { build as buildGraph } from './graph.js';
+import { evaluate as workOut, toMap, tooLarge } from './evaluate.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
-import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, passed, worked as entryWise, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
+import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, kept as sourceKept, faceOf, values as sourceValues, typable, holds } from './sources.js';
 import { squares } from './components/matrix.js';
@@ -148,7 +150,8 @@ const kinOf = b => kin.get(b) || [b];
    A named shape's two side lengths are listed under it in the same way: click the shape and they show beneath it.
    A dotted name is a hidden variable, kept behind the plus, along with everything under a dotted frame.
    Of several definitions of one name in different spaces, the lowest is the one in reach: it shadows the others. */
-function inReach(){
+const inReach = () => steadily(reachNow);
+function reachNow(){
   const spaces = trail(), main = [], hidden = [], seen = new Set(), names = new Set(), lengths = [], shapes = [];
   spaces.forEach((s, depth) => { const nodes = new Map();
     const named = g => { for (; g !== undefined; g = s.groupUp.get(g)) if (s.groupNames.has(g) || s.repeats.has(g)) return g; };      /* the nearest named frame, from g outwards; a tile is listed whether or not it has a name */
@@ -254,10 +257,115 @@ function worked(b){
   return out;
 }
 const own = (b, plain = false) => turned(b) && !plain ? flipped(worked(b)) : worked(b);
-function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's own way round, whatever this use is */
+/* ---- the graph and the evaluator ----
+   What anything on the page comes to is not worked out here. The whole project is built into a graph (graph.js) and
+   every result that is drawn is asked of the evaluator (evaluate.js): what a block holds, what a piece comes to,
+   an arrow's output, a tile's cells. The page does no arithmetic of its own.
+   The graph is built from the project as it stands (gather), once for every time the screen is brought up to date
+   and again whenever that moves anything; a message being handled builds it afresh each time it asks, since it may
+   have changed what the graph was built from, but for a stretch that only reads (steadily), which asks once. */
+const GRAPH = Symbol('graph'); let handling = 0, graphIdle = null, holding = 0, graphHeld = null;
+const steadily = read => { holding++; try { return read(); } finally { if (!--holding) graphHeld = null; } };      /* read changes nothing: one graph serves all of it */
+bus.tap(phase => { handling += phase === 'before' ? 1 : -1; graphIdle = null; });
+function graphNow(){
+  if (memo){ if (!memo.has(GRAPH)) memo.set(GRAPH, buildGraph(gather())); return memo.get(GRAPH); }
+  if (holding) return graphHeld ||= buildGraph(gather());
+  if (handling) return buildGraph(gather());
+  return graphIdle ||= buildGraph(gather());
+}
+/* a graph's pieces and arrows, found by the blocks they are of */
+const found = new WeakMap();
+function findIn(g){
+  if (!found.has(g)){ const pieces = new Map(), arrows = new Map();
+    for (const s of Object.values(g.spaces)){ for (const p of s.pieces) if (!pieces.has(p.blocks.join(' '))) pieces.set(p.blocks.join(' '), p); for (const a of s.arrows) if (!arrows.has(a.arrow)) arrows.set(a.arrow, a); }
+    found.set(g, { pieces, arrows }); }
+  return found.get(g);
+}
+/* what the evaluator says of a node: its entries as a Map (infinities as numbers); an empty Map where it is too
+   large to be worked out here (its size is all that is shown); null where it has no value (an error in the graph) */
+const asMaps = new WeakMap();
+function answerOf(node, binding = null){
+  if (!node) return null;
+  const r = workOut(graphNow(), node, binding ? { binding } : undefined);
+  if (r.deferred) return new Map(); if (!r.entries) return null;
+  if (!asMaps.has(r)) asMaps.set(r, toMap(r.entries)); return asMaps.get(r);
+}
+const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), node, binding ? { binding } : undefined).deferred;
+/* Where a node is looked at from (evaluate.js: binding). A block of a tile, or one in the definition space of a block
+   of a tile, is in a cell: the first, or the one being drawn (cellNow). A block in an arrow's definition space is in
+   a function's body: the function's input is what the arrow that space was opened through is given.
+   of: the blocks whose node is asked for. A cell says where one block lies in its pattern, so where several blocks
+   of one tile read their index only the first cell's own block can be given its place: more than one such, and
+   nothing is said (false: there are then no numbers to show). */
+function cellOf(k, s, over = false){
+  const t = s ? tileOf(k, s) : undefined; if (t === undefined) return null;
+  const rep = s.repeats.get(t), r = unitsOf(k), here = cellNow.of === rep;
+  return { x: ((here ? cellNow.cx : 1) - 1) * rep.cols + r.x - rep.x, y: ((here ? cellNow.cy : 1) - 1) * rep.rows + r.y - rep.y, turned: over };
+}
+function bindingOf(of, s, over = false){
+  const g = graphNow(), params = {}; let cells = null;
+  const inCell = of.filter(k => s && tileOf(k, s) !== undefined && (g.nodes[g.blocks[k.id]]?.within || []).some(w => w[0] === 't'));
+  if (inCell.length > 1) return false;
+  if (inCell.length) cells = [cellOf(inCell[0], s, over)];
+  for (let at = s; at && at.owner; at = spaceWith(at.owner)){ const o = at.owner;
+    if (isArrow(o)){ const inner = at.blocks.find(k => k.in), param = inner && g.blocks[inner.id], fn = param && (g.nodes[param].within || []).find(w => w[0] === 'f'), given = givenTo(o);
+      if (fn && given && !(fn in params)) params[fn] = given; }
+    else if (!cells){ const c = cellOf(o, spaceWith(o), true); if (c) cells = [c]; } }      /* what is in a block's definition is the variable's own way round */
+  return cells || Object.keys(params).length ? { params, ...(cells ? { cells } : {}) } : null;
+}
+/* what an arrow gives its function: the covered part of its input, as the graph has it */
+function givenTo(a){
+  const g = graphNow(), e = findIn(g).arrows.get(a.id), n = e && e.node && g.nodes[e.node]; if (!n) return null;
+  const first = t => along(a.arrow.side) === 'rows' ? { col: 0, row: a.arrow.start - 1, cols: t.cols, rows: a.arrow.span } : { col: a.arrow.start - 1, row: 0, cols: a.arrow.span, rows: t.rows };
+  if (n.op === 'apply' || n.op === 'map') return n.inputs[0];
+  if (n.op === 'mapalong') return { of: n.inputs[0], range: first(g.nodes[n.inputs[0]].type) };      /* repeated: the first run */
+  const span = { ...first(n.type), col: 0, row: 0 };      /* passed through: the output is the covered part (every run of it, where it is repeated) */
+  return span.cols < n.type.cols || span.rows < n.type.rows ? { of: e.node, range: span } : e.node;
+}
+/* a block's entries as the evaluator gives them: null where the block takes no part (it is commented out, or in a
+   .config) or has no value there (its variable has an error: then it keeps what it holds, see held) */
+const evaluated = (b, plain) => steadily(() => evaluatedNow(b, plain));
+function evaluatedNow(b, plain){
+  const g = graphNow(); let id = g.blocks[b.id]; if (!id) return null;
+  const over = turned(b) && plain; if (over){ if (g.nodes[id].op !== 'transpose') return null; id = g.nodes[id].inputs[0]; }
+  const binding = bindingOf([b], spaceWith(b), over);
+  return binding === false ? null : answerOf(id, binding);
+}
+/* why a block's variable has no value in the graph, as a sentence for the properties panel; null where it has one */
+const WHY = { loop: () => 'It depends on itself, so nothing is worked out from it', pieces: n => `Its definition space holds ${n}, which is not one matrix: it keeps the entries typed into it`,
+  size: n => `What defines it comes to another size (${n}): it keeps the entries typed into it`, mismatch: n => `What is in its definition space does not agree${n ? ' (' + n + ')' : ''}: it keeps the entries typed into it`,
+  'not-a-row': () => 'What is in its definition space is not a single line of shapes: it keeps the entries typed into it', mixed: () => 'What is in its definition space mixes rules: it keeps the entries typed into it',
+  'no-source': n => `What it reads is not there${n ? ' (' + n + ')' : ''}`, seat: n => `The arrow it is seated on has no output (${n})`, 'size-unknown': n => `A size it depends on is not settled (${n})` };
+function whyNot(b){
+  const g = graphNow(); let n = g.nodes[g.blocks[b.id]]; if (n && n.op === 'transpose') n = g.nodes[n.inputs[0]];
+  return n && n.error && WHY[n.error.code] ? WHY[n.error.code](n.error.note) : null;
+}
+/* what a piece of several blocks comes to */
+const pieceValues = (bs, s = space) => steadily(() => pieceValuesNow(bs, s));
+function pieceValuesNow(bs, s){
+  const g = graphNow(), p = findIn(g).pieces.get(bs.map(b => b.id).join(' ')); if (!p || !p.node) return null;
+  const binding = bindingOf(bs, s); return binding === false ? null : answerOf(p.node, binding);
+}
+/* a block's entries: what the evaluator says its node comes to. plain: the variable's own way round, whatever this use is */
+function valuesOf(b, depth = 0, plain = false){
   if (isArrow(b)) return new Map();            /* an arrow has no entries: its output has */
-  const given = givenOf(b), seated = given ? null : seatedOf(b);      /* a function's input, or a seated block (or a reference to either): what the arrow is given, or its output */
-  if (given || seated){ const of = given || seated, v = given ? inValues(of) : seatValues(of), right = of.t ? flipped(v) : v; return turned(b) && !plain ? flipped(right) : right; }
+  if (typedOnly(b)) return own(b, plain);          /* numbers typed into it and nothing else: there is nothing to work out, and no graph is needed to say so */
+  return evaluated(b, plain) || held(b, depth, plain);
+}
+/* whether a block's value is simply the numbers typed into it: nothing else defines its variable (no measure, part,
+   index, seat, function's input, fusing, source, or anything in its definition space) and none of its entries is a formula */
+function typedOnly(b){
+  if (b.members || b.source || b.from || b.seat || b.in) return false;
+  if (kin.has(b)) for (const k of kin.get(b)) if (k.from || k.seat || k.in) return false;
+  const def = spaceOf.get(b); if (def && def.blocks.some(k => !isOff(k) && !inConfig(k, def))) return false;
+  for (const v of b.values.values()) if (isFormula(v)) return false;
+  return true;
+}
+/* What a block holds, for one the graph gives no value: a block that takes no part, or a variable with an error,
+   which keeps its entries. Its own entries (a formula's worked out by expression.js), a measure, a part of
+   another shape, or the shapes standing in its matrix: nothing here is arithmetic. */
+function held(b, depth = 0, plain = false){
+  if (givenOf(b) || seatedOf(b)) return new Map();      /* a function's input, or a seated block: its value is the graph's or nothing */
   if (measures(b)){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
   const ix = indexedOf(b); if (ix) return indexMatrix(ix);      /* the index of the block whose definition this is in, as a matrix */
   const part = rangedOf(b);                    /* a part of another shape: that shape's entries there, whatever they are now */
@@ -825,7 +933,7 @@ const properties = createProperties({ ...fields,
    result is placed once that result has been written, and a block seated on it after that: so the screen is drawn,
    the arrows and seats are put in their places again (arrange), and where any moved it is drawn once more. */
 function shown(){
-  memo = new Map();
+  memo = new Map(); graphIdle = null;
   try { arrangeAll(); for (let pass = 0; pass < 4; pass++){ const was = paint(); memo.clear(); if (!arrangeAll() && standingNow() === was) break; } } finally { memo = null; }
 }
 /* how every arrow on screen stands just now: whether it warns, and where its output is. What was drawn is drawn again where this is no longer so. */
@@ -859,7 +967,7 @@ function paint(){
     const values = valuesOf(one), scalar = cols === 1 && rows === 1 && !one.members, wrong = scalar ? [] : [...values].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar, attributes: attributesOf(one), fixed: !!one.source,
       shape: one.source ? `${SOURCES.find(s => s.kind === one.source).label.toLowerCase()}: ${cols} wide × ${rows} tall` : undefined,
-      notes: [...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values, transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one) }); }
@@ -897,24 +1005,23 @@ function paint(){
     b.stripes(rows && cols ? 'both' : rows ? 'rows' : cols ? 'cols' : null, u); }
   view.world.append(...marks.map(j => j.el));
   /* how a piece's matrix is written. One block: its own initials, colour and numbers. A product: each entry as the
-     row it takes from the first block against the column it takes from the last, each in its block's colour.
-     (A product is not worked out in numbers yet.) A sum or an elementwise chain: each entry as its members' entries
-     with the signs between them, a₁₁+b₁₁, each in its block's colour; these are not worked out in numbers yet either. */
-  const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0], last = bs[bs.length - 1];
-    if (piece.rule === 'sum' || piece.rule === 'elementwise') return { combined: {
+     row it takes from the first block against the column it takes from the last, each in its block's colour. A sum
+     or an elementwise chain: each entry as its members' entries with the signs between them, a₁₁+b₁₁, each in its
+     block's colour. Where the evaluator has an entry's number, the number is written in place of all that. */
+  const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0];
+    const values = bs.length > 1 ? pieceValues(bs) || new Map() : null;      /* what the piece comes to: the evaluator's */
+    if (piece.rule === 'sum' || piece.rule === 'elementwise') return { values, combined: {
       parts: bs.map(b => ({ letter: initials(b.name), color: b.shape.color, cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u), transposed: turned(b) })),
       signs: piece.members.slice(1).map((m, n) => piece.rule === 'sum' ? '+' : ts.some(t => t.kind === 'over' && t.a === piece.members[n] && t.b === m) ? '/' : '·') } };
     /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
     if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), standing: standingLook(first) };
     if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), standing: standingLook(first), transposed: turned(first) };
-    /* scalars times at most one other shape: that shape's entries, each multiplied through where the numbers are known;
-       an entry not known is written as the scalars against its symbol */
+    /* scalars times at most one other shape: an entry not known is written as the scalars against its symbol, each
+       scalar as its number where it has one */
     const one = b => b.rect.w === u && b.rect.h === u && !b.members, scalars = bs.filter(one), solid = bs.filter(b => !one(b));
-    if (scalars.length && solid.length <= 1){ const of = solid[0] || scalars.pop(), ks = scalars.map(b => valuesOf(b).get('1,1') ?? null);
-      const known = ks.every(k => k !== null), k = known ? ks.reduce((a, b) => combine('*', a, b), 1) : null, values = new Map();
-      if (known) for (const [key, v] of valuesOf(of)) values.set(key, combine('*', k, v));      /* values of any kind, by the rules for combining them (algebra.js): nothing times infinity is an error */
-      return { letter: (known ? asText(k) : scalars.map(b => initials(b.name)).join('')) + initials(of.name), color: of.shape.color, values, transposed: turned(of) }; }
-    const ends = solid.length ? solid : bs; return { product: { rows: { letter: initials(ends[0].name), color: ends[0].shape.color }, cols: { letter: initials(ends[ends.length - 1].name), color: ends[ends.length - 1].shape.color } } }; };
+    if (scalars.length && solid.length <= 1){ const of = solid[0] || scalars.pop(), ks = scalars.map(b => valuesOf(b).get('1,1') ?? null), known = ks.every(k => k !== null && !isError(k));
+      return { letter: (known ? ks.map(asText).join('·') : scalars.map(b => initials(b.name)).join('')) + initials(of.name), color: of.shape.color, values, transposed: turned(of) }; }
+    const ends = solid.length ? solid : bs; return { values, product: { rows: { letter: initials(ends[0].name), color: ends[0].shape.color }, cols: { letter: initials(ends[ends.length - 1].name), color: ends[ends.length - 1].shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
   const stacked = new Set(ts.filter(t => t.kind === 'sum').flatMap(t => [active[t.a], active[t.b]]));
@@ -1438,7 +1545,7 @@ function sizeDeps(id){
   return out;
 }
 /* what a scalar's one entry holds as it is stored, for tiles.js (settled): undefined where it is no scalar, or its number is worked out some other way */
-const entryOf = id => { const b = blockOf(id); return !b || !single(b) || b.source || seatedOf(b) || givenOf(b) || b.from || rangedOf(b) || standingOf(b) ? undefined : b.values.get('1,1'); };
+const entryOf = id => { const b = blockOf(id), def = b && spaceOf.get(b); return !b || !single(b) || b.source || seatedOf(b) || givenOf(b) || b.from || rangedOf(b) || (def && def.blocks.some(k => !isOff(k) && !inConfig(k, def))) ? undefined : b.values.get('1,1'); };      /* (what is in its definition space defines it: graph.js) */
 /* whether a stored count of tile g depends on that tile's own size: such a count is refused, and one met in a project is 1 with a warning */
 const loopsOf = (g, stored) => ({ entryOf, loops: !!stored && typeof stored === 'object' && tiles.circular(g, refs(stored.expr || '').map(c => c.id), sizeDeps) });
 /* a tile as it stands: its repeat, what its counts come to, what is drawn of it, its blocks and its matrix. Worked out once for every time the screen is brought up to date. */
@@ -1447,15 +1554,8 @@ function tileInfo(s, g){
   if (memo?.has(rep)) return memo.get(rep);
   const c = tiles.counts(rep, sizeLookup, { across: loopsOf(g, rep.across), down: loopsOf(g, rep.down) }), lay = tiles.layout(rep, c.across, c.down, c.formula);
   const blocks = inGroup(g, s).filter(b => !isArrow(b) && !isOff(b) && !hollowSeat(b));
-  const info = { g, rep, ...c, lay, rect: { x: rep.x, y: rep.y, w: lay.w, h: lay.h }, blocks, matrix: tiles.matrix(rep, c.across, c.down, blocks.map(unitsOf)), values: null };
+  const info = { g, rep, ...c, lay, rect: { x: rep.x, y: rep.y, w: lay.w, h: lay.h }, blocks, matrix: tiles.matrix(rep, c.across, c.down, blocks.map(unitsOf)) };
   memo?.set(rep, info); return info;
-}
-/* the entries of a tile's matrix: every cell's blocks, each worked out for its cell */
-function tileValues(s, g){
-  const t = tileInfo(s, g); if (!t || t.matrix.error) return new Map();
-  const was = { ...cellNow };
-  try { return tiles.entries(t.rep, t.across, t.down, t.blocks.map(unitsOf), (n, cx, cy) => { Object.assign(cellNow, { of: t.rep, cx, cy }); return lost(t.blocks[n]) ? new Map() : valuesOf(t.blocks[n]); }); }
-  finally { Object.assign(cellNow, was); }
 }
 /* the index of one entry of a block or of an arrow's output (at: { c, r }, and cx or cy for an arrow repeated in its tile); null where it is in no tile */
 function indexFor(b, at){
@@ -1604,18 +1704,17 @@ const seatOn = (a, s = spaceWith(a)) => (s && s.blocks.find(k => k.seat === a.id
 const seatedOf = b => b.seat ? b : kin.has(b) ? [...kin.get(b)].find(k => k.seat) || null : null;
 const givenOf = b => b.in ? b : kin.has(b) ? [...kin.get(b)].find(k => k.in) || null : null;
 /* what an arrow would read, in space s: null where it is gone (not on this canvas, commented out, or a result that
-   is not written here), else { rect, cols, rows, colsName, rowsName, values }: its rectangle in units and its entries */
+   is not written here), else { rect, cols, rows, colsName, rowsName }: its rectangle in units and its type. (Its
+   entries are the graph's: see outputOf.) */
 function readOf(s, inp){
   /* a tile: its matrix, where its pattern is covered exactly; where it is not, it is there and has no value (arrows.js: standing) */
   if (inp.as === 'tile'){ const t = s && tileInfo(s, inp.id); if (!t) return null;
     if (t.matrix.error) return { rect: t.rect, error: 'its tile has no matrix: ' + t.matrix.error };
-    /* past tiles.js's limit its numbers are not worked out here: the size is all there is, and the arrow says why */
-    return { rect: t.rect, cols: t.matrix.cols, rows: t.matrix.rows, colsName: null, rowsName: null, note: tiles.small(t.matrix.cols, t.matrix.rows) ? null : tiles.tooLarge(t.matrix.cols, t.matrix.rows),
-      get values(){ return t.values ||= tileValues(s, inp.id); } }; }
+    return { rect: t.rect, cols: t.matrix.cols, rows: t.matrix.rows, colsName: null, rowsName: null }; }
   const blk = s && s.blocks.find(k => k.id === inp.id);
   if (!blk || isOff(blk)) return null;
-  if (isArrow(blk)){ if (inp.as !== 'result') return null; const o = outputOf(blk); return o.place && o.type ? { rect: o.place, ...o.type, values: o.values || new Map() } : null; }      /* another arrow's output */
-  if (inp.as !== 'result'){ const r = unitsOf(blk); return { rect: r, cols: r.w, rows: r.h, colsName: blk.sides.w, rowsName: blk.sides.h, values: lost(blk) ? new Map() : valuesOf(blk) }; }
+  if (isArrow(blk)){ if (inp.as !== 'result') return null; const o = outputOf(blk); return o.place && o.type ? { rect: o.place, ...o.type } : null; }      /* another arrow's output */
+  if (inp.as !== 'result'){ const r = unitsOf(blk); return { rect: r, cols: r.w, rows: r.h, colsName: blk.sides.w, rowsName: blk.sides.h }; }
   return writtenOf(s, blk, inp.hollow);
 }
 const inputOf = a => readOf(spaceWith(a), a.arrow.input);
@@ -1647,13 +1746,11 @@ function writtenIn(s, alg = null){
     return { piece, blocks, type, copies, usable, drawn, where, whole: read.length > 0, body: where && !type.error ? where.body : null, at }; });
   memo?.set(s, out); return out;
 }
-/* the written result of the piece that holds blk, as an arrow reads it: where its matrix is (arrows.js: readAt), its
-   type, and its entries where they are worked out: those of a shape on its own. (A product, a sum or an elementwise
-   result is not worked out in numbers yet: its entries are unknown.) */
+/* the written result of the piece that holds blk, as an arrow reads it: where its matrix is (arrows.js: readAt) and its type */
 function writtenOf(s, blk, hollow){
   const w = writtenIn(s).find(w => w.blocks.includes(blk)); if (!w || w.type.error) return null;
   const at = readAt(w, hollow, w.copies); if (!at) return null;
-  return { rect: { x: at.x, y: at.y, w: w.type.cols, h: w.type.rows }, ...w.type, values: w.blocks.length === 1 ? valuesOf(blk) : new Map() };
+  return { rect: { x: at.x, y: at.y, w: w.type.cols, h: w.type.rows }, ...w.type };
 }
 /* what a thing depends on, by id, for arrows.js (dependsOn): an arrow, on what it reads (the block; the arrow whose
    output it reads; or every block of the piece whose result it reads) and, where it is defined in a space, on the
@@ -1671,14 +1768,15 @@ function touching(s, blk){
   for (let more = true; more;){ more = false; for (const t of ts) if (seen.has(t.a) !== seen.has(t.b)){ seen.add(t.a); seen.add(t.b); more = true; } }
   return [...seen].filter(i => i >= 0).map(i => live[i].id);
 }
-/* An arrow as it stands (arrows.js: standing), with its output's entries where they are worked out: a pass-through's
-   and an entry formula's, entry by entry. One defined by a definition space shows its size and symbols until there
-   is an evaluator. While the screen is being brought up to date each arrow of the space on screen is worked out once
-   (memo); an arrow that reads itself, through whatever else, is "it depends on itself". */
+/* An arrow as it stands (arrows.js: standing): whether it warns, what it comes to and where its output is. Its
+   output's entries (values) are the evaluator's, asked for only when they are drawn: null where the graph gives the
+   arrow no value, and none (with note saying why) where it is too large to work out here. While the screen is being
+   brought up to date each arrow of the space on screen is worked out once (memo); an arrow that reads itself,
+   through whatever else, is "it depends on itself". */
 const busy = new Set(); let memo = null;
 function outputOf(a){
   if (firstCell() && memo?.has(a)) return memo.get(a);      /* what is kept is the first cell's: a block of a tile may differ in the others */
-  if (busy.has(a)) return { ...standing(full(a), null, [], null, null, { loops: true }), values: null, defined: false };      /* being worked out already: only reached where it reads itself */
+  if (busy.has(a)) return { ...standing(full(a), null, [], null, null, { loops: true }), values: null, note: null, defined: false };      /* being worked out already: only reached where it reads itself */
   busy.add(a);
   try {
     const loops = dependsOn(depsOf(a.id), a.id, depsOf);      /* it reads itself, through whatever else: arrows.js says what that comes to */
@@ -1689,21 +1787,23 @@ function outputOf(a){
     const map = tile ? tiles.mapped(arrow, tile.rep, tile.across, tile.down, rows ? input.rows : input.cols, { tile: a.arrow.input.as === 'tile' }) : null;
     /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
     const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map, drawn: drawnOf(arrow, sized(input)) });
-    let values = null;
-    const large = map && st.came && !st.came.error && !tiles.small(st.came.cols, st.came.rows), note = large ? tiles.tooLarge(st.came.cols, st.came.rows) : sized(input)?.note || null;      /* an output of every cell that is too large to work out: its size, and why */
-    if (large) values = new Map();
-    else if (st.part && !defined && (!arrow.output || (arrow.output.cols === st.came.cols && arrow.output.rows === st.came.rows))){
-      const matrix = id => { const m = blockOf(id); if (!m || isArrow(m)) return undefined; const r = unitsOf(m); return { cols: r.w, rows: r.h, values: lost(m) ? new Map() : valuesOf(m) }; }, base = lookupFor(a);
-      /* one cell's output: the covered part passed through, or the formula worked out for each entry, which may read the index of its cell */
-      const cell = k => { const part = covered(k === 1 ? arrow : { ...arrow, start: tiles.startIn(arrow, k) }, input); if (!part) return null; const x = passed(input.values, part);
-        return !arrow.formula ? x : entryWise(arrow.formula, { cols: st.part.cols, rows: st.part.rows, x, matrix, lookup: (token, at) => base(token, map ? { ...at, [rows ? 'cy' : 'cx']: k } : at) }); };
-      if (!map) values = cell(1);
-      else { values = new Map();      /* every cell's output, set beside the last in the direction of repeating */
-        for (let k = 1; k <= map.count; k++) for (const [key, v] of cell(k) || []){ const [c, r] = key.split(',').map(Number); values.set(rows ? c + ',' + (r + (k - 1) * st.part.rows) : (c + (k - 1) * st.part.cols) + ',' + r, v); } } }
-    const out = { ...st, values, defined: !!defined, mapWarn: map?.warn || null, note };
+    const out = { ...st, defined: !!defined, mapWarn: map?.warn || null,
+      get values(){ return outputValues(a, s); },
+      get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id), binding = e?.node ? bindingOf(readBy(a, s), s) : false; return binding !== false && deferredAt(e.node, binding) ? tooLarge(graphNow().nodes[e.node].type) : null; }); } };
     if (firstCell()) memo?.set(a, out);
     return out;
   } finally { busy.delete(a); }
+}
+/* the blocks an arrow reads, where they are blocks of its own space: the one it is set against, or all of the piece whose result it reads */
+function readBy(a, s){
+  const inp = a.arrow.input, blk = inp.as === 'tile' || !s ? null : s.blocks.find(k => k.id === inp.id); if (!blk || isArrow(blk)) return [];
+  return inp.as === 'result' ? touching(s, blk).map(id => s.blocks.find(k => k.id === id)).filter(Boolean) : [blk];
+}
+/* an arrow's output, entry by entry: what the graph's node for it comes to */
+const outputValues = (a, s = spaceWith(a)) => steadily(() => outputValuesNow(a, s));
+function outputValuesNow(a, s){
+  const e = findIn(graphNow()).arrows.get(a.id); if (!e || !e.node) return null;
+  const binding = bindingOf(readBy(a, s), s); return binding === false ? null : answerOf(e.node, binding);
 }
 /* the rects an arrow's edge has to be free of: every block of the space that touches, but for its own input */
 const othersOf = (s, input, seat = null) => { const own = input.as === 'tile' ? new Set(inGroup(input.id, s)) : null;      /* a tile's own blocks are not against its edge: they are it */
@@ -1744,18 +1844,6 @@ function ensureIn(def, a){
   const u = view.unit, input = sized(inputOf(a)), part = (input && coveredType(full(a), input)) || { cols: 1, rows: 1 };
   const b = makeBlock({ ...typeNamed('tensor'), color: 'function' }, { x: -u * (3 + squares(part.cols, part.colsName)) - part.cols * u, y: Math.round(-part.rows / 2) * u, w: part.cols * u, h: part.rows * u }, 'in');
   b.in = true; b.sides = { w: part.colsName || null, h: part.rowsName || null }; def.blocks.push(b);
-}
-/* the entries of the block called in: whatever the arrow its space was opened through is given */
-function inValues(b){
-  const s = spaceWith(b), a = s?.owner; if (!a || !isArrow(a)) return new Map();
-  const input = sized(inputOf(a)), part = input && covered(full(a), input);
-  return part ? passed(input.values, part) : new Map();
-}
-/* the entries of a seated block: its arrow's output, where that is worked out. (In a hollow: not worked out yet.) */
-function seatValues(st){
-  if (typeof st.seat !== 'string') return new Map();
-  const a = spaceWith(st)?.blocks.find(k => k.id === st.seat && isArrow(k));
-  return (a && outputOf(a).values) || new Map();
 }
 /* where a block seated in a hollow sits: the first hollow of its pair that is the size of the result (algebra.js:
    pieceHollows), as { n: which of the two, rect, type }; null where the two do not make such a pair now */
@@ -1961,16 +2049,19 @@ const fromOf = f => !f ? null : f.range ? { id: f.id, range: { ...f.range, toEnd
 function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members || b.source ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members || b.source ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
     standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
     arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
     seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
-  const plain = s => ({
+  /* a use of a variable inside that variable's own definition (the page refuses to make one, and a file may still hold one)
+     is written without its definition, which is the one being written: the project is a tree, and the graph calls it a loop */
+  const open = new Set();
+  const plain = s => { open.add(s); try { return {
     shapes: s.blocks.map(one),
     groups: tree(s, undefined),
-    operations: s.ops.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(one), results: [...o.results], was: wasOf(o.was) })) });      /* what was cut here, each with the two blocks it keeps, whole */
+    operations: s.ops.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(one), results: [...o.results], was: wasOf(o.was) })) }; } finally { open.delete(s); } };      /* what was cut here, each with the two blocks it keeps, whole */
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...framesIn(s)].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g), ...(s.repeats.has(g) ? { repeat: repeatCopy(s.repeats.get(g)) } : {}) }));      /* a tile: its repeat, and never what it comes to */
