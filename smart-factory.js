@@ -124,6 +124,16 @@ function renamed(b, color){                        /* color: the new colour that
    level it is in reach everywhere. The list shows what is in reach of the current space, along the way you came. */
 const kin = new Map();                         /* block -> the set of blocks that are uses of its variable (itself included), once it has more than one */
 const kinOf = b => kin.get(b) || [b];
+/* A shape cannot be put anywhere inside its own definition, however far down: the definition would then hold itself,
+   and there would be no end to it. loops(v, s): whether putting a use of v into space s would do that, which it would
+   if s is v's definition space or lies anywhere beneath it. (A joined shape's definitions are those of the shapes it
+   was joined from, too.) */
+const defsOf = b => [spaceOf.get(b), ...(b.members || []).flatMap(m => defsOf(m.block))].filter(Boolean);
+function beneath(s, from, seen = new Set()){      /* whether s is from, or a definition space of something in it, and so on down */
+  if (from === s) return true; if (seen.has(from)) return false; seen.add(from);
+  return from.blocks.some(b => defsOf(b).some(d => beneath(s, d, seen)));
+}
+const loops = (v, s) => defsOf(v).some(d => beneath(s, d));
 /* What is in reach, for the list at the right edge: { main, hidden }, each a list of items.
    A named frame is a variable: dragged from the list, all of it is made again where it is dropped. What is named
    inside a named frame is listed under that frame, out of sight until the frame is opened, and nowhere else: it is an
@@ -163,6 +173,7 @@ const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: '
   ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 }))];
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at, transposed = false){      /* transposed: whether the new use is to be the variable's transpose */
+  if (loops(of, space)) return hud.say(`${bare(of.name)} cannot go inside its own definition`);
   const u = view.unit, on = v => Math.round(v / u) * u, over = !of.members && !!of.t !== !!transposed, r = over ? { w: of.rect.h, h: of.rect.w } : of.rect;
   const b = makeBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
   b.sides = over ? { w: of.sides.h, h: of.sides.w } : { ...of.sides }; b.values = of.values; b.turn(of.members ? of.t : transposed); if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
@@ -240,6 +251,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
   const def = spaceOf.get(a);
   if (def === spaceOf.get(v)) return hud.say('A shape cannot go into its own matrix');
+  if (loops(v, def)) return hud.say(`${bare(a.name)} is inside ${bare(v.name)}'s definition: ${bare(v.name)} cannot go into its matrix`);
   const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
   let tiles = tilesOf(a);
   if (!tiles){ for (const b of [...def.blocks]) out(b); tiles = [];      /* the first shape in: whatever was in its definition goes */
@@ -1010,12 +1022,14 @@ const typeNamed = name => shapes.find(s => s.name === name) || { name, label: na
 function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && !writing.has(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
     tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: b.from ? { ...b.from } : null,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
-  const plain = s => ({
-    shapes: s.blocks.map(one),
-    groups: tree(s, undefined) });
+  /* writing: the spaces being written out just now, one inside the next. A space is never written inside itself: no
+     definition should hold itself (see loops), and if one ever does, it is written once and the page goes on working. */
+  const writing = new Set();
+  const plain = s => { writing.add(s);
+    try { return { shapes: s.blocks.map(one), groups: tree(s, undefined) }; } finally { writing.delete(s); } };
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
@@ -1331,7 +1345,9 @@ bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupName
   for (const p of pictures) p.groups = p.groups.slice(0, p.groups.findIndex(g => g.id === frame) + 1);      /* the frame and what is inside it, not the frames it is in */
   /* what comes from the list is the variables themselves, not copies: each named shape in the new frame is a
      reference to the one it was made from, with its entries, its definition and its colour */
-  const from = inGroup(frame, s), linked = from.map(b => isNamed(b) && !b.members); pictures.forEach((p, i) => { if (linked[i]) p.inside = null; });
+  const from = inGroup(frame, s), linked = from.map(b => isNamed(b) && !b.members);
+  const own = from.find((b, i) => linked[i] && loops(b, space)); if (own) return hud.say(`${bare(own.name)} is in that frame, and cannot go inside its own definition`);
+  pictures.forEach((p, i) => { if (linked[i]) p.inside = null; });
   const made = paste(at, pictures, false) || [];
   made.forEach((b, i) => { const of = from[i]; if (!linked[i] || !of) return; b.values = of.values; b.ref = true; b.attrs = attrsOf(of);
     if (!spaceOf.has(of)){ const def = newSpace(of, s); for (const k of kinOf(of)) spaceOf.set(k, def); } spaceOf.set(b, spaceOf.get(of));
