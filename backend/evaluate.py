@@ -326,7 +326,7 @@ def v_mapalong(n, at):
             raise Trouble('run %d of the arrow lies past its input' % k)
         given, off = A.part(X, part['row'], part['col'], part['rows'], part['cols']), (k - 1) * span
         if 'fn' in n:
-            got = at.call(n['fn'], given, '%s#%d+%d' % (at.key_of(0), k, on))
+            got = at.call(n['fn'], given, '%s#%s:%d:%d' % (at.key_of(0), n['axis'], run['start'] + on, run['span']))      # the rows or columns really handed over (graph.js: mapalong): two arrows of one function on different runs of one input do not share an answer
         else:
             spot = n.get('at')
             where = (int(spot['col']) + (0 if rows else off), int(spot['row']) + (off if rows else 0), False) if spot else None

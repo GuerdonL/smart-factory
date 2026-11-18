@@ -21,7 +21,7 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, zoneOf, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { touches, zoneOf, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge } from './evaluate.js';
 import * as project from './project.js';
@@ -145,6 +145,16 @@ function renamed(b, color){                        /* color: the new colour that
    level it is in reach everywhere. The list shows what is in reach of the current space, along the way you came. */
 const kin = new Map();                         /* block -> the set of blocks that are uses of its variable (itself included), once it has more than one */
 const kinOf = b => kin.get(b) || [b];
+/* A shape cannot be put anywhere inside its own definition, however far down: the definition would then hold itself,
+   and there would be no end to it. loops(v, s): whether putting a use of v into space s would do that, which it would
+   if s is v's definition space or lies anywhere beneath it. (A joined shape's definitions are those of the shapes it
+   was joined from, too.) */
+const defsOf = b => [spaceOf.get(b), ...(b.members || []).flatMap(m => defsOf(m.block))].filter(Boolean);
+function beneath(s, from, seen = new Set()){      /* whether s is from, or a definition space of something in it, and so on down */
+  if (from === s) return true; if (seen.has(from)) return false; seen.add(from);
+  return from.blocks.some(b => defsOf(b).some(d => beneath(s, d, seen)));
+}
+const loops = (v, s) => defsOf(v).some(d => beneath(s, d));
 /* What is in reach, for the list at the right edge: { main, hidden }, each a list of items.
    A named frame is a variable: dragged from the list, all of it is made again where it is dropped. What is named
    inside a named frame is listed under that frame, out of sight until the frame is opened, and nowhere else: it is an
@@ -196,6 +206,7 @@ const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: '
   ...FUNCTIONS.map(f => ({ kind: 'arrow', name: f.name, color: 'function', cols: 1, rows: 1, builtin: true }))];      /* the program's own functions (a project's arrow of the same name is listed in its place) */
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at, transposed = false){      /* transposed: whether the new use is to be the variable's transpose */
+  if (loops(of, space)) return hud.say(`${bare(of.name)} cannot go inside its own definition`);
   const u = view.unit, on = v => Math.round(v / u) * u, over = !of.members && !!of.t !== !!transposed, r = over ? { w: of.rect.h, h: of.rect.w } : of.rect;
   const b = makeBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
   b.sides = over ? { w: of.sides.h, h: of.sides.w } : { ...of.sides }; b.values = of.values; if (of.source) b.source = of.source; b.turn(of.members ? of.t : transposed); if (of.members) b.members = of.members;                                         /* the same entries, not a copy */
@@ -439,9 +450,10 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   if (w > cols || h > rows) return hud.say(`Snap to matrix: ${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
-  const def = spaceOf.get(a);
-  if (def === spaceOf.get(v)) return hud.say('A shape cannot go into its own matrix');
-  const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
+  const def = spaceOf.get(a), vdef = spaceOf.get(v), family = [...kinOf(v)];      /* v's definition and uses, noted now: v may itself be among what is taken out below */
+  if (def === vdef) return hud.say('A shape cannot go into its own matrix');
+  if (loops(v, def)) return hud.say(`${bare(a.name)} is inside ${bare(v.name)}'s definition: ${bare(v.name)} cannot go into ${bare(a.name)}'s matrix`);
+  const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b, vdef); };
   let stood = standingOf(a);
   if (!stood){ for (const b of [...def.blocks]) out(b); stood = [];      /* the first shape in: whatever was in its definition goes */
     def.groupUp.clear(); def.groupNames.clear(); def.repeats.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear(); for (const t of def.tiles.values()){ t.el.remove(); t.overEl.remove(); } def.tiles.clear(); }
@@ -454,10 +466,10 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   for (const t of over(X, Y)) out(t.block);
   pruneOps();                                  /* what was cut in the definition went with it */
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
-  use.sides = { ...v.sides }; use.values = v.values; if (v.source) use.source = v.source; use.turn(v.t); use.standing = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v) || newSpace(use, def));      /* (its own, where the shape it was made from went with what the definition held) */
+  use.sides = { ...v.sides }; use.values = v.values; if (v.source) use.source = v.source; use.turn(v.t); use.standing = true; if (v.members) use.members = v.members; spaceOf.set(use, vdef);      /* v's definition, kept through the clearing (forget's held) though v itself may have gone with what the definition held */
   use.ref = true;
   if (v.from?.index) use.from = fromOf(v.from);      /* an index matrix stands there as itself: the one it was made from went with what the definition held */
-  else { const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.attrs = attrsOf(v); }
+  else { const set = new Set(family.filter(k => spaceOf.get(k) === vdef)); set.add(use); if (set.size > 1) for (const k of set) kin.set(k, set); use.attrs = attrsOf(v); }      /* the uses still there: v is not one of them if it was in the definition that has just been cleared */
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
   const left = cols * rows - (standingOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
@@ -624,7 +636,8 @@ function typedNow(b, dim, text){
   if (b.in) return hud.say('in is the function\'s input: its sides are those of what the arrow covers');
   if (b.seat && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is seated: its size is the output's`);
   if (b.from?.index && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is the index of its block: it is that block's size`);
-  const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(); let n = m[2] ? Math.round(parseFloat(m[2])) : null;
+  const read = readSide(text), name = read.name; let n = read.length;      /* algebra.js: a number is a length only apart from the name, so "d2" is a name */
+  if (n === undefined){ hud.say(`${String(text).trim()}: only a whole number can be a side's length`); return; }      /* never rounded: nothing changes */
   /* a part of another shape is the size of that part: a length typed on it is not taken, nor a name that is another length already */
   if (rangedOf(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
     if ((n !== null && n * view.unit !== b.rect[dim]) || (has !== undefined && has !== b.rect[dim])){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); if (has !== undefined && has !== b.rect[dim]) return; }
@@ -1443,8 +1456,8 @@ function revert(also = []){
   const list = [...selected], r = revertible(list);
   if (r.refused) return hud.say(r.refused);
   const gone = r.ops.flatMap(o => o.results.map(blockOf)), back = r.ops.flatMap(o => o.sources);
+  const apart = unfuse(r.fused);                /* while the cuts still keep their blocks: taking a fused shape apart forgets what can no longer be come to */
   for (const o of r.ops) space.ops.splice(space.ops.indexOf(o), 1);
-  const apart = unfuse(r.fused);
   putBack(space, r.ops.flatMap(o => o.sources.map(b => [o, b])));      /* first, so that nothing that names them finds them gone; what was made of them lies after them in the order, so each still falls where it was */
   selected.clear(); discard([...gone, ...also]);
   select([...list.filter(b => space.blocks.includes(b)), ...back, ...apart]);
@@ -1455,9 +1468,20 @@ function pruneOps(){
     for (const s of everySpace()) for (const o of [...s.ops]){ o.results = o.results.filter(id => known.has(id));
       if (!o.results.length){ s.ops.splice(s.ops.indexOf(o), 1); for (const b of o.sources) forget(b); again = true; } } }
 }
-function forget(b){                             /* one use fewer of its variable; what it was joined from goes with it */
-  spaceOf.delete(b); const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); }
-  for (const m of b.members || []) forget(m.block);
+/* b has been taken out of its space: one use fewer of its variable. With it goes whatever can no longer be come to
+   from the Menu: once the last use of a variable is gone, what was in its definition space, and in the definitions of
+   those, all the way down; and what it was joined from. So a reference in there is no longer counted as a use of its
+   variable. Whatever can still be come to is left alone: a definition another use of the variable still shares, and
+   the shapes a joined shape was joined from, which are in no space but are held by it. (Each space is walked once, so
+   a definition that leads back to itself does not go round for ever.)
+   held: a definition space to keep although nothing leads to it at this moment, because a block about to be made will */
+function forget(b, held = null){
+  const drop = o => { spaceOf.delete(o); const set = kin.get(o); if (set){ set.delete(o); kin.delete(o); if (set.size < 2) for (const k of set) kin.delete(k); } };
+  drop(b);
+  const kept = new Set(), walked = new Set(), walk = s => { if (!s || walked.has(s)) return; walked.add(s); s.blocks.forEach(keep); for (const o of s.ops || []) o.sources.forEach(keep); };      /* the two blocks a cut keeps off the canvas are still come to, by Revert */
+  const keep = o => { if (kept.has(o)) return; kept.add(o); walk(spaceOf.get(o)); for (const m of o.members || []) keep(m.block); };
+  walk(top); trail().forEach(walk); walk(held);      /* the spaces on the way to where the user stands are kept whatever has become of their blocks */
+  for (const o of [...spaceOf.keys(), ...kin.keys()]) if (!kept.has(o)) drop(o);
 }
 function remove(also = []){                      /* also: blocks anywhere that go with the selection (see doomed) */
   const gone = [...new Set([...selected, ...also])]; select([]); discard(gone); shown();
@@ -1466,7 +1490,7 @@ function remove(also = []){                      /* also: blocks anywhere that g
    them (its variable went, or everything made of it did: see doomed): its operation goes with it, with every shape
    the operation made, and the operation's other kept block, if that is not going too, is put back where it was. */
 function discard(blocks){
-  const going = new Set(blocks), touched = new Set([space]), spaces = everySpace(), ended = [];
+  const going = new Set(blocks), dirty = new Set([space]), spaces = everySpace(), ended = [];
   for (const s of spaces) for (const o of s.ops) if (o.sources.some(b => going.has(b))){ ended.push([s, o]);
     for (const id of o.results){ const made = everyKnown().find(k => k.id === id); if (made) going.add(made); } }
   /* a length taken from a shape that is going, while another use of that variable stays, is taken from that one instead */
@@ -1478,11 +1502,11 @@ function discard(blocks){
       for (const a of attrsOf(d)) if (refersTo(a.text, ids)) a.text = repoint(a.text, b.id, stay.id);
       if (d.fn?.formula && refersTo(d.fn.formula, ids)) d.fn.formula = repoint(d.fn.formula, b.id, stay.id); }
     for (const s of everySpace()) for (const r of s.repeats.values()) for (const k of ['across', 'down']) if (typeof r[k] === 'object' && refersTo(r[k].expr, ids)) r[k] = { expr: repoint(r[k].expr, b.id, stay.id) }; }      /* and a tile's count */
-  for (const b of going){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
-  for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); touched.add(s);
-    for (const b of o.sources) if (going.has(b)) forget(b);
-    putBack(s, o.sources.filter(b => !going.has(b)).map(b => [o, b])); }
-  for (const s of touched) tidy(s);
+  for (const b of going){ const s = spaceWith(b); if (!s) continue; dirty.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
+  for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); dirty.add(s);
+    putBack(s, o.sources.filter(b => !going.has(b)).map(b => [o, b]));      /* before anything is forgotten: forget drops whatever can no longer be come to, and the block that stays is come to again only once it is back */
+    for (const b of o.sources) if (going.has(b)) forget(b); }
+  for (const s of dirty) tidy(s);
   pruneOps();                                  /* a cut whose shapes have all gone is gone too */
 }
 /* ---- references ----
@@ -2183,8 +2207,11 @@ const fromOf = f => !f ? null : f.range ? { id: f.id, range: { ...f.range, toEnd
 /* the page's spaces as plain data, lengths in units */
 function gather(light = false){      /* light: each block's entries as their stamp, for telling cheaply whether anything has changed; 'kept': as the object they were last given as, while they are unchanged (for the graph: what is saved is always written afresh) */
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
+  /* a definition space is written once, under the first block met that has it: a variable used in several places is
+     several blocks with one space, and written under each, a space inside a space, the whole would multiply */
+  const written = new Set(), once = s => !written.has(s) && !!written.add(s);
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members || b.source ? {} : light === true ? { stamp: stampOf(b.values) } : light === 'kept' ? entriesOut(b.values) : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members || b.source ? {} : light === true ? { stamp: stampOf(b.values) } : light === 'kept' ? entriesOut(b.values) : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
     standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
     arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
@@ -2241,7 +2268,20 @@ function rebuild(data){
   for (const [path, text] of Object.entries(data.data || {})) if (dataPath(path) && typeof text === 'string') dataFiles.set(path, text);      /* (a file already here under that name is the same file) */
   ids = createIds(); if (data.ids) ids.restore(data.ids);
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
+  const defs = new Map(), sharing = new Map();   /* a variable's number -> its definition space, once a use that carries it has been met, and -> the blocks that share it */
   const u = view.unit;
+  /* A block's definition. One use of a variable carries it (any one: not always the first met here, and in projects
+     saved before, every one), and every use has it: those met already are given it now, and those to come as they
+     are made. What another use carries besides is a copy, and is left.
+     A shape written twice is treated likewise, by its id (a shape that several uses of a joined variable were joined
+     from is written under each, its definition under one): the one written without a definition has the other's. */
+  const define = (b, d, s) => { const v = d.variable ?? null, key = v ?? (d.id || null);
+    if (key !== null) sharing.set(key, [...(sharing.get(key) || []), b]);
+    if (defs.has(key) && (v !== null || !d.inside)) return spaceOf.set(b, defs.get(key));
+    if (!d.inside) return;
+    const def = newSpace(b, s); spaceOf.set(b, def);
+    if (key !== null && !defs.has(key)){ defs.set(key, def); for (const k of sharing.get(key)) spaceOf.set(k, def); }
+    fill(d.inside, def); };
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = (d.arrow ? createArrow : createBlock)({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
@@ -2252,8 +2292,8 @@ function rebuild(data){
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
-    if (first){ b.values = first.values; b.attrs = first.attrs; if (first.fn && b.arrow) b.fn = first.fn; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); return b; }      /* a later use: the first one's entries and definition */
-    if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); }
+    if (first){ b.values = first.values; b.attrs = first.attrs; if (first.fn && b.arrow) b.fn = first.fn; }      /* a later use: the first one's entries, and an arrow's function */
+    define(b, d, s);
     return b; };
   const fill = (plain, s) => {
     for (const d of plain.shapes) s.blocks.push(build(d, s));
@@ -2279,7 +2319,10 @@ const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(l
 ask().then(() => { if (kept) backend.health(); else backend.absent();
   const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
   if (first) bus.send('project.open', { name: first }).then(() => { current = 'menu'; });
-  else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => Promise.all(list.map(path => fetch('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e)))))
+  else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => { const text = url => fetch(url).then(r => r.ok ? r.text() : Promise.reject());
+      /* its .config is not among its files (each machine has its own): it is the one beside the directory, projects/default-menu.config */
+      return Promise.all([...list.filter(path => path !== '.config').map(path => text('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e))),
+        text('projects/default-menu.config').then(text => ({ path: '.config', text }), () => null)]); })
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(name){
@@ -2535,7 +2578,8 @@ const changes = { changes: true };
    was: the space they were in and what was selected (blocks, or a tile). Putting one back rebuilds the project from it (every block and
    group has its id again), keeps each space's view where it now is, and goes back to that place. */
 const history = createHistory(bus, {
-  snap: () => { const data = gather(); return { data, text: JSON.stringify(data.top), path: trail().slice(1).map(s => s.owner.id), selected: idsOf(selected), tile: pickedTile }; },
+  /* text: what two states are compared by. JSON writes both infinities as null, so here they are written as a saved file has them, and ∞ to -∞ is a step */
+  snap: () => { const data = gather(); return { data, text: JSON.stringify(data.top, (key, v) => v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v), path: trail().slice(1).map(s => s.owner.id), selected: idsOf(selected), tile: pickedTile }; },
   same: (a, b) => a.text === b.text,
   restore(state){
     const views = new Map([[null, space === top ? view.camera() : top.camera]]);      /* each space's camera, by the id of the block it defines */
@@ -2705,7 +2749,9 @@ bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupName
   for (const p of pictures) p.groups = p.groups.slice(0, p.groups.findIndex(g => g.id === frame) + 1);      /* the frame and what is inside it, not the frames it is in */
   /* what comes from the list is the variables themselves, not copies: each named shape in the new frame is a
      reference to the one it was made from, with its entries, its definition and its colour */
-  const from = inGroup(frame, s), linked = from.map(b => isNamed(b) && !b.members); pictures.forEach((p, i) => { if (linked[i]) p.inside = null; });
+  const from = inGroup(frame, s), linked = from.map(b => isNamed(b) && !b.members);
+  const own = from.find((b, i) => linked[i] && loops(b, space)); if (own) return hud.say(`${bare(own.name)} is in that frame, and cannot go inside its own definition`);
+  pictures.forEach((p, i) => { if (linked[i]) p.inside = null; });
   const made = paste(at, pictures, false) || [];
   made.forEach((b, i) => { const of = from[i]; if (!linked[i] || !of) return; b.values = of.values; if (of.source) b.source = of.source; b.ref = true; b.attrs = attrsOf(of); if (isArrow(of)) b.fn = of.fn;
     if (!spaceOf.has(of)){ const def = newSpace(of, s); for (const k of kinOf(of)) spaceOf.set(k, def); } spaceOf.set(b, spaceOf.get(of));

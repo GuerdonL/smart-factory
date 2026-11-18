@@ -481,3 +481,18 @@ test('phase 7: a function repeated through an outer tile is given another part o
   const cell = x => evaluate(g, a, { binding: { cells: [{ x, y: 0, of: ['t:outer'] }] } }).entries;
   assert.deepEqual(cell(0), { '1,1': 2, '2,1': 4 }); assert.deepEqual(cell(2), { '1,1': 6, '2,1': 8 }); assert.deepEqual(cell(6), { '1,1': 14, '2,1': 16 });
 });
+
+/* found in review of the stack: the answer a function gave for one run of an input was handed to every other run of it */
+test('after review: two arrows of one function on different rows of one input each have their own answer, whichever is asked first', () => {
+  const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
+  const arrow = (id, start, y, more) => B(id, 4, y, 1, 1, { type: 'arrow', arrow: { input: { id: 'X', as: 'block' }, side: 'e', start, span: 1, gap: 2, gapName: null, output: null, formula: null }, variable: 7, name: 'linear', ...more });
+  const tile = (id, member, y) => ({ id, name: null, members: [member], groups: [], repeat: { x: 4, y, cols: 1, rows: 1, across: 1, down: 2 } });
+  /* linear: its input, one row of two, times a column of 3 and 4. X is four rows; one arrow is repeated down rows 1 and 2, a reference to it down rows 3 and 4 */
+  const body = { shapes: [B('in', -9, 0, 2, 1, { in: true }), B('W', -7, 0, 1, 2, { entries: rowsOf([[3], [4]]) })], groups: [], operations: [] };
+  const made = () => build({ top: { shapes: [B('X', 0, 0, 2, 4, { entries: rowsOf([[1, 2], [10, 20], [100, 200], [1000, 2000]]) }), arrow('lin', 1, 0, { inside: body }), arrow('use', 3, 2, { reference: true })],
+    groups: [tile('t1', 1, 0), tile('t2', 2, 2)], operations: [] } });
+  const column = (g, i) => { const e = evaluate(g, g.spaces.top.arrows[i].node); return [e.entries['1,1'], e.entries['1,2']]; };
+  const g = made(); assert.deepEqual(validate(g), []);
+  assert.deepEqual([column(g, 0), column(g, 1)], [[11, 110], [1100, 11000]]);
+  const again = made(); assert.deepEqual([column(again, 1), column(again, 0)], [[1100, 11000], [11, 110]]);      /* asked the other way round */
+});

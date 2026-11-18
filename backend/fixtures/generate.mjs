@@ -28,6 +28,8 @@ import { read } from '../../project.js';
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..');
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
 const space = (shapes, groups = [], operations = []) => ({ shapes, groups, operations });
+/* the .config that comes with a project: it is kept beside the project's directory, as <name>.config (projects/README.md) */
+const given = name => { try { return [{ path: '.config', text: readFileSync(join(root, 'projects', name + '.config'), 'utf8') }]; } catch (e) { return []; } };
 const snap = (shapes, groups = []) => ({ top: space(shapes, groups) });
 const arrow = (id, input, more = {}, shapeMore = {}) => B(id, 0, 0, 1, 1, { type: 'arrow', name: 'Shape 9', arrow: { input, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: null, formula: null, ...more }, ...shapeMore });
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
@@ -127,7 +129,7 @@ export function fixtures(){
   const graphs = [];
   const add = (name, g) => { const bad = validate(g); if (bad.length) throw new Error(name + ' is not well formed: ' + bad[0]);
     graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(evaluate(g, id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(evaluate(g, b.node, { binding: b.binding })) })) }); };
-  for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read(files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$/.test(f.path)))));
+  for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$/.test(f.path)), ...given(name)])));
   for (const [name, s] of Object.entries(CASES)) add(name, build(s));
   return { graphs: JSON.parse(JSON.stringify(graphs)), mutations: mutations(graphs.map(x => JSON.parse(JSON.stringify(x.graph)))) };
 }

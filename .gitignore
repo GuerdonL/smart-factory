@@ -1,7 +1,23 @@
 # the server's PIN is set on each machine, never kept here (see README: The PIN)
 .pin
+runs/
+data/cache/
+__pycache__/
+models/_*
+jobs/_*
+.serve-token
+data/kaggle/
+data/hf/
+data/hfds/
+models/*.json.gz
+
+# what Python leaves behind when it runs the server
+__pycache__/
+
+# a project's own .config is each machine's: the one that comes with a project is projects/<name>.config (see projects/README.md)
+projects/*/.config
+
 # the backend's own Python environment (see README: The backend), and what Python leaves behind
 backend/.venv/
 # the token server.py shows the backend, made afresh each time the backend starts
 backend/.token
-__pycache__/

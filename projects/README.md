@@ -5,6 +5,7 @@ A saved project is a directory in here. Shapes and files are the same tree:
 - a space is a directory;
 - each shape in it is one `.json` config file;
 - a shape with a definition space has a directory of the same name beside its file, holding that space the same way;
+- a variable used in several places is a file for each use, with its definition's directory beside one of them only;
 - a group is one combined `.group.json` file holding all of its shapes.
 
 - a space where Difference or Intersect has cut something has one more file, `operations.json`, holding each cut
@@ -59,6 +60,16 @@ Open takes one back.
 The page has one space at the top, the Menu, and a project is what is in it. On opening, the page loads the project
 called `menu` if you have saved one, and otherwise `default-menu`, which comes with the repository. Save offers the
 name `menu`, so your first save makes the Menu your own without touching `default-menu`.
+
+`default-menu` can be saved over too. Two things keep that from stopping the server following its branch:
+
+- Its `.config` belongs to the machine. A project's top `.config` is not kept in the repository (`.gitignore`); the
+  one that comes with `default-menu` is the file `default-menu.config` beside its directory, which the server hands
+  over as the project's `.config` until the project has one of its own. The first save writes it, and from then on
+  that machine's colours and settings are its own, whatever is pushed.
+- Everything round it follows the branch. Where a file of a project that comes with the repository has been changed
+  both here (by a save) and on the branch (by a push), the branch's is taken when the update comes in. A file changed
+  only here is left, and so is anything the repository does not keep.
 
 ## Frames
 

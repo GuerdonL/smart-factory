@@ -23,7 +23,6 @@
     "as": "computation",
     "entries": {}
   },
-  "definition": "relu (2)/",
   "order": 44,
   "variable": 1,
   "reference": true,

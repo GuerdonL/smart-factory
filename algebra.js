@@ -125,6 +125,11 @@
    typeOf(rects) -> null | { cols, rows, colsName, rowsName } | { error }
        what everything comes to: nothing is null, one piece is that piece's type, and several pieces are not one
        thing: { error: 'n pieces' }.
+   readSide(text) -> what was typed into a side's measurement, as { name, length }: "8" (or "8u") a length; "context" a
+       name; "context 8", "context=8", "context: 8" both; "-" the name '-', which takes a side's name off ("-8": and
+       gives it a length). A number is a length only where it stands alone or apart from the name, so "d2" and "h1"
+       are names. name is '' where none was typed; length is a whole number, null where none was typed, or undefined
+       where one was typed that is not whole ("2.5"): not accepted, and never rounded
    combine(op, a, b), apply(fn, a), valueText(v), isWhole(v), isSurd(v), surd, rootOf, sideOf, exact, held and the rest
        of what values are: values.js, which sets out the eight kinds of value (whole, infinity, exact, boolean,
        symbolic, decimal, error, unknown) and the rules for combining them. Every one of them takes every kind.
@@ -299,6 +304,12 @@ export const nthOf = (range, ranges) => ranges.length < 2 ? 0 : 1 + ranges.filte
 export function typeOf(rects){
   const ps = pieces(rects);
   return !ps.length ? null : ps.length === 1 ? ps[0].type : { error: ps.length + ' pieces' };
+}
+
+export function readSide(text){
+  const t = String(text).trim(), m = t.match(/^(?:(.*?)[\s=:]+|(-?))(\d+(?:\.\d+)?)\s*u?$/i);      /* a name, then a space, = or : before the number; or no name, or only the "-" */
+  if (!m) return { name: t.replace(/[\s=:]+$/, ''), length: null };
+  return { name: (m[1] ?? m[2]).trim(), length: Number.isSafeInteger(Number(m[3])) ? Number(m[3]) : undefined };
 }
 
 /* The kinds of value an entry can come to, and how two combine, are set out in values.js, a pure module beside this

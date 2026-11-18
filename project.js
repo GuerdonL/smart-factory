@@ -19,6 +19,12 @@
 
    The project's own directory is the top space, the Menu.
 
+   No two things written in one directory have the same name, whatever the shapes are called, and none differ only
+   in capitals (some file systems take those for one name). Where two would, the later one's name gets a number:
+   "Keys (2).json". That goes for a file against a directory too, and for a shape called "Keys.frame" beside a frame
+   called "Keys", which would both be Keys.frame.json. Beyond its ending, nothing is read from a file's name: a
+   shape's name is in its config, and so is the directory of its definition.
+
    A shape's config:
        { "format": "smart-factory/shape", "version": 1,
          "id": "b0x7m2c",                          the block's id, kept so that it is the same block when opened again
@@ -85,8 +91,11 @@
          "seat": { "hollow": ["b3k…", "b9z…"] }, or in the hollow of the times or over pair those two blocks make
          "in": true,                             it is the input block of the arrow whose definition space it is in
          "variable": 2 }                         shapes carrying the same number are one variable used in several
-                                                 places: one name, size, colour, set of entries and definition
-                                                 (each has the definition directory; they hold the same thing)
+                                                 places: one name, size, colour, set of entries and definition.
+                                                 The definition is written once: one of them has the definition
+                                                 directory (the first to be written), the others have none, and it
+                                                 is the definition of them all. Projects saved before gave every
+                                                 one a directory, each holding the same thing: opened, one is kept.
    value.as is "computation" when its definition space has shapes that work it out, "resolved" when every entry has
    been given a value or a formula (or it is a source, which has them all), and "variable" otherwise.
 
@@ -239,35 +248,47 @@ const fromBack = f => !f || typeof f.id !== 'string' ? null : f.range && typeof 
   : { id: f.id, side: f.side === 'y' || f.side === 'm' ? f.side : 'x' };
 const seatOf = s => typeof s === 'string' && s ? s : s && typeof s === 'object' && Array.isArray(s.hollow) && s.hollow.length === 2 && s.hollow.every(id => typeof id === 'string' && id) ? { hollow: [...s.hollow] } : null;
 
-/* a name made safe to be a file's name, and different from every other in its directory */
-function stem(name, taken){
+/* a name made safe to be a file's name, and different from every other in its directory.
+   taken: every name used in the directory so far, in lower case: each stem (which is also the name of a shape's
+   definition directory) and each file written from one, stem + ext. A stem is free only if neither it nor its file
+   is there already, so no file is written over another, and no file has the name of a directory. */
+function stem(name, taken, ext = '.json'){
   let s = bare(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').replace(/^\.+/, '').trim().slice(0, 80) || 'shape';
   if (/^(project|_settings|operations)$/i.test(s)) s += ' shape';
-  let t = s; for (let n = 2; taken.has(t.toLowerCase()); n++) t = `${s} (${n})`;
-  taken.add(t.toLowerCase()); return t;
+  const used = t => taken.has(t.toLowerCase()) || taken.has((t + ext).toLowerCase());
+  let t = s; for (let n = 2; used(t); n++) t = `${s} (${n})`;
+  taken.add(t.toLowerCase()); taken.add((t + ext).toLowerCase()); return t;
 }
 
 /* a space with nothing in it writes no file, so there is no directory for a shape's "definition" to name: the word
    is left out, and the project reads back as it was written */
 const holdsAny = s => s.shapes.length + s.groups.length + (s.operations?.length || 0) > 0;
-function valueOf(shape){
+function valueOf(shape, inside){                  /* inside: its definition space, which another use of its variable may be the one to carry */
   if (sourceOf(shape.source)) return { as: 'resolved', entries: {} };      /* a source has every entry, and stores none */
   const entries = kept(shape.entries, out);
-  const computed = !!shape.inside && shape.inside.shapes.some(s => !isCommented(s.name));
+  const computed = !!inside && inside.shapes.some(s => !isCommented(s.name));
   let full = true; for (let c = 1; c <= shape.cols && full; c++) for (let r = 1; r <= shape.rows; r++) if (!(c + ',' + r in entries)){ full = false; break; }
   return { as: computed ? 'computation' : full ? 'resolved' : 'variable', entries };
 }
 
 export function write(project){
   const files = [];
+  /* A variable's definition is written once, under the first of its uses that carries one. defs: a variable's number
+     -> its definition, whichever use carries it; written: the variables whose definition has gone out already. */
+  const defs = new Map(), written = new Set();
+  const look = s => { for (const shape of s.shapes) each(shape); for (const o of s.operations || []) for (const shape of o.sources) each(shape); };      /* the two shapes a cut keeps are written too (operations.json), after the shapes */
+  const each = shape => { const v = shape.variable ?? null;
+    if (shape.inside && !(v !== null && defs.has(v))){ if (v !== null) defs.set(v, shape.inside); look(shape.inside); }
+    for (const j of shape.joined || []) each(j.shape); };
+  look(project.top);
   const space = (s, dir) => {
     const every = g => [...g.members, ...(g.groups || []).flatMap(every)];
-    const taken = new Set(), grouped = new Set(s.groups.flatMap(every));
-    const config = (shape, order) => { const name = stem(shape.name, taken);
-      if (shape.inside) space(shape.inside, dir + name + '/');
+    const taken = new Set(['project.json']), grouped = new Set(s.groups.flatMap(every));
+    const config = (shape, order) => { const name = stem(shape.name, taken), v = shape.variable ?? null, inside = shape.inside && !written.has(v) ? shape.inside : null;
+      if (inside){ if (v !== null) written.add(v); space(inside, dir + name + '/'); }
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape), ...(shape.inside && holdsAny(shape.inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}),
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: fromOut(shape.from) } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
@@ -275,7 +296,7 @@ export function write(project){
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner), ...(repeatOf(g.repeat) ? { repeat: repeatOf(g.repeat) } : {}) });      /* a tile */
     let hasConfig = false;
-    s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken);
+    s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken, '.frame.json');
       if (own) hasConfig = true;
       files.push({ path: own ? dir + '.config' : dir + name + '.frame.json', text: JSON.stringify({ format: 'smart-factory/frame', version: FORMAT, ...body }, null, 2) + '\n' }); });
     /* what was cut here: each operation with its two sources whole, written as shapes are (a definition goes in a directory beside) */

@@ -13,6 +13,11 @@ the page works without it. See "The backend".)
 The server also keeps saved projects in `projects/` (see `projects/README.md`) and, when run from a git checkout,
 pulls its branch from GitHub every 30 seconds, so a push shows up on the next reload.
 
+The projects that come with the repository (`default-menu` and `example`) can be saved over like any other. A
+project's `.config` is the machine's own and is not in the repository, so a save never puts it in the way of a pull;
+what else of such a project was changed here gives way, file by file, to what the branch has changed too (see
+`projects/README.md`). A save is 64 MB at most, and one that is refused is answered with why and changes nothing.
+
 ## Run it on a server, for good
 
 On the machine, in a checkout of this repository on the branch to follow:

@@ -243,6 +243,20 @@ test('without the solver, only what needs it says so', () => {
   try { is('1 + 1', 2); is('1/√4', q(1, 2)); is('√5 + 1', E('the maths solver did not load')); } finally { globalThis.nerdamer = kept; }
 });
 
+/* what development's tests held before this module was rewritten, asked of it as it is now */
+test('a number too long to hold is kept digit for digit, never rounded to a value', () => {
+  is('(10^17+1)/10^17', sym('100000000000000001/100000000000000000'));      /* not 1 */
+  is('9007199254740993/9007199254740992', sym('9007199254740993/9007199254740992')); is('1/9007199254740993', sym('1/9007199254740993'));
+  is('9007199254740992', sym('9007199254740992'));      /* 2^53: the first whole number that is not safe */
+  is('-9007199254740992/3', sym('-9007199254740992/3')); is('10^23/(10^23+1)', sym('100000000000000000000000/100000000000000000000001'));
+  is('0.30000000000000004', sym('7500000000000001/25000000000000000'));      /* not 3/10 */
+  is('0.12345678901234567891 - 0.1234567890123456789', sym('1/100000000000000000000'));      /* not 0 */
+  is('0.30000000000000004 - 0.3', sym('1/25000000000000000')); is('(10^17+1)/10^17 - 1', sym('1/100000000000000000'));
+  /* and the largest that can be held still are, as is long working that comes out short */
+  is('9007199254740991', 9007199254740991); is('-9007199254740991/2', q(-9007199254740991, 2));
+  is('9007199254740993 - 9007199254740992', 1); is('10^17 + 1 - 10^17', 1); is('2^80 / 2^79', 2);
+});
+
 /* ---- phase 4: what an arrow adds ---- */
 test('an arrow\'s gap is a measure: @[id:g]', () => {
   assert.deepEqual(refs('2 * @[ba1:g]'), [{ id: 'ba1', measure: 'g', name: null, text: '@[ba1:g]' }]);
