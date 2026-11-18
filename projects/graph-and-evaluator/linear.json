@@ -1,0 +1,42 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bge887t",
+  "type": "arrow",
+  "name": "linear",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -15,
+    "y": -20
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "linear/",
+  "order": 47,
+  "variable": 1,
+  "arrow": {
+    "input": {
+      "id": "bbxnapy",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 2,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}

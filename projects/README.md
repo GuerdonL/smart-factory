@@ -167,3 +167,22 @@ tile `Index`, 2 by 2: it reads 2, 3, 3, 4. `Pair` holds `index.x` and `10 * inde
 the arrow `relu` (`max(x, 0)`) sits under column 1 in the tile `Every column`, across 4: one arrow, mapped over
 every column, its outputs one 4 by 2 output with `R` seated on it. `Stack` is defined by two standing shapes: open
 it to find `Bias` standing in each row of its matrix.
+
+## graph-and-evaluator/
+
+What the page works out, beside a copy of the default Menu's `.config`: every number here comes from the graph
+(`graph.js`) and the evaluator (`evaluate.js`). Along the top, `M` (1, 2, 3, 4) against the identity `Eye` is a
+product, and reads 1, 2, 3, 4. `A` on `C` is a sum, worked out entry by entry; one entry of `C` was never given, so
+that one entry of the result stays in symbols (`a₃₂+c₃₂`) and the rest are numbers. `Num` over `Den` is written in
+their hollow: `Den` holds a zero, so one entry is the error mark (divide by zero) and the others are fractions.
+
+In the second row, `Keys` is defined in its space: open it to find `Embedding` against `Key Weights`, and the
+product on the left of its equation; back in the Menu, `Keys` holds the same numbers. Beside it the scalar `two`
+scales `Twice`, whose entries were never given: each stays a symbol, written against the 2. `linear` is an arrow
+defined in its space (`in` against `W`) and used twice, on `X` and on `Y`: one function, two inputs, two outputs.
+Open either arrow and `in`, and the product it makes, show that arrow's numbers.
+
+In the third row, `Scale` holds two formulas, `1/√(X.x + 1)` and `Tau.mass × 2`, and its product with `Ones` is
+`7/2`: give `Tau` another number, or make `X` wider, and it follows. `Loop` holds `Loop.mass + 1`: it depends on
+itself, so it has no value, its panel says so, and `After`, which reads it, has none either. Everything else on the
+canvas is worked out as if they were not there.

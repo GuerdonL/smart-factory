@@ -1,0 +1,38 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bmhn43d",
+  "type": "tensor",
+  "name": "Y",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -18,
+    "y": -15
+  },
+  "size": {
+    "cols": 3,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 2,
+      "2,1": 2,
+      "3,1": 2,
+      "1,2": 0,
+      "2,2": 0,
+      "3,2": {
+        "n": 1,
+        "d": 2,
+        "k": 0
+      }
+    }
+  },
+  "order": 48
+}

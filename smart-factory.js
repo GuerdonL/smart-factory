@@ -310,7 +310,7 @@ function bindingOf(of, s, over = false){
   for (let at = s; at && at.owner; at = spaceWith(at.owner)){ const o = at.owner;
     if (isArrow(o)){ const inner = at.blocks.find(k => k.in), param = inner && g.blocks[inner.id], fn = param && (g.nodes[param].within || []).find(w => w[0] === 'f'), given = givenTo(o);
       if (fn && given && !(fn in params)) params[fn] = given; }
-    else if (!cells){ const c = cellOf(o, spaceWith(o), true); if (c) cells = [c]; } }      /* what is in a block's definition is the variable's own way round */
+    else if (!cells){ const c = cellOf(o, spaceWith(o), turned(o)); if (c) cells = [c]; } }      /* what is in a block's definition is the variable's own way round: read through a transposed use, its entries stand turned */
   return cells || Object.keys(params).length ? { params, ...(cells ? { cells } : {}) } : null;
 }
 /* what an arrow gives its function: the covered part of its input, as the graph has it */

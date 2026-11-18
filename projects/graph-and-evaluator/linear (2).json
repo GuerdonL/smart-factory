@@ -1,0 +1,43 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bk6450w",
+  "type": "arrow",
+  "name": "linear",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -15,
+    "y": -15
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "linear (2)/",
+  "order": 49,
+  "variable": 1,
+  "reference": true,
+  "arrow": {
+    "input": {
+      "id": "bmhn43d",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 2,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}

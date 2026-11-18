@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bb7xwi1",
+  "type": "tensor",
+  "name": "Eye",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -38,
+    "y": -30
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 38,
+  "source": "identity"
+}
