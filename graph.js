@@ -21,6 +21,7 @@
    The graph
        { "version": 1,
          "nodes":     { "<node id>": { "op", "inputs": [node ids], "type": { "cols", "rows", "colsName", "rowsName" }, … } },
+                      (a type is an object that can gain fields: validate checks these four and lets any other be)
          "functions": { "<function id>": { "input": "<the node of its in block>", "body": "<the node its space comes to>" } },
          "spaces":    { "<space key>": { "owner": "<node id>" | null,
                                          "pieces": [ { "blocks": [block ids], "rule", "node": "<node id>" | null, "error": an error | null } ],
@@ -153,7 +154,7 @@ const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && O
 /* ---- types ---- */
 const T = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName: colsName || null, rowsName: rowsName || null });
 const whole1 = v => Number.isInteger(v) && v >= 1;
-const okType = t => !!t && typeof t === 'object' && !Array.isArray(t) && whole1(t.cols) && whole1(t.rows) && (t.colsName === null || typeof t.colsName === 'string') && (t.rowsName === null || typeof t.rowsName === 'string') && Object.keys(t).length === 4;
+const okType = t => !!t && typeof t === 'object' && !Array.isArray(t) && whole1(t.cols) && whole1(t.rows) && (t.colsName === null || typeof t.colsName === 'string') && (t.rowsName === null || typeof t.rowsName === 'string');      /* (its four fields, each of its kind. A type may hold more: later phases add to it, and what is not known here is left alone) */
 const one = t => t.cols === 1 && t.rows === 1;
 const same = (a, b) => a.cols === b.cols && a.rows === b.rows;
 const alike = (a, b) => same(a, b) && a.colsName === b.colsName && a.rowsName === b.rowsName;
@@ -413,7 +414,7 @@ export const OPS = {
       /* in a later cell of a tile it is repeated through, it goes on where the cell before ended: as many rows or columns on as lie before that cell */
       const on = (n.through || []).reduce((sum, t) => { const c = at.cells.find(c => c.of && c.of.includes(t.tile)); return sum + (c ? (rows ? c.y : c.x) : 0); }, 0);
       for (let k = 1; k <= n.count; k++){ const run = runOf(n, k), part = covered({ ...run, start: run.start + on }, x); if (!part) continue; const given = passed(X, part), size = T(part.cols, part.rows), off = (k - 1) * n.span;
-        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + k)
+        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + k + '+' + on)      /* (which run of its input it is given, counted through the outer tile's cells too: two cells' runs are not one input) */
           : worked(n.formula, { cols: part.cols, rows: part.rows, x: given, lookup: lookupIn(n, at, 1, size, p => n.at ? { x: n.at.col + p.c + (rows ? 0 : off), y: n.at.row + p.r + (rows ? off : 0) } : null) });
         const each = Math.round((rows ? n.type.rows : n.type.cols) / n.count);
         for (const [key, v] of got){ const [c, r] = key.split(',').map(Number); out.set(rows ? c + ',' + (r + (k - 1) * each) : (c + (k - 1) * each) + ',' + r, sound(v)); } }

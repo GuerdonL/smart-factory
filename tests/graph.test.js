@@ -768,3 +768,11 @@ test('phase 7: validate refuses a noise or a file source that is not in its stat
   refused(g => { delete fileOf(g).path; }, 'a file with no path'); refused(g => { first(g, 'source').kind = 'zeros'; first(g, 'source').path = 'data/w.csv'; delete first(g, 'source').path; first(g, 'source').path = 'x'; }, 'a path on what is no file');
   refused(g => { fileOf(g).kind = { file: 1 }; }, 'a kind that is no word');
 });
+
+test('phase 7: a type may gain fields: validate checks its four and lets any other be', () => {
+  const g = JSON.parse(JSON.stringify(good()));
+  for (const n of Object.values(g.nodes)) n.type = { ...n.type, axes: [{ length: n.type.cols, name: null }], inner: 0 };
+  assert.deepEqual(validate(g), []);
+  refused(h => { first(h, 'matmul').type = { cols: 4, rows: 2, colsName: null }; }, 'a type with one of its four fields gone');
+  refused(h => { first(h, 'matmul').type.rowsName = 7; }, 'a side name that is no text');
+});
