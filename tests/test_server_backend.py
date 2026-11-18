@@ -35,14 +35,39 @@ class StandInHandler(BaseHTTPRequestHandler):
     do_GET = do_POST = do_PUT = do_HEAD = handle_any
 
 
+class Trickle(ThreadingHTTPServer):
+    """A backend whose answer comes a byte now and then and never ends."""
+    daemon_threads = True
+
+    def __init__(self):
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                import time
+                self.rfile.read(int(self.headers.get('Content-Length') or 0))
+                self.send_response(200); self.send_header('Content-Length', '1000000'); self.end_headers()
+                try:
+                    for _ in range(40):
+                        self.wfile.write(b' '); self.wfile.flush(); time.sleep(0.25)
+                except OSError:
+                    pass
+        super().__init__(('127.0.0.1', 0), H)
+        threading.Thread(target=self.serve_forever, args=(0.01,), daemon=True).start()
+
+
 class BackendCase(ServerCase):
     def setUp(self):
         super().setUp()
         self.backend, self.elsewhere = StandIn(), StandIn()
         self.kept_backend, server.BACKEND = server.BACKEND, ('127.0.0.1', self.backend.server_address[1])
+        self.kept_token, server.TOKEN = server.TOKEN, os.path.join(self.dir, 'backend-token')      # the backend's token, as it writes it when it starts
+        with open(server.TOKEN, 'w') as f:
+            f.write('the-backends-token\n')
 
     def tearDown(self):
-        server.BACKEND = self.kept_backend
+        server.BACKEND, server.TOKEN = self.kept_backend, self.kept_token
         for s in (self.backend, self.elsewhere):
             s.shutdown(); s.server_close()
         super().tearDown()
@@ -61,7 +86,8 @@ class PassedOn(BackendCase):
         self.assertEqual(json.loads(seen[1]['body']), {'graph': {'nodes': {}}, 'want': []})
         # nothing of the browser's goes on: not its PIN, its cookies, or where the page came from
         for r in seen:
-            self.assertEqual(sorted(k for k in r['headers'] if k not in ('accept-encoding',)), sorted(['host', 'content-type'] + (['content-length'] if r['method'] == 'POST' else [])))
+            self.assertEqual(sorted(k for k in r['headers'] if k not in ('accept-encoding',)), sorted(['host', 'content-type', 'x-smart-factory-token'] + (['content-length'] if r['method'] == 'POST' else [])))
+            self.assertEqual(r['headers']['x-smart-factory-token'], 'the-backends-token')      # what shows the backend that this is the server
             self.assertEqual(r['headers']['host'], '127.0.0.1:%d' % self.backend.server_address[1])
 
     def test_what_the_backend_refuses_comes_back_as_it_said_it(self):
@@ -130,6 +156,59 @@ class PassedOn(BackendCase):
         self.assertEqual(json.loads(self.request('POST', '/api/backend/run', b'{}')[2])['errors'], {'*': json.loads(text)['error']})
         self.assertEqual(self.request('GET', '/api/projects')[0], 200)      # and everything else goes on as it did
 
+    def test_the_token_is_read_each_time_and_without_it_there_is_no_backend_to_talk_to(self):
+        with open(server.TOKEN, 'w') as f:
+            f.write('a-new-one\n')      # the backend was started again
+        self.request('GET', '/api/backend/health')
+        self.assertEqual(self.backend.seen[-1]['headers']['x-smart-factory-token'], 'a-new-one')
+        for make in (lambda: os.unlink(server.TOKEN), lambda: self.write(b''), lambda: self.write(b'\xff\xfe')):
+            with open(server.TOKEN, 'w') as f:
+                f.write('x')
+            make()
+            seen = len(self.backend.seen)
+            status, _, text = self.request('POST', '/api/backend/run', b'{}')
+            self.assertEqual((status, json.loads(text)['ok']), (200, False))
+            self.assertIn('its token', json.loads(text)['error'])
+            self.assertEqual(len(self.backend.seen), seen)      # nothing is sent without it
+
+    @staticmethod
+    def write(data):
+        with open(server.TOKEN, 'wb') as f:
+            f.write(data)
+
+    def test_neither_a_slow_request_nor_a_slow_answer_is_waited_on_past_its_time(self):
+        import socket, time
+        kept = server.READ, server.WAIT
+        try:
+            server.READ = server.WAIT = 1
+            s = socket.create_connection(('127.0.0.1', self.httpd.server_address[1]))
+            s.sendall(b'POST /api/backend/run HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n')
+            began = time.monotonic()
+            for _ in range(6):      # a body that comes a byte at a time, for ever: each byte in time, the whole never
+                time.sleep(0.3)
+                try:
+                    s.sendall(b'{')
+                except OSError:
+                    break
+            s.settimeout(5)
+            answer = s.recv(4096).decode()
+            s.close()
+            self.assertIn(' 408 ', answer.split('\r\n')[0])
+            self.assertIn('took longer than 1 seconds to arrive', answer)
+            self.assertLess(time.monotonic() - began, 3)
+            self.assertEqual(self.backend.seen, [])
+            # and a backend that answers a little now and then, for ever
+            slow = Trickle()
+            server.BACKEND = ('127.0.0.1', slow.server_address[1])
+            began = time.monotonic()
+            status, _, text = self.request('POST', '/api/backend/run', b'{}')
+            self.assertLess(time.monotonic() - began, 3)
+            self.assertEqual((status, json.loads(text)['ok']), (200, False))
+            self.assertIn('the backend is not answering', json.loads(text)['error'])
+            slow.shutdown(); slow.server_close()
+        finally:
+            server.READ, server.WAIT = kept
+
     def test_the_limits_here_are_the_backends_own(self):
         sys.path.insert(0, server.ROOT if os.path.isdir(os.path.join(server.ROOT, 'backend')) else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from backend import limits
@@ -174,7 +253,7 @@ class DataFiles(ServerCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, 'projects', 'p', 'data')))
 
     def test_a_csv_anywhere_else_is_refused_and_nothing_is_written(self):
-        for path in ['w.csv', 'data/../w.csv', '../data/w.csv', 'data/sub/w.csv', 'Keys/data/w.csv', 'data/.hidden.csv', 'data/w.csv/', '/data/w.csv', 'data\\w.csv', 'data/w\0.csv', 'data/w.CSV', 'data/' + 'a' * 81 + '.csv', 'data/w.txt', 'data/w.csv\n']:
+        for path in ['data/a..csv', 'data/a...b.csv', 'w.csv', 'data/../w.csv', '../data/w.csv', 'data/sub/w.csv', 'Keys/data/w.csv', 'data/.hidden.csv', 'data/w.csv/', '/data/w.csv', 'data\\w.csv', 'data/w\0.csv', 'data/w.CSV', 'data/' + 'a' * 81 + '.csv', 'data/w.txt', 'data/w.csv\n']:
             status, _, text = self.request('PUT', '/api/projects/q', [self.HEAD, {'path': path, 'text': '1\n'}])
             self.assertEqual(status, 400, path)
             self.assertIn('not a path a project may contain', json.loads(text)['error'])
@@ -189,5 +268,13 @@ class DataFiles(ServerCase):
         os.symlink(secret, os.path.join(self.dir, 'projects', 'p', 'data', 'link.csv'))
         with open(os.path.join(self.dir, 'projects', 'p', 'data', 'bytes.csv'), 'wb') as f:
             f.write(b'\xff\xfe\x00')
+        # nor one among its shapes: a .json or a .config that is a link is no file of the project, and what it points at is never given out
+        os.symlink(secret, os.path.join(self.dir, 'projects', 'p', 'Linked.json'))
+        os.symlink(secret, os.path.join(self.dir, 'projects', 'p', '.config'))
+        os.makedirs(os.path.join(self.dir, 'outside'))
+        with open(os.path.join(self.dir, 'outside', 'In.json'), 'w') as f:
+            f.write('{"secret": true}')
+        os.symlink(os.path.join(self.dir, 'outside'), os.path.join(self.dir, 'projects', 'p', 'Dir'))
         status, _, text = self.request('GET', '/api/projects/p')
         self.assertEqual(sorted(f['path'] for f in json.loads(text)), ['data/w.csv', 'project.json'])
+        self.assertNotIn('9', ''.join(f['text'] for f in json.loads(text) if f['path'] != 'data/w.csv'))

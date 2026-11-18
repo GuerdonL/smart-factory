@@ -17,10 +17,14 @@ What it does:
         POST /api/backend/run         -> its /run
         POST /api/backend/data?project=<name>&path=data/<file>.csv     -> its /data
     The backend's address is the SMART_FACTORY_BACKEND environment variable (default http://127.0.0.1:8001). These
-    go through the PIN like everything else, so the backend, which listens on this machine only and has no password
-    of its own, is never reached without it. Only those three are passed on, to that one address; an answer that
-    sends the request elsewhere is not followed; and no more is read of a request (5 MB for a run, 50 MB for a
-    file) or of an answer (8 MB) than is said here.
+    go through the PIN like everything else, so the backend is never reached through here without it. The backend
+    itself answers only what carries its token: 32 random bytes it writes, each time it starts, to a file only its
+    owner can read (backend/.token beside this file, or the path in SMART_FACTORY_BACKEND_TOKEN). This server reads
+    that file and sends the token with what it passes on, so it has to be run by the same user as the backend.
+    Only those three addresses are passed on, to that one address; an answer that sends the request elsewhere is
+    not followed; no more is read of a request (5 MB for a run, 50 MB for a file) or of an answer (8 MB) than is
+    said here; and neither the reading of a request nor the wait for the backend's answer goes on for more than a
+    stated time in all (60 and 90 seconds), however slowly either comes.
   - every 30 seconds asks GitHub whether the branch it is on has moved, and if so pulls it. Pages are read from
     disk on each request, so the next reload shows the new version; if this file itself changed, it restarts.
 
@@ -39,11 +43,12 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$')          # a project's name: one plain directory name
-DATA = re.compile(r'data/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')    # a data file: data/ and one .csv name (sources.js: dataPath)
+DATA = re.compile(r'data/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')    # a data file: data/ and one .csv name with no two dots together (sources.js: dataPath; backend/check.py: data_path)
 # what is passed on to the backend: how much of a request's body is read for each address, in bytes (the backend's own
 # limits: backend/limits.py), how much of its answer, and how many seconds it is waited on
 PASSED = {'/health': 0, '/run': 5 * 1024 * 1024, '/data': 50 * 1024 * 1024}
-ANSWER, WAIT = 8 * 1024 * 1024, 90
+ANSWER, WAIT, READ = 8 * 1024 * 1024, 90, 60                  # (READ: seconds a proxied request's body may take to arrive, in all)
+TOKEN = os.environ.get('SMART_FACTORY_BACKEND_TOKEN') or os.path.join(ROOT, 'backend', '.token')      # the file the backend's token is in
 TRIES, LOCKED_FOR = 5, 600                                         # different wrong PINs allowed from one address within LOCKED_FOR seconds, and the seconds it is then turned away
 SWALLOWED, SWALLOW_FOR = 64 << 20, 10                              # how much of a refused request's body is read and dropped, in bytes, and for how many seconds at most
 clock = time.monotonic                                             # the clock the counting goes by: its own name, so a test can set it and nothing else's
@@ -86,6 +91,19 @@ def read_backend():
     return host, port
 
 
+def backend_token():
+    """The backend's token, read from its file each time (the backend makes a new one whenever it starts). Where
+    there is no such file there is no backend running that this server could talk to."""
+    try:
+        with open(TOKEN, encoding='utf8') as f:
+            token = f.readline().strip()
+    except (OSError, ValueError) as e:
+        raise OSError(0, 'its token cannot be read at %s: %s' % (TOKEN, getattr(e, 'strerror', None) or 'it is not text'))
+    if not token:
+        raise OSError(0, 'its token file is empty')
+    return token
+
+
 PIN = read_pin()
 BACKEND = read_backend()
 PAGE = ('<!doctype html><html><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
@@ -100,10 +118,12 @@ def project_files(name):
         for f in sorted(files):
             full = os.path.join(folder, f)
             path = os.path.relpath(full, base).replace(os.sep, '/')
+            if os.path.islink(full):                               # a link is no file of the project: what it points at is never read
+                continue
             if f.endswith('.json') or f == '.config':
                 with open(full, encoding='utf8') as text:
                     out.append({'path': path, 'text': text.read()})
-            elif DATA.fullmatch(path) and not os.path.islink(full):     # a data file, at the top of the project
+            elif DATA.fullmatch(path):                             # a data file, at the top of the project
                 try:
                     with open(full, encoding='utf8', newline='') as data:
                         out.append({'path': path, 'text': data.read()})
@@ -297,24 +317,37 @@ class Handler(SimpleHTTPRequestHandler):
             if length > PASSED[to]:
                 self.refuse(413, 'that is larger than the %d MB the backend takes' % (PASSED[to] >> 20), {})
                 return True
-            body = self.rfile.read(length)
-            if len(body) != length:
-                self.close_connection = True
+            body = self.read_within(length, READ)
+            if body is None:
+                self.refuse(408, 'the request took longer than %d seconds to arrive' % READ, {})
                 return True
         if to == '/data':                                          # the two things a file's address says, written out again: nothing else of it goes on
             asked = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
             to += '?project=%s&path=%s' % (quote((asked.get('project') or [''])[-1], safe=''), quote((asked.get('path') or [''])[-1], safe=''))
         try:
+            token = backend_token()
+            until = time.monotonic() + WAIT                        # the whole wait, not each step of it
             c = http.client.HTTPConnection(BACKEND[0], BACKEND[1], timeout=WAIT)
             try:
                 c.request(self.command, to, body=body if self.command == 'POST' else None,
-                          headers={'Content-Type': 'application/octet-stream' if to.startswith('/data') else 'application/json'})
+                          headers={'Content-Type': 'application/octet-stream' if to.startswith('/data') else 'application/json', 'X-Smart-Factory-Token': token})
+                sock = c.sock                                      # (the connection lets go of it once the answer's head is read)
+                sock.settimeout(max(until - time.monotonic(), 0.01))
                 r = c.getresponse()
-                status, answer = r.status, r.read(ANSWER + 1)
+                status, answer = r.status, b''
+                while len(answer) <= ANSWER:
+                    left = until - time.monotonic()
+                    if left <= 0:
+                        raise TimeoutError('it took longer than %d seconds' % WAIT)
+                    sock.settimeout(left)
+                    got = r.read1(min(1 << 16, ANSWER + 1 - len(answer)))
+                    if not got:
+                        break
+                    answer += got
             finally:
                 c.close()
         except (OSError, http.client.HTTPException) as e:
-            why = 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or type(e).__name__)
+            why = 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or str(e) or type(e).__name__)
             # that there is none is an answer and not a failure: the page asks on every load, and a browser writes every
             # failed request to its console. Each address is answered in its own form, with why.
             self.reply(200, {'ok': False, 'error': why, **({'results': {}, 'errors': {'*': why}} if to == '/run' else {})})
@@ -326,6 +359,27 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             self.reply(status, answer)
         return True
+
+    def read_within(self, length, seconds):
+        """A request's body of that length, or None where it has not all come within that many seconds in all: the
+        time is counted from the start, so a client that sends a little now and then is not waited on for ever."""
+        got, until = [], time.monotonic() + seconds
+        try:
+            while length > 0:
+                left = until - time.monotonic()
+                if left <= 0:
+                    return None
+                self.connection.settimeout(left)
+                part = self.rfile.read1(min(length, 1 << 16))
+                if not part:
+                    return None
+                got.append(part)
+                length -= len(part)
+        except (OSError, ValueError):
+            return None
+        finally:
+            self.connection.settimeout(None)
+        return b''.join(got)
 
     def do_POST(self):
         if not self.backend():
