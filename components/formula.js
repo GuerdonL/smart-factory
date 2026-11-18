@@ -2,7 +2,7 @@
    typed is one of these: an attribute's value, the x, y and mass rows, and every matrix entry.
 
    createFormula({ text, look(capsule), reach(), matrices, onKeep(text, next), onLeave(next), onOpen(field), onClose(field) })
-       -> { el, focus(), insert(capsule), over(x, y), text, matrices }
+       -> { el, focus(), insert(capsule), write(text), over(x, y), text, matrices }
      text     what is there to begin with, as it is stored: capsules as @[id:x]
      look     asked for each capsule to be drawn: { label, color } (a theme colour's name), or null where the
               variable it names is gone, which is drawn as "missing" in the warning colour
@@ -14,6 +14,7 @@
               and after Escape, which puts back what was there. next is whatever the cursor went to, if anything.
      onOpen, onClose   the cursor came into the field, and left it: the page keeps track of the one that is open
      insert   puts a capsule in at the cursor (a measure dragged in from the list of variables)
+     write    puts plain text in at the cursor (a name dragged in from the list: index.x)
      over     whether a point on the screen is on the field
      text     what is in it now, as it would be stored
 
@@ -181,6 +182,12 @@ export function createFormula({ text = '', look = () => null, reach = () => [], 
     on = 0; suggest(); });
   const self = { el, matrices, focus(){ el.focus(); }, get text(){ return read(el); },
     over(x, y){ const r = el.getBoundingClientRect(); return x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12; },
+    write(text){      /* plain text in at the cursor: a name dragged in from the list (index.x) */
+      const sel = getSelection(); let r;
+      if (sel.rangeCount && el.contains(sel.anchorNode)){ r = sel.getRangeAt(0); r.collapse(false); } else { el.focus(); r = document.createRange(); r.selectNodeContents(el); r.collapse(false); }
+      const inPill = (r.startContainer.nodeType === 3 ? r.startContainer.parentNode : r.startContainer).closest?.('.capsule'); if (inPill) r.setStartAfter(inPill);
+      const node = document.createTextNode(text); r.insertNode(node);
+      const c = document.createRange(); c.setStart(node, node.length); c.collapse(true); sel.removeAllRanges(); sel.addRange(c); shut(); },
     insert(capsule){
       const sel = getSelection(); let r;
       if (sel.rangeCount && el.contains(sel.anchorNode)){ r = sel.getRangeAt(0); r.collapse(false); }      /* at the cursor; with everything selected, at its end */

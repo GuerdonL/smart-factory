@@ -29,7 +29,13 @@ has a definition directory holding its space, in which the block called `in` car
 seated on an arrow's output carries `"seat"`, that arrow's id, or `{ "hollow": [id, id] }` where it sits in the
 hollow of the pair those two shapes make. Where an output is written, and what it comes to, are never in a file: a
 seated shape's `entries` are whatever it held before it was seated, and are not used while it is. A format 2 project
-has no arrows. What else changed is what a stack means. Shapes of one width set one
+has no arrows. For sources and tiles it adds: on a shape, `"source"` (`"zeros"`, `"ones"` or `"identity"`; such a shape's
+`entries` are empty, since its values follow from its kind and its size); on a standing shape, `"standing": true`,
+which was `"tile": true` and is still read under that word; on a frame that is a tile, `"repeat"`
+(`{ x, y, cols, rows, across, down }`: where the pattern is and how large, in units, and how many times it repeats
+each way, a whole number or `{ "expr": "@[id:y]" }`, a formula of widths, heights and settled masses); `"as": "tile"` in an arrow's `input`, whose `id` is then the
+tile's frame; and `"from": { id, index: "x" }` on an index matrix in the definition space of a block that is in a
+tile. The copies a tile draws, and what a count comes to, are never in a file. What else changed is what a stack means. Shapes of one width set one
 directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each
 of its stacks is fused into one joined shape on the way in, so it comes to what it did, and the readout says how many
 were fused. Shapes that met at a corner, or stood directly under a shape in a product, did not touch in format 2 and
@@ -65,7 +71,8 @@ name `menu`, so your first save makes the Menu your own without touching `defaul
 
 Shapes framed together (press F on a selection) are a frame; projects saved before call it a group, and are still
 read. A frame is one file, `Name.frame.json`, holding its shapes and the frames inside it. A named frame is a variable:
-it is in the list at the right edge, and dragged from there all of it is made again. What is named inside a named frame
+it is in the list at the right edge, and dragged from there all of it is made again. A frame with a `repeat` is a
+tile (see the main README): the same file, holding the shapes of its first cell, or none. What is named inside a named frame
 is listed under it, not beside it. A frame is no scope of its own. Everything in a frame whose name begins with a dot
 is a hidden variable, and its name is made lower case with a dot in front.
 
@@ -86,8 +93,10 @@ fill it, and that is what `.variable_colors` equals. They are the only listing o
 A row of `.variable_colors` that is not given in full (the matrix has a hole, or a shape standing in it leaves an
 entry as a symbol) is no colour: shapes that wear it are drawn with no fill. Nothing stands in for it.
 
-A shape is defined only in its definition space, and only by shapes standing in the definition's matrix: once they
-cover every entry, the shape's entries are theirs. Shapes set anywhere else, in that space or beside the shape on its
+A shape is defined only in its definition space, and only by standing shapes, the shapes standing in the
+definition's matrix (snap to matrix): once they cover every entry, the shape's entries are theirs, and until then it
+keeps its own. A standing shape's file carries `"standing": true` (`"tile": true` in projects saved before, which is
+still read). Shapes set anywhere else, in that space or beside the shape on its
 own canvas, are only pieces and define nothing.
 
 Neither the program nor the stylesheet holds a value for any of these. They are written out, entry by entry, in the
@@ -156,3 +165,16 @@ program's functions, is set against `mask`'s output. `linear` is defined in its 
 `W`, a product, and the size it promises, 2 by 3; type another output size in its panel and it turns to the warning
 colour. On the right, the result of `Weights` and `Gate` was named `Gated` in its hollow and dragged out along its
 row, which made the arrow that carries it.
+
+## sources-and-tiles/
+
+Sources and tiles, beside a copy of the default Menu's `.config`. Along the top, `Eye` and `Wide` are identities
+(`Wide` is 4 by 2), `Zero` is zeros and `One` ones: resize any of them and its matrix follows. Below, `Bias` (1, 2,
+3, 4) is in the tile `Every row`, whose `down` is `X`'s height, so it is drawn as one pattern and an ellipsis; the
+arrow out of the tile carries its matrix, `Bias` in every row, to `B`, which is seated on the output and stacked
+under `X`: a sum. Make `X` taller and the count, the arrow and the output follow it (the tile then wants moving
+down, level with `X`'s new bottom edge, for `B` to sit under `X` again). `Place` is one entry holding `index.x + index.y`, in the
+tile `Index`, 2 by 2: it reads 2, 3, 3, 4. `Pair` holds `index.x` and `10 * index.y` in a tile 3 by 2. Under `M`,
+the arrow `relu` (`max(x, 0)`) sits under column 1 in the tile `Every column`, across 4: one arrow, mapped over
+every column, its outputs one 4 by 2 output with `R` seated on it. `Stack` is defined by two standing shapes: open
+it to find `Bias` standing in each row of its matrix.

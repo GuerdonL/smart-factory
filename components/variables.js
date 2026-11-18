@@ -7,6 +7,8 @@
                 { kind: 'length', name, units, label }        drawn as a ruler, with its name and its length (label, where
                                                               given, is written in place of the units: "√2u")
                 { kind: 'arrow',  name, color }               a named arrow, a function: drawn as a small triangle, with its name
+                { kind: 'index',  name, color, cols, rows }   the index of a block in a tile (index.x, index.y): drawn
+                                                              as a shape, the size of its block
                 { kind: 'frame',  name, children }            drawn as an outline, with its name. Its children are items
                                                               of any kind, kept out of sight under it until it is
                                                               clicked, when it opens to show them (and shuts again).

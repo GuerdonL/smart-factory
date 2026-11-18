@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b2frymc",
+  "type": "tensor",
+  "name": "Eye",
+  "named": true,
+  "commented": false,
+  "color": "variable-1",
+  "position": {
+    "x": -34,
+    "y": -22
+  },
+  "size": {
+    "cols": 3,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 37,
+  "source": "identity"
+}

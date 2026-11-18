@@ -22,9 +22,9 @@
                   entry in column 1, row 2 reads k₂₁
      colsName, rowsName   the names of the sides, where they have them. A named side is a variable length, and is
                   written elided however long it is now: first three, dots, last (numbered by the name's initials)
-     tiles        [{ x, y, w, h, color, name, id }]: shapes that stand in for the entries they cover, drawn in their
+     standing     [{ x, y, w, h, color, name, id }]: shapes that stand in for the entries they cover, drawn in their
                   places inside the brackets (x, y from 0, in entries), each with its name on it. One given an id can
-                  be pressed, and carries the id as data-tile for whoever handles the click. Left out where the matrix is elided.
+                  be pressed, and carries the id as data-standing for whoever handles the click. Left out where the matrix is elided.
      values       a Map from "column,row" (say "2,1") to a value, for entries that have come to one: any kind of
                   value but unknown (values.js). Those are written as the value, upright, in place of the symbol:
                   7, 3/4, √2, 1+√2, T or F for a boolean, and infinity as ∞ or -∞. An error is written as ! in the
@@ -71,7 +71,7 @@ const short = name => (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toL
 /* how many squares a side of n takes once written (the elided middle is one) */
 export const squares = (n, name = null) => shown(n, name).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, tiles = [], transposed = false, colsName = null, rowsName = null }){
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, standing = [], transposed = false, colsName = null, rowsName = null }){
   const cs = shown(cols, colsName), rs = shown(rows, rowsName), vector = (cols === 1 && !colsName) || (rows === 1 && !rowsName);
   const num = (e, name) => e.last && name ? short(name) : e.i;      /* an entry's number along a side: the last of a variable side is that side's name */
   const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
@@ -103,11 +103,11 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
       if (values.has(key)){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; fit(entry, v); }
       else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); fit(entry, inherited.get(key)); }      /* not given here: what a definition higher up gives */
       else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? rn : cn) : transposed ? rn + comma + cn : cn + comma + rn; } }
-    if (!elided && tiles.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
+    if (!elided && standing.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
     el.append(entry);
   }
-  if (!elided) for (const t of tiles){ const b = likeness({ cols: t.w, rows: t.h, unit: cell, color: t.color, name: t.name }); b.el.title = t.name;
-    if (t.id){ b.el.dataset.tile = t.id; b.el.style.pointerEvents = 'auto'; b.el.style.cursor = 'pointer'; }      /* it can be pressed: the page hears of it by this id */
+  if (!elided) for (const t of standing){ const b = likeness({ cols: t.w, rows: t.h, unit: cell, color: t.color, name: t.name }); b.el.title = t.name;
+    if (t.id){ b.el.dataset.standing = t.id; b.el.style.pointerEvents = 'auto'; b.el.style.cursor = 'pointer'; }      /* it can be pressed: the page hears of it by this id */
     Object.assign(b.el.style, { left: t.x * cell + 'px', top: t.y * cell + 'px' }); el.append(b.el); }
   return { el, width: cs.length * cell, height: rs.length * cell };
 }

@@ -1,0 +1,32 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "babb15h",
+  "type": "tensor",
+  "name": ".lagoon",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -4,
+    "y": 2
+  },
+  "size": {
+    "cols": 3,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 34,
+      "2,1": 179,
+      "3,1": 184
+    }
+  },
+  "order": 5,
+  "standing": true
+}

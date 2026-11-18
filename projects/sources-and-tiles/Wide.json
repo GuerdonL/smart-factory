@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bhhgbum",
+  "type": "tensor",
+  "name": "Wide",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": -22,
+    "y": -22
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 38,
+  "source": "identity"
+}

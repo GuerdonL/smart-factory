@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bq6pf0r",
+  "type": "tensor",
+  "name": "R",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": -34,
+    "y": 8
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 49,
+  "seat": "beevh8w"
+}

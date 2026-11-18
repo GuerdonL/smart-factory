@@ -22,6 +22,10 @@
    Shapes that share a horizontal edge without the same x and width do not touch, and shapes that do not touch have
    nothing to do with each other here, however close they are.
 
+   A rect may carry a zone: the tile it is in (tiles.js), by any value that tells one tile from another; left out or
+   null for a shape in none. Shapes of different zones never touch, however they lie: a tile touches nothing, and a
+   touch across a tile's boundary is ignored. Shapes of one zone touch as any do.
+
    A piece is the shapes joined to one another by any of the four touches, and a piece uses one rule: 'product', 'sum'
    or 'elementwise' (times and over together are one rule, read left to right and grouped from the left:
    (a ∘ b) ⊘ c). A piece whose touches are not all of one rule is { error: 'mixed rules' }. To use one result inside
@@ -149,7 +153,7 @@ function together(A, B, broadcast){
 export function touches(rects){
   const out = [];
   rects.forEach((a, i) => rects.forEach((b, j) => {
-    if (i === j) return;
+    if (i === j || (a.zone ?? null) !== (b.zone ?? null)) return;      /* nothing touches across a tile's boundary */
     const touch = (kind, x, y, ok, note) => out.push({ kind, a: i, b: j, x, y, ok, note: ok ? '' : note });
     if (a.x + a.w === b.x){
       const top = Math.max(a.y, b.y), bottom = Math.min(a.y + a.h, b.y + b.h);

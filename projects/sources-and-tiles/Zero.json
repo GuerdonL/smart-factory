@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bfadp01",
+  "type": "tensor",
+  "name": "Zero",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": -10,
+    "y": -22
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 39,
+  "source": "zeros"
+}

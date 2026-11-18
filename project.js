@@ -39,10 +39,13 @@
                                  "2,2": { "expr": "1/√(@[b3k2m9x:x])" } } },
                                                  entries given a value, by "column,row": a literal value or a
                                                  formula (see "Entries", below)
-         "definition": "Keys/",                  the directory holding its definition space, if it has one
+         "definition": "Keys/",                  the directory holding its definition space, if it has one with anything in it
          "order": 3,                             its place among the shapes of its space, back to front
-         "tile": true,                           it stands in its owner's matrix: it was dropped onto that matrix, and its place in
-                                                 the definition space is its place among the entries
+         "standing": true,                       a standing shape: it stands in its owner's matrix (it was dropped onto that matrix), and
+                                                 its place in the definition space is its place among the entries. Written
+                                                 "tile": true before phase 5; either is read
+         "source": "zeros",                      it is a source (sources.js): "zeros", "ones" or "identity". Its entries follow
+                                                 from its kind and its size, and none are written: its "entries" are empty
          "attributes": [ { "name": "heads", "value": "2^(3) + 1" } ],
                                                  attributes given to the variable by hand: a name, and a value as it was
                                                  typed (a number, or a formula; ^( ) is a power). It may hold
@@ -58,6 +61,9 @@
                                                  row, counted from 0. Where toEnd.cols is true it runs to the source's
                                                  last column whatever size the source now is, and cols is not looked at;
                                                  toEnd.rows likewise. Its entries are the source's, and are not written here.
+         "from": { "id": "b3k…", "index": "x" },   or, with index: it is the index (tiles.js) of the block with that id, which is
+                                                 in a tile, as a matrix that block's size: index.x, or index.y for "y". It
+                                                 stands in that block's definition space, and its entries are not written here.
          "transposed": true,                     it is the transpose of its variable: its columns and rows here are the
                                                  transpose's, and its entries are written as the variable's own
          "joined": [ { "at": { "x": 0, "y": 0, "w": 0.5, "h": 1 }, "shape": { a shape's config } }, … ],
@@ -69,7 +75,8 @@
                                                  an arrow, a function drawn as a triangle (arrows.js has what each field
                                                  means). input.as is "block", or "result" for the drawn result of the
                                                  piece holding that block (with "hollow": 1 or 2 for a times or over
-                                                 pair's hollow) or, where the id is an arrow's, that arrow's output.
+                                                 pair's hollow) or, where the id is an arrow's, that arrow's output, or
+                                                 "tile" where the id is a tile's frame and it reads the tile's matrix.
                                                  output is null where nothing is promised, formula null where there is
                                                  no entry formula. An arrow's definition space is written as any
                                                  shape's is. Its position and size are where it is drawn, worked out
@@ -86,7 +93,7 @@
                                                  is the definition of them all. Projects saved before gave every
                                                  one a directory, each holding the same thing: opened, one is kept.
    value.as is "computation" when its definition space has shapes that work it out, "resolved" when every entry has
-   been given a value or a formula, and "variable" otherwise.
+   been given a value or a formula (or it is a source, which has them all), and "variable" otherwise.
 
    Entries. An entry is stored as one of two things, never as a formula with its result:
        a literal value    7                               a whole number
@@ -108,8 +115,20 @@
    A frame's config:
        { "format": "smart-factory/frame", "version": 1, "id": "g4k09zq", "name": "Pair", "named": true,
          "shapes": [ { a shape's config }, … ],            the shapes directly in the frame
-         "groups": [ { "name", "named", "shapes", "groups" }, … ] }      the frames inside it, written the same way
+         "groups": [ { "name", "named", "shapes", "groups" }, … ],      the frames inside it, written the same way
+         "repeat": { "x": 2, "y": -3, "cols": 3, "rows": 2, "across": 3, "down": { "expr": "@[b3k2m9x:y]" } } }
+                                                           only on a tile: a frame whose contents repeat (tiles.js).
+                                                           x, y: where the pattern's top-left corner is, in units;
+                                                           cols, rows: the pattern's size; across, down: how many
+                                                           times it is repeated each way, a whole number of at least
+                                                           1 or a formula that comes to one from sizes alone. Its
+                                                           shapes are those of the first cell: the copies, and what
+                                                           the counts come to, are never written. A tile may hold no
+                                                           shapes. A frame inside another may be a tile too.
+                                                           Absent: an ordinary frame.
 
+   A frame with no name is the file "frame n.frame.json", n its place among the frames of its space, from 1. Reading,
+   it is put back at that place, whatever order the files come in, so a project saved again keeps its file names.
    A frame named .config is written as the file .config in its space's directory, in the same form as any frame.
    The page reads it for root variables: see configure in smart-factory.js. There may be one at every level.
 
@@ -144,7 +163,14 @@
    its "arrow", a shape's "seat", and "in" on an arrow's input block; a format 2 project has no arrows. Reading, an
    arrow with a field missing or wrong is given a safe one (side e, start, span and gap 1, no promise, no formula; an
    input with no id is an input that is gone), and a seat that names an arrow or a block the project has not got is
-   dropped, so that nothing is left naming what is not there. It also adds to what an entry can hold:
+   dropped, so that nothing is left naming what is not there. It adds tiles: a frame's "repeat", an arrow's input.as "tile", and from.index. A format 2 project has none of
+   them. Reading, a repeat is given whole numbers, a pattern of at least 1 by 1 and counts of at least 1 (a count
+   that is neither a number nor a formula is 1).
+   It adds sources: a shape's "source". Reading, a source this program has not got (anything but those three
+   words; a format 2 project has none) is dropped, and the shape is an ordinary one with whatever entries its file has.
+   A standing shape's "standing": true was "tile": true in format 2 and in format 3 projects saved before the
+   word tile was given to a region that repeats; "tile": true is read as "standing": true, and never written.
+   It also adds to what an entry can hold:
    booleans, symbolic values and formulas, and capsules in an attribute's value. A format 2 project's entries
    (numbers, "inf" and "-inf", { n, d, k }) and attributes are read unchanged. What else changed is what a file means: shapes of one width set one
    directly on the next were a stack in format 2, its rows theirs (rows appended), and are a sum in format 3. Nothing
@@ -167,16 +193,19 @@
    top; if the old top level had shapes too, they are kept inside one block called "Top level", set beside it.
    space:   { shapes: [shape], groups: [group], operations: [{ id, op: 'difference' | 'intersect', sources: [shape, shape], results: [shape ids],
               was: [{ order, frames: [{ id, name }] }, the same for the second source] | null }] }
-   group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it] }
+   group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it],
+              repeat: { x, y, cols, rows, across, down } only where the frame is a tile }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": a literal value (Infinity for an infinity) or { expr } },
-              inside: space | null,
+              inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | null,
               variable: a number shared by shapes that are one variable, or null,
-              from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | null,
+              from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, index: 'x' | 'y' } | null,
               arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
               seat: an arrow's id | { hollow: [id, id] } | null, in: true for an arrow's input block,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
 
 import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.js';
+import { kept as sourceOf } from './sources.js';
+import { kept as repeatOf } from './tiles.js';
 
 export const FORMAT = 3;
 const isCommented = name => /^\s*\/\//.test(name);
@@ -195,11 +224,15 @@ const rangeOf = r => { const n = (v, least) => Math.max(least, Math.round(+v || 
   return { col: n(r.col, 0), row: n(r.row, 0), cols: n(r.cols, 1), rows: n(r.rows, 1), toEnd: { cols: !!r.toEnd?.cols, rows: !!r.toEnd?.rows } }; };
 
 /* an arrow as it is kept: every field there and of its kind (arrows.js) */
-const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => Math.max(1, Math.round(+v || 1)), as = a.input?.as === 'result' ? 'result' : 'block';
+const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => Math.max(1, Math.round(+v || 1)), as = a.input?.as === 'result' ? 'result' : a.input?.as === 'tile' ? 'tile' : 'block';
   return { input: { id: typeof a.input?.id === 'string' ? a.input.id : '', as, ...(as === 'result' && (a.input.hollow === 1 || a.input.hollow === 2) ? { hollow: a.input.hollow } : {}) },
     side: ['n', 'e', 's', 'w'].includes(a.side) ? a.side : 'e', start: n(a.start), span: n(a.span), gap: n(a.gap), gapName: typeof a.gapName === 'string' && a.gapName.trim() ? a.gapName.trim() : null,
     output: a.output && typeof a.output === 'object' && +a.output.cols >= 1 && +a.output.rows >= 1 ? { cols: n(a.output.cols), rows: n(a.output.rows) } : null,
     formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null }; };
+/* a shape's from, as it is written and as it is read: a range, the index, or a measure's side */
+const fromOut = f => f.range ? { id: f.id, range: rangeOf(f.range) } : f.index ? { id: f.id, index: f.index === 'y' ? 'y' : 'x' } : { id: f.id, side: f.side };
+const fromBack = f => !f || typeof f.id !== 'string' ? null : f.range && typeof f.range === 'object' ? { id: f.id, range: rangeOf(f.range) } : f.index === 'x' || f.index === 'y' ? { id: f.id, index: f.index }
+  : { id: f.id, side: f.side === 'y' || f.side === 'm' ? f.side : 'x' };
 const seatOf = s => typeof s === 'string' && s ? s : s && typeof s === 'object' && Array.isArray(s.hollow) && s.hollow.length === 2 && s.hollow.every(id => typeof id === 'string' && id) ? { hollow: [...s.hollow] } : null;
 
 /* a name made safe to be a file's name, and different from every other in its directory.
@@ -214,7 +247,11 @@ function stem(name, taken, ext = '.json'){
   taken.add(t.toLowerCase()); taken.add((t + ext).toLowerCase()); return t;
 }
 
+/* a space with nothing in it writes no file, so there is no directory for a shape's "definition" to name: the word
+   is left out, and the project reads back as it was written */
+const holdsAny = s => s.shapes.length + s.groups.length + (s.operations?.length || 0) > 0;
 function valueOf(shape, inside){                  /* inside: its definition space, which another use of its variable may be the one to carry */
+  if (sourceOf(shape.source)) return { as: 'resolved', entries: {} };      /* a source has every entry, and stores none */
   const entries = kept(shape.entries, out);
   const computed = !!inside && inside.shapes.some(s => !isCommented(s.name));
   let full = true; for (let c = 1; c <= shape.cols && full; c++) for (let r = 1; r <= shape.rows; r++) if (!(c + ',' + r in entries)){ full = false; break; }
@@ -238,13 +275,13 @@ export function write(project){
       if (inside){ if (v !== null) written.add(v); space(inside, dir + name + '/'); }
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.tile ? { tile: true } : {}), ...(shape.transposed ? { transposed: true } : {}),
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
-        ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: shape.from.range ? { id: shape.from.id, range: rangeOf(shape.from.range) } : { id: shape.from.id, side: shape.from.side } } : {}),
+        ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: fromOut(shape.from) } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
-    const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner) });
+    const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner), ...(repeatOf(g.repeat) ? { repeat: repeatOf(g.repeat) } : {}) });      /* a tile */
     let hasConfig = false;
     s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken, '.frame.json');
       if (own) hasConfig = true;
@@ -270,14 +307,14 @@ export function read(files){
   if (meta.version > FORMAT) throw new Error('this project was saved by a newer version (format ' + meta.version + ')');
 
   const space = dir => {
-    const found = [], groups = [], cuts = [];            /* found: [config, the group it is directly in, or null]; cuts: the operations as written */
-    const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take) };
+    const found = [], groups = [], places = [], cuts = [];      /* places: for a frame with no name, the place among the frames that its file's name says it had */            /* found: [config, the group it is directly in, or null]; cuts: the operations as written */
+    const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take), ...(repeatOf(c.repeat) ? { repeat: repeatOf(c.repeat) } : {}) };
       for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
       if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !(path.endsWith('.json') || path.slice(dir.length) === '.config') || path === 'project.json') continue;
       let c; try { c = JSON.parse(text); } catch (e) { throw new Error(path + ' is not valid JSON'); }
       if (c.format === 'smart-factory/shape') found.push([c, null]);
-      else if (c.format === 'smart-factory/frame' || c.format === 'smart-factory/group') groups.push(take(c));      /* 'group' is what a frame was called in projects saved before */
+      else if (c.format === 'smart-factory/frame' || c.format === 'smart-factory/group'){ const n = !c.named && path.slice(dir.length).match(/^frame (\d+)\.frame\.json$/); groups.push(take(c)); places.push(n ? +n[1] - 1 : null); }      /* 'group' is what a frame was called in projects saved before */
       else if (c.format === 'smart-factory/operations' && Array.isArray(c.operations)) cuts.push(...c.operations);
     }
     found.sort((a, b) => (a[0].order ?? 0) - (b[0].order ?? 0));
@@ -285,9 +322,9 @@ export function read(files){
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
       return { id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
-        entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, tile: !!c.tile, transposed: !!c.transposed,
+        entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
-        reference: !!c.reference, from: c.from && typeof c.from.id === 'string' ? (c.from.range && typeof c.from.range === 'object' ? { id: c.from.id, range: rangeOf(c.from.range) } : { id: c.from.id, side: c.from.side === 'y' || c.from.side === 'm' ? c.from.side : 'x' }) : null,
+        reference: !!c.reference, from: fromBack(c.from),
         arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });
@@ -295,7 +332,12 @@ export function read(files){
     const operations = cuts.filter(o => o && (o.op === 'difference' || o.op === 'intersect') && Array.isArray(o.sources) && o.sources.length === 2 && Array.isArray(o.results) && o.results.some(id => typeof id === 'string'))
       .map(o => ({ id: typeof o.id === 'string' ? o.id : null, op: o.op, sources: o.sources.map(c => make(c || {})), results: o.results.filter(id => typeof id === 'string'),
         was: Array.isArray(o.was) && o.was.length === 2 ? o.was.map(w => ({ order: Number.isInteger(w?.order) && w.order >= 0 ? w.order : null, frames: (Array.isArray(w?.frames) ? w.frames : []).filter(f => typeof f?.id === 'string').map(f => ({ id: f.id, name: typeof f.name === 'string' ? f.name : null })) })) : null }));
-    return { shapes, groups, operations };
+    /* a frame with no name is written as "frame n", n its place among the space's frames, and files come back in the
+       order of their names ("frame 10" before "frame 2"): each is put back at the place its name says, the named ones
+       among them in the order they came, so that saved again every file has the name it had */
+    const set = new Array(groups.length).fill(null), rest = [];
+    groups.forEach((g, i) => { const at = places[i]; if (at !== null && at < set.length && !set[at]) set[at] = g; else rest.push(g); });
+    return { shapes, groups: set.map(g => g || rest.shift()), operations };
   };
   const top = space('');
   let project = { top, saved: meta.saved || null, ids: meta.ids || null };
@@ -340,7 +382,7 @@ function fuseStacks(s, owner = null, seen = new Set()){
   const standing = (() => { if (!owner) return false;
     const act = live.filter(i => !chain(i).some(g => (g.name || '').trim() === '.config')).map(i => s.shapes[i]), x0 = -1 - owner.cols, y0 = Math.round(-owner.rows / 2), placed = [];
     for (const t of act){ const x = t.x - x0, y = t.y - y0;
-      if (!t.tile || x % 1 || y % 1 || x < 0 || y < 0 || x + t.cols > owner.cols || y + t.rows > owner.rows) return false;
+      if (!t.standing || x % 1 || y % 1 || x < 0 || y < 0 || x + t.cols > owner.cols || y + t.rows > owner.rows) return false;
       if (placed.some(o => x < o.x + o.w && o.x < x + t.cols && y < o.y + o.h && o.y < y + t.rows)) return false;
       placed.push({ x, y, w: t.cols, h: t.rows }); }
     return act.length > 0; })();
@@ -353,7 +395,7 @@ function fuseStacks(s, owner = null, seen = new Set()){
     let n = 1; while (used.has('Shape ' + n)) n++;      /* a name no shape of the space has, as a newly joined shape is given */
     const at = Math.min(...run), holder = chain(run[0]).find(g => run.every(i => chain(i).includes(g)));      /* the innermost frame holding them all */
     made.set(at, { id: null, type: 'tensor', name: 'Shape ' + n, color: null, x: first.x, y: first.y, cols: first.cols, rows, colsName: first.colsName || null, rowsName: null, entries: {}, inside: null, variable: null,      /* the stack's columns had its first shape's name */
-      tile: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false,
+      standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false,
       joined: run.map(i => ({ fx: 0, fy: (s.shapes[i].y - first.y) / rows, fw: 1, fh: s.shapes[i].rows / rows, shape: s.shapes[i] })) });
     for (const i of run){ gone.add(i); for (const g of chain(i)) g.members = g.members.filter(m => m !== i); }
     if (holder) holder.members.push(at);

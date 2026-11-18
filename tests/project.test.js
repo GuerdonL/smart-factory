@@ -9,7 +9,7 @@ import { pieces } from '../algebra.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
-  entries: {}, inside: null, variable: null, tile: false, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
+  entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
 const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
@@ -21,7 +21,7 @@ const config = (name, more = {}) => ({ format: 'smart-factory/shape', version: F
 test('a project with everything in it comes back as it went', () => {
   const p = project(space([
     shape('Keys', { id: 'b0x7m2c', color: 'variable-3', x: -12, y: 4, cols: 4, rows: 6, colsName: 'key', rowsName: 'context', variable: 2,
-      inside: space([shape('Embedding', { id: 'b111111', tile: true }), shape('Key Weights', { x: 5, entries: { '1,1': 3 } })]) }),
+      inside: space([shape('Embedding', { id: 'b111111', standing: true }), shape('Key Weights', { x: 5, entries: { '1,1': 3 } })]) }),
     shape('Shape 1', { entries: { '1,1': 0, '2,1': -Infinity, '1,2': Infinity, '2,3': -7 } }),
     shape('Keys', { id: 'b222222', color: 'variable-3', x: 20, cols: 6, rows: 4, variable: 2, reference: true, transposed: true }),
     shape('Width', { cols: 1, rows: 1, from: { id: 'b0x7m2c', side: 'x' } }),
@@ -330,11 +330,106 @@ test('format 2: shapes standing in their owner\'s matrix were its entries, not a
   assert.equal(loose.converted, 1);
 });
 
+test('a standing shape is written "standing": true, and a file that says "tile": true is read as one', () => {
+  /* the old word, in a format 2 file and in a format 3 file saved before the rename: both are standing shapes */
+  for (const version of [2, 3]){
+    const old = read([head(version), file('Colours.json', at('Colours', 0, 0, 3, 1, { definition: 'Colours/' })), file('Colours/red.json', at('red', -4, 0, 3, 1, { tile: true, order: 0 }))]);
+    const red = old.top.shapes[0].inside.shapes[0];
+    assert.equal(red.standing, true); assert.equal('tile' in red, false);
+    const text = write(old).find(f => f.path === 'Colours/red.json').text;
+    assert.equal(JSON.parse(text).standing, true); assert.equal('tile' in JSON.parse(text), false); }
+  /* the new word is read; a shape that says neither stands nowhere, and its file has neither word */
+  const now = read([head(3), file('Colours.json', at('Colours', 0, 0, 3, 1, { definition: 'Colours/' })), file('Colours/red.json', at('red', -4, 0, 3, 1, { standing: true, order: 0 })), file('Loose.json', at('Loose', 9, 9, 1, 1, { order: 1 }))]);
+  assert.equal(now.top.shapes[0].inside.shapes[0].standing, true);
+  const loose = now.top.shapes.find(d => d.name === 'Loose'); assert.equal(loose.standing, false);
+  const written = JSON.parse(write(now).find(f => f.path === 'Loose.json').text); assert.equal('standing' in written, false); assert.equal('tile' in written, false);
+});
+
+test('a source is kept by its kind, with no entries; a kind this program has not got is no source', () => {
+  const p = project(space([shape('Eye', { cols: 3, rows: 3, source: 'identity', entries: { '1,1': 9 } }), shape('Bias', { cols: 4, rows: 1, source: 'zeros' }), shape('One', { source: 'ones' }), shape('Plain', { entries: { '1,1': 9 } })]));
+  const files = write(p), eye = json(files, 'Eye.json');
+  assert.equal(eye.source, 'identity'); assert.deepEqual(eye.value, { as: 'resolved', entries: {} });      /* whatever entries it was handed, none are written */
+  assert.equal(json(files, 'Bias.json').source, 'zeros'); assert.equal(json(files, 'One.json').source, 'ones');
+  assert.equal('source' in json(files, 'Plain.json'), false);
+  const back = read(files).top.shapes;
+  assert.deepEqual(back.map(d => [d.name, d.source, d.entries]), [['Eye', 'identity', {}], ['Bias', 'zeros', {}], ['One', 'ones', {}], ['Plain', null, { '1,1': 9 }]]);
+  /* a source of a later phase, or anything else: dropped, and the shape keeps the entries its file has */
+  for (const source of [{ noise: { seed: 1, dist: 'uniform' } }, { file: 'data/a.csv' }, 'Zeros', 7, true]){
+    const got = read([head(3), file('S.json', at('S', 0, 0, 2, 1, { source, value: { entries: { '1,1': 5 } } }))]).top.shapes[0];
+    assert.equal(got.source, null); assert.deepEqual(got.entries, { '1,1': 5 }); }
+  assert.equal(read([head(2), file('S.json', at('S', 0, 0, 2, 1))]).top.shapes[0].source, null);      /* format 2 has none */
+});
+
+test('a definition space with nothing in it has no directory, so its shape does not name one: saved and reopened, the files are the same', () => {
+  const p = project(space([shape('Empty', { inside: space() }), shape('Full', { inside: space([shape('In')]) })]));
+  const files = write(p);
+  assert.equal('definition' in json(files, 'Empty.json'), false); assert.equal(json(files, 'Full.json').definition, 'Full/');
+  assert.deepEqual(write(read(files)).map(f => f.text), files.map(f => f.text));
+});
+
+test('a tile is a frame with its repeat: kept with its counts, formula and all, shapes or none, at any depth', () => {
+  const repeat = { x: 2, y: -3, cols: 4, rows: 1, across: 1, down: { expr: '@[bkeys01:y]' } };
+  const p = project(space([shape('Bias', { id: 'bbias01', x: 2, y: -3, cols: 4, rows: 1 }), shape('Keys', { id: 'bkeys01' }), shape('In', { id: 'bin0001' })],
+    [{ id: 'gtile01', name: 'Rows', members: [0], groups: [], repeat }, { id: 'gempty1', name: null, members: [], groups: [], repeat: { x: 9, y: 9, cols: 2, rows: 2, across: 3, down: 2 } },
+     { id: 'gouter1', name: 'Outer', members: [], groups: [{ id: 'ginner1', name: null, members: [2], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 3, across: 2, down: 1 } }] }]));
+  const files = write(p), rows = json(files, 'Rows.frame.json');
+  assert.deepEqual(rows.repeat, repeat); assert.equal(rows.shapes.length, 1);
+  const empty = json(files, 'frame 2.frame.json'); assert.deepEqual(empty.shapes, []); assert.deepEqual(empty.repeat, { x: 9, y: 9, cols: 2, rows: 2, across: 3, down: 2 });
+  const outer = json(files, 'Outer.frame.json'); assert.equal('repeat' in outer, false); assert.deepEqual(outer.groups[0].repeat, { x: 0, y: 0, cols: 2, rows: 3, across: 2, down: 1 });
+  const back = read(files);
+  assert.deepEqual(back.top.groups.map(g => [g.id, g.name, g.members.length, g.repeat ?? null]).sort(), [['gempty1', null, 0, { x: 9, y: 9, cols: 2, rows: 2, across: 3, down: 2 }], ['gouter1', 'Outer', 0, null], ['gtile01', 'Rows', 1, repeat]]);
+  assert.deepEqual(back.top.groups.find(g => g.id === 'gouter1').groups[0].repeat, { x: 0, y: 0, cols: 2, rows: 3, across: 2, down: 1 });
+  assert.deepEqual(write(back).map(f => f.text), files.map(f => f.text));      /* saved and reopened: the same files */
+});
+
+test('an ordinary frame has no repeat, and a repeat with things missing or wrong is read with safe values', () => {
+  const frame = more => file('F.frame.json', { format: 'smart-factory/frame', version: 3, id: 'gframe1', name: 'F', named: true, shapes: [at('A', 0, 0, 1, 1)], ...more });
+  const g = more => read([head(3), frame(more)]).top.groups[0];
+  assert.equal('repeat' in g({}), false); assert.equal('repeat' in g({ repeat: null }), false); assert.equal('repeat' in g({ repeat: 'twice' }), false);
+  assert.deepEqual(g({ repeat: {} }).repeat, { x: 0, y: 0, cols: 1, rows: 1, across: 1, down: 1 });
+  assert.deepEqual(g({ repeat: { x: 1.4, y: -2, cols: 0, rows: 2, across: -3, down: { expr: '' } } }).repeat, { x: 1, y: -2, cols: 1, rows: 2, across: 1, down: 1 });
+  assert.deepEqual(g({ repeat: { cols: 3, rows: 2, across: { expr: '@[b1:x]', value: 4 }, down: 2 } }).repeat.across, { expr: '@[b1:x]' });      /* a formula's text, and nothing it came to */
+  assert.equal(read([head(2), file('F.frame.json', { format: 'smart-factory/group', version: 2, name: 'F', named: true, shapes: [at('A', 0, 0, 1, 1)] })]).top.groups[0].repeat, undefined);      /* format 2 has none */
+});
+
+test('an arrow that reads a tile, and the index as a matrix, come back as they went', () => {
+  const p = project(space([shape('out', { id: 'barrow1', type: 'arrow', arrow: { input: { id: 'gtile01', as: 'tile' }, side: 'e', start: 1, span: 3, gap: 2, gapName: null, output: null, formula: null } }),
+    shape('index.x', { id: 'bindex1', reference: true, from: { id: 'bbias01', index: 'x' } }), shape('index.y', { id: 'bindex2', reference: true, from: { id: 'bbias01', index: 'y' } }), shape('W', { from: { id: 'bbias01', side: 'y' } })]));
+  const files = write(p);
+  assert.deepEqual(json(files, 'out.json').arrow.input, { id: 'gtile01', as: 'tile' });
+  assert.deepEqual(json(files, 'index.x.json').from, { id: 'bbias01', index: 'x' }); assert.deepEqual(json(files, 'index.y.json').from, { id: 'bbias01', index: 'y' });
+  const back = read(files).top.shapes;
+  assert.deepEqual(back.map(d => d.from), [null, { id: 'bbias01', index: 'x' }, { id: 'bbias01', index: 'y' }, { id: 'bbias01', side: 'y' }]);
+  assert.deepEqual(back[0].arrow.input, { id: 'gtile01', as: 'tile' });
+  /* an index that is neither is no index: the from is read as a measure, as any from with no range is */
+  assert.deepEqual(read([head(3), file('S.json', at('S', 0, 0, 1, 1, { from: { id: 'b1', index: 'z' } }))]).top.shapes[0].from, { id: 'b1', side: 'x' });
+  /* a tile's input carries no hollow */
+  assert.deepEqual(read([head(3), file('A.json', at('A', 0, 0, 1, 1, { type: 'arrow', arrow: { input: { id: 'g1', as: 'tile', hollow: 2 } } }))]).top.shapes[0].arrow.input, { id: 'g1', as: 'tile' });
+});
+
+test('frames with no name keep their file names when a project is saved, reopened and saved, however many there are', () => {
+  /* twelve unnamed frames (tiles, so that each may be empty) with a named one among them; files come back sorted by name, as a server lists them */
+  const groups = Array.from({ length: 13 }, (_, i) => i === 5 ? { id: 'gnamed', name: 'Zeta', members: [0], groups: [] } : { id: 'g' + i, name: null, members: [], groups: [], repeat: { x: i, y: 0, cols: 1, rows: 1, across: i + 1, down: 1 } });
+  const files = write(project(space([shape('A')], groups))), sorted = fs => [...fs].sort((a, b) => a.path < b.path ? -1 : 1);
+  assert.deepEqual(paths(files).filter(p => p.startsWith('frame')), [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13].map(n => `frame ${n}.frame.json`).sort());
+  assert.ok(sorted(files).findIndex(f => f.path === 'frame 10.frame.json') < sorted(files).findIndex(f => f.path === 'frame 2.frame.json'));      /* the order that used to renumber them */
+  const once = read(sorted(files)); assert.deepEqual(once.top.groups.map(g => g.id), groups.map(g => g.id));
+  const again = write(once); assert.deepEqual(sorted(again), sorted(files));
+  assert.deepEqual(sorted(write(read(sorted(again)))), sorted(files));
+  /* fewer than ten, and none named: the names they have always had */
+  const few = write(project(space([shape('A'), shape('B')], [{ id: 'ga', name: null, members: [0], groups: [] }, { id: 'gb', name: null, members: [1], groups: [] }])));
+  assert.deepEqual(paths(few).filter(p => p.startsWith('frame')), ['frame 1.frame.json', 'frame 2.frame.json']);
+  assert.deepEqual(sorted(write(read(sorted(few)))), sorted(few));
+  /* a file whose name gives a place that is taken, or past the end, falls into what is left */
+  const odd = read([head(3), file('frame 9.frame.json', { format: 'smart-factory/frame', version: 3, id: 'g9', named: false, shapes: [at('A', 0, 0, 1, 1)] }), file('Named.frame.json', { format: 'smart-factory/frame', version: 3, id: 'gn', name: 'Named', named: true, shapes: [at('B', 0, 0, 1, 1)] })]);
+  assert.deepEqual(odd.top.groups.map(g => g.id).sort(), ['g9', 'gn']);
+});
+
 /* the projects that come with the repository */
 const here = fileURLToPath(new URL('../projects/', import.meta.url));
 const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const count = s => s.shapes.reduce((n, sh) => n + 1 + (sh.inside ? count(sh.inside) : 0), 0);
-for (const name of ['default-menu', 'example', 'touch-algebra', 'boolean-tool', 'entries-and-values', 'arrows']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
+for (const name of ['default-menu', 'example', 'touch-algebra', 'boolean-tool', 'entries-and-values', 'arrows', 'sources-and-tiles']) test(`projects/${name} reads, holds no old stack, and survives being written and read again`, () => {
   const p = read(tree(join(here, name)));
   assert.equal(p.converted, 0); assert.equal(p.changed, 0);
   assert.ok(count(p.top) > 0, 'it has shapes');
@@ -527,4 +622,36 @@ test('projects/arrows holds each kind of arrow, every input and seat naming some
   const carried = arrows.find(a => a.arrow.input.hollow); assert.deepEqual(carried.arrow.input, { id: by('Weights')[0].id, as: 'result', hollow: 1 }); assert.equal(by('Gated')[0].seat, carried.id);
   /* nothing that was worked out is in a file: H's entries are its arrow's, and are not written */
   assert.deepEqual(by('H')[0].entries, {});
+});
+
+/* a project with the .config that comes with it, which is kept beside its directory (projects/README.md) */
+const shipped = name => [...tree(join(here, name)), ...readdirSync(here).filter(n => n === name + '.config').map(n => ({ path: '.config', text: readFileSync(join(here, n), 'utf8') }))];
+test('every project that comes with the repository says "standing" for a standing shape, and none says "tile"', () => {
+  let standing = 0;
+  for (const name of readdirSync(here).filter(n => statSync(join(here, n)).isDirectory())) for (const f of shipped(name)){
+    assert.equal(/"tile"\s*:/.test(f.text), false, name + '/' + f.path + ' still says tile'); if (/"standing": true/.test(f.text)) standing++; }
+  assert.ok(standing >= 12);
+  /* the default Menu's six colour rows, light and dark, stand in .variable_colors' matrix */
+  const menu = read(shipped('default-menu')), every = [], walk = sp => { for (const d of sp.shapes){ every.push(d); if (d.inside) walk(d.inside); } }; walk(menu.top);
+  assert.equal(every.filter(d => d.standing).length, 12);
+});
+
+test('projects/sources-and-tiles holds sources, standing shapes, a tile read by an arrow, the index, and a mapped arrow', () => {
+  const p = read(tree(join(here, 'sources-and-tiles'))), top = p.top.shapes, by = name => top.find(d => d.name === name), tile = name => p.top.groups.find(g => g.name === name);
+  assert.deepEqual(['Eye', 'Wide', 'Zero', 'One'].map(n => [by(n).source, by(n).entries]), [['identity', {}], ['identity', {}], ['zeros', {}], ['ones', {}]]);
+  /* Bias in a tile whose down follows X's height; the arrow that reads the tile; B seated on it */
+  const rows = tile('Every row'); assert.deepEqual(rows.repeat.down, { expr: `@[${by('X').id}:y]` }); assert.deepEqual(rows.members.map(i => top[i].name), ['Bias']);
+  const out = top.find(d => d.arrow?.input.as === 'tile'); assert.equal(out.arrow.input.id, rows.id); assert.equal(by('B').seat, out.id);
+  assert.deepEqual([rows.repeat.cols, rows.repeat.rows, by('Bias').cols, by('Bias').rows, by('Bias').x - rows.repeat.x, by('Bias').y - rows.repeat.y], [4, 1, 4, 1, 0, 0]);      /* the pattern is covered exactly */
+  /* the index, in entries */
+  assert.deepEqual(by('Place').entries, { '1,1': { expr: 'index.x + index.y' } }); assert.deepEqual([tile('Index').repeat.across, tile('Index').repeat.down], [2, 2]);
+  /* map: relu is in the tile, its input M is not, and the pattern is as wide as its span */
+  const relu = by('relu'), map = tile('Every column');
+  assert.equal(relu.arrow.formula, 'max(x, 0)'); assert.equal(relu.arrow.input.id, by('M').id); assert.deepEqual(map.members.map(i => top[i].name), ['relu']);
+  assert.deepEqual([map.repeat.cols, relu.arrow.span, map.repeat.across, map.repeat.down, relu.arrow.side], [1, 1, 4, 1, 's']); assert.equal(by('R').seat, relu.id);
+  /* standing shapes */
+  assert.deepEqual(by('Stack').inside.shapes.map(d => [d.name, d.standing]), [['Bias', true], ['Bias', true]]);
+  /* nothing names what is not there */
+  const ids = new Set([...top.map(d => d.id), ...p.top.groups.map(g => g.id)]);
+  for (const d of top.filter(d => d.arrow)) assert.ok(ids.has(d.arrow.input.id), d.name);
 });

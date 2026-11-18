@@ -18,7 +18,7 @@
      letter       the block's initials, for the right-hand matrix's entries
      color        the theme colour to write the right-hand matrix and the name in; left out, the ordinary text colour
      values       the entries that have come to a value (see matrix.js)
-     tiles        the shapes that stand in for some of the right-hand matrix's entries (see matrix.js)
+     standing     the shapes that stand in for some of the right-hand matrix's entries (see matrix.js)
      editable     whether the right-hand matrix's entries can be pressed, to type a value or a formula over them
      colsName, rowsName   the names of the block's sides, where it has them
      unit         world units to one "u"
@@ -42,11 +42,11 @@ style('definition', `
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
 
-export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, inherited, editable = false, colsName = null, rowsName = null, tiles = [] }){
+export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, inherited, editable = false, colsName = null, rowsName = null, standing = [] }){
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign">=</div></div>`;
   el.classList.toggle('editable', editable);
-  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, colsName, rowsName, cell: unit, letter, color, values, inherited, tiles });
+  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, colsName, rowsName, cell: unit, letter, color, values, inherited, standing });
   matrix.el.classList.add('promised');
   /* the sign is at the origin, with one unit of air each side; both sides are level with it */
   const top = on(-rows * unit / 2), level = top + rows * unit / 2;

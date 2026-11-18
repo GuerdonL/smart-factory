@@ -1,0 +1,41 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bnxhkiv",
+  "type": "arrow",
+  "name": "Shape 1",
+  "named": false,
+  "commented": false,
+  "color": null,
+  "position": {
+    "x": -30,
+    "y": -11
+  },
+  "size": {
+    "cols": 8,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Shape 1/",
+  "order": 43,
+  "arrow": {
+    "input": {
+      "id": "gp77dz5",
+      "as": "tile"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 3,
+    "gap": 8,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}
