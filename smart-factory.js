@@ -1811,9 +1811,14 @@ function readBy(a, s){
   return inp.as === 'result' ? touching(s, blk).map(id => s.blocks.find(k => k.id === id)).filter(Boolean) : [blk];
 }
 /* an arrow's output, entry by entry: what the graph's node for it comes to */
+const FORMULA_ERROR = /^(not the size of the output|missing variable|missing attribute|unknown name: |not a scalar|not an arrow|an arrow has no such measure|depends on itself|cannot read )/;
 const outputValues = (a, s = spaceWith(a)) => steadily(() => outputValuesNow(a, s));
 function outputValuesNow(a, s){
-  const e = findIn(graphNow()).arrows.get(a.id); if (!e || !e.node) return null;
+  const e = findIn(graphNow()).arrows.get(a.id);
+  /* a formula that stands for an error (it names a matrix of another size, or what is not there) has no node: every entry of the output is that error, and is written as one */
+  if (e && !e.node && e.error && FORMULA_ERROR.test(e.error.note) && fnOf(a).formula){ const t = outputOf(a).type, out = new Map(); if (!t) return null;
+    for (let r = 1; r <= t.rows; r++) for (let c = 1; c <= t.cols; c++) out.set(c + ',' + r, { err: e.error.note }); return out; }
+  if (!e || !e.node) return null;
   return answerOf(e.node, bindingOf(readBy(a, s), s, false, a));
 }
 /* the rects an arrow's edge has to be free of: every block of the space that touches, but for its own input */
