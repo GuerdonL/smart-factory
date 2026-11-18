@@ -1,0 +1,30 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b5kydon",
+  "type": "data-in",
+  "name": "Weights",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": -26,
+    "y": 8
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 41,
+  "source": {
+    "file": "data/weights.csv"
+  }
+}

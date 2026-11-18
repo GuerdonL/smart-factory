@@ -9,7 +9,10 @@
                                                      not itself a whole number
        boolean        true, false
        symbolic       { sym: "1+sqrt(2)" }           text the solver can read back: exact, never an approximation
-       decimal        { f: 0.4375 }                  made only by the backend and by noise (phase 7), never here
+       decimal        { f: 0.4375 }                  made only by the backend (backend/), noise included, never here:
+                                                     a 32-bit float, written with 9 significant digits. Never saved.
+                                                     It is for showing only: the page hands no decimal to combine
+                                                     (see "the backend" in smart-factory.js), though combine takes one.
        error          { err: "divide by zero" }      worked out, never typed and never saved
        unknown        null                           an entry not given a value: it stays a symbol, and is not zero
 
@@ -53,7 +56,8 @@
    truth(v)          -> whether a value counts as true: false for false and 0, true for everything else that is known;
                         for a symbolic value that cannot be told from 0, the error saying so
    typedNumber(text) -> digits as typed, with at most one point, as a value: "1.25" is 5/4. Never a decimal.
-   written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)"; "!" for an
+   digits(f)         -> a decimal's number as text, with exactly 9 significant digits: "2.71828175", "1.00000000"
+   written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)", "0.437500000"; "!" for an
                         error (why is v.err), and "" for unknown. The one function that turns a value into text.
    kind(v)           -> 'whole' | 'infinity' | 'exact' | 'boolean' | 'symbolic' | 'decimal' | 'error' | 'unknown'
    isWhole(v), isSurd(v), isError(v), isFormula(v)
@@ -197,6 +201,7 @@ function solve(text, single = true){
   return said.get(key);
 }
 function solveNow(N, typed, single){
+  exactly(N);
   let answer; try { answer = N(typed); } catch (e){ const m = String(e.message || e);
     return err(/zero/i.test(m) ? DIV0 : 'that cannot be worked out'); }
   let text = answer.toString(); if (/(^|[^a-z])i([^a-z]|$)/.test(text)) return err(EVEN);
@@ -233,10 +238,15 @@ function solveNow(N, typed, single){
 }
 /* whether a text's brackets all close within it, so that abs(a)+abs(b) is not taken for one abs */
 const closes = t => { let d = 0; for (const c of t){ if (c === '(') d++; else if (c === ')' && --d < 0) return false; } return d === 0; };
+/* The solver works in numbers only while it is asked for one (evaluate), and is to be exact again after. It does not
+   put itself back where the asking throws (0 to a power below 0, say): from then on it would answer everything in
+   numbers, and an irrational value would come back as a fraction that looks exact (-173472523/87017948 for
+   -(1/2)^erf(-2)). So it is put back here, every time, whatever happened. */
+const exactly = N => { try { if (N.get('PARSE2NUMBER')) N.set('PARSE2NUMBER', false); } catch (e){ /* a solver with no such setting has nothing to put back */ } };
 /* what the solver's text comes to as a number, at its own precision: used only to tell a sign, never shown */
 const numbers = new Map();
 function numeric(N, text){
-  if (!numbers.has(text)){ if (numbers.size > 4000) numbers.clear(); let n; try { n = Number(N(text).evaluate().text('decimals')); } catch (e){ n = NaN; } numbers.set(text, n); }
+  if (!numbers.has(text)){ if (numbers.size > 4000) numbers.clear(); let n; try { n = Number(N(text).evaluate().text('decimals')); } catch (e){ n = NaN; } finally { exactly(N); } numbers.set(text, n); }
   return numbers.get(text);
 }
 
@@ -361,6 +371,12 @@ function pretty(t){
   }
   return out.replace(/(?<![\w.])log\(/g, 'ln(').replace(/sqrt\(/g, '√(').replace(/√\((\d+)\)/g, '√$1').replace(/(\d)\*√/g, '$1√').replace(/\*/g, '·');
 }
+/* a decimal written out: always with exactly 9 significant digits, which is every digit a 32-bit float has, so that it
+   is never written like an exact number: 1 is "1.00000000", a million "1000000.00", 0.1 as such a float
+   "0.100000001". A number of ten digits or more before its point, or six noughts or more after it, is written with
+   its size apart: "2.90488498e13", "1.00000000e-7". One of exactly nine digits before its point ends in the point,
+   "123456792.", so that even that is not written as a whole number is. */
+export const digits = f => f === Infinity ? '∞' : f === -Infinity ? '-∞' : Number.isNaN(f) ? '!' : f.toPrecision(9).replace('e+', 'e').replace(/^-?\d+$/, '$&.');
 export function written(v){
   if (v === null || v === undefined) return '';
   if (typeof v === 'boolean') return v ? 'T' : 'F';
@@ -369,7 +385,7 @@ export function written(v){
   if (isSym(v)){ const t = largeOf(v.sym); if (!t || !t[2]) return pretty(v.sym);      /* a root of a number too large for plain numbers: written as a root, with nothing brought out from under it */
     const mark = t[2] === 1 ? '√' : t[2] === 2 ? '∜' : null, under = t[1] === 1n ? String(big(t[0])) : `(${big(t[0])}/${t[1]})`;
     return (t[0] < 0n ? '-' : '') + (mark ? mark + under : `${under}^(1/${2 ** t[2]})`); }
-  if (isDec(v)) return String(v.f);
+  if (isDec(v)) return digits(v.f);
   if (!isSurd(v)) return '';
   const p = v.n, q = v.d || 1;
   if (!v.k) return q === 1 ? String(p) : p + '/' + q;

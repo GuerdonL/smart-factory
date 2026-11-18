@@ -456,6 +456,32 @@ test('carry takes what was worked out to a new graph, for every node that is the
   const f2 = build(snap(fnShapes(10))); carry(f1, f2); assert.deepEqual(worked(f2, 'apply(v:X;f:lin)'), { '1,1': 38 });
 });
 
+/* ---- phase 7: what only the backend has ---- */
+test('phase 7: what is made of noise or of a data file is not worked out here: deferred, and marked as the backend\'s', () => {
+  const g = make(snap([B('N', 0, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } }), B('M', 2, 0, 2, 2, { entries: { '1,1': 1, '2,1': 2, '1,2': 3, '2,2': 4 } }),
+    B('F', 10, 0, 2, 2, { source: { file: 'data/w.csv' } }), B('K', 20, 0, 2, 2, { entries: { '1,1': 5, '2,1': { expr: '@[N:x] + 1' } } }), B('Bad', 30, 0, 2, 2, { source: { file: null } }), B('Q', 32, 0, 2, 2)]));
+  const t = { cols: 2, rows: 2, colsName: null, rowsName: null };
+  assert.deepEqual(evaluate(g, 'v:N'), { type: t, deferred: true, backend: true });
+  assert.deepEqual(evaluate(g, 'matmul(v:N,v:M)'), { type: t, deferred: true, backend: true });      /* and everything made of it */
+  assert.deepEqual(evaluate(g, 'v:F'), { type: t, deferred: true, backend: true });
+  assert.deepEqual(evaluate(g, 'v:M').entries, { '1,1': 1, '2,1': 2, '1,2': 3, '2,2': 4 });      /* what is not made of it is worked out as ever */
+  assert.deepEqual(evaluate(g, 'v:K').entries, { '1,1': 5, '2,1': 3 });      /* its width is a size, and needs no numbers */
+  assert.equal(evaluate(g, 'matmul(v:Bad,v:Q)').error.code, 'no-source');      /* an error is still the error */
+  const big = make(snap([B('N', 0, 0, 100, 100, { source: { noise: {} } })]));
+  assert.deepEqual(evaluate(big, 'v:N'), { type: { cols: 100, rows: 100, colsName: null, rowsName: null }, deferred: true, backend: true });      /* too large here, and the backend's all the same */
+  assert.deepEqual(evaluate(big, 'v:N', { maxEntries: 1e6 }), { type: { cols: 100, rows: 100, colsName: null, rowsName: null }, deferred: true, backend: true });
+});
+
+test('phase 7: a function repeated through an outer tile is given another part of its input in each of that tile\'s cells', () => {
+  /* found while the backend was written against this file: the function's body was remembered under the run's number alone, so every outer cell read the first cell's */
+  const g = make({ top: { shapes: [B('M', 0, 0, 8, 1, { entries: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((v, i) => [(i + 1) + ',1', v])) }),
+    arrow('f', { id: 'M', as: 'block' }, { side: 's' }, { x: 0, y: 1, inside: { shapes: [B('in', -9, 0, 1, 1, { in: true }), B('two', -8, 0, 1, 1, { entries: { '1,1': 2 } })], groups: [], operations: [] } }), B('seat', 0, 3, 1, 1, { seat: 'f' })],
+    groups: [{ id: 'outer', name: null, members: [2], repeat: { x: 0, y: 1, cols: 2, rows: 3, across: 4, down: 1 }, groups: [{ id: 'inner', name: null, members: [1], groups: [], repeat: { x: 0, y: 1, cols: 1, rows: 1, across: 2, down: 1 } }] }], operations: [] } });
+  const a = g.spaces.top.arrows[0].node; assert.equal(g.nodes[a].fn, 'f:f'); assert.deepEqual(g.nodes[a].through, [{ tile: 't:outer', count: 4 }]);
+  const cell = x => evaluate(g, a, { binding: { cells: [{ x, y: 0, of: ['t:outer'] }] } }).entries;
+  assert.deepEqual(cell(0), { '1,1': 2, '2,1': 4 }); assert.deepEqual(cell(2), { '1,1': 6, '2,1': 8 }); assert.deepEqual(cell(6), { '1,1': 14, '2,1': 16 });
+});
+
 /* found in review of the stack: the answer a function gave for one run of an input was handed to every other run of it */
 test('after review: two arrows of one function on different rows of one input each have their own answer, whichever is asked first', () => {
   const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });

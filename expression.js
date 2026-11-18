@@ -48,8 +48,9 @@
        undefined for a name it does not know, which is the error "unknown name: w". For a capsule, undefined is the
        error "missing variable".
    written(value)  -> a value as text (values.js): the one function that does that
-   namesIn(text)   -> { why } where the text cannot be read, else { names, capsules }: the names in it that are not
-                      words of the language, and its capsules. For whoever must know what a formula depends on
+   namesIn(text)   -> { why } where the text cannot be read, else { names, capsules, deep }: the names in it that are not
+                      words of the language, its capsules, and how deep it nests (brackets, signs, roots and powers
+                      one inside the next). For whoever must know what a formula depends on
                       without working it out (graph.js).
 
    An entry holds a literal value or a formula, { expr: "…" }, never a formula with its result.
@@ -126,7 +127,10 @@ function tokens(text){
 }
 /* the text as a tree: { num } | { name } | { ref } | { op, a, b } | { fn, args } */
 function parse(text){
-  const ts = tokens(text); let i = 0;
+  const ts = tokens(text); let i = 0, depth = 0, deepest = 0;
+  /* how deep the text nests: brackets, signs, roots and powers one inside the next. Counted, not refused: a graph's
+     formula is held to a bound (graph.js), since the backend reads it with that bound */
+  const inside = read => { deepest = Math.max(deepest, ++depth); try { return read(); } finally { depth--; } };
   const UNREAD = 'that cannot be read as arithmetic';
   const take = t => ts[i]?.t === t ? ts[i++] : null;
   const starts = t => !!t && ['name', 'ref', '(', '√', '∜', '∞'].includes(t.t);      /* what, set straight against a number or a bracket, multiplies it */
@@ -136,21 +140,21 @@ function parse(text){
     if (t.t === 'num') return { num: t.v };
     if (t.t === '∞') return { num: Infinity };
     if (t.t === 'ref') return { ref: t.v };
-    if (t.t === '('){ const e = or(); if (!take(')')) throw new Wrong('a bracket is not closed'); return e; }
-    if (t.t === '√' || t.t === '∜'){ const root = { fn: 'sqrt', args: [under()] }; return t.t === '∜' ? { fn: 'sqrt', args: [root] } : root; }
+    if (t.t === '('){ const e = inside(or); if (!take(')')) throw new Wrong('a bracket is not closed'); return e; }
+    if (t.t === '√' || t.t === '∜'){ const root = { fn: 'sqrt', args: [inside(under)] }; return t.t === '∜' ? { fn: 'sqrt', args: [root] } : root; }
     if (t.t !== 'name') throw new Wrong(UNREAD);
     const fn = t.v.toLowerCase();
     if (!Object.hasOwn(ARITY, fn) || ts[i]?.t !== '(') return { name: t.v };      /* (its own names only: constructor and __proto__ are names like any other) */
     i++; const args = [];
-    if (!take(')')){ do args.push(or()); while (take(',')); if (!take(')')) throw new Wrong('a bracket is not closed'); }
+    inside(() => { if (!take(')')){ do args.push(or()); while (take(',')); if (!take(')')) throw new Wrong('a bracket is not closed'); } });
     if (args.length !== ARITY[fn]) throw new Wrong(`${fn} takes ${['no', 'one', 'two', 'three'][ARITY[fn]]} value${ARITY[fn] === 1 ? '' : 's'}`);
     return { fn, args };
   }
   /* what a root sign applies to: a number, a name, a bracket or another root, with any sign it carries (√-4 is read as √(-4)) */
-  function under(){ if (take('-')) return { fn: 'neg', args: [under()] }; if (take('+')) return under();
+  function under(){ if (take('-')) return { fn: 'neg', args: [inside(under)] }; if (take('+')) return inside(under);
     if (!ts[i] || !(starts(ts[i]) || ts[i].t === 'num')) throw new Wrong('a root sign with nothing under it'); return atom(); }
-  const power = () => { const a = atom(); return take('^') ? { op: '^', a, b: unary() } : a; };
-  function unary(){ return take('-') ? { fn: 'neg', args: [unary()] } : take('+') ? unary() : take('!') ? { fn: '!', args: [unary()] } : power(); }
+  const power = () => { const a = atom(); return take('^') ? { op: '^', a, b: inside(unary) } : a; };
+  function unary(){ return take('-') ? { fn: 'neg', args: [inside(unary)] } : take('+') ? inside(unary) : take('!') ? { fn: '!', args: [inside(unary)] } : power(); }
   function term(){ let a = unary();
     for (;;){ if (ts[i] && (ts[i].t === '*' || ts[i].t === '/')) a = { op: ts[i++].t, a, b: unary() };
       else if (starts(ts[i])) a = { op: '*', a, b: power() };
@@ -158,22 +162,27 @@ function parse(text){
   const sum = level(term, ['+', '-']), compared = level(sum, ['==', '!=', '<', '>', '<=', '>=']), and = level(compared, ['&&']);
   function or(){ return level(and, ['||'])(); }
   const tree = or(); if (i < ts.length) throw new Wrong(UNREAD);
+  depths.set(tree, deepest);
   return tree;
 }
+const depths = new WeakMap();                  /* a tree -> how deep its text nests */
 const trees = new Map();                        /* a text -> its tree, or why it has none: the same text is read the same way every time */
 function read(text){
   if (!trees.has(text)){ if (trees.size > 2000) trees.clear();
     try { trees.set(text, { tree: parse(text) }); } catch (e){ if (!(e instanceof Wrong)) throw e; trees.set(text, { why: e.message }); } }
   return trees.get(text);
 }
-const leaves = (n, out = []) => { if (n.name !== undefined || n.ref) out.push(n); else { if (n.op){ leaves(n.a, out); leaves(n.b, out); } for (const a of n.args || []) leaves(a, out); } return out; };
+/* (walked with a list of its own: a sum of five thousand terms is a tree five thousand deep, and deeper than a stack) */
+const leaves = tree => { const out = [], todo = [tree];
+  while (todo.length){ const n = todo.pop(); if (n.name !== undefined || n.ref) out.push(n); else { for (let i = (n.args || []).length - 1; i >= 0; i--) todo.push(n.args[i]); if (n.op){ todo.push(n.b); todo.push(n.a); } } }
+  return out; };
 
 /* what a text names, without working it out: { why } where it cannot be read, else { names, capsules }: every name in
    it that is not one of the words of the language (a function, inf, true, false), and every capsule */
 export function namesIn(text){
   const { tree, why } = read(String(text)); if (!tree) return { why };
   const all = leaves(tree);
-  return { names: all.filter(l => !l.ref && !Object.hasOwn(CONSTANT, l.name.toLowerCase())).map(l => l.name), capsules: all.filter(l => l.ref).map(l => l.ref) };
+  return { names: all.filter(l => !l.ref && !Object.hasOwn(CONSTANT, l.name.toLowerCase())).map(l => l.name), capsules: all.filter(l => l.ref).map(l => l.ref), deep: depths.get(tree) || 0 };
 }
 export function evaluate(text, lookup = () => undefined, { matrices = false } = {}){
   text = String(text); if (!text.trim()) return { empty: true };
@@ -191,6 +200,9 @@ export function evaluate(text, lookup = () => undefined, { matrices = false } = 
   const run = n => {
     if ('num' in n) return n.num;
     if (known.has(n)) return known.get(n);
+    if (n.op && n.a.op){      /* a long run of signs is a tree deep on its left: it is gone down with a list, not the stack, and worked out coming back up */
+      const spine = []; let at = n; while (at.op && at.a.op){ spine.push(at); at = at.a; }
+      let v = run(at); while (spine.length){ const up = spine.pop(); v = combine(up.op, v, run(up.b)); } return v; }
     if (n.op) return combine(n.op, run(n.a), run(n.b));
     if (n.fn === 'select'){ const c = run(n.args[0]); if (isError(c)) return c; if (kind(c) === 'unknown') return null;
       const chosen = truth(c); return isError(chosen) ? chosen : run(n.args[chosen ? 1 : 2]); }      /* only the chosen side; a condition that cannot be told from 0 is that error */

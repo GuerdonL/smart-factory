@@ -11,7 +11,7 @@ import { pieces } from '../algebra.js';
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
   entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
-const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
+const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 const paths = files => files.map(f => f.path).sort();
 const file = (path, body) => ({ path, text: JSON.stringify(body) });
@@ -353,8 +353,8 @@ test('a source is kept by its kind, with no entries; a kind this program has not
   assert.equal('source' in json(files, 'Plain.json'), false);
   const back = read(files).top.shapes;
   assert.deepEqual(back.map(d => [d.name, d.source, d.entries]), [['Eye', 'identity', {}], ['Bias', 'zeros', {}], ['One', 'ones', {}], ['Plain', null, { '1,1': 9 }]]);
-  /* a source of a later phase, or anything else: dropped, and the shape keeps the entries its file has */
-  for (const source of [{ noise: { seed: 1, dist: 'uniform' } }, { file: 'data/a.csv' }, 'Zeros', 7, true]){
+  /* anything else: dropped, and the shape keeps the entries its file has */
+  for (const source of [{ seed: 1, dist: 'uniform' }, ['zeros'], 'Zeros', 7, true]){
     const got = read([head(3), file('S.json', at('S', 0, 0, 2, 1, { source, value: { entries: { '1,1': 5 } } }))]).top.shapes[0];
     assert.equal(got.source, null); assert.deepEqual(got.entries, { '1,1': 5 }); }
   assert.equal(read([head(2), file('S.json', at('S', 0, 0, 2, 1))]).top.shapes[0].source, null);      /* format 2 has none */
@@ -654,4 +654,35 @@ test('projects/sources-and-tiles holds sources, standing shapes, a tile read by 
   /* nothing names what is not there */
   const ids = new Set([...top.map(d => d.id), ...p.top.groups.map(g => g.id)]);
   for (const d of top.filter(d => d.arrow)) assert.ok(ids.has(d.arrow.input.id), d.name);
+});
+
+/* ---- phase 7: noise, file sources and data/ ---- */
+test('noise and a file source are written as the format has them and read back; data files are written as they are', () => {
+  const p = { ...project(space([shape('N', { cols: 4, rows: 4, source: { noise: { seed: 3, dist: 'normal' } }, entries: { '1,1': 9 } }), shape('W', { cols: 2, rows: 2, source: { file: 'data/w.csv' } }), shape('E', { source: { file: null } })])),
+    data: { 'data/w.csv': '1,2\n3,4\n', 'data/../x.csv': 'no', 'elsewhere.csv': 'no', 'data/n.csv': 7 } };
+  const files = write(p);
+  assert.deepEqual(json(files, 'N.json').source, { noise: { seed: 3, dist: 'normal' } }); assert.deepEqual(json(files, 'N.json').value, { as: 'resolved', entries: {} });
+  assert.deepEqual(json(files, 'W.json').source, { file: 'data/w.csv' }); assert.deepEqual(json(files, 'E.json').source, { file: null });
+  assert.deepEqual(files.filter(f => f.path.endsWith('.csv')), [{ path: 'data/w.csv', text: '1,2\n3,4\n' }]);      /* only a path under data/, and only text */
+  const back = read(files);
+  assert.deepEqual(back.top.shapes.map(d => d.source), [{ noise: { seed: 3, dist: 'normal' } }, { file: 'data/w.csv' }, { file: null }]);
+  assert.deepEqual(back.data, { 'data/w.csv': '1,2\n3,4\n' });
+  assert.deepEqual(write(back).map(f => f.path).sort(), files.map(f => f.path).sort());
+  assert.deepEqual(read([head(3)]).data, {});      /* a project with no data/ has none */
+  /* a decimal or an error among a file's entries is dropped on reading, and never written */
+  const d = read([head(3), file('S.json', at('S', 0, 0, 2, 1, { value: { entries: { '1,1': { f: 0.5 }, '2,1': { err: 'no' } } } }))]).top.shapes[0];
+  assert.deepEqual(d.entries, {});
+  assert.deepEqual(json(write(project(space([shape('S', { cols: 2, entries: { '1,1': { f: 0.5 }, '2,1': 3 } })])), ), 'S.json').value.entries, { '2,1': 3 });
+});
+
+test('projects/noise-and-data holds a noise block, a file source with its file under data/, and survives being written and read again', () => {
+  const files = shipped('noise-and-data'), p = read(files), by = name => p.top.shapes.find(d => d.name === name);
+  assert.deepEqual(by('Noise').source, { noise: { seed: 0, dist: 'uniform' } }); assert.deepEqual([by('Noise').cols, by('Noise').rows, by('Noise').entries], [4, 4, {}]);
+  assert.deepEqual(by('Draw').source, { noise: { seed: 7, dist: 'normal' } }); assert.deepEqual(by('Weights').source, { file: 'data/weights.csv' });
+  assert.deepEqual(Object.keys(p.data), ['data/weights.csv']); assert.equal(p.data['data/weights.csv'].split('\n').length, 6);      /* a header and four rows of two: the block's size */
+  assert.deepEqual([by('Weights').cols, by('Weights').rows], [2, 4]);
+  assert.equal(p.top.shapes.find(d => d.arrow).arrow.formula, 'exp(x)');
+  for (const f of files) assert.ok(!/"f":|"err":/.test(f.text), f.path);      /* no decimal and no error in any file */
+  const again = write(p).map(f => f.path).sort(); assert.deepEqual(again, files.map(f => f.path).sort());
+  assert.deepEqual(read(write(p)).data, p.data);
 });

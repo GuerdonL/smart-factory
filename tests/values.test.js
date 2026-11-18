@@ -206,7 +206,7 @@ test('written writes every kind, and never a decimal for an exact value', () => 
   w(q(1, 2, 1), '√(1/2)'); w(q(30, 1, 2), '∜30'); w(q(32, 1, 2), '2∜2'); w(q(2, 1, 3), '2^(1/8)'); w(q(1, 2, 3), '(1/2)^(1/8)');
   w(true, 'T'); w(false, 'F'); w(sym('1+sqrt(2)'), '1+√2'); w(sym('1+e^2'), '1+exp(2)'); w(sym('e'), 'exp(1)'); w(sym('e^(-1/2)'), 'exp(-1/2)'); w(sym('sqrt(e)'), '√(exp(1))');
   w(sym('log(2)+log(3)'), 'ln(2)+ln(3)'); w(sym('3*2^(1/3)'), '3·2^(1/3)'); w(sym('2*sqrt(3)+erf(1)'), '2√3+erf(1)'); w(sym('tanh(2)'), 'tanh(2)');
-  w(E('divide by zero'), '!'); w(null, ''); w(undefined, ''); w({ f: 0.4375 }, '0.4375');
+  w(E('divide by zero'), '!'); w(null, ''); w(undefined, ''); w({ f: 0.4375 }, '0.437500000'); w({ f: 1 }, '1.00000000');      /* a decimal is never written as an exact number is */
   assert.equal(algebra.valueText, written);                /* one function turns a value into text, whatever it is asked for as */
 });
 
@@ -264,4 +264,17 @@ test('speed: fractions and single roots are worked out directly too, with no sol
     assert.deepEqual(s, q(-19, 20)); assert.equal(p, (20000 % 5) + 2);      /* 80,000 steps; the sum checked against Python's fractions */
     assert.ok(performance.now() - t0 < 1000);
   } finally { globalThis.nerdamer = kept; }
+});
+
+test('after review (phase 7): the solver is exact again after it was asked for a number and threw, so no irrational value comes back as a fraction', () => {
+  /* 0 to a power below 0, asked for as a number, throws inside the solver, which then stayed in its numeric mode: every
+     later answer was a fraction near the value, written as if exact */
+  const half = { n: 1, d: 2, k: 0 }, tanh2 = apply('tanh', -2);
+  assert.ok(isError(apply('sqrt', combine('^', combine('-', half, half), tanh2))) || true);      /* the question that used to leave it so */
+  assert.equal(globalThis.nerdamer.get('PARSE2NUMBER'), false);
+  const e = apply('erf', -2); assert.deepEqual(e, { sym: 'erf(-2)' });
+  assert.deepEqual(combine('-', 0, combine('^', half, e)), { sym: '-2^(-erf(-2))' });      /* -(1/2)^erf(-2): irrational, and kept as what it is */
+  assert.equal(kind(apply('tanh', combine('-', 3, { n: 1, d: 3, k: 0 }))), 'symbolic');
+  assert.equal(kind(combine('+', half, apply('tanh', -3))), 'symbolic'); assert.equal(kind(apply('exp', combine('-', 6, 27))), 'symbolic');
+  assert.deepEqual(apply('exp', 0), 1); assert.deepEqual(combine('*', apply('exp', 1), 0), 0);      /* what does come out exactly still does */
 });

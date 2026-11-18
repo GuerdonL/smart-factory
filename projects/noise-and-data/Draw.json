@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "borxceg",
+  "type": "data-in",
+  "name": "Draw",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": -30,
+    "y": 8
+  },
+  "size": {
+    "cols": 4,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 40,
+  "source": {
+    "noise": {
+      "seed": 7,
+      "dist": "normal"
+    }
+  }
+}

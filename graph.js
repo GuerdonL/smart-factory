@@ -16,11 +16,12 @@
    CODES                         every error code
    indexAt(cells, c, r)          the index an entry reads, from the cell it is in (see "Bindings", below)
    readsIndex(node)              whether the node of its own accord differs from cell to cell: a formula of its own
-                                 reads the index, or it is an arrow repeated through an outer tile
+                                 reads the index, it is an arrow repeated through an outer tile, or it is noise
 
    The graph
        { "version": 1,
          "nodes":     { "<node id>": { "op", "inputs": [node ids], "type": { "cols", "rows", "colsName", "rowsName" }, … } },
+                      (a type is an object that can gain fields: validate checks these four and lets any other be)
          "functions": { "<function id>": { "input": "<the node of its in block>", "body": "<the node its space comes to>" } },
          "spaces":    { "<space key>": { "owner": "<node id>" | null,
                                          "pieces": [ { "blocks": [block ids], "rule", "node": "<node id>" | null, "error": an error | null } ],
@@ -70,8 +71,8 @@
                    (what its definition space comes to), "standing" (the shapes standing in its matrix, once they
                    cover it), "joined" (the shapes it was fused from), "measure" (a side or the mass of another),
                    "range" (a part of another: a cut or an intersection), "seat" (an arrow's output, or the result
-                   in a pair's hollow) or "source" (zeros, ones or an identity; or a tile's index as a matrix, a map
-                   of zeros by index.x or index.y). Own fields: name, named, defined, entries, and error where it has
+                   in a pair's hollow) or "source" (zeros, ones, an identity, a data file or noise; or a tile's index
+                   as a matrix, a map of zeros by index.x or index.y). Own fields: name, named, defined, entries, and error where it has
                    one (it is then "entries"). An entry is a value, a formula { expr }, or the error { err } that a
                    formula was found to be when the graph was built.
        matmul      left, right: the matrix product. A row of three is two nodes, grouped from the left.
@@ -81,7 +82,11 @@
        ewise       two; fn "mul" or "div"; broadcast "none", "scalar", "row" or "col". A chain is nested from the left.
        block       parts set into one matrix with no gap and no overlap; at: one { col, row } for each, from 0
        slice       range { col, row, cols, rows }, from 0, of its input
-       source      kind "zeros", "ones" or "identity": values by rule, at the node's size
+       source      kind "zeros", "ones" or "identity": values by rule, at the node's size. Or kind "file" with path
+                   "data/….csv": the numbers of that file of the project, which only the backend reads
+       noise       seed (a whole number), dist ("uniform" or "normal") and key (the id of the block the variable was
+                   made as): numbers that follow from those, the entry's column and row and, in a tile, the cell.
+                   Only the backend makes them (backend/arrays.py). It follows its cell without reading the index.
        measure     side "x", "y" or "m": one number read off its input, its columns, its rows or (a single entry's)
                    mass; of a single entry x and y are the root of its mass. side "a": an attribute, with its name
                    and its formula, whose inputs after the first are what the formula names
@@ -135,7 +140,7 @@ import { ROOTS } from './values.js';
 import { parts as textParts, evaluate as work, namesIn, refs } from './expression.js';
 import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES } from './arrows.js';
 import * as tiles from './tiles.js';
-import { kept as sourceKept, values as sourceValues } from './sources.js';
+import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS } from './sources.js';
 import { FUNCTIONS, CONFIG } from './system.js';
 
 export const VERSION = 1;
@@ -149,7 +154,7 @@ const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && O
 /* ---- types ---- */
 const T = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName: colsName || null, rowsName: rowsName || null });
 const whole1 = v => Number.isInteger(v) && v >= 1;
-const okType = t => !!t && typeof t === 'object' && !Array.isArray(t) && whole1(t.cols) && whole1(t.rows) && (t.colsName === null || typeof t.colsName === 'string') && (t.rowsName === null || typeof t.rowsName === 'string') && Object.keys(t).length === 4;
+const okType = t => !!t && typeof t === 'object' && !Array.isArray(t) && whole1(t.cols) && whole1(t.rows) && (t.colsName === null || typeof t.colsName === 'string') && (t.rowsName === null || typeof t.rowsName === 'string');      /* (its four fields, each of its kind. A type may hold more: later phases add to it, and what is not known here is left alone) */
 const one = t => t.cols === 1 && t.rows === 1;
 const same = (a, b) => a.cols === b.cols && a.rows === b.rows;
 const alike = (a, b) => same(a, b) && a.colsName === b.colsName && a.rowsName === b.rowsName;
@@ -225,14 +230,17 @@ export function indexAt(cells, c, r){
 
 /* ---- formulas in the graph ---- */
 const DOLLAR = /^\$([1-9]\d*)$/;
+const LONGEST = 10000, DEEPEST = 64;            /* a formula in a graph is at most this long, and nests at most this deep: the backend reads it with these bounds (backend/limits.py), and the two validators are to agree */
 const FUNCS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']), CONSTS = new Set(['inf', 'infinity', 'true', 'false']);
-/* Whether a formula is one the graph may hold: it reads as arithmetic (expression.js), it holds no capsule, and every
+/* Whether a formula is one the graph may hold: it reads as arithmetic (expression.js), it is no longer than LONGEST
+   characters and nests no deeper than DEEPEST, it holds no capsule, and every
    name in it is $1 to $most, index.x or index.y, or (in an arrow's formula) x, i or j. Nothing a node depends on
    can then be hidden in it. An attribute's may be empty: it has no value yet. */
 function formulaOk(text, most, { arrow = false, empty = false } = {}){
   if (typeof text !== 'string') return false;
   if (!text.trim()) return empty;
-  const got = namesIn(text); if (got.why || got.capsules.length) return false;
+  if (text.length > LONGEST) return false;
+  const got = namesIn(text); if (got.why || got.capsules.length || got.deep > DEEPEST) return false;
   return got.names.every(name => { const m = name.match(DOLLAR); return m ? +m[1] <= most : tiles.axisOf(name) !== null || (arrow && ['x', 'i', 'j'].includes(name.toLowerCase())); });
 }
 /* what a name in a graph's formula stands for. first: which input $1 is; size: the output's, for an input that is a
@@ -249,7 +257,8 @@ function lookupIn(n, at, first, size, index){
 }
 /* whether a formula of the node's own reads the index */
 export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' && Object.values(n.entries || {}).some(v => v && typeof v.expr === 'string' && tiles.reads(v.expr))) || (n.op === 'map' && tiles.reads(n.formula))
-  || (n.op === 'mapalong' && Array.isArray(n.through) && n.through.length > 0);      /* an arrow repeated through an outer tile reads another part of its input in each of that tile's cells */
+  || (n.op === 'mapalong' && Array.isArray(n.through) && n.through.length > 0)      /* an arrow repeated through an outer tile reads another part of its input in each of that tile's cells */
+  || n.op === 'noise';      /* noise reads no index, and still every cell holds other numbers: the cell joins its key */
 
 /* ---- the operations ----
    Each: inputs [least, most]; fields(n) -> what is wrong with its own fields (sentences); type(n, ins, g) -> the type
@@ -286,7 +295,7 @@ export const OPS = {
     /* its type is its block's own; what defines it must be that size (and a definition must not call a side by another name) */
     type(n, ins){ if (!okType(n.type)) return 'it has no size of its own';
       if (n.defined === 'entries' || !ins.length) return n.type;
-      const t = ins[0].type, kinds = { measure: ['measure'], standing: ['block'], joined: ['block'], source: ['source', 'map'] };
+      const t = ins[0].type, kinds = { measure: ['measure'], standing: ['block'], joined: ['block'], source: ['source', 'map', 'noise'] };
       if (own(kinds, n.defined) && !kinds[n.defined].includes(ins[0].op)) return `defined "${n.defined}" over a ${ins[0].op}`;
       if (!same(t, n.type)) return 'what defines it is ' + sizes(t, n.type).replace('≠', 'and it is');
       if (n.defined === 'definition') for (const k of ['colsName', 'rowsName']) if (t[k] && n.type[k] && t[k] !== n.type[k]) return `its definition's side is ${t[k]} and its own is ${n.type[k]}`;
@@ -345,10 +354,14 @@ export const OPS = {
     type(n, [a]){ const r = n.range; if (r.col + r.cols > a.type.cols || r.row + r.rows > a.type.rows) return 'its range runs past its input';
       return T(r.cols, r.rows, r.cols === a.type.cols ? a.type.colsName : null, r.rows === a.type.rows ? a.type.rowsName : null); },
     value: (n, at) => passed(at.get(0), n.range) },
-  source: { inputs: [0, 0], id: n => `source(${n.kind};${n.type.cols}×${n.type.rows})`,
-    fields: n => sourceKept(n.kind) ? [] : [`kind is "${n.kind}"`],
+  source: { inputs: [0, 0], id: n => `source(${n.kind}${n.kind === 'file' ? ':' + n.path : ''};${n.type.cols}×${n.type.rows})`,
+    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && sourceKept(n.kind) ? ('path' in n ? ['only a file has a path'] : []) : [`kind is "${n.kind}"`],
     type: n => okType(n.type) ? T(n.type.cols, n.type.rows) : 'it has no size of its own',
-    value: n => sourceValues(n.kind, n.type.cols, n.type.rows) },
+    value: n => sourceValues(n.kind, n.type.cols, n.type.rows) },      /* (a file's numbers are the backend's: evaluate.js does not ask here for them) */
+  noise: { inputs: [0, 0], id: n => `noise(${n.seed};${n.dist};${n.key};${n.type.cols}×${n.type.rows})`,
+    fields: n => [...(Number.isSafeInteger(n.seed) ? [] : ['seed is not a whole number']), ...(DISTS.includes(n.dist) ? [] : [`dist is "${n.dist}"`]), ...(typeof n.key === 'string' && n.key ? [] : ['key is not a block id'])],
+    type: n => okType(n.type) ? T(n.type.cols, n.type.rows) : 'it has no size of its own',
+    value: () => new Map() },      /* its numbers are the backend's (backend/arrays.py has the generator) */
   measure: { inputs: [1, Infinity], id: n => plain({ op: 'measure', inputs: n.inputs.slice(0, 1) }, ';' + (n.side === 'a' ? 'a:' + n.name : n.side)),
     fields(n){ if (!['x', 'y', 'm', 'a'].includes(n.side)) return [`side is "${n.side}"`];
       if (n.side !== 'a') return n.inputs.length !== 1 ? ['a side or a mass is read off one input'] : 'name' in n || 'formula' in n ? ['only an attribute has a name and a formula'] : [];
@@ -385,7 +398,7 @@ export const OPS = {
       n.inputs.forEach((id, k) => { if (n.inputs.indexOf(id) === n.inputs.lastIndexOf(id)) places[id] = n.at[k]; });
       const key = JSON.stringify(places);
       return tiles.entries({ x: 0, y: 0, cols: n.pattern.cols, rows: n.pattern.rows }, n.across, n.down, rects,
-        (k, cx, cy) => at.get(k, at.cell({ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, at: places, atKey: key }))); } },
+        (k, cx, cy) => at.get(k, at.cell({ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, cx, cy, at: places, atKey: key }))); } },
   mapalong: { inputs: [1, Infinity], id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
     fields: n => [...((n.fn !== undefined) !== (n.formula !== undefined) ? [] : ['it has exactly one of fn and formula']),
       ...(n.fn !== undefined && (typeof n.fn !== 'string' || n.inputs.length !== 1) ? ['fn is a function id, and takes the one input'] : []),
@@ -637,7 +650,10 @@ export function build(snapshot){
       const parts = v.src.members.map(m => blockNode(m.rec)), at = v.src.members.map(m => ({ col: Math.round(Number(m.j.fx) * v.type.cols) || 0, row: Math.round(Number(m.j.fy) * v.type.rows) || 0 }));
       if (parts.some(p => !p) || !covers(parts.map(typeOf), at, v.type.cols, v.type.rows)) return { error: E('size', 'the shapes it was fused from do not cover it') };
       return under(N('block', parts, { at }), v, 'joined'); }
-    if (sourceKept(d.source)) return under(N('source', [], { kind: sourceKept(d.source) }, T(v.type.cols, v.type.rows)), v, 'source');
+    const src = sourceKept(d.source), size = T(v.type.cols, v.type.rows);
+    if (src && src.noise) return under(N('noise', [], { seed: src.noise.seed, dist: src.noise.dist, key: v.src.id }, size), v, 'source');      /* keyed by the block the variable was made as, so every use of it shows the same numbers */
+    if (src && sourceKind(src) === 'file') return src.file ? under(N('source', [], { kind: 'file', path: src.file }, size), v, 'source') : { error: E('no-source', 'no file has been chosen for it') };
+    if (src) return under(N('source', [], { kind: src }, size), v, 'source');
     const stood = v.inside && standingIn(v);
     if (stood && stood.reduce((sum, t) => sum + t.w * t.h, 0) === v.type.cols * v.type.rows){
       const parts = stood.map(t => blockNode(t.rec)), at = stood.map(t => ({ col: t.x, row: t.y }));

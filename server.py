@@ -12,6 +12,22 @@ What it does:
     A save that is no good is answered with why, as {"error": ...}, and changes nothing.
     A project's own .config is this machine's: it is not kept in the repository. Until a project has one, it is given
     the file projects/<name>.config, if the repository has that (see project_files).
+    A project's files are its .json files, its .config files and, under data/ at its top, the .csv files its file
+    sources read (data/weights.csv): no other path is kept, and none that climbs out of the project.
+  - passes three addresses on to the backend (backend/, a separate process that works a model out in floating point):
+        GET  /api/backend/health      -> the backend's /health, or { "ok": false, "error": why } where there is none
+                                         (a run or a file sent while there is none is answered likewise, with why)
+        POST /api/backend/run         -> its /run
+        POST /api/backend/data?project=<name>&path=data/<file>.csv     -> its /data
+    The backend's address is the SMART_FACTORY_BACKEND environment variable (default http://127.0.0.1:8001). These
+    go through the PIN like everything else, so the backend is never reached through here without it. The backend
+    itself answers only what carries its token: 32 random bytes it writes, each time it starts, to a file only its
+    owner can read (backend/.token beside this file, or the path in SMART_FACTORY_BACKEND_TOKEN). This server reads
+    that file and sends the token with what it passes on, so it has to be run by the same user as the backend.
+    Only those three addresses are passed on, to that one address; an answer that sends the request elsewhere is
+    not followed; no more is read of a request (5 MB for a run, 50 MB for a file) or of an answer (8 MB) than is
+    said here; and neither the reading of a request nor the wait for the backend's answer goes on for more than a
+    stated time in all (60 and 90 seconds), however slowly either comes.
   - every 30 seconds asks GitHub whether the branch it is on has moved, and if so pulls it. Pages are read from
     disk on each request, so the next reload shows the new version; if this file itself changed, it restarts.
     A project that comes with the repository can be saved over; where that has changed a file the branch has changed
@@ -25,13 +41,19 @@ on the way: it keeps out whoever finds the port, not whoever can listen to the n
 With no PIN set there is no password: anyone who can reach the port can read and overwrite projects. That is only when
 there is no .pin at all: one that is there and cannot be read, or has nothing in it, stops the server from starting.
 """
-import base64, hashlib, hmac, json, os, re, shutil, subprocess, sys, tempfile, threading, time
+import base64, hashlib, hmac, http.client, json, os, re, shutil, subprocess, sys, tempfile, threading, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import unquote
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
 NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}')            # a project's name: one plain directory name. Used with fullmatch: all of the name has to fit ($ lets a last newline by)
+DATA = re.compile(r'data/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')    # a data file: data/ and one .csv name with no two dots together (sources.js: dataPath; backend/check.py: data_path)
+# what is passed on to the backend: how much of a request's body is read for each address, in bytes (the backend's own
+# limits: backend/limits.py), how much of its answer, and how many seconds it is waited on
+PASSED = {'/health': 0, '/run': 5 * 1024 * 1024, '/data': 50 * 1024 * 1024}
+ANSWER, WAIT, READ = 8 * 1024 * 1024, 90, 60                  # (READ: seconds a proxied request's body may take to arrive, in all)
+TOKEN = os.environ.get('SMART_FACTORY_BACKEND_TOKEN') or os.path.join(ROOT, 'backend', '.token')      # the file the backend's token is in
 MAX_SAVE = 64 << 20                                                # the most a save's body may be, in bytes
 TRIES, LOCKED_FOR = 5, 600                                         # different wrong PINs allowed from one address within LOCKED_FOR seconds, and the seconds it is then turned away
 SWALLOWED, SWALLOW_FOR = 64 << 20, 10                              # how much of a refused request's body is read and dropped, in bytes, and for how many seconds at most
@@ -60,7 +82,36 @@ def read_pin():
     return pin
 
 
+def read_backend():
+    """Where the backend is, as (host, port): SMART_FACTORY_BACKEND, or http://127.0.0.1:8001. It is an http address
+    with a host and nothing after it; anything else stops the server, since to go on would be to pass requests on to
+    somewhere that was not meant."""
+    given = os.environ.get('SMART_FACTORY_BACKEND', '').strip() or 'http://127.0.0.1:8001'
+    try:
+        url = urlsplit(given)
+        host, port = url.hostname, url.port or 80
+    except ValueError:
+        url = host = port = None
+    if not host or url.scheme != 'http' or url.path not in ('', '/') or url.query or url.fragment or url.username or url.password:
+        raise SystemExit('SMART_FACTORY_BACKEND is %r, which is not an address like http://127.0.0.1:8001. Not starting.' % given)
+    return host, port
+
+
+def backend_token():
+    """The backend's token, read from its file each time (the backend makes a new one whenever it starts). Where
+    there is no such file there is no backend running that this server could talk to."""
+    try:
+        with open(TOKEN, encoding='utf8') as f:
+            token = f.readline().strip()
+    except (OSError, ValueError) as e:
+        raise OSError(0, 'its token cannot be read at %s: %s' % (TOKEN, getattr(e, 'strerror', None) or 'it is not text'))
+    if not token:
+        raise OSError(0, 'its token file is empty')
+    return token
+
+
 PIN = read_pin()
+BACKEND = read_backend()
 PAGE = ('<!doctype html><html><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
         '<style>:root{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>'
         '</head><body>{page}</body></html>')
@@ -78,10 +129,19 @@ def project_files(name):
             out.append({'path': '.config', 'text': text.read()})
     for folder, _, files in os.walk(base):
         for f in sorted(files):
+            full = os.path.join(folder, f)
+            path = os.path.relpath(full, base).replace(os.sep, '/')
+            if os.path.islink(full):                               # a link is no file of the project: what it points at is never read
+                continue
             if f.endswith('.json') or f == '.config':
-                full = os.path.join(folder, f)
                 with open(full, encoding='utf8') as text:
-                    out.append({'path': os.path.relpath(full, base).replace(os.sep, '/'), 'text': text.read()})
+                    out.append({'path': path, 'text': text.read()})
+            elif DATA.fullmatch(path):                             # a data file, at the top of the project
+                try:
+                    with open(full, encoding='utf8', newline='') as data:
+                        out.append({'path': path, 'text': data.read()})
+                except ValueError:                                 # not text: it is no table of numbers, and the page could not hold it
+                    pass
     return out
 
 
@@ -100,7 +160,8 @@ def checked(files):
             if not isinstance(f[key], str):
                 raise ValueError("a file's %s is text, not %s" % (key, json.dumps(f[key])[:60]))
         path, parts = f['path'], f['path'].split('/')
-        if not (path.endswith('.json') or parts[-1] == '.config') or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts):
+        csv = path.endswith('.csv')                               # a data file a file source reads: only data/<name>.csv, at the project's top
+        if not (path.endswith('.json') or parts[-1] == '.config' or csv) or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts) or (csv and not DATA.fullmatch(path)):
             raise ValueError('not a path a project may contain: %r' % path)
         if path in out:
             raise ValueError('two files called %r' % path)
@@ -125,7 +186,7 @@ def write_project(name, files):
         for path, text in files.items():
             full = os.path.join(fresh, *path.split('/'))
             os.makedirs(os.path.dirname(full), exist_ok=True)
-            with open(full, 'w', encoding='utf8') as out:
+            with open(full, 'w', encoding='utf8', newline='') as out:      # as sent, line ends and all: a data file is kept as it is
                 out.write(text)
         target = os.path.join(PROJECTS, name)
         if os.path.exists(target):
@@ -261,6 +322,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = self.address()
         if self.page():
             return
+        if self.backend():
+            return
         if path == '/api/projects':
             names = sorted(n for n in os.listdir(PROJECTS) if os.path.isfile(os.path.join(PROJECTS, n, 'project.json'))) if os.path.isdir(PROJECTS) else []
             return self.reply(200, names)
@@ -274,6 +337,98 @@ class Handler(SimpleHTTPRequestHandler):
         if path.startswith('/api/') or self.hidden():              # nothing else under /api, and no dot-files (.git)
             return self.reply(404, {'error': 'not found'})
         super().do_GET()
+
+    def backend(self):
+        """Passes the request on to the backend if its address is one of the three that are, and answers with what the
+        backend answered. Gives whether the address was under /api/backend/ at all. Nothing of the request goes on
+        but its body and, for a file, the project and the path it names: no header of the browser's, no other
+        address, and nothing to any host but the one this server was started with."""
+        path = self.address()
+        if not path.startswith('/api/backend/') and path != '/api/backend':
+            return False
+        to = path[len('/api/backend'):]
+        if to not in PASSED or (self.command == 'GET') != (to == '/health'):
+            self.reply(404, {'error': 'not found'})
+            return True
+        body = b''
+        if self.command == 'POST':
+            try:
+                length = int(self.headers.get('Content-Length') or '')
+            except ValueError:
+                length = -1
+            if length < 0 or self.headers.get('Transfer-Encoding'):
+                self.refuse(411, 'the request has to say how long it is', {})
+                return True
+            if length > PASSED[to]:
+                self.refuse(413, 'that is larger than the %d MB the backend takes' % (PASSED[to] >> 20), {})
+                return True
+            body = self.read_within(length, READ)
+            if body is None:
+                self.refuse(408, 'the request took longer than %d seconds to arrive' % READ, {})
+                return True
+        if to == '/data':                                          # the two things a file's address says, written out again: nothing else of it goes on
+            asked = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            to += '?project=%s&path=%s' % (quote((asked.get('project') or [''])[-1], safe=''), quote((asked.get('path') or [''])[-1], safe=''))
+        try:
+            token = backend_token()
+            until = time.monotonic() + WAIT                        # the whole wait, not each step of it
+            c = http.client.HTTPConnection(BACKEND[0], BACKEND[1], timeout=WAIT)
+            try:
+                c.request(self.command, to, body=body if self.command == 'POST' else None,
+                          headers={'Content-Type': 'application/octet-stream' if to.startswith('/data') else 'application/json', 'X-Smart-Factory-Token': token})
+                sock = c.sock                                      # (the connection lets go of it once the answer's head is read)
+                sock.settimeout(max(until - time.monotonic(), 0.01))
+                r = c.getresponse()
+                status, answer = r.status, b''
+                while len(answer) <= ANSWER:
+                    left = until - time.monotonic()
+                    if left <= 0:
+                        raise TimeoutError('it took longer than %d seconds' % WAIT)
+                    sock.settimeout(left)
+                    got = r.read1(min(1 << 16, ANSWER + 1 - len(answer)))
+                    if not got:
+                        break
+                    answer += got
+            finally:
+                c.close()
+        except (OSError, http.client.HTTPException) as e:
+            why = 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or str(e) or type(e).__name__)
+            # that there is none is an answer and not a failure: the page asks on every load, and a browser writes every
+            # failed request to its console. Each address is answered in its own form, with why.
+            self.reply(200, {'ok': False, 'error': why, **({'results': {}, 'errors': {'*': why}} if to == '/run' else {})})
+            return True
+        if 300 <= status < 400:                                    # it is never followed: the request goes to the backend and nowhere else
+            self.reply(502, {'error': 'the backend answered by sending the request elsewhere, which is not followed'})
+        elif len(answer) > ANSWER:
+            self.reply(502, {'error': 'the backend answered with more than %d MB' % (ANSWER >> 20)})
+        else:
+            self.reply(status, answer)
+        return True
+
+    def read_within(self, length, seconds):
+        """A request's body of that length, or None where it has not all come within that many seconds in all: the
+        time is counted from the start, so a client that sends a little now and then is not waited on for ever."""
+        got, until = [], time.monotonic() + seconds
+        try:
+            while length > 0:
+                left = until - time.monotonic()
+                if left <= 0:
+                    return None
+                self.connection.settimeout(left)
+                part = self.rfile.read1(min(length, 1 << 16))
+                if not part:
+                    return None
+                got.append(part)
+                length -= len(part)
+        except (OSError, ValueError):
+            return None
+        finally:
+            self.connection.settimeout(None)
+        return b''.join(got)
+
+    def do_POST(self):
+        if not self.backend():
+            self.reply(404, {'error': 'not found'})
 
     def do_HEAD(self):
         if self.hidden() or self.address().startswith('/api/'):

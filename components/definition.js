@@ -28,7 +28,7 @@
                   look is how to write the left-hand matrix: createMatrix's letter, color, values and product.
    Where the entries can be pressed, the canvas hands the click to the page, which decides what it means. */
 import { html, style } from './dom.js';
-import { createMatrix } from './matrix.js';
+import { createMatrix, valuesKey } from './matrix.js';
 
 style('definition', `
 .definition { position: absolute; left: 0; top: 0; pointer-events: none; }
@@ -64,7 +64,7 @@ export function createDefinition({ cols, rows, unit, name = '', letter = 'x', co
     const wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows || !named(type.colsName, colsName) || !named(type.rowsName, rowsName));
     el.classList.toggle('wrong', wrong); sign.textContent = wrong ? '≠' : '='; slot.hidden = !!type;
     /* the left side, rewritten only when it would read differently; it ends one unit before the sign */
-    const key = !type ? '' : type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + (type.colsName || '') + '/' + (type.rowsName || '') + JSON.stringify({ ...look, values: look.values ? [...look.values] : [] });
+    const key = !type ? '' : type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + (type.colsName || '') + '/' + (type.rowsName || '') + JSON.stringify({ ...look, values: valuesKey(look.values) });
     if (key !== showing){ showing = key; left?.remove(); left = null;
       if (type && type.error){ left = html`<div class="definition-error"></div>`; left.textContent = type.error; Object.assign(left.style, { left: -unit + 'px', top: level + 'px' }); }
       else if (type){ const m = createMatrix({ cols: type.cols, rows: type.rows, colsName: type.colsName, rowsName: type.rowsName, cell: unit, ...look }); left = m.el;

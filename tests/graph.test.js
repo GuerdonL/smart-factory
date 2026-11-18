@@ -430,7 +430,8 @@ const good = () => build(snap([
   B('M', 0, 50, 4, 2), arrow('f', { id: 'M', as: 'block' }, { side: 's', formula: 'max(x, 0)' }, { x: 0, y: 52 }),                     /* repeated in tile t1 */
   B('Row', 0, 60, 4, 1), arrow('out', { id: 't2', as: 'tile' }),
   B('Z', 40, 40, 2, 2, { source: 'zeros' }), B('part', 50, 50, 2, 2, { name: 'Shape 5', from: { id: 'W', range: { col: 0, row: 0, cols: 2, rows: 2, toEnd: { cols: false, rows: false } } } }),
-  B('At', 60, 60, 2, 3, { name: 'A', variable: 3, reference: true, transposed: true }), arrow('relu', { id: 'C', as: 'block' }, { span: 2, formula: 'max(x, @[s:m])' })],
+  B('At', 60, 60, 2, 3, { name: 'A', variable: 3, reference: true, transposed: true }), arrow('relu', { id: 'C', as: 'block' }, { span: 2, formula: 'max(x, @[s:m])' }),
+  B('Nz', 70, 70, 2, 2, { source: { noise: { seed: 1, dist: 'normal' } } }), B('Fl', 80, 80, 2, 2, { source: { file: 'data/w.csv' } })],
   [{ id: 't1', name: null, members: [11], groups: [], repeat: { x: 0, y: 52, cols: 1, rows: 2, across: 4, down: 1 } }, { id: 't2', name: null, members: [12], groups: [], repeat: { x: 0, y: 60, cols: 4, rows: 1, across: 1, down: 2 } }]));
 const refused = (change, what) => { const g = JSON.parse(JSON.stringify(good())); change(g); const bad = validate(g); assert.ok(bad.length > 0, 'refused: ' + what); assert.ok(bad.every(b => typeof b === 'string')); return bad; };
 const first = (g, op) => Object.entries(g.nodes).find(([, n]) => n.op === op)[1];
@@ -735,4 +736,54 @@ test('a function\'s input is in the graph only with its function', () => {
 test('a block seated on an output of another size has the size error: the arrow has none', () => {
   const g = make(snap([B('V', 0, 0, 4, 3), arrow('f', { id: 'V', as: 'block' }, { span: 3 }), B('H', 9, 0, 2, 2, { seat: 'f' })]));
   assert.deepEqual(g.spaces.top.arrows[0], { arrow: 'f', node: 'v:V', error: null }); assert.deepEqual(g.nodes['v:H'].error, { code: 'size', note: '4 × 3 ≠ 2 × 2' });
+});
+
+/* ---- phase 7: noise and data files ---- */
+test('phase 7: a noise block is a variable over a noise node keyed by its source block; a file source names its path', () => {
+  const g = make(snap([B('N', 0, 0, 4, 4, { variable: 1, source: { noise: { seed: 5, dist: 'normal' } } }), B('Nref', 30, 30, 4, 4, { name: 'N', variable: 1, reference: true, source: { noise: { seed: 5, dist: 'normal' } } }),
+    B('W', 10, 0, 2, 3, { source: { file: 'data/w.csv' } }), B('E', 20, 0, 2, 2, { source: { file: null } }), B('U', 40, 0, 1, 1, { source: { noise: {} } })]));
+  const n = g.nodes['v:N']; assert.equal(n.defined, 'source'); assert.deepEqual(n.inputs, ['noise(5;normal;N;4×4)']);
+  assert.deepEqual(g.nodes[n.inputs[0]], { op: 'noise', inputs: [], type: { cols: 4, rows: 4, colsName: null, rowsName: null }, seed: 5, dist: 'normal', key: 'N' });
+  assert.equal(g.blocks.Nref, 'v:N');      /* every use of the variable is the one node: the same numbers */
+  assert.deepEqual(g.nodes[g.nodes['v:W'].inputs[0]], { op: 'source', inputs: [], type: { cols: 2, rows: 3, colsName: null, rowsName: null }, kind: 'file', path: 'data/w.csv' });
+  assert.deepEqual(g.nodes['v:E'].error, { code: 'no-source', note: 'no file has been chosen for it' });
+  assert.deepEqual(g.nodes[g.nodes['v:U'].inputs[0]].seed, 0);
+  /* moved, the graph is the same: the key is the block, never the place. Resized, the seed and the key stay */
+  const moved = build(snap([B('N', 50, -7, 4, 4, { source: { noise: { seed: 5, dist: 'normal' } } })])), there = build(snap([B('N', 0, 0, 4, 4, { source: { noise: { seed: 5, dist: 'normal' } } })]));
+  assert.equal(JSON.stringify(moved), JSON.stringify(there));
+  const wider = build(snap([B('N', 0, 0, 9, 4, { source: { noise: { seed: 5, dist: 'normal' } } })])).nodes['noise(5;normal;N;9×4)'];
+  assert.deepEqual([wider.seed, wider.dist, wider.key], [5, 'normal', 'N']);
+});
+test('phase 7: noise in a tile follows its cell, and is marked so', () => {
+  const g = make(snap([B('N', 0, 0, 2, 1, { source: { noise: {} } })], [{ id: 't1', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 3, down: 1 } }]));
+  assert.deepEqual(g.nodes['v:N'].within, ['t:t1']); assert.deepEqual(g.nodes[g.nodes['v:N'].inputs[0]].within, ['t:t1']);
+  assert.equal(g.spaces.top.tiles[0].node, 'repeat(v:N@0,0;2×1;3×1)');
+});
+test('phase 7: validate refuses a noise or a file source that is not in its stated form', () => {
+  const noiseOf = g => first(g, 'noise'), fileOf = g => Object.values(g.nodes).find(n => n.op === 'source' && n.kind === 'file');
+  refused(g => { noiseOf(g).seed = 1.5; }, 'a seed that is no whole number'); refused(g => { noiseOf(g).seed = '1'; }, 'a seed that is text'); refused(g => { delete noiseOf(g).seed; }, 'no seed');
+  refused(g => { noiseOf(g).dist = 'cauchy'; }, 'a distribution there is none of'); refused(g => { noiseOf(g).key = ''; }, 'no key'); refused(g => { noiseOf(g).key = 7; }, 'a key that is no id');
+  refused(g => { noiseOf(g).inputs = ['v:s']; }, 'noise with an input'); refused(g => { noiseOf(g).type.cols = 3; }, 'a variable over noise of another size');
+  for (const path of ['../w.csv', 'data/../w.csv', '/etc/passwd', 'data/w.txt', 'data/a/b.csv', '', null, 7, 'data/w.csv\0']) refused(g => { fileOf(g).path = path; }, 'the path ' + path);
+  refused(g => { delete fileOf(g).path; }, 'a file with no path'); refused(g => { first(g, 'source').kind = 'zeros'; first(g, 'source').path = 'data/w.csv'; delete first(g, 'source').path; first(g, 'source').path = 'x'; }, 'a path on what is no file');
+  refused(g => { fileOf(g).kind = { file: 1 }; }, 'a kind that is no word');
+});
+
+test('phase 7: a type may gain fields: validate checks its four and lets any other be', () => {
+  const g = JSON.parse(JSON.stringify(good()));
+  for (const n of Object.values(g.nodes)) n.type = { ...n.type, axes: [{ length: n.type.cols, name: null }], inner: 0 };
+  assert.deepEqual(validate(g), []);
+  refused(h => { first(h, 'matmul').type = { cols: 4, rows: 2, colsName: null }; }, 'a type with one of its four fields gone');
+  refused(h => { first(h, 'matmul').type.rowsName = 7; }, 'a side name that is no text');
+});
+
+/* the same cases, with the same verdicts, are in backend/tests/test_check.py: "the bounds of a formula are graph.js's" */
+export const FORMULA_BOUNDS = [[Array.from({ length: 5000 }, () => '1').join('+'), true], [Array.from({ length: 5000 }, () => '1').join('+') + '+', false], [Array.from({ length: 3334 }, () => '$1').join('+'), false],
+  ['('.repeat(64) + '$1' + ')'.repeat(64), true], ['('.repeat(65) + '$1' + ')'.repeat(65), false], ['-'.repeat(64) + '1', true], ['-'.repeat(65) + '1', false], ['2' + '^2'.repeat(64), true], ['2' + '^2'.repeat(65), false],
+  ['√'.repeat(64) + '4', true], ['√'.repeat(65) + '4', false], ['abs('.repeat(64) + '1' + ')'.repeat(64), true], ['abs('.repeat(65) + '1' + ')'.repeat(65), false], ['('.repeat(5000) + '1' + ')'.repeat(5000), false], ['1'.repeat(10000), true], ['1'.repeat(10001), false]];
+test('after review (phase 7): a formula in a graph is bounded as the backend bounds it: 10,000 characters, 64 deep, and a long sum is read', () => {
+  for (const [expr, ok] of FORMULA_BOUNDS){ const g = JSON.parse(JSON.stringify(good()));
+    const v = Object.values(g.nodes).find(n => n.op === 'variable' && n.inputs.length && Object.values(n.entries).some(e => e && e.expr));
+    for (const k of Object.keys(v.entries)) if (v.entries[k] && v.entries[k].expr) v.entries[k] = { expr };
+    assert.equal(validate(g).length === 0, ok, expr.slice(0, 30) + '… (' + expr.length + ')'); }
 });

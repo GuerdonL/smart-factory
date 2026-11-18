@@ -1,7 +1,7 @@
 /* The properties of what is selected: a small panel that comes up in the corner while one shape is selected, with
    every attribute of the variable together, each of them editable.
 
-   createProperties({ onName(text), onValue(key, text), onLabel(key, text), onAdd(), onEntry(key, text), textOf(key), look, reach, onOpen, onClose }) -> { el, show(what), focus(k) }
+   createProperties({ onName(text), onValue(key, text), onLabel(key, text), onAdd(), onAction(key), onEntry(key, text), textOf(key), look, reach, onOpen, onClose }) -> { el, show(what), focus(k) }
      show   takes what to put up, or null to take the panel down:
               { id, name, color, cols, rows, scalar, matrix, attributes, notes, shape, plain, fixed }
               id           whatever tells one shape from another: the panel is kept as it is while this stays the same
@@ -24,6 +24,8 @@
                            field opens holding textOf("c,r"), what the entry holds as it would be typed, and what
                            is typed is handed to onEntry("c,r", text).
               notes        lines written under the matrix in the warning colour: why an entry shows the error mark
+              actions      [{ key, label }]: buttons under the rows, each handed to onAction(key) when pressed (a file
+                           source's "Choose a CSV file…")
      A plus button under the attributes adds one (onAdd).
      focus  puts the cursor in a cell the next time the panel is drawn: "a2.label", "x.value"
      look, reach, onOpen, onClose   handed on to every formula field the panel makes (formula.js): how a capsule is
@@ -32,7 +34,7 @@
    Every value is typed in a formula field (formula.js): Enter or clicking away keeps it, Escape puts it back. A
    label is plain text, typed over in place the same way. */
 import { html, style, editText } from './dom.js';
-import { createMatrix } from './matrix.js';
+import { createMatrix, valuesKey } from './matrix.js';
 import { createFormula } from './formula.js';
 
 style('properties', `
@@ -59,6 +61,8 @@ style('properties', `
 .properties-add { all: unset; box-sizing: border-box; align-self: flex-start; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font: 15px/20px var(--font-ui); text-align: center; cursor: pointer; }
 .properties-add:hover { color: var(--fg); background: var(--hover); }
 .properties-add:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.properties-action { font: 13px var(--font-ui); color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; cursor: pointer; }
+.properties-action:hover { background: var(--hover); } .properties-action:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .properties-value { padding: 5px 7px 3px; align-self: flex-start; }
 .properties-value .matrix { position: relative; }
 .properties-value .matrix > span[data-c] { cursor: text; }
@@ -68,9 +72,9 @@ style('properties', `
 
 const CELL = 26;
 
-export function createProperties({ onName = () => {}, onValue = () => {}, onLabel = () => {}, onAdd = () => {}, onEntry = () => {}, textOf = () => '', look = () => null, reach = () => [], onOpen = () => {}, onClose = () => {} } = {}){
-  const el = html`<div class="properties" aria-label="Properties" hidden><div class="properties-name" tabindex="0"></div><div class="properties-shape"></div><div class="properties-rows"></div><button type="button" class="properties-add" aria-label="Add an attribute" title="Add an attribute">+</button><div class="properties-value"></div><div class="properties-notes" hidden></div></div>`;
-  const [name, shape, rows, add, value, notes] = el.children;
+export function createProperties({ onName = () => {}, onValue = () => {}, onLabel = () => {}, onAdd = () => {}, onAction = () => {}, onEntry = () => {}, textOf = () => '', look = () => null, reach = () => [], onOpen = () => {}, onClose = () => {} } = {}){
+  const el = html`<div class="properties" aria-label="Properties" hidden><div class="properties-name" tabindex="0"></div><div class="properties-shape"></div><div class="properties-rows"></div><button type="button" class="properties-add" aria-label="Add an attribute" title="Add an attribute">+</button><div class="properties-actions" hidden></div><div class="properties-value"></div><div class="properties-notes" hidden></div></div>`;
+  const [name, shape, rows, add, actions, value, notes] = el.children;
   let showing = '', want = null, held = null, shownId = null;      /* want: the cell to put the cursor in once drawn; held: what was last asked to be shown while a cell was being typed in */
   el.addEventListener('contextmenu', e => e.stopPropagation());
   el.addEventListener('pointerdown', e => { const c = e.target.closest?.('[data-k]'); want = c && !c.matches(':focus') ? c.dataset.k : null; e.stopPropagation(); });
@@ -96,7 +100,7 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
   const self = { el, focus(k){ want = k; },
     show(what){
       if (!what){ el.hidden = true; showing = ''; held = null; return; }
-      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.notes, what.shape, what.plain, what.fixed, what.matrix && { ...what.matrix, values: [...(what.matrix.values || [])] }]);
+      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.notes, what.shape, what.plain, what.fixed, what.actions, what.matrix && { ...what.matrix, values: valuesKey(what.matrix.values) }]);
       if (key === showing && !want) return;
       if (el.contains(document.activeElement) && document.activeElement.isContentEditable && what.id === shownId){ held = what; return; }      /* being typed in: drawn again when that is done */
       showing = key; held = null; shownId = what.id;
@@ -110,9 +114,10 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
         if (a.error){ const r = html`<span class="outcome error"></span>`; r.textContent = a.error; cellV.append(r); }
         else if (a.result != null){ const r = html`<span class="outcome"></span>`; r.textContent = '= ' + a.result; cellV.append(r); }
         rows.append(label, cellV); }
+      actions.replaceChildren(...(what.actions || []).map(a => { const b = html`<button type="button" class="properties-action"></button>`; b.textContent = a.label; b.addEventListener('click', () => onAction(a.key)); return b; })); actions.hidden = !what.actions?.length;
       if (!what.matrix){ value.replaceChildren(); notes.replaceChildren(...(what.notes || []).map(n => { const p = html`<div></div>`; p.textContent = n; return p; })); notes.hidden = !what.notes?.length; el.hidden = false;
         if (want){ const c = el.querySelector(`[data-k="${CSS.escape(want)}"]`); want = null; if (c) c.focus(); } return; }
-      const m = createMatrix({ ...what.matrix, cols: what.cols, rows: what.rows, cell: CELL });
+      const m = createMatrix({ ...what.matrix, cols: what.cols, rows: what.rows, cell: CELL, noteMax: 11 * CELL });      /* (a note longer than the panel has room for is cut short there: the notes beneath say it in full) */
       /* an entry pressed: a formula field opens over it, holding what the entry holds (its formula, not what that comes to) */
       m.el.addEventListener('click', e => { const s = e.target.closest('span[data-c]'); if (!s || s.querySelector('.formula') || what.fixed) return; const k = s.dataset.c + ',' + s.dataset.r, was = [...s.childNodes];
         const f = createFormula({ text: textOf(k), look, reach, onOpen, onClose, onKeep: text => { s.replaceChildren(...was); showing = ''; onEntry(k, text); }, onLeave: () => s.replaceChildren(...was) });

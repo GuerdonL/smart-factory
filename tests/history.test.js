@@ -122,3 +122,18 @@ test('if restoring fails, the error comes out and history goes on listening', as
   bus.send('add'); await turn();
   assert.equal(history.undo(), 'add'); assert.equal(project.n, 1);
 });
+
+test('states gives every state a step back or forward can still put back, and no others', async () => {
+  const { bus, history } = setup({ limit: 2 }), ns = () => [...new Set(history.states().map(s => s.n))].sort((a, b) => a - b);
+  assert.deepEqual(history.states(), []);
+  bus.send('add'); await turn();
+  assert.deepEqual(ns(), [0, 1]);      /* the one step: where it came from and where it went */
+  bus.send('add'); await turn(); history.undo();
+  assert.deepEqual(ns(), [0, 1, 2]);      /* an undone step can be redone: its states are still to come back to */
+  bus.send('add', { by: 10 }); await turn();
+  assert.deepEqual(ns(), [0, 1, 11]);      /* a new step ends what could be redone: 2 cannot be come back to */
+  bus.send('add'); await turn();
+  assert.deepEqual(ns(), [1, 11, 12]);      /* past the limit the oldest step is let go, and its state with it */
+  bus.send('nothing'); await turn(); assert.equal(history.states().length, 4);      /* a message that changed nothing adds none */
+  history.clear(); assert.deepEqual(history.states(), []);
+});

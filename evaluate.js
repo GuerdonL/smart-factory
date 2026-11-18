@@ -10,6 +10,8 @@
                                                worked out from, has more than maxEntries entries
         | { error: { code, note, node } }      its value is worked out from a variable that has an error; node is
                                                that variable's id. (Also for an id the graph has not got: no-source.)
+        | { type, deferred: true, backend: true }   it is worked out from noise or from a data file, whose numbers
+                                               only the backend has (backend/): nothing here can say them
    It never throws, for a well-formed graph (graph.js: validate) or any other, and it finishes: a function that
    reaches itself, which validate refuses, is the error loop here and not an endless descent, and whatever else
    goes wrong in a graph that is not well formed is the error no-source with what went wrong for its note.
@@ -49,11 +51,12 @@
 
    binding says where a node is being looked at from, for a caller that draws what is inside a function or a tile:
        { params: { "<function id>": "<node id>" | { of: "<node id>", range: { col, row, cols, rows } } },
-         cells:  [ { x, y, dx, dy, turned, of: ["t:<frame id>"], at: { "<node id>": { col, row } } } ] }
+         cells:  [ { x, y, dx, dy, cx, cy, turned, of: ["t:<frame id>"], at: { "<node id>": { col, row } } } ] }
    params gives a function's input its value (a node, or a part of one), so that the nodes of its body can be asked
    for; cells is the chain of tile cells the node sits in, outermost first: x and y are the columns and rows of
    the filled tile that lie before the cell, dx and dy those of the pattern that lie before the node asked for
-   (graph.js: indexAt), and at says where in the pattern other nodes lie, so that a piece of two blocks of one tile
+   (graph.js: indexAt), cx and cy which cell it is, counted from 1 (left out: the first; only noise reads them, and
+   only the backend makes noise), and at says where in the pattern other nodes lie, so that a piece of two blocks of one tile
    gives each its own place. Any of it may be left out.
 
    The rules are handed `at`, which is everything they may ask:
@@ -94,7 +97,7 @@ const under = (map, id) => { if (!map.has(id)) map.set(id, new Map()); return ma
 const fnsOf = n => (Array.isArray(n.within) ? n.within : []).filter(w => typeof w === 'string' && w[0] === 'f');
 const cellKey = c => `${c.x},${c.y},${c.dx},${c.dy}${c.turned ? 't' : ''}@${c.atKey}`;
 const cellsKey = cells => cells.map(cellKey).join(';');
-const aCell = c => ({ x: Number(c.x) || 0, y: Number(c.y) || 0, dx: Number(c.dx) || 0, dy: Number(c.dy) || 0, turned: !!c.turned, of: Array.isArray(c.of) && c.of.length && c.of.every(t => typeof t === 'string') ? c.of : null, at: c.at && typeof c.at === 'object' ? c.at : null, atKey: c.at && typeof c.at === 'object' ? (c.atKey ?? JSON.stringify(c.at)) : '' });
+const aCell = c => ({ x: Number(c.x) || 0, y: Number(c.y) || 0, dx: Number(c.dx) || 0, dy: Number(c.dy) || 0, cx: Number.isInteger(c.cx) && c.cx >= 1 ? c.cx : 1, cy: Number.isInteger(c.cy) && c.cy >= 1 ? c.cy : 1, turned: !!c.turned, of: Array.isArray(c.of) && c.of.length && c.of.every(t => typeof t === 'string') ? c.of : null, at: c.at && typeof c.at === 'object' ? c.at : null, atKey: c.at && typeof c.at === 'object' ? (c.atKey ?? JSON.stringify(c.at)) : '' });
 /* what a node's value is remembered under, beside its id: every binding it sits under */
 function keyFor(graph, st, id, n, env){
   const inCells = env.cells.length > 0 && follows(graph, st, id), fns = fnsOf(n);
@@ -106,15 +109,16 @@ function needsOf(graph, st, id, open = new Set()){
   const n = nodeAt(graph, id);
   if (!n) return { most: 0, bad: { code: 'no-source', note: 'no such node', node: String(id) } };
   let most = n.type.cols * n.type.rows, bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
-  if (open.has(id)) return { most, bad: bad || { code: 'loop', note: '', node: id } };
+  let remote = n.op === 'noise' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
+  if (open.has(id)) return { most, bad: bad || { code: 'loop', note: '', node: id }, remote };
   open.add(id);
   const ins = n.inputs.map(i => nodeAt(graph, i)), rule = OPS[n.op];
   const read = ins.every(Boolean) ? (rule.needs ? rule.needs(n, ins) : n.inputs.map((_, k) => k)).map(k => n.inputs[k]) : n.inputs;
   const applies = (n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined, body = applies ? fnAt(graph, n.fn) : null;
-  for (const dep of body ? [...read, body.body] : read){ const d = needsOf(graph, st, dep, open); most = Math.max(most, d.most); bad = bad || d.bad; }
+  for (const dep of body ? [...read, body.body] : read){ const d = needsOf(graph, st, dep, open); most = Math.max(most, d.most); bad = bad || d.bad; remote = remote || !!d.remote; }
   if (applies && !body) bad = bad || { code: 'no-source', note: 'no such function', node: id };
   open.delete(id);
-  const out = { most, bad }; st.needs.set(id, out); return out;
+  const out = { most, bad, remote }; st.needs.set(id, out); return out;
 }
 /* The tiles each block's node is itself in, and which tiles each repeat is the matrix of, read off the graph's spaces.
    homes: node id -> Set of tile ids, for every node that stands for a block listed in a space (in a piece or in a
@@ -175,8 +179,9 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
   try {
     const given = Object.entries((binding && binding.params) || {}).filter(([, spec]) => spec && (typeof spec === 'string' || typeof spec.of === 'string'));
     const needs = [needsOf(graph, st, nodeId), ...given.map(([, spec]) => needsOf(graph, st, typeof spec === 'string' ? spec : spec.of))];
-    if (needs.some(d => d.most > maxEntries)) return done({ type: n.type, deferred: true });
+    if (needs.some(d => d.most > maxEntries)) return done({ type: n.type, deferred: true, ...(needs.some(d => d.remote) ? { backend: true } : {}) });
     const bad = needs.map(d => d.bad).find(Boolean); if (bad) return done({ error: bad });
+    if (needs.some(d => d.remote)) return done({ type: n.type, deferred: true, backend: true });
     const env = { params: Object.fromEntries(given.map(([fn, spec]) => [fn, { spec, key: 'given ' + bkey }])), active: [],
       cells: ((binding && Array.isArray(binding.cells) && binding.cells) || []).filter(c => c && typeof c === 'object').map(aCell) };
     const values = run(graph, st, nodeId, env), entries = {};
