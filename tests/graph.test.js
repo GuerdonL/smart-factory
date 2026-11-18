@@ -776,3 +776,14 @@ test('phase 7: a type may gain fields: validate checks its four and lets any oth
   refused(h => { first(h, 'matmul').type = { cols: 4, rows: 2, colsName: null }; }, 'a type with one of its four fields gone');
   refused(h => { first(h, 'matmul').type.rowsName = 7; }, 'a side name that is no text');
 });
+
+/* the same cases, with the same verdicts, are in backend/tests/test_check.py: "the bounds of a formula are graph.js's" */
+export const FORMULA_BOUNDS = [[Array.from({ length: 5000 }, () => '1').join('+'), true], [Array.from({ length: 5000 }, () => '1').join('+') + '+', false], [Array.from({ length: 3334 }, () => '$1').join('+'), false],
+  ['('.repeat(64) + '$1' + ')'.repeat(64), true], ['('.repeat(65) + '$1' + ')'.repeat(65), false], ['-'.repeat(64) + '1', true], ['-'.repeat(65) + '1', false], ['2' + '^2'.repeat(64), true], ['2' + '^2'.repeat(65), false],
+  ['√'.repeat(64) + '4', true], ['√'.repeat(65) + '4', false], ['abs('.repeat(64) + '1' + ')'.repeat(64), true], ['abs('.repeat(65) + '1' + ')'.repeat(65), false], ['('.repeat(5000) + '1' + ')'.repeat(5000), false], ['1'.repeat(10000), true], ['1'.repeat(10001), false]];
+test('after review (phase 7): a formula in a graph is bounded as the backend bounds it: 10,000 characters, 64 deep, and a long sum is read', () => {
+  for (const [expr, ok] of FORMULA_BOUNDS){ const g = JSON.parse(JSON.stringify(good()));
+    const v = Object.values(g.nodes).find(n => n.op === 'variable' && n.inputs.length && Object.values(n.entries).some(e => e && e.expr));
+    for (const k of Object.keys(v.entries)) if (v.entries[k] && v.entries[k].expr) v.entries[k] = { expr };
+    assert.equal(validate(g).length === 0, ok, expr.slice(0, 30) + '… (' + expr.length + ')'); }
+});

@@ -230,14 +230,17 @@ export function indexAt(cells, c, r){
 
 /* ---- formulas in the graph ---- */
 const DOLLAR = /^\$([1-9]\d*)$/;
+const LONGEST = 10000, DEEPEST = 64;            /* a formula in a graph is at most this long, and nests at most this deep: the backend reads it with these bounds (backend/limits.py), and the two validators are to agree */
 const FUNCS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']), CONSTS = new Set(['inf', 'infinity', 'true', 'false']);
-/* Whether a formula is one the graph may hold: it reads as arithmetic (expression.js), it holds no capsule, and every
+/* Whether a formula is one the graph may hold: it reads as arithmetic (expression.js), it is no longer than LONGEST
+   characters and nests no deeper than DEEPEST, it holds no capsule, and every
    name in it is $1 to $most, index.x or index.y, or (in an arrow's formula) x, i or j. Nothing a node depends on
    can then be hidden in it. An attribute's may be empty: it has no value yet. */
 function formulaOk(text, most, { arrow = false, empty = false } = {}){
   if (typeof text !== 'string') return false;
   if (!text.trim()) return empty;
-  const got = namesIn(text); if (got.why || got.capsules.length) return false;
+  if (text.length > LONGEST) return false;
+  const got = namesIn(text); if (got.why || got.capsules.length || got.deep > DEEPEST) return false;
   return got.names.every(name => { const m = name.match(DOLLAR); return m ? +m[1] <= most : tiles.axisOf(name) !== null || (arrow && ['x', 'i', 'j'].includes(name.toLowerCase())); });
 }
 /* what a name in a graph's formula stands for. first: which input $1 is; size: the output's, for an input that is a

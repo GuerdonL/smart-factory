@@ -274,6 +274,15 @@ test('a name that an object would have of its own accord is a name like any othe
     assert.equal(evaluate(name + ' + 1', n => n === name ? 4 : undefined).value, 5); }
 });
 test('what a text names is said without working it out', () => {
-  assert.deepEqual(namesIn('max(x, $1) * inf + Keys.x + @[b1:m] + true'), { names: ['x', '$1', 'Keys.x'], capsules: [{ id: 'b1', measure: 'm', name: null }] });
-  assert.equal(typeof namesIn('(((').why, 'string'); assert.deepEqual(namesIn('constructor'), { names: ['constructor'], capsules: [] });
+  assert.deepEqual(namesIn('max(x, $1) * inf + Keys.x + @[b1:m] + true'), { names: ['x', '$1', 'Keys.x'], capsules: [{ id: 'b1', measure: 'm', name: null }], deep: 1 });      /* deep: how far it nests (one bracket) */
+  assert.equal(typeof namesIn('(((').why, 'string'); assert.deepEqual(namesIn('constructor'), { names: ['constructor'], capsules: [], deep: 0 });
+  assert.equal(namesIn('-(2^-(√(1)))').deep, 7); assert.equal(namesIn('1 + 2 * 3 - 4').deep, 0);
+});
+
+test('after review (phase 7): a sum of five thousand terms is read and worked out, not deeper than the stack', () => {
+  const long = Array.from({ length: 5000 }, (_, i) => i % 2 ? '$1' : '1').join(' + ');
+  assert.deepEqual(namesIn(long).names.length, 2500);
+  assert.deepEqual(evaluate(long, n => n === '$1' ? 2 : undefined).value, 7500);
+  assert.deepEqual(evaluate(Array.from({ length: 3000 }, () => '2').join(' - ')).value, -5996);      /* and grouped from the left, as ever */
+  assert.deepEqual(evaluate('1 - 2 - 3 * 4 - 5').value, -18);
 });

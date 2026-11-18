@@ -94,6 +94,15 @@ class OnItsOwn(unittest.TestCase):
             g['nodes']['c'] = dict(variable(1, 1, [[{'expr': expr}]]), inputs=['a'])
             self.assertEqual(validate(g) == [], ok, expr[:40])
 
+    def test_the_bounds_of_a_formula_are_graph_js_s(self):
+        """The same cases, with the same verdicts, as FORMULA_BOUNDS in tests/graph.test.js."""
+        for expr, ok in [('+'.join(['1'] * 5000), True), ('+'.join(['1'] * 5000) + '+', False), ('+'.join(['$1'] * 3334), False), ('(' * 64 + '$1' + ')' * 64, True), ('(' * 65 + '$1' + ')' * 65, False),
+                         ('-' * 64 + '1', True), ('-' * 65 + '1', False), ('2' + '^2' * 64, True), ('2' + '^2' * 65, False), ('√' * 64 + '4', True), ('√' * 65 + '4', False),
+                         ('abs(' * 64 + '1' + ')' * 64, True), ('abs(' * 65 + '1' + ')' * 65, False), ('(' * 5000 + '1' + ')' * 5000, False), ('1' * 10000, True), ('1' * 10001, False)]:
+            g = self.good()
+            g['nodes']['c'] = dict(variable(1, 1, [[{'expr': expr}]]), inputs=['a'])
+            self.assertEqual(validate(g) == [], ok, '%s… (%d)' % (expr[:30], len(expr)))
+
     def test_a_data_path_is_one_file_under_data(self):
         for ok in ['data/a.csv', 'data/My Weights-2.v1.csv']:
             self.assertEqual(data_path(ok), ok)

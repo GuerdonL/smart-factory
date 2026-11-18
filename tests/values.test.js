@@ -265,3 +265,16 @@ test('speed: fractions and single roots are worked out directly too, with no sol
     assert.ok(performance.now() - t0 < 1000);
   } finally { globalThis.nerdamer = kept; }
 });
+
+test('after review (phase 7): the solver is exact again after it was asked for a number and threw, so no irrational value comes back as a fraction', () => {
+  /* 0 to a power below 0, asked for as a number, throws inside the solver, which then stayed in its numeric mode: every
+     later answer was a fraction near the value, written as if exact */
+  const half = { n: 1, d: 2, k: 0 }, tanh2 = apply('tanh', -2);
+  assert.ok(isError(apply('sqrt', combine('^', combine('-', half, half), tanh2))) || true);      /* the question that used to leave it so */
+  assert.equal(globalThis.nerdamer.get('PARSE2NUMBER'), false);
+  const e = apply('erf', -2); assert.deepEqual(e, { sym: 'erf(-2)' });
+  assert.deepEqual(combine('-', 0, combine('^', half, e)), { sym: '-2^(-erf(-2))' });      /* -(1/2)^erf(-2): irrational, and kept as what it is */
+  assert.equal(kind(apply('tanh', combine('-', 3, { n: 1, d: 3, k: 0 }))), 'symbolic');
+  assert.equal(kind(combine('+', half, apply('tanh', -3))), 'symbolic'); assert.equal(kind(apply('exp', combine('-', 6, 27))), 'symbolic');
+  assert.deepEqual(apply('exp', 0), 1); assert.deepEqual(combine('*', apply('exp', 1), 0), 0);      /* what does come out exactly still does */
+});

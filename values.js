@@ -199,6 +199,7 @@ function solve(text, single = true){
   return said.get(key);
 }
 function solveNow(N, typed, single){
+  exactly(N);
   let answer; try { answer = N(typed); } catch (e){ const m = String(e.message || e);
     return err(/zero/i.test(m) ? DIV0 : 'that cannot be worked out'); }
   let text = answer.toString(); if (/(^|[^a-z])i([^a-z]|$)/.test(text)) return err(EVEN);
@@ -235,10 +236,15 @@ function solveNow(N, typed, single){
 }
 /* whether a text's brackets all close within it, so that abs(a)+abs(b) is not taken for one abs */
 const closes = t => { let d = 0; for (const c of t){ if (c === '(') d++; else if (c === ')' && --d < 0) return false; } return d === 0; };
+/* The solver works in numbers only while it is asked for one (evaluate), and is to be exact again after. It does not
+   put itself back where the asking throws (0 to a power below 0, say): from then on it would answer everything in
+   numbers, and an irrational value would come back as a fraction that looks exact (-173472523/87017948 for
+   -(1/2)^erf(-2)). So it is put back here, every time, whatever happened. */
+const exactly = N => { try { if (N.get('PARSE2NUMBER')) N.set('PARSE2NUMBER', false); } catch (e){ /* a solver with no such setting has nothing to put back */ } };
 /* what the solver's text comes to as a number, at its own precision: used only to tell a sign, never shown */
 const numbers = new Map();
 function numeric(N, text){
-  if (!numbers.has(text)){ if (numbers.size > 4000) numbers.clear(); let n; try { n = Number(N(text).evaluate().text('decimals')); } catch (e){ n = NaN; } numbers.set(text, n); }
+  if (!numbers.has(text)){ if (numbers.size > 4000) numbers.clear(); let n; try { n = Number(N(text).evaluate().text('decimals')); } catch (e){ n = NaN; } finally { exactly(N); } numbers.set(text, n); }
   return numbers.get(text);
 }
 
