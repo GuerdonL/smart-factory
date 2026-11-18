@@ -1443,7 +1443,7 @@ function remove(also = []){                      /* also: blocks anywhere that g
    them (its variable went, or everything made of it did: see doomed): its operation goes with it, with every shape
    the operation made, and the operation's other kept block, if that is not going too, is put back where it was. */
 function discard(blocks){
-  const going = new Set(blocks), touched = new Set([space]), spaces = everySpace(), ended = [];
+  const going = new Set(blocks), dirty = new Set([space]), spaces = everySpace(), ended = [];
   for (const s of spaces) for (const o of s.ops) if (o.sources.some(b => going.has(b))){ ended.push([s, o]);
     for (const id of o.results){ const made = everyKnown().find(k => k.id === id); if (made) going.add(made); } }
   /* a length taken from a shape that is going, while another use of that variable stays, is taken from that one instead */
@@ -1455,11 +1455,11 @@ function discard(blocks){
       for (const a of attrsOf(d)) if (refersTo(a.text, ids)) a.text = repoint(a.text, b.id, stay.id);
       if (d.fn?.formula && refersTo(d.fn.formula, ids)) d.fn.formula = repoint(d.fn.formula, b.id, stay.id); }
     for (const s of everySpace()) for (const r of s.repeats.values()) for (const k of ['across', 'down']) if (typeof r[k] === 'object' && refersTo(r[k].expr, ids)) r[k] = { expr: repoint(r[k].expr, b.id, stay.id) }; }      /* and a tile's count */
-  for (const b of going){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
-  for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); touched.add(s);
+  for (const b of going){ const s = spaceWith(b); if (!s) continue; dirty.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
+  for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); dirty.add(s);
     putBack(s, o.sources.filter(b => !going.has(b)).map(b => [o, b]));      /* before anything is forgotten: forget drops whatever can no longer be come to, and the block that stays is come to again only once it is back */
     for (const b of o.sources) if (going.has(b)) forget(b); }
-  for (const s of touched) tidy(s);
+  for (const s of dirty) tidy(s);
   pruneOps();                                  /* a cut whose shapes have all gone is gone too */
 }
 /* ---- references ----
