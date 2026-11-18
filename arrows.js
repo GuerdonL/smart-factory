@@ -124,13 +124,17 @@
                                    Otherwise the first hollow written in, else the matrix beside the piece.
 
    What a space comes to, where it holds arrows: its ends, the things in it that nothing reads from.
-   ends(pieces, arrows)         -> [{ type, piece } | { type, arrow }]. pieces: [{ ids: the ids of its blocks, type,
+   ends(pieces, arrows, taken)  -> [{ type, piece } | { type, arrow }]. pieces: [{ ids: the ids of its blocks, type,
                                    config: true for what is in a .config, which is no part of what a space comes
                                    to }]; arrows: [{ id, reads: the id its input names, seated: whether a block is
                                    seated on its output, type: what its output is, or { error } }]. A piece is an
                                    end unless an arrow reads one of its blocks (or the piece's result); an arrow's
                                    output is one unless another arrow reads it or a block is seated on it, in which
                                    case that block's piece is what goes on. With no arrows, the ends are the pieces.
+                                   taken: the ids of the blocks an entry has been taken out of, on that canvas
+                                   (a shape that holds inner data, with one of its entries set down as a block of
+                                   its own): such a block is read from as an arrow's input is, and its piece is
+                                   no end.
    defined(ends, isInput)       -> what an arrow's definition space comes to: null where it has no end, or its one
                                    end is the input block alone (isInput(id) says which block that is), which is to
                                    pass through; the one end's type; or { error: 'n pieces' } for several
@@ -285,8 +289,8 @@ export function standing(arrow, input, others = [], names = null, defined = null
   return { warn, part, came: to, type, place: at, blocked };
 }
 
-export function ends(pieces, arrows){
-  const read = new Set(arrows.map(a => a.reads));
+export function ends(pieces, arrows, taken = []){
+  const read = new Set([...arrows.map(a => a.reads), ...taken]);
   return [...pieces.filter(p => !p.config && !p.ids.some(id => read.has(id))).map(p => ({ type: p.type, piece: p })), ...arrows.filter(a => !a.seated && !read.has(a.id)).map(a => ({ type: a.type, arrow: a }))];
 }
 export const defined = (ends, isInput) => !ends.length || (ends.length === 1 && !!ends[0].piece && ends[0].piece.ids.length === 1 && isInput(ends[0].piece.ids[0])) ? null

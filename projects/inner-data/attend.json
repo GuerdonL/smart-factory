@@ -1,0 +1,41 @@
+{
+  "format": "smart-factory/shape",
+  "version": 4,
+  "id": "bxccif8",
+  "type": "arrow",
+  "name": "attend",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -40,
+    "y": -4
+  },
+  "size": {
+    "cols": 3,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "attend/",
+  "order": 44,
+  "arrow": {
+    "input": {
+      "id": "b00qkv1",
+      "as": "block"
+    },
+    "side": "s",
+    "start": 1,
+    "span": 3,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}

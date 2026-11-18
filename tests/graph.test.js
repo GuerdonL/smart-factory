@@ -431,13 +431,16 @@ const good = () => build(snap([
   B('Row', 0, 60, 4, 1), arrow('out', { id: 't2', as: 'tile' }),
   B('Z', 40, 40, 2, 2, { source: 'zeros' }), B('part', 50, 50, 2, 2, { name: 'Shape 5', from: { id: 'W', range: { col: 0, row: 0, cols: 2, rows: 2, toEnd: { cols: false, rows: false } } } }),
   B('At', 60, 60, 2, 3, { name: 'A', variable: 3, reference: true, transposed: true }), arrow('relu', { id: 'C', as: 'block' }, { span: 2, formula: 'max(x, @[s:m])' }),
-  B('Nz', 70, 70, 2, 2, { source: { noise: { seed: 1, dist: 'normal' } } }), B('Fl', 80, 80, 2, 2, { source: { file: 'data/w.csv' } })],
+  B('Nz', 70, 70, 2, 2, { source: { noise: { seed: 1, dist: 'normal' } } }), B('Fl', 80, 80, 2, 2, { source: { file: 'data/w.csv' } }),
+  /* matrices standing in the entries of a shape that holds inner data (a stack), and one of them taken out again (an entry) */
+  B('QK', 0, 90, 2, 1, { inner: [{ length: 2, name: null }, { length: 3, name: null }], inside: space([B('q1', -5, -1, 2, 3, { standing: true }), B('q2', -3, -1, 2, 3, { standing: true })]) }),
+  B('Kout', 10, 90, 2, 3, { name: 'Shape 6', from: { id: 'QK', entry: { col: 2, row: 1 } } })],
   [{ id: 't1', name: null, members: [11], groups: [], repeat: { x: 0, y: 52, cols: 1, rows: 2, across: 4, down: 1 } }, { id: 't2', name: null, members: [12], groups: [], repeat: { x: 0, y: 60, cols: 4, rows: 1, across: 1, down: 2 } }]));
 const refused = (change, what) => { const g = JSON.parse(JSON.stringify(good())); change(g); const bad = validate(g); assert.ok(bad.length > 0, 'refused: ' + what); assert.ok(bad.every(b => typeof b === 'string')); return bad; };
 const first = (g, op) => Object.entries(g.nodes).find(([, n]) => n.op === op)[1];
 test('validate accepts what build made, of every operation', () => {
   const g = good(); assert.deepEqual(validate(g), []);
-  assert.deepEqual([...new Set(Object.values(g.nodes).map(n => n.op))].sort(), Object.keys(OPS).filter(op => op !== 'stack' && op !== 'entry').sort());      /* (those two are built in tests/inner.test.js) */
+  assert.deepEqual([...new Set(Object.values(g.nodes).map(n => n.op))].sort(), Object.keys(OPS).sort());
 });
 test('validate refuses a graph that is not one', () => {
   for (const g of [null, 7, 'graph', {}, { version: 1 }, { version: 1, nodes: [], functions: {}, spaces: {}, blocks: {} }]) assert.ok(validate(g).length > 0);

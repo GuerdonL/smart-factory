@@ -1,0 +1,37 @@
+{
+  "format": "smart-factory/shape",
+  "version": 4,
+  "id": "b000wq1",
+  "type": "tensor",
+  "name": "W_Q",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -40,
+    "y": -14
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 1,
+      "2,1": 0,
+      "1,2": 0,
+      "2,2": 1,
+      "1,3": 1,
+      "2,3": 0,
+      "1,4": 0,
+      "2,4": 1
+    }
+  },
+  "order": 1,
+  "variable": 2
+}

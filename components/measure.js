@@ -7,6 +7,8 @@
              and the height down the left side, its label turned to run along the side; pass top / right as true to move them to the other side.
              wName / hName are the names of those sides, if they have them: "context 6u" in place of "6u".
              wText / hText, where given, are written in place of all that (a single entry's side: "√depth").
+             inner, where given and not empty, is what each entry holds, "2 key × 4 embed" (inner.js: measured):
+             it is written after a dot under the width, so that the whole reads 3u, 1u · 2 key × 4 embed.
      mark    picks out one line, 'w' or 'h', in the selection colour, as the one something is about to land on;
              null picks out neither
    Put el in the view's world. The lines and text zoom with the canvas.
@@ -28,6 +30,10 @@ style('measure', `
 .measure-w i { height: var(--px); } .measure-w i.cap { width: var(--px); height: 100%; }
 .measure-h i { width: var(--px); } .measure-h i.cap { height: var(--px); width: 100%; }
 .measure > div.marked { color: var(--select); font-weight: 600; }
+/* what each entry holds: one line under the width's (over it, where the width is written on top) */
+.measure > div.measure-inner { left: 0; right: 0; top: calc(100% + var(--gap) + 15 * var(--px)); height: calc(11 * var(--px)); justify-content: flex-start; }      /* from the block's left edge: it is often longer than the block is wide */
+.measure > div.measure-inner.top { top: auto; bottom: calc(100% + 2.4 * var(--gap) + 15 * var(--px)); }
+.measure-inner span::before { content: "· "; }
 .measure-w span { margin: 0 calc(5 * var(--px)); } .measure-h span { margin: calc(4 * var(--px)) 0; }
 .measure span { pointer-events: auto; cursor: default; padding: 0 calc(2 * var(--px)); }
 /* the height's label runs along its line: reading upwards on the left of the block, downwards on the right */
@@ -43,11 +49,12 @@ export function sides(view, r){
 
 export function createMeasure(unit){
   const side = cls => html`<div class="${cls}"><i class="cap"></i><i class="line"></i><span></span><i class="line"></i><i class="cap"></i></div>`;
-  const el = html`<div class="measure"></div>`, w = side('measure-w'), h = side('measure-h');
-  el.append(w, h);
+  const el = html`<div class="measure"></div>`, w = side('measure-w'), h = side('measure-h'), held = html`<div class="measure-inner" hidden><span></span></div>`;
+  el.append(w, h, held);
   const u = n => +(n / unit).toFixed(2) + 'u';
   const labels = { w: w.querySelector('span'), h: h.querySelector('span') };
-  return { el, labels, set(r, { top = false, right = false, wName = null, hName = null, wText = null, hText = null } = {}){
+  return { el, labels, set(r, { top = false, right = false, wName = null, hName = null, wText = null, hText = null, inner = '' } = {}){
+    held.hidden = !inner; held.firstChild.textContent = inner || ''; held.classList.toggle('top', top);
     Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
     if (!labels.w.isContentEditable) labels.w.textContent = wText ?? (wName ? wName + ' ' : '') + u(r.w);        /* a number being typed is left alone */
     if (!labels.h.isContentEditable) labels.h.textContent = hText ?? (hName ? hName + ' ' : '') + u(r.h);

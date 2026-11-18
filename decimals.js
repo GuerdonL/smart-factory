@@ -22,7 +22,10 @@
                                  by this; it is here so that what is asked of the backend is what is drawn.)
    drawn(type)                -> [[column, row], …]: the entries of a matrix of that type ({ cols, rows, colsName,
                                  rowsName }) that are ever drawn, on the canvas or in the panel: at most 8 by 8 of
-                                 them however large it is. Only these are asked of the backend.
+                                 them however large it is. Only these are asked of the backend. For a type whose
+                                 entries hold inner data (inner), each is [column, row, k1, …]: those entries at
+                                 every inner position, which are what is seen once an entry is opened, up to
+                                 MOST_ASKED of them in all (4096).
    level(f)                   -> how light a decimal's square is, from 0 (black) to 1 (white): f itself, held to
                                  that range. What has no number (NaN) is 0.
    fromBackend(v)             -> a value in the backend's answer as a value here: a number as { f }, "inf" and
@@ -33,7 +36,8 @@
                                  deferred, or one in which an entry is functional
    merged(answer, exact, result, stale) -> the values to draw: a Map from "column,row". answer is the evaluator's,
                                  exact its entries as a Map (toMap), result the backend's for the same node
-                                 ({ cells: [[c, r, value], …] }) or null. Where the answer is deferred, every entry
+                                 ({ cells: [[c, r, value], …] }, or [[c, r, k1, …, value], …] where it has inner
+                                 data: the key is every number but the last) or null. Where the answer is deferred, every entry
                                  the backend gave is its decimal. Where it was worked out, every entry is as the
                                  evaluator has it, but a functional one, which is the backend's decimal carrying
                                  the exact form it stands for: { f, exact: "exp(1)" }. stale: the result is of an
@@ -62,9 +66,13 @@ export const NEEDS = 'needs the backend', ASKING = 'asking the backend';
 export const along = (n, name = null) => name ? [...[1, 2, 3].map(i => ({ i, ghost: i >= n })), null, { i: n, last: true }]
   : (n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 3, null, n]).map(i => i === null ? null : { i });
 const side = n => n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 3, n];      /* a named side shows 1, 2, 3 and the last, which are among these */
+export const MOST_ASKED = 4096;                /* the most entries of one matrix that are asked for: far past it, a matrix of matrices is not opened entry by entry */
 export function drawn(type){
   const out = []; if (!type || !(type.cols >= 1) || !(type.rows >= 1)) return out;
-  for (const r of side(type.rows)) for (const c of side(type.cols)) out.push([c, r]);
+  /* a matrix whose entries hold inner data is drawn as brackets, and its numbers are seen once an entry is opened: the
+     entries that are drawn, at every inner position, the first axis slowest, up to MOST_ASKED of them */
+  let tails = [[]]; for (const a of Array.isArray(type.inner) ? type.inner : []) tails = tails.flatMap(t => Array.from({ length: a.length }, (_, k) => [...t, k + 1]).slice(0, MOST_ASKED));
+  for (const t of tails) for (const r of side(type.rows)) for (const c of side(type.cols)){ if (out.length >= MOST_ASKED) return out; out.push([c, r, ...t]); }
   return out;
 }
 export const level = f => !(f > 0) ? 0 : f >= 1 ? 1 : f;
@@ -84,7 +92,7 @@ export function wanted(answer){
 export function merged(answer, exact, result, stale = false){
   const cells = result && Array.isArray(result.cells) ? result.cells : [];
   const out = answer.deferred ? new Map() : new Map(exact);
-  for (const cell of cells){ if (!Array.isArray(cell)) continue; const key = cell[0] + ',' + cell[1], v = fromBackend(cell[2]), was = out.get(key);
+  for (const cell of cells){ if (!Array.isArray(cell) || cell.length < 3) continue; const key = cell.slice(0, -1).join(','), v = fromBackend(cell[cell.length - 1]), was = out.get(key);      /* column, row, then an inner position where the matrix has inner data, and the value last */
     if (v === null) continue;
     if (answer.deferred) out.set(key, v);
     else if (functional(was)) out.set(key, 'f' in v && !stale ? { f: v.f, exact: written(was) } : v); }      /* (an older state's number is not said to be this value's) */

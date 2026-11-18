@@ -344,3 +344,167 @@ test('evaluate: looked at from inside a function that is run at each inner posit
   assert.deepEqual(worked(g, 'body', { binding: { params: { 'f:1': 'x' } } }), { '1,1': 5 });
   assert.deepEqual(worked(g, 'y'), { '1,1,1': 5, '1,1,2': 10, '1,1,3': 15 });      /* and the arrow's output is every position's */
 });
+
+/* ---- what the builder makes of a canvas that holds inner data ---- */
+import { build } from '../graph.js';
+import { ends, came } from '../arrows.js';
+const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
+const space = (shapes, groups = [], operations = []) => ({ shapes, groups, operations });
+const snap = (shapes, groups = [], operations = []) => ({ top: space(shapes, groups, operations) });
+const arrow = (id, input, more = {}, shapeMore = {}) => B(id, 0, 0, 1, 1, { type: 'arrow', name: 'Shape 9', arrow: { input, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: null, formula: null, ...more }, ...shapeMore });
+const made = s => { const g = build(s); assert.deepEqual(validate(g), []); assert.deepEqual(build(JSON.parse(JSON.stringify(s))), g); return g; };
+const fill = (cols, rows, inner, f) => { const out = {}; for (const tail of tailsOf(t(cols, rows, inner.length ? inner : null))) for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) out[c + ',' + r + tail] = f(c, r, ...tail.split(',').slice(1).map(Number)); return out; };
+const head3 = [ax(3, 'head')];
+
+test('build: a shape\'s inner axes are its variable\'s type; a shape with none is built exactly as before', () => {
+  const g = made(snap([B('X', 0, 0, 4, 5), B('W', 4, 0, 2, 4, { inner: head3 })]));
+  assert.deepEqual(g.nodes['v:W'].type, t(2, 4, head3)); assert.deepEqual(g.nodes['v:X'].type, { cols: 4, rows: 5, colsName: null, rowsName: null });
+  assert.deepEqual(g.spaces.top.pieces[0], { blocks: ['X', 'W'], rule: 'product', node: 'matmul(v:X,v:W)', error: null });
+  assert.deepEqual(g.nodes['matmul(v:X,v:W)'].type, t(2, 5, head3));      /* three products */
+  /* inner that is no list, or has more than six axes, is read with safe values and never throws */
+  for (const inner of [null, 7, 'x', [null, 3], [{ length: 'a' }], Array.from({ length: 9 }, () => ax(2))]) made(snap([B('W', 4, 0, 2, 4, { inner })]));
+  assert.equal(made(snap([B('W', 4, 0, 2, 4, { inner: Array.from({ length: 9 }, () => ax(2)) })])).nodes['v:W'].type.inner.length, 6);
+  assert.deepEqual(made(snap([arrow('a', { id: 'W', as: 'block' }, {}, { inner: head3 }), B('W', 4, 0, 2, 4)])).nodes['v:W'].type, t(2, 4));      /* an arrow has none */
+});
+test('build: a touch whose inner data does not agree is a mismatch with the note; a sum against no inner data is refused', () => {
+  const piece = shapes => made(snap(shapes)).spaces.top.pieces[0];
+  assert.deepEqual(piece([B('X', 0, 0, 4, 5, { inner: [ax(3, 'layer')] }), B('W', 4, 0, 2, 4, { inner: head3 })]).error, { code: 'mismatch', note: 'layer ≠ head' });
+  assert.deepEqual(piece([B('X', 0, 0, 4, 5, { inner: [ax(2)] }), B('W', 4, 0, 2, 4, { inner: head3 })]).error, { code: 'mismatch', note: 'inner 2 ≠ 3' });
+  assert.deepEqual(piece([B('A', 0, 0, 3, 2, { inner: [ax(2)] }), B('C', 0, 2, 3, 2)]).error, { code: 'mismatch', note: 'inner 2 ≠ none' });
+  assert.equal(piece([B('A', 0, 0, 3, 2, { inner: [ax(2)] }), B('C', 0, 2, 3, 2, { inner: [ax(2)] })]).node, 'add(v:A,v:C)');
+  assert.equal(piece([B('A', 0, 2, 3, 2, { inner: [ax(2)] }), B('C', 3, 0, 3, 2)]).node, 'ewise(v:A,v:C;mul;none)');      /* times lets one have none */
+  /* a row whose touches all agree and whose inner data does not: A · s · C */
+  assert.deepEqual(piece([B('A', 0, 0, 2, 2, { inner: [ax(3)] }), B('s', 2, 0, 1, 1), B('C', 3, 0, 2, 2, { inner: [ax(2)] })]).error.code, 'mismatch');
+});
+test('build: a one by one block that holds inner data exists as a part of another, and is no scalar: no mass, no scaling, not passed over', () => {
+  const S = B('S', 0, 0, 3, 1, { inner: [ax(2)], entries: fill(3, 1, [ax(2)], (c, r, k) => c * 10 + k) });
+  const P = B('P', 10, 0, 1, 1, { inner: [ax(2)], from: { id: 'S', range: { col: 1, row: 0, cols: 1, rows: 1, toEnd: { cols: false, rows: false } } } });
+  const g = made(snap([S, P, B('M', 11, 0, 3, 3), B('N', 20, 0, 1, 1, { entries: { '1,1': { expr: '@[P:m]' }, }, }), B('L', 30, 0, 3, 1, { entries: { '1,1': { expr: '@[P:x] + @[P:d1]' } } }), B('Mass', 40, 0, 1, 1, { name: 'Shape 4', from: { id: 'P', side: 'm' } })]));
+  assert.deepEqual(g.nodes['v:P'].type, t(1, 1, [ax(2)])); assert.equal(g.nodes['v:P'].defined, 'range');
+  assert.deepEqual(evaluate(g, 'v:P').entries, { '1,1,1': 21, '1,1,2': 22 });
+  assert.deepEqual(g.spaces.top.pieces.find(p => p.blocks.includes('P')), { blocks: ['P', 'M'], rule: 'product', node: null, error: { code: 'mismatch', note: '1 ≠ 3' } });      /* against a 3 by 3 it is 1 column and 3 rows, where a scalar would scale it */
+  assert.deepEqual(g.nodes['v:N'].entries, { '1,1': { err: 'not a scalar: it has no mass' } });
+  assert.deepEqual(evaluate(g, 'v:L').entries, { '1,1': 3 });      /* its sides are 1 and 1, not the root of a mass; and its inner axis is 2 long */
+  assert.deepEqual(g.nodes['v:Mass'].error, { code: 'no-source', note: 'not a single entry: it has no mass' });
+  /* the same block with no inner data is a scalar, and all three hold */
+  const plain = made(snap([B('S', 0, 0, 3, 1), { ...P, inner: null }, B('M', 11, 0, 3, 3)]));
+  assert.equal(plain.spaces.top.pieces.find(p => p.blocks.includes('P')).node, 'scale(v:P,v:M)');
+});
+test('build: the lengths of inner axes are measures d1, d2, …; k1, k2 in an entry\'s formula and in an arrow\'s are the inner position', () => {
+  const Q = B('Q', 0, 0, 2, 1, { inner: [ax(2, 'key'), ax(3)], entries: { '1,1,1,1': { expr: 'k1 * 10 + k2' }, '2,1,2,3': { expr: 'k1 * 10 + k2 + @[Q:d2]' }, '1,1,2,2': { expr: 'k3' } } });
+  const g = made(snap([Q, B('L', 10, 0, 3, 1, { entries: { '1,1': { expr: '@[Q:d1] * @[Q:d2]' }, '2,1': { expr: '@[Q:d3]' }, '3,1': { expr: '@[L:d1]' } } }),
+    arrow('f', { id: 'Q', as: 'block' }, { side: 's', span: 2, formula: 'x + k2 / 2' })]));
+  assert.deepEqual(evaluate(g, 'v:Q').entries['1,1,1,1'], 11); assert.deepEqual(evaluate(g, 'v:Q').entries['2,1,2,3'], 26); assert.match(evaluate(g, 'v:Q').entries['1,1,2,2'].err, /no inner axis 3/);
+  assert.deepEqual(g.nodes['measure(v:Q;d1)'], { op: 'measure', inputs: ['v:Q'], type: t(1, 1), side: 'd1' });
+  assert.deepEqual(g.nodes['v:L'].entries, { '1,1': { expr: '$1 * $2' }, '2,1': { err: 'it has no inner axis 3' }, '3,1': { err: 'it holds no inner data' } });
+  assert.deepEqual(evaluate(g, 'v:L').entries['1,1'], 6);
+  const out = g.spaces.top.arrows[0]; assert.equal(out.error, null); assert.equal(g.nodes[out.node].op, 'map'); assert.deepEqual(g.nodes[out.node].type, t(2, 1, [ax(2, 'key'), ax(3)]));
+  assert.deepEqual(evaluate(g, out.node).entries['1,1,1,1'], { n: 23, d: 2, k: 0 }); assert.deepEqual(evaluate(g, out.node).entries['2,1,2,3'], { n: 55, d: 2, k: 0 });
+  /* an attribute called k1 is still the attribute */
+  const own = made(snap([B('A', 0, 0, 1, 1, { attributes: [{ name: 'k1', value: '7' }], entries: { '1,1': { expr: 'k1 + 1' } } })]));
+  assert.deepEqual(evaluate(own, 'v:A').entries, { '1,1': 8 });
+});
+test('build: shapes standing in the entries of a shape that holds inner data are a stack, all or nothing, each the size of an entry', () => {
+  const W = (id, x, k, more = {}) => B(id, x, -2, 2, 4, { standing: true, entries: fill(2, 4, [], (c, r) => k * 100 + c * 10 + r), ...more });
+  const QKV = inside => B('QKV', 0, 0, 3, 1, { inner: [ax(2, 'key'), ax(4, 'embed')], entries: { '1,1,1,1': 9 }, inside });
+  const g = made(snap([QKV(space([W('WQ', -7, 1), W('WK', -5, 2), W('WV', -3, 3)]))]));
+  assert.equal(g.nodes['v:QKV'].defined, 'standing'); assert.deepEqual(g.nodes['v:QKV'].inputs, ['stack(v:WQ@0,0;v:WK@1,0;v:WV@2,0)']);
+  assert.deepEqual(g.nodes['stack(v:WQ@0,0;v:WK@1,0;v:WV@2,0)'].type, t(3, 1, [2, 4]));
+  const q = evaluate(g, 'v:QKV').entries; assert.equal(Object.keys(q).length, 24); assert.equal(q['2,1,1,3'], 213); assert.equal(q['1,1,1,1'], 111);      /* never mixed with what was typed into it */
+  assert.deepEqual(g.spaces['v:QKV'].pieces, []);
+  /* two of the three: it keeps its own entries, and the standing shapes define nothing yet */
+  const two = made(snap([QKV(space([W('WQ', -7, 1), W('WK', -5, 2)]))]));
+  assert.equal(two.nodes['v:QKV'].defined, 'entries'); assert.deepEqual(evaluate(two, 'v:QKV').entries, { '1,1,1,1': 9 });
+  /* a shape that is not the size of an entry does not stand in one: the space is pieces again */
+  const odd = made(snap([QKV(space([W('WQ', -7, 1), W('WK', -5, 2), B('WV', -3, -2, 2, 3, { standing: true })]))]));
+  assert.equal(odd.nodes['v:QKV'].defined, 'entries'); assert.equal(odd.nodes['v:QKV'].error.code, 'mismatch');      /* (they lie side by side: a row of products that does not agree) */
+  /* parts that are the size of an entry and hold inner data of their own where an entry holds none */
+  const deep = made(snap([QKV(space([W('WQ', -7, 1), W('WK', -5, 2), W('WV', -3, 3, { inner: [ax(2)], entries: {} })]))]));
+  assert.deepEqual(deep.nodes['v:QKV'].error, { code: 'size', note: 'the shapes standing in its entries are not all what an entry holds' });
+  /* a side called by another name than the axis it becomes */
+  const named = made(snap([QKV(space([W('WQ', -7, 1, { colsName: 'query' }), W('WK', -5, 2), W('WV', -3, 3)]))]));
+  assert.deepEqual(named.nodes['v:QKV'].error, { code: 'size', note: 'query ≠ key' });
+  /* with no inner data, standing shapes are a block as they always were */
+  const flat = made(snap([B('M', 0, 0, 2, 1, { inside: space([B('a', -3, 0, 1, 1, { standing: true }), B('b', -2, 0, 1, 1, { standing: true })]) })]));
+  assert.deepEqual(flat.nodes['v:M'].inputs, ['block(v:a@0,0;v:b@1,0)']);
+});
+test('build: an entry taken out is that entry of its shape, by column and row from 1; what is not there is no-source', () => {
+  const Q = B('Q', 0, 0, 3, 1, { inner: [ax(2, 'key'), ax(4, 'embed')], entries: fill(3, 1, [ax(2), ax(4)], (c, r, a, b) => c * 100 + a * 10 + b) });
+  const E = (id, entry, more = {}) => B(id, 10, 0, 2, 4, { name: 'Shape 2', from: { id: 'Q', entry }, ...more });
+  const g = made(snap([Q, E('K', { col: 2, row: 1 }), B('X', 6, 0, 4, 2, { entries: fill(4, 2, [], (c, r) => (c === r ? 1 : 0)) })]));
+  assert.equal(g.nodes['v:K'].defined, 'entry'); assert.deepEqual(g.nodes['v:K'].inputs, ['entry(v:Q;1,0)']); assert.deepEqual(g.nodes['entry(v:Q;1,0)'].type, t(2, 4, null, 'key', 'embed'));
+  assert.equal(evaluate(g, 'v:K').entries['2,4'], 224);
+  assert.deepEqual(g.spaces.top.pieces.find(p => p.blocks.includes('K')), { blocks: ['X', 'K'], rule: 'product', node: 'matmul(v:X,v:K)', error: null });      /* it touches X in an ordinary product */
+  assert.deepEqual(evaluate(g, 'matmul(v:X,v:K)').entries, { '1,1': 211, '2,1': 221, '1,2': 212, '2,2': 222 });
+  for (const [entry, note] of [[{ col: 4, row: 1 }, 'entry 4,1 of 3 × 1'], [{ col: 1, row: 2 }, 'entry 1,2 of 3 × 1'], [{ col: 0, row: 1 }, 'entry 0,1 of 3 × 1']])
+    assert.deepEqual(made(snap([Q, E('K', entry)])).nodes['v:K'].error, { code: 'no-source', note });
+  assert.deepEqual(made(snap([B('Q', 0, 0, 3, 1), E('K', { col: 1, row: 1 })])).nodes['v:K'].error, { code: 'no-source', note: 'it holds no inner data: an entry of it is one number' });
+  assert.deepEqual(made(snap([E('K', { col: 1, row: 1 })])).nodes['v:K'].error, { code: 'no-source', note: '' });      /* its shape is gone */
+  assert.equal(made(snap([Q, E('K', { col: 1, row: 1 }, { cols: 3 })])).nodes['v:K'].error.code, 'size');      /* a block of another size than the entry */
+  /* a transposed use of the entry is the transpose of it */
+  const tr = made(snap([Q, E('K', { col: 2, row: 1 }, { cols: 4, rows: 2, transposed: true })]));
+  assert.equal(tr.blocks.K, 'transpose(v:K)'); assert.equal(evaluate(tr, 'transpose(v:K)').entries['4,2'], 224);
+});
+test('build: a function whose input block holds inner data is applied once, and an entry taken out of in is entry(param); one that holds none is run at each position', () => {
+  const Q = B('Q', 0, 0, 3, 1, { inner: [ax(2), ax(2)], entries: fill(3, 1, [ax(2), ax(2)], (c, r, a, b) => c * 100 + a * 10 + b) });
+  const body = space([B('in', -20, 0, 3, 1, { in: true, inner: [ax(2), ax(2)] }), B('K', 0, 0, 2, 2, { name: 'Shape 2', from: { id: 'in', entry: { col: 2, row: 1 } } }), B('I', 2, 0, 2, 2, { source: 'identity' })]);
+  const g = made(snap([Q, arrow('a1', { id: 'Q', as: 'block' }, { side: 's', span: 3 }, { name: 'second', inside: body })]));
+  const out = g.spaces.top.arrows[0]; assert.deepEqual(out, { arrow: 'a1', node: 'apply(v:Q;f:a1)', error: null });
+  assert.deepEqual(g.nodes['param(f:a1)'].type, t(3, 1, [2, 2])); assert.deepEqual(g.nodes['v:K'].inputs, ['entry(param(f:a1);1,0)']); assert.deepEqual(g.nodes['v:K'].within, ['f:a1']);
+  assert.deepEqual(g.spaces['f:a1'].pieces.map(p => p.blocks), [['in'], ['K', 'I']]);      /* in is read from, by the entry taken out of it: the space comes to the one product */
+  assert.deepEqual(evaluate(g, out.node).entries, { '1,1': 211, '2,1': 221, '1,2': 212, '2,2': 222 });
+  /* a function on a plain 2 by 1, set against a 2 by 1 that holds three numbers to an entry: the body at each */
+  const fn = space([B('in', -20, 0, 2, 1, { in: true }), B('W', -18, 0, 1, 2, { entries: { '1,1': 1, '1,2': 2 } })]);
+  const h = made(snap([B('X', 0, 0, 2, 1, { inner: [ax(3)], entries: fill(2, 1, [ax(3)], (c, r, k) => c * k) }), arrow('a2', { id: 'X', as: 'block' }, { side: 's', span: 2 }, { name: 'dot', inside: fn })]));
+  const o2 = h.spaces.top.arrows[0]; assert.equal(o2.error, null); assert.deepEqual(h.nodes[o2.node].type, t(1, 1, [3]));
+  assert.deepEqual(evaluate(h, o2.node).entries, { '1,1,1': 5, '1,1,2': 10, '1,1,3': 15 });
+  /* an input block that holds other inner data than it is set against does not fit */
+  const bad = made(snap([{ ...Q, inner: [ax(2), ax(3)], entries: {} }, arrow('a1', { id: 'Q', as: 'block' }, { side: 's', span: 3 }, { name: 'second', inside: body })]));
+  assert.deepEqual(bad.spaces.top.arrows[0], { arrow: 'a1', node: null, error: { code: 'mismatch', note: 'inner 2 ≠ 3' } });
+});
+test('build: sources hold inner data, a data file does not; a definition, a fused shape and a tile\'s pattern hold what their variable holds', () => {
+  const g = made(snap([B('Z', 0, 0, 2, 2, { source: 'identity', inner: [ax(2, 'head')] }), B('N', 10, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } }, inner: [ax(3)] }), B('F', 20, 0, 2, 2, { source: { file: 'data/w.csv' }, inner: [ax(2)] })]));
+  assert.deepEqual(g.nodes['v:Z'].inputs, ['source(identity;2×2·2)']); assert.equal(evaluate(g, 'v:Z').entries['2,2,2'], 1); assert.equal(evaluate(g, 'v:Z').entries['2,1,2'], 0);
+  assert.deepEqual(g.nodes['v:N'].inputs, ['noise(1;uniform;N;2×2·3)']); assert.deepEqual(evaluate(g, 'v:N'), { type: t(2, 2, [3]), deferred: true, backend: true });
+  assert.deepEqual(g.nodes['v:F'].error, { code: 'no-source', note: 'a data file holds no inner data' });
+  /* a definition that comes to other inner data than its block holds */
+  const def = inner => made(snap([B('V', 0, 0, 2, 2, { inner: [ax(2)], inside: space([B('A', 0, 0, 2, 2, { inner })]) })])).nodes['v:V'];
+  assert.equal(def([ax(2)]).defined, 'definition'); assert.deepEqual(def([ax(3)]).error, { code: 'size', note: '2 × 2 · 3 ≠ 2 × 2 · 2' }); assert.deepEqual(def(null).error, { code: 'size', note: '2 × 2 ≠ 2 × 2 · 2' });
+  assert.deepEqual(made(snap([B('V', 0, 0, 2, 2, { inner: [ax(2, 'head')], inside: space([B('A', 0, 0, 2, 2, { inner: [ax(2, 'layer')] })]) })])).nodes['v:V'].error, { code: 'size', note: 'layer ≠ head' });
+  /* a pattern whose blocks do not hold the same */
+  const tile = (a, b) => made(snap([B('a', 0, 0, 1, 1, { inner: a }), B('b', 1, 0, 1, 1, { inner: b })], [{ id: 't1', name: null, members: [0, 1], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 2, down: 1 } }])).spaces.top.tiles[0];
+  assert.equal(tile([ax(2)], [ax(2)]).error, null); assert.deepEqual(made(snap([B('a', 0, 0, 1, 1, { inner: [ax(2)] }), B('b', 1, 0, 1, 1, { inner: [ax(2)] })], [{ id: 't1', name: null, members: [0, 1], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 2, down: 1 } }])).nodes[tile([ax(2)], [ax(2)]).node].type, t(4, 1, [2]));
+  assert.deepEqual(tile([ax(2)], null).error, { code: 'no-source', note: 'its blocks do not hold the same inner data: inner 2 ≠ none' });
+});
+test('arrows: a block an entry is taken out of is read from, so its piece is no end; a function run at each inner position takes its input\'s axes', () => {
+  const pieces = [{ ids: ['in'], type: {} }, { ids: ['X', 'K'], type: { cols: 2, rows: 2 } }];
+  assert.equal(ends(pieces, []).length, 2); assert.deepEqual(ends(pieces, [], ['in']).map(e => e.piece.ids), [['X', 'K']]); assert.equal(ends(pieces, [], ['gone']).length, 2);
+  const part = { cols: 2, rows: 1, colsName: null, rowsName: null, inner: [ax(3)] }, plain = { cols: 2, rows: 1, colsName: null, rowsName: null }, body = { cols: 1, rows: 1, colsName: null, rowsName: null };
+  assert.deepEqual(came({ formula: null }, part, body, plain), { ...body, inner: [ax(3)] });      /* in holds none: at each position */
+  assert.deepEqual(came({ formula: null }, part, body, part), body);                            /* in holds the same: applied once */
+  assert.deepEqual(came({ formula: null }, part, body), body);                                  /* (the function's own arrow: its input block is the part) */
+  assert.match(came({ formula: null }, part, { ...body, inner: [ax(2)] }, plain).error, /inner data of its own/);
+  assert.deepEqual(came({ formula: 'x' }, part, body, plain), part); assert.deepEqual(came({ formula: null }, plain, null), plain); assert.deepEqual(came({ formula: null }, plain, body), body);
+  assert.deepEqual(came({ formula: null }, part, { error: '2 pieces' }, plain), { error: '2 pieces' });
+});
+
+/* ---- the example project ---- */
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { read } from '../project.js';
+test('projects/inner-data: QKV is a stack of its three matrices, attend takes it whole and takes its entries out, and comes to X·Q·Kᵀ·Xᵀ·X·V', () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'projects', 'inner-data');
+  const tree = (at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
+  const p = read(tree()), g = build(p); assert.deepEqual(validate(g), []);
+  const id = name => p.top.shapes.find(d => d.name === name).id, qkv = g.nodes['v:' + id('QKV')];
+  assert.equal(qkv.defined, 'standing'); assert.equal(g.nodes[qkv.inputs[0]].op, 'stack'); assert.deepEqual(qkv.type, t(3, 1, [ax(2, 'key'), ax(4, 'embed')]));
+  assert.equal(Object.keys(evaluate(g, 'v:' + id('QKV')).entries).length, 24);
+  const out = g.spaces.top.arrows[0]; assert.equal(out.error, null); assert.equal(g.nodes[out.node].op, 'apply'); assert.deepEqual(g.nodes[out.node].inputs, ['v:' + id('QKV')]);
+  const fn = g.nodes[out.node].fn; assert.deepEqual(g.nodes[g.functions[fn].input].type, qkv.type);      /* in is 3 by 1 of 2 by 4 */
+  assert.deepEqual(Object.keys(g.nodes).filter(k => k.startsWith('entry(')).sort(), [0, 1, 2].map(c => `entry(param(${fn});${c},0)`));
+  assert.deepEqual(evaluate(g, out.node).entries, { '1,1': 18, '2,1': 18, '1,2': 16, '2,2': 16, '1,3': 14, '2,3': 14 });
+  /* X against three heads at once: one product for each */
+  const heads = g.spaces.top.pieces.find(x => x.blocks.includes(id('Heads'))); assert.equal(heads.error, null); assert.deepEqual(g.nodes[heads.node].type, t(2, 3, [ax(3, 'head')]));
+  const h = evaluate(g, heads.node).entries; assert.equal(Object.keys(h).length, 18); assert.equal(h['1,1,1'], 3); assert.equal(h['1,1,3'], 9); assert.equal(h['2,2,2'], 4);
+});

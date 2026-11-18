@@ -1,0 +1,36 @@
+{
+  "format": "smart-factory/shape",
+  "version": 4,
+  "id": "b00qkv1",
+  "type": "tensor",
+  "name": "QKV",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -40,
+    "y": -5
+  },
+  "size": {
+    "cols": 3,
+    "rows": 1,
+    "inner": [
+      2,
+      4
+    ]
+  },
+  "sides": {
+    "cols": null,
+    "rows": null,
+    "inner": [
+      "key",
+      "embed"
+    ]
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "QKV/",
+  "order": 4
+}

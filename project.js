@@ -35,11 +35,23 @@
          "position": { "x": -12, "y": 4 },       its top-left corner, in units from the space's origin
          "size": { "cols": 4, "rows": 6 },
          "sides": { "cols": "key", "rows": "context" },      the names of its sides, null where unnamed
+         "size":  { "cols": 3, "rows": 1, "inner": [2, 4] },
+         "sides": { "cols": null, "rows": null, "inner": ["key", "embed"] },
+                                                 or, where each of its entries holds inner data: inner, the lengths of
+                                                 the inner axes in order (at most six), and their names beside them,
+                                                 null where unnamed. This one is three entries, each a matrix of 2
+                                                 columns (key) by 4 rows (embed): 24 numbers. Every entry holds the
+                                                 same inner size. Left out where there is no inner data. An axis with a
+                                                 name is one length with every side and axis of that name, as a named
+                                                 side is, and that length is stored nowhere else
          "value": { "as": "computation",         how its value stands (see below)
                     "entries": { "1,1": 7, "2,1": "-inf", "3,1": { "n": 1, "d": 2, "k": 1 }, "1,2": true,
                                  "2,2": { "expr": "1/√(@[b3k2m9x:x])" } } },
                                                  entries given a value, by "column,row": a literal value or a
-                                                 formula (see "Entries", below)
+                                                 formula (see "Entries", below). In a shape with inner data a key
+                                                 goes on, "column,row,k1,k2,…", one more number from 1 for each
+                                                 inner axis: "2,1,1,3" is entry 2,1, and column 1, row 3 of the
+                                                 matrix it holds. A number never given is unknown, at any depth
          "definition": "Keys/",                  the directory holding its definition space, if it has one with anything in it
          "order": 3,                             its place among the shapes of its space, back to front
          "standing": true,                       a standing shape: it stands in its owner's matrix (it was dropped onto that matrix), and
@@ -65,6 +77,11 @@
                                                  row, counted from 0. Where toEnd.cols is true it runs to the source's
                                                  last column whatever size the source now is, and cols is not looked at;
                                                  toEnd.rows likewise. Its entries are the source's, and are not written here.
+         "from": { "id": "b3k…", "entry": { "col": 2, "row": 1 } },
+                                                 or, with entry: it is that entry (column, row, from 1) of the shape with
+                                                 that id, which holds inner data, taken out as a block of its own: its
+                                                 columns and rows are the first two inner axes, and it follows what
+                                                 is in the entry. Its entries are not written here.
          "from": { "id": "b3k…", "index": "x" },   or, with index: it is the index (tiles.js) of the block with that id, which is
                                                  in a tile, as a matrix that block's size: index.x, or index.y for "y". It
                                                  stands in that block's definition space, and its entries are not written here.
@@ -168,7 +185,12 @@
    read's project also carries converted: how many old stacks were fused on the way in, and changed: how many other
    pieces of an old project now read differently (see below for both); each 0 for a project of this format.
 
-   The format is 3. Format 3 adds to format 2 a space's operations and a shape's from.range, both set out above; a
+   The format is 4. Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
+   that go with it, and from.entry. A format 3 project has none of them and is read exactly as it is: no field is
+   converted, and saved again it differs only in the format number. Reading, inner is given whole lengths of at least
+   1 and at most six axes (an arrow has none), and an entry whose key is not one of its shape's is kept in the file's
+   own words and takes no part, as an entry beyond a shape's size always has.
+   Format 3 added to format 2 a space's operations and a shape's from.range, both set out above; a
    format 2 project has neither, and is read as having no operations. It adds arrows: a shape of type "arrow" with
    its "arrow", a shape's "seat", and "in" on an arrow's input block; a format 2 project has no arrows. Reading, an
    arrow with a field missing or wrong is given a safe one (side e, start, span and gap 1, no promise, no formula; an
@@ -208,10 +230,10 @@
               was: [{ order, frames: [{ id, name }] }, the same for the second source] | null }] }
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it],
               repeat: { x, y, cols, rows, across, down } only where the frame is a tile }
-   shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": a literal value (Infinity for an infinity) or { expr } },
+   shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, inner: [{ length, name }] | null, entries: { "c,r" or "c,r,k1,…": a literal value (Infinity for an infinity) or { expr } },
               inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | { noise: { seed, dist } } | { file } | null,
               variable: a number shared by shapes that are one variable, or null,
-              from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, index: 'x' | 'y' } | null,
+              from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, entry: { col, row } } | { id, index: 'x' | 'y' } | null,
               arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
               seat: an arrow's id | { hollow: [id, id] } | null, in: true for an arrow's input block,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
@@ -220,7 +242,11 @@ import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 3;
+export const FORMAT = 4;
+/* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
+const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.max(1, Math.round(+a.length || 1)), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
+const innerBack = (size, sides) => innerOf((Array.isArray(size?.inner) ? size.inner : []).map((length, i) => ({ length, name: Array.isArray(sides?.inner) ? sides.inner[i] : null })));
+const tails = inner => { let out = ['']; for (const a of inner || []) out = out.flatMap(p => Array.from({ length: a.length }, (_, k) => p + ',' + (k + 1))); return out; };
 const isCommented = name => /^\s*\/\//.test(name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');
 export const isNamed = name => !/^Shape \d+$/.test(bare(name));
@@ -243,8 +269,10 @@ const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => M
     output: a.output && typeof a.output === 'object' && +a.output.cols >= 1 && +a.output.rows >= 1 ? { cols: n(a.output.cols), rows: n(a.output.rows) } : null,
     formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null }; };
 /* a shape's from, as it is written and as it is read: a range, the index, or a measure's side */
-const fromOut = f => f.range ? { id: f.id, range: rangeOf(f.range) } : f.index ? { id: f.id, index: f.index === 'y' ? 'y' : 'x' } : { id: f.id, side: f.side };
-const fromBack = f => !f || typeof f.id !== 'string' ? null : f.range && typeof f.range === 'object' ? { id: f.id, range: rangeOf(f.range) } : f.index === 'x' || f.index === 'y' ? { id: f.id, index: f.index }
+const placeOf = e => ({ col: Math.max(1, Math.round(+e.col || 1)), row: Math.max(1, Math.round(+e.row || 1)) });      /* an entry's column and row, from 1 */
+const fromOut = f => f.range ? { id: f.id, range: rangeOf(f.range) } : f.entry ? { id: f.id, entry: placeOf(f.entry) } : f.index ? { id: f.id, index: f.index === 'y' ? 'y' : 'x' } : { id: f.id, side: f.side };
+const fromBack = f => !f || typeof f.id !== 'string' ? null : f.range && typeof f.range === 'object' ? { id: f.id, range: rangeOf(f.range) } : f.entry && typeof f.entry === 'object' ? { id: f.id, entry: placeOf(f.entry) }
+  : f.index === 'x' || f.index === 'y' ? { id: f.id, index: f.index }
   : { id: f.id, side: f.side === 'y' || f.side === 'm' ? f.side : 'x' };
 const seatOf = s => typeof s === 'string' && s ? s : s && typeof s === 'object' && Array.isArray(s.hollow) && s.hollow.length === 2 && s.hollow.every(id => typeof id === 'string' && id) ? { hollow: [...s.hollow] } : null;
 
@@ -267,7 +295,7 @@ function valueOf(shape, inside){                  /* inside: its definition spac
   if (sourceOf(shape.source)) return { as: 'resolved', entries: {} };      /* a source has every entry, and stores none */
   const entries = kept(shape.entries, out);
   const computed = !!inside && inside.shapes.some(s => !isCommented(s.name));
-  let full = true; for (let c = 1; c <= shape.cols && full; c++) for (let r = 1; r <= shape.rows; r++) if (!(c + ',' + r in entries)){ full = false; break; }
+  let full = true; for (const tail of tails(innerOf(shape.inner))) for (let c = 1; c <= shape.cols && full; c++) for (let r = 1; r <= shape.rows; r++) if (!(c + ',' + r + tail in entries)){ full = false; break; }      /* every number, at every inner position */
   return { as: computed ? 'computation' : full ? 'resolved' : 'variable', entries };
 }
 
@@ -287,8 +315,8 @@ export function write(project){
     const config = (shape, order) => { const name = stem(shape.name, taken), v = shape.variable ?? null, inside = shape.inside && !written.has(v) ? shape.inside : null;
       if (inside){ if (v !== null) written.add(v); space(inside, dir + name + '/'); }
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
-        color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}),
+        color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.length) } : {}) },
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.name) } : {}) }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: fromOut(shape.from) } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
@@ -335,7 +363,7 @@ export function read(files){
     const make = c => {
       const inside = c.definition && [...at.keys()].some(p => p.startsWith(dir + c.definition)) ? space(dir + c.definition) : null;
       return { id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
-        cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null,
+        cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides),
         entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
         reference: !!c.reference, from: fromBack(c.from),
@@ -359,7 +387,7 @@ export function read(files){
   if ((meta.version || 1) < 2 && [...at.keys()].some(p => p.startsWith('_settings/'))){      /* format 1: see the note above */
     const menu = space('_settings/');
     if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'variable-3', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
-      cols: 3, rows: 2, colsName: null, rowsName: null, entries: {}, inside: top, variable: null });
+      cols: 3, rows: 2, colsName: null, rowsName: null, inner: null, entries: {}, inside: top, variable: null });
     project = { ...project, top: menu };
   }
   /* a seat names an arrow, or the two blocks of a pair: one that names what the project has not got is no seat */
@@ -409,7 +437,7 @@ function fuseStacks(s, owner = null, seen = new Set()){
     const first = s.shapes[run[0]], rows = run.reduce((sum, i) => sum + s.shapes[i].rows, 0), used = new Set([...s.shapes.filter((_, i) => !gone.has(i) && !run.includes(i)), ...made.values()].map(d => d.name));
     let n = 1; while (used.has('Shape ' + n)) n++;      /* a name no shape of the space has, as a newly joined shape is given */
     const at = Math.min(...run), holder = chain(run[0]).find(g => run.every(i => chain(i).includes(g)));      /* the innermost frame holding them all */
-    made.set(at, { id: null, type: 'tensor', name: 'Shape ' + n, color: null, x: first.x, y: first.y, cols: first.cols, rows, colsName: first.colsName || null, rowsName: null, entries: {}, inside: null, variable: null,      /* the stack's columns had its first shape's name */
+    made.set(at, { id: null, type: 'tensor', name: 'Shape ' + n, color: null, x: first.x, y: first.y, cols: first.cols, rows, colsName: first.colsName || null, rowsName: null, inner: null, entries: {}, inside: null, variable: null,      /* the stack's columns had its first shape's name */
       standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false,
       joined: run.map(i => ({ fx: 0, fy: (s.shapes[i].y - first.y) / rows, fw: 1, fh: s.shapes[i].rows / rows, shape: s.shapes[i] })) });
     for (const i of run){ gone.add(i); for (const g of chain(i)) g.members = g.members.filter(m => m !== i); }

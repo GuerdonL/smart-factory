@@ -1,0 +1,35 @@
+{
+  "format": "smart-factory/shape",
+  "version": 4,
+  "id": "bv46xsx",
+  "type": "tensor",
+  "name": "K",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -20,
+    "y": 5
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": "embed",
+    "rows": "key"
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 2,
+  "transposed": true,
+  "from": {
+    "id": "biiyhfu",
+    "entry": {
+      "col": 2,
+      "row": 1
+    }
+  }
+}

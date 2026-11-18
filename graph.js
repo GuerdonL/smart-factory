@@ -158,7 +158,11 @@
    an entry reads is that of the innermost cell it is in (indexAt, the one place that says so).
 
    Reading a canvas. A block whose name begins with // and a block in a frame named .config take no part. A
-   definition space whose blocks are all standing shapes has no pieces. Otherwise the pieces are algebra.js's, each
+   definition space whose blocks are all standing shapes has no pieces: once they cover the matrix they are a block
+   of it, or, where the variable's entries hold inner data (two axes or more), a stack: each stands for one entry,
+   is that entry's size, and lies at its entry's place in a matrix laid out entry for entry, each entry as large as
+   the matrix it holds. A block whose from names an entry ({ id, entry: { col, row } }, from 1) is that entry of
+   the block with that id, taken out. Otherwise the pieces are algebra.js's, each
    turned into a node by its rule; an arrow's output is a slice, a map, an apply or a mapalong of what it reads.
    Sizes are settled here: a tile's count that is a formula is worked out from sizes alone (tiles.js: settled), and
    may not depend on its own tile's size (tiles.js: circular). A tile's size follows its own counts only, so a count
@@ -746,6 +750,11 @@ export function build(snapshot){
         const of = blockNode(target), t = of && typeOf(of), r = f.range, ok = t && Number.isInteger(r.col) && Number.isInteger(r.row) && r.col >= 0 && r.row >= 0 && r.toEnd && typeof r.toEnd === 'object';
         const now = ok ? rangeIn(r, t.cols, t.rows) : null; if (!now) return { error: E('no-source', t ? `columns ${r.col + 1} to ${r.col + (r.cols || 1)}, rows ${r.row + 1} to ${r.row + (r.rows || 1)} of ${t.cols} × ${t.rows}` : '') };
         return under(now.cols === t.cols && now.rows === t.rows ? of : N('slice', [of], { range: now }), v, 'range'); }
+      if (f.entry && typeof f.entry === 'object'){      /* one entry of the shape as it stands, taken out: the file counts its column and row from 1 */
+        const of = blockNode(target), t = of && typeOf(of), col = f.entry.col, row = f.entry.row;
+        if (!t || !innerOf(t).length) return { error: E('no-source', t ? 'it holds no inner data: an entry of it is one number' : '') };
+        if (!whole1(col) || !whole1(row) || col > t.cols || row > t.rows) return { error: E('no-source', `entry ${col},${row} of ${t.cols} × ${t.rows}`) };
+        return under(N('entry', [of], { at: { col: col - 1, row: row - 1 } }), v, 'entry'); }
       const side = f.side === 'm' || f.side === 'y' ? f.side : 'x', of = target.v;
       if (side === 'm' && !of.scalar) return { error: E('no-source', 'not a single entry: it has no mass') };
       /* a length that is settled, of a shape that may itself depend on this one: the number, and no node between them */
@@ -770,18 +779,25 @@ export function build(snapshot){
     const stood = v.inside && standingIn(v);
     if (stood && stood.reduce((sum, t) => sum + t.w * t.h, 0) === v.type.cols * v.type.rows){
       const parts = stood.map(t => blockNode(t.rec)), at = stood.map(t => ({ col: t.x, row: t.y }));
-      if (parts.every(Boolean) && covers(parts.map(typeOf), at, v.type.cols, v.type.rows)) return under(N('block', parts, { at }), v, 'standing'); }
+      if (cellOf(v)){ if (parts.every(Boolean)){ const made = N('stack', parts, { at }); return made ? under(made, v, 'standing', true) : { error: E('size', 'the shapes standing in its entries are not all what an entry holds') }; } }      /* matrices in its entries: one to each */
+      else if (parts.every(Boolean) && covers(parts.map(typeOf), at, v.type.cols, v.type.rows)) return under(N('block', parts, { at }), v, 'standing'); }
     if (v.inside && !stood){ const came = comesTo(v.inside);
       if (came.error) return { error: came.error };
       if (came.node) return under(came.node, v, 'definition', true); }
     return { defined: 'entries', ...typed(v, false) };
   }
   /* the shapes standing in a variable's matrix: [{ rec, x, y, w, h }] in entries, or null where its definition space is not just such shapes */
+  /* In a variable whose entries hold inner data (two axes or more) a standing shape stands for one entry and is that
+     entry's size: its matrix's place is laid out entry for entry, each as large as the matrix it holds, and x, y, w
+     and h here are still in entries (w and h are 1). */
+  const cellOf = v => { const inner = innerOf(v.type); return inner.length >= 2 ? { cols: inner[0].length, rows: inner[1].length } : null; };
   function standingIn(v){
     if (v.stood !== undefined) return v.stood;
-    const act = v.inside.recs.filter(takesPart), slot = { x: -1 - v.type.cols, y: Math.round(-v.type.rows / 2) }, out = [];
+    const cell = cellOf(v), sx = cell ? cell.cols : 1, sy = cell ? cell.rows : 1;
+    const act = v.inside.recs.filter(takesPart), slot = { x: -1 - v.type.cols * sx, y: Math.round(-v.type.rows * sy / 2) }, out = [];
     let ok = act.length > 0;
-    for (const rec of act){ const x = rec.x - slot.x, y = rec.y - slot.y, w = rec.cols, h = rec.rows;
+    for (const rec of act){ const x = (rec.x - slot.x) / sx, y = (rec.y - slot.y) / sy, w = cell ? 1 : rec.cols, h = cell ? 1 : rec.rows;
+      if (cell && (rec.cols !== cell.cols || rec.rows !== cell.rows)){ ok = false; break; }      /* not the size of an entry: it does not stand in one */
       if (!rec.d.standing || rec.arrow || !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x + w > v.type.cols || y + h > v.type.rows || out.some(o => x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h)){ ok = false; break; }
       out.push({ rec, x, y, w, h }); }
     return v.stood = ok ? out : null;
@@ -834,7 +850,8 @@ export function build(snapshot){
   function endOf(ctx, input = null){
     const R = read(ctx), list = arrowsIn(ctx);
     const es = endsOf(R.ps.map((p, k) => ({ ids: [...p.members.map(m => R.active[m].id), ...new Set(p.members.map(m => R.rects[m].zone).filter(z => z !== null))], type: p.type, k })),
-      list.map(a => ({ id: a.id, reads: a.arrow.input && a.arrow.input.id, seated: ctx.recs.some(r => r.d.seat === a.id), type: {}, rec: a })));
+      list.map(a => ({ id: a.id, reads: a.arrow.input && a.arrow.input.id, seated: ctx.recs.some(r => r.d.seat === a.id), type: {}, rec: a })),
+      ctx.recs.filter(r => !r.arrow && takesPart(r) && r.d.from && typeof r.d.from === 'object' && r.d.from.entry).map(r => r.d.from.id));      /* a block an entry is taken out of is read from, as an arrow's input is: its piece is no end */
     if (!es.length || (input && es.length === 1 && es[0].piece && es[0].piece.ids.length === 1 && es[0].piece.ids[0] === input.id)) return { none: true };
     if (es.length > 1) return { error: E('pieces', es.length + ' pieces') };
     return es[0].piece ? { piece: es[0].piece.k } : { arrow: es[0].arrow.rec };
@@ -1084,6 +1101,7 @@ export function build(snapshot){
 
   /* a function's input is in the graph only with its function. Where a space came to no one matrix, its input and all
      that is made of it go: a piece or an arrow of theirs has no node, and a variable defined by one has an error */
+  let relost = false;
   for (let again = true; again;){ again = false;
     for (const [id, n] of [...nodes]){
       const lost = (n.op === 'param' && ![...scope.get(id)].some(f => own(functions, f) && functions[f].input === id)) || n.inputs.some(i => !nodes.has(i)) || ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined && !own(functions, n.fn));
@@ -1091,7 +1109,13 @@ export function build(snapshot){
       if (n.op === 'variable'){ const kept = Object.fromEntries(Object.entries(n.entries).filter(([, e]) => !(e && typeof e === 'object' && 'expr' in e)));
         nodes.set(id, { op: 'variable', inputs: [], type: n.type, name: n.name, named: n.named, defined: 'entries', entries: kept, error: n.error || E('no-source', 'what defines it has no value') }); scope.set(id, new Set()); }
       else { nodes.delete(id); scope.delete(id); } }
-    for (const [fid, f] of Object.entries(functions)) if (!nodes.has(f.input) || !nodes.has(f.body)){ delete functions[fid]; again = true; } }
+    for (const [fid, f] of Object.entries(functions)) if (!nodes.has(f.input) || !nodes.has(f.body)){ delete functions[fid]; again = true; }
+    if (again) relost = true; }
+  /* what was made of a variable that has just lost its value no longer follows the function that variable was in: the functions each node belongs to are settled again, until none changes */
+  for (let again = relost; again;){ again = false;
+    for (const [id, n] of nodes){ if (n.op === 'param' || n.inputs.some(i => !scope.has(i))) continue;
+      const now = scopes(n, n.inputs.map(i => ({ within: [...scope.get(i)] })), g.fn), was = scope.get(id);
+      if (now.length !== was.size || now.some(f => !was.has(f))){ scope.set(id, new Set(now)); again = true; } } }
   for (const s of Object.values(outSpaces)){
     if (s.owner && !nodes.has(s.owner)) s.owner = null;
     for (const p of s.pieces) if (p.node && !nodes.has(p.node)){ p.node = null; p.error = E('mismatch', 'the function it is in comes to no one matrix'); }
