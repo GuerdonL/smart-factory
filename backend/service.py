@@ -4,7 +4,7 @@
 
     GET  /health                      -> { "ok": true, "version": 1 }
     POST /run                         <- { "graph", "want", "tick", "project" }   -> { "results", "errors" }   (run.py has both in full)
-    POST /data?project=<name>&path=data/<file>.csv     <- the file's bytes        -> { "path", "cols", "rows" }, or { "error": why } with 400 or 413
+    POST /data?project=<name>&path=data/<file>.csv     <- the file's bytes        -> { "path", "cols", "rows" }, or { "error": why } where it is refused (413 where it is too large to be read at all)
 
 It listens on 127.0.0.1 and nowhere else, and has no password of its own: the page reaches it through server.py,
 which passes /api/backend/* on to it and is what the PIN guards. So that a web page open in a browser on the same
@@ -192,8 +192,8 @@ class Handler(BaseHTTPRequestHandler):
             from .run import upload
             try:
                 return self.reply(200, upload((asked.get('project') or [None])[-1], (asked.get('path') or [None])[-1], body, self.server.workers.root))
-            except Refused as e:
-                return self.reply(400, {'error': str(e)})
+            except Refused as e:      # an answer, not a failure of the service: the page says why, and a browser logs nothing
+                return self.reply(200, {'error': str(e)})
             except MemoryError:
                 return self.reply(400, {'error': 'the file is too large to be read'})
         self.reply(404, {'error': 'not found'})

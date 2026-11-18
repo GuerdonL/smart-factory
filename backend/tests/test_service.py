@@ -148,10 +148,11 @@ class Service(unittest.TestCase):
                            ('project=my%20project&path=data/w.csv%00', 'a data file is at data/'), ('project=my%20project', 'a data file is at data/'), ('path=data/w.csv', 'a project name is'), ('', 'a project name is'),
                            ('project=%2Fetc&path=data/w.csv', 'a project name is')]:
             status, out = self.request('POST', '/data?' + query, b'1,2\n')
-            self.assertEqual(status, 400, query)
+            self.assertEqual(status, 200, query)      # refused, and said so in the answer
+            self.assertEqual(list(out), ['error'], query)
             self.assertIn(why, out['error'], query)
         status, out = self.request('POST', '/data?project=my%20project&path=data/bad.csv', b'1,2\n3,oops\n')
-        self.assertEqual((status, out['error'][:21]), (400, 'line 2 is not numbers'))
+        self.assertEqual((status, out['error'][:21]), (200, 'line 2 is not numbers'))
         self.assertEqual(sorted(os.listdir(self.root)), ['my project'])
         self.assertEqual(os.listdir(os.path.join(self.root, 'my project', 'data')), ['w.csv'])
 

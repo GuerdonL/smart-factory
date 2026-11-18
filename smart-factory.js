@@ -969,8 +969,8 @@ const properties = createProperties({ ...fields,
   onValue: (key, text) => { if (pickedTile) return tileTyped(pickedTile, key, text);
     const b = [...selected][0]; if (!b) return;
     if (isArrow(b)) return arrowTyped(b, key, text);
-    if (key === 'seed'){ const got = readTyped(b, text), seed = got.refused ? got : seedOf(got.value);      /* a whole number, or a formula that comes to one now */
-      if (seed.refused){ hud.say(seed.refused === got.refused ? `seed: ${seed.refused}` : seed.refused); return shown(); } return bus.send('source.set', { id: b.id, seed: seed.seed }); }
+    if (key === 'seed'){ const got = readTyped(b, text), seed = got.refused ? got : isError(got.value) ? { refused: got.value.err } : seedOf(got.value);      /* a whole number, or a formula that comes to one now */
+      if (seed.refused){ hud.say(/^A seed/.test(seed.refused) ? seed.refused : `seed: ${seed.refused}`); return shown(); } return bus.send('source.set', { id: b.id, seed: seed.seed }); }
     if (key === 'dist'){ const dist = text.trim().toLowerCase(); if (!DISTS.includes(dist)){ hud.say(`A distribution is ${DISTS.join(' or ')}`); return shown(); } return bus.send('source.set', { id: b.id, dist }); }
     if (key[0] === 'a') return bus.send('attr.set', { id: b.id, index: +key.slice(1), text });
     /* a scalar's mass and sides take a value of any kind, or a formula. Its side is the root of its mass, so a side
@@ -2227,7 +2227,7 @@ filePicker.addEventListener('change', async () => { const file = filePicker.file
     const text = await file.text(), same = [...dataFiles].find(([, t]) => t === text), path = same ? same[0] : dataName(file.name, dataFiles);
     const r = await fetch(`api/backend/data?project=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: text });
     const said = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(said.error || 'the server answered ' + r.status);
+    if (!r.ok || said.error || !(said.cols >= 1)) throw new Error(said.error || 'the server answered ' + r.status);
     dataFiles.set(path, text);
     bus.send('source.set', { id, file: path, cols: said.cols, rows: said.rows });
   } catch (e) { hud.say(`Could not take ${file.name}: ${e.message || e}`); } });
