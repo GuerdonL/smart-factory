@@ -1,6 +1,6 @@
 /* Undo and redo, as a tap on the message bus.
 
-   createHistory(bus, { snap, same, restore, limit }) -> { undo(), redo(), canUndo(), canRedo(), clear() }
+   createHistory(bus, { snap, same, restore, limit }) -> { undo(), redo(), canUndo(), canRedo(), clear(), states() }
      snap     gives the project as it stands now, as something restore can put back
      same     (a, b) -> whether two of those are the same project
      restore  puts one back
@@ -8,6 +8,8 @@
      undo, redo   step back and forward; each gives the type of the message it undid or redid, or null if there was
                   nothing to do
      clear    forgets every step, and the one being taken: for when a different project is opened
+     states   every state a step of undo or redo can still put back (what snap gave), in no order: for whoever has
+              to keep what those states need (the page keeps their data files saved)
 
    Before the first message that can change the project in any one turn of events, the project is kept; when the turn
    is over it is looked at again, and if it now stands differently the pair is one step. So everything one action
@@ -28,5 +30,6 @@ export function createHistory(bus, { snap, same, restore, limit = 200 }){
     to.push(step); return step.type; };
   return { undo: () => go(done, undone, 'before'), redo: () => go(undone, done, 'after'),
     canUndo: () => done.length > 0, canRedo: () => undone.length > 0,
-    clear(){ done.length = undone.length = 0; open = null; } };
+    clear(){ done.length = undone.length = 0; open = null; },
+    states: () => [...done, ...undone].flatMap(step => [step.before, step.after]) };
 }

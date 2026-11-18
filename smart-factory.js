@@ -2264,14 +2264,18 @@ function gather(light = false){      /* light: each block's entries as their sta
    or opened until it is saved; a file is never changed once it is here (another file of the same name is given a
    name of its own), so undoing and redoing need only say which file a block reads. Choosing one sends it to the
    backend, which checks that it is a table of numbers, keeps it in the project's directory and says its size; the
-   block then takes that size. */
+   block then takes that size. So a file can be chosen only in a project that is on the server under its name
+   (saved at least once): before that there is no directory for it, and none is made for a project never saved.
+   A save writes the files some block reads and those a step of undo or redo can still come back to (save), so
+   that a step back never leaves a block reading a file that is no longer there. */
 const dataFiles = new Map();                   /* "data/weights.csv" -> its text */
 const filePicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.csv,text/csv', hidden: true });
 document.body.append(filePicker);
 let choosingFor = null;
 function chooseFile(b){
   if (backend.available() !== true) return hud.say('Choosing a file needs the backend, which reads it: none is running (README: The backend)');
-  if (!kept || !current) return hud.say('Save the project under a name first: a data file is kept in the project\'s directory');
+  /* the file goes into the project's directory on the server, so there has to be one: the project saved, under the name it has now */
+  if (!kept || !current || !kept.includes(current)) return hud.say(`Save the project${kept && current ? ' as ' + current : ' under a name'} first: a data file is kept in the project's directory, and there is none yet`);
   choosingFor = b.id; filePicker.click();
 }
 filePicker.addEventListener('change', async () => { const file = filePicker.files[0], id = choosingFor; filePicker.value = ''; choosingFor = null; if (!file || !id) return;
@@ -2352,13 +2356,18 @@ ask().then(() => { if (kept) backend.health(); else backend.absent();
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(name){
-  const data = gather(), files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
+  const data = gather();
+  /* a data file no block reads now is still saved while undoing or redoing can come back to a block that reads it:
+     the backend reads a file from the project's directory, so it has to be there when a step back needs it */
+  for (const state of history.states()) for (const path of Object.keys(state.data.data || {})) if (!(path in data.data) && dataFiles.has(path)) data.data[path] = dataFiles.get(path);
+  data.data = Object.fromEntries(Object.keys(data.data).sort().map(k => [k, data.data[k]]));
+  const files = project.write(data), what = `${count(data)} shapes in ${files.length} files`;
   try {
     if (kept){                                   /* on the server, under a name */
       if (!name) return hud.say('Not saved');
       const r = await fetch('api/projects/' + encodeURIComponent(name), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(files) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'the server answered ' + r.status);
-      current = name; ask(); return hud.say(`Saved ${what} to projects/${name}/`);
+      current = name; await ask(); return hud.say(`Saved ${what} to projects/${name}/`);
     }
     const bytes = zip(files.map(f => ({ path: 'project/' + f.path, text: f.text }))), downloads = await window.claude?.use?.('downloads');
     if (downloads){ await downloads.save({ filename: 'smart-factory-project.zip', data: new Blob([bytes]) }); return hud.say(`Saved ${what} as a zip`); }
