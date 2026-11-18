@@ -6,7 +6,7 @@ Each operation's rule is an entry of OPS below, as it is an entry of OPS in grap
 every array and hold no number of their own. This file does not import NumPy.
 
     Run(graph, read_file=None, tick=0)      one run over one graph that validate (check.py) has accepted
-      .needs(node)        -> { most, where, bad }: the most entries of anything the node's value is worked out from
+      .needs(node)        -> { most, where, bad }: the most numbers (columns times rows times every inner length) of anything the node's value is worked out from
                              (and which node has them), and why it has no value where a variable it is worked out
                              from has an error
       .value(node, binding=None) -> its array; raises Trouble(why) where it has none
@@ -23,6 +23,14 @@ that follows its cell has one for each cell; it is remembered under its id toget
 under. Which cells a block's node sits in is read off the graph's spaces (homes), as there. A binding handed in
 (what the page draws inside a function or a tile) is { params, cells }, set out at the top of evaluate.js.
 
+Inner data. An array is held with its rows and columns as its last two axes and its inner axes before them
+(arrays.py), so a product, a sum and everything entry by entry are repeated at each inner position by the arrays
+themselves, and an input with no inner data is used at every one. A formula is worked out over the whole array at
+once, k1, k2 and so on being each entry's inner position. Only a function is run position by position, as
+evaluate.js runs it: where its input block holds no inner data and what it is given holds some, its body is worked
+out once for the matrix at each inner position (the body's nodes are two-dimensional, and stay so) and the results
+are joined. A function whose input block holds inner data is handed its input whole.
+
 Formulas are read once each (formula.py) and applied to whole arrays: a variable's formula to all the entries that
 hold it at once, a map's to the whole matrix. A select works both its sides out and keeps the chosen one.
 
@@ -35,8 +43,10 @@ import math
 from collections import OrderedDict
 
 from . import arrays as A
-from .check import covered, data_path, is_int, is_obj, ok_range, one, reads_index, run_of, same
-from .formula import DOLLAR, SYMBOLIC, Wrong, axis_of, evaluate as work, parse, parse_symbolic
+import itertools
+
+from .check import covered, data_path, fn_whole, inner_of, is_int, is_obj, lengths, numbers, ok_range, one, reads_index, run_of
+from .formula import DOLLAR, INNER, SYMBOLIC, Wrong, axis_of, evaluate as work, parse, parse_symbolic
 from .limits import MAX_BINDING_CELLS, MEMORY_LEAST
 
 NAN = math.nan
@@ -118,6 +128,10 @@ class At:
         t = self.type(k)
         return int(t['rows']), int(t['cols'])
 
+    def whole(self):
+        """Whether its function is handed its input whole (check.py: fn_whole)."""
+        return fn_whole(self.n, {'fn': self.run.functions.get, 'node': self.run.nodes.get})
+
     def get(self, k, env=None):
         return self.run.work(self.n['inputs'][k], env or self.env)
 
@@ -173,6 +187,8 @@ class At:
             if axis:
                 got = index(axis)
                 return A.number(NAN) if got is None else got      # not in a tile: there is no index
+            if INNER.fullmatch(name):
+                return A.number(NAN)      # no inner data here, or no such inner axis: there is no such position
             m = DOLLAR.fullmatch(name)
             k = int(m.group(1)) - 1 + first if m else -1
             if k < first or k >= len(n['inputs']):
@@ -187,38 +203,39 @@ class At:
 def v_variable(n, at):
     if n['defined'] != 'entries':
         return at.get(0)
-    rows, cols = int(n['type']['rows']), int(n['type']['cols'])
-    if len(n['entries']) < rows * cols:      # it never guesses a value: an entry not given is not zero
+    rows, cols, inner = int(n['type']['rows']), int(n['type']['cols']), lengths(n['type'])
+    if len(n['entries']) < numbers(n['type']):      # it never guesses a value: an entry not given is not zero
         raise Trouble('unknown entries in %s' % (n.get('name') or at.id))
-    out = A.blank(rows, cols)
-    plain, formulas = ([], [], []), {}
+    out = A.blank(rows, cols, inner)
+    fresh = lambda: ([], [], [[] for _ in inner])      # rows, columns, and the places along each inner axis, from 0
+    plain, numbers_of, formulas = fresh(), [], {}
     for key, v in n['entries'].items():
-        c, r = key.split(',')
-        c, r = int(c) - 1, int(r) - 1
-        if is_obj(v) and 'expr' in v:
-            rs, cs = formulas.setdefault(v['expr'], ([], []))
-            rs.append(r)
-            cs.append(c)
-        else:
-            plain[0].append(r)
-            plain[1].append(c)
-            plain[2].append(number_of(v))
+        c, r, *ks = [int(x) - 1 for x in key.split(',')]
+        rs, cs, kss = formulas.setdefault(v['expr'], fresh()) if is_obj(v) and 'expr' in v else plain
+        rs.append(r)
+        cs.append(c)
+        for held, k in zip(kss, ks):
+            held.append(k)
+        if rs is plain[0]:
+            numbers_of.append(number_of(v))
     if plain[0]:
-        A.put(out, plain[0], plain[1], A.row(plain[2]))
+        A.put(out, plain[0], plain[1], A.row(numbers_of), plain[2])
     where = index_at(at.cells)
-    for text, (rs, cs) in formulas.items():      # one formula, worked out for every entry that holds it at once
+    for text, (rs, cs, kss) in formulas.items():      # one formula, worked out for every entry that holds it at once
         def index(axis, rs=rs, cs=cs):
             if where is None:
                 return None
             x, y, turned = where
             return A.row([x + (r if turned else c) + 1 for r, c in zip(rs, cs)] if axis == 'x' else [y + (c if turned else r) + 1 for r, c in zip(rs, cs)])
-        leaf = at.names(0, (rows, cols, lambda a, rs=rs, cs=cs: A.take(a, rs, cs)), index)
-        A.put(out, rs, cs, A.spread(work(at.run.tree(text), leaf, A), 1, len(rs)))
+        own = {'k%d' % (j + 1): A.row([k + 1 for k in held]) for j, held in enumerate(kss)}      # each entry's inner position
+        leaf = at.names(0, (rows, cols, lambda a, rs=rs, cs=cs, kss=kss: A.take(a, rs, cs, kss)), index, own)
+        A.put(out, rs, cs, A.spread(work(at.run.tree(text), leaf, A), 1, len(rs), ()), kss)
     return out
 
 
-def over_matrix(at, formula, rows, cols, x, first, index_of):
-    """A formula worked out at every entry of a rows by cols matrix: x, i and j are arrows.js's."""
+def over_matrix(at, formula, rows, cols, x, first, index_of, inner=()):
+    """A formula worked out at every entry of a rows by cols matrix, at every inner position: x, i and j are
+    arrows.js's, and k1, k2 and so on the entry's place along each inner axis."""
     i, j = A.grid(rows, cols)
 
     def index(axis):
@@ -227,8 +244,10 @@ def over_matrix(at, formula, rows, cols, x, first, index_of):
             return None
         bx, by, turned = where
         return (bx + (j if turned else i)) if axis == 'x' else (by + (i if turned else j))
-    leaf = at.names(first, (rows, cols), index, {'x': x, 'i': i, 'j': j})
-    return A.spread(work(at.run.tree(formula), leaf, A), rows, cols)
+    more = {'x': x, 'i': i, 'j': j}
+    more.update(('k%d' % (k + 1), a) for k, a in enumerate(A.along(inner)))
+    leaf = at.names(first, (rows, cols), index, more)
+    return A.spread(work(at.run.tree(formula), leaf, A), rows, cols, inner)
 
 
 def v_matmul(n, at):
@@ -245,7 +264,7 @@ def v_add(n, at):
 
 
 def v_block(n, at):
-    out = A.blank(int(n['type']['rows']), int(n['type']['cols']))
+    out = A.blank(int(n['type']['rows']), int(n['type']['cols']), lengths(n['type']))
     for k, a in enumerate(n['at']):
         A.place(out, at.get(k, at.shift(int(a['col']), int(a['row']))), int(a['row']), int(a['col']))
     return out
@@ -257,17 +276,17 @@ def v_slice(n, at):
 
 
 def v_source(n, at):
-    rows, cols = int(n['type']['rows']), int(n['type']['cols'])
+    rows, cols, inner = int(n['type']['rows']), int(n['type']['cols']), lengths(n['type'])
     if n['kind'] == 'file':
         got = at.run.file(n['path'])
         if A.shape(got) != (rows, cols):
             raise Trouble('%s holds %d × %d numbers, and its block is %d × %d: make the block the size of its file' % (n['path'], A.shape(got)[1], A.shape(got)[0], cols, rows))
         return got
-    return A.identity(rows, cols) if n['kind'] == 'identity' else A.full(rows, cols, 1.0 if n['kind'] == 'ones' else 0.0)
+    return A.identity(rows, cols, inner) if n['kind'] == 'identity' else A.full(rows, cols, 1.0 if n['kind'] == 'ones' else 0.0, inner)
 
 
 def v_noise(n, at):
-    return A.noise(int(n['seed']), n['key'], int(n['type']['rows']), int(n['type']['cols']), n['dist'], at.run.tick, [(c['cx'], c['cy']) for c in at.cells])
+    return A.noise(int(n['seed']), n['key'], int(n['type']['rows']), int(n['type']['cols']), n['dist'], at.run.tick, [(c['cx'], c['cy']) for c in at.cells], lengths(n['type']))
 
 
 def v_measure(n, at):
@@ -276,6 +295,8 @@ def v_measure(n, at):
         if not n['formula'].strip():
             raise Trouble('unknown: the attribute %s has nothing typed for it' % n['name'])
         return A.spread(work(at.run.tree(n['formula']), at.names(1, (1, 1), lambda axis: None), A), 1, 1)
+    if n['side'][0] == 'd':
+        return A.full(1, 1, float(inner_of(t)[int(n['side'][1:]) - 1]['length']))      # the length of an inner axis
     if not one(t):
         return A.full(1, 1, float(t['cols'] if n['side'] == 'x' else t['rows']))      # a length is read off the type
     v = at.get(0)
@@ -287,7 +308,7 @@ def v_measure(n, at):
 
 def v_map(n, at):
     rows, cols = int(n['type']['rows']), int(n['type']['cols'])
-    return over_matrix(at, n['formula'], rows, cols, at.get(0), 1, lambda: index_at(at.cells))
+    return over_matrix(at, n['formula'], rows, cols, at.get(0), 1, lambda: index_at(at.cells), lengths(n['type']))
 
 
 def v_repeat(n, at):
@@ -296,7 +317,7 @@ def v_repeat(n, at):
     places = {i: {'col': int(n['at'][k]['col']), 'row': int(n['at'][k]['row'])} for k, i in enumerate(ids) if ids.count(i) == 1}
     key = json.dumps(places, sort_keys=True)
     cell = lambda k, cx, cy: at.cell({'x': (cx - 1) * pc, 'y': (cy - 1) * pr, 'dx': int(n['at'][k]['col']), 'dy': int(n['at'][k]['row']), 'cx': cx, 'cy': cy, 'at': places, 'atKey': key})
-    pattern, each = A.blank(pr, pc), []
+    pattern, each = A.blank(pr, pc, lengths(n['type'])), []
     for k, i in enumerate(ids):
         if at.run.follows(i):
             each.append(k)      # a part that follows its cell is worked out once for every cell
@@ -317,7 +338,7 @@ def v_mapalong(n, at):
     for t in n.get('through', ()):
         c = next((c for c in at.cells if c['of'] and t['tile'] in c['of']), None)
         on += (c['y'] if rows else c['x']) if c else 0
-    out = A.blank(int(n['type']['rows']), int(n['type']['cols']))
+    out = A.blank(int(n['type']['rows']), int(n['type']['cols']), lengths(n['type']))
     each = (int(n['type']['rows']) if rows else int(n['type']['cols'])) // count
     for k in range(1, count + 1):
         run = run_of(n, k)
@@ -330,28 +351,74 @@ def v_mapalong(n, at):
         else:
             spot = n.get('at')
             where = (int(spot['col']) + (0 if rows else off), int(spot['row']) + (off if rows else 0), False) if spot else None
-            got = over_matrix(at, n['formula'], part['rows'], part['cols'], given, 1, lambda: where)
+            got = over_matrix(at, n['formula'], part['rows'], part['cols'], given, 1, lambda: where, lengths(n['type']))
         A.place(out, got, (k - 1) * each if rows else 0, 0 if rows else (k - 1) * each)
     return out
+
+
+class Here(At):
+    """What a rule may ask while it is run at one inner position of its first input (evaluate.js: repeated): that
+    input is its matrix there and nothing more, and a key for it names the position."""
+
+    def __init__(self, at, whole, where):
+        At.__init__(self, at.run, at.id, at.n, at.env)
+        self.given_here = A.at_position(whole, where)
+        self.flat = {k: v for k, v in At.type(self, 0).items() if k != 'inner'}
+        self.tail = '#k' + ''.join(',%d' % (w + 1) for w in where)
+
+    def type(self, k):
+        return self.flat if k == 0 else At.type(self, k)
+
+    def get(self, k, env=None):
+        return self.given_here if k == 0 and env is None else At.get(self, k, env)
+
+    def key_of(self, k):
+        return At.key_of(self, k) + (self.tail if k == 0 else '')
+
+
+def positioned(rule):
+    """A rule that applies a function: handed its input whole where the function's input block holds inner data (or
+    there is none to hand), and otherwise run once for the matrix at each inner position, the results joined."""
+    def value(n, at):
+        inner = lengths(at.type(0))
+        if not inner or at.whole():
+            return rule(n, at)
+        whole, flat = at.get(0), dict(n, type={k: v for k, v in n['type'].items() if k != 'inner'})
+        return A.join([rule(flat, Here(at, whole, where)) for where in itertools.product(*(range(length) for length in inner))], inner)
+    return value
+
+
+def v_transpose(n, at):
+    if 'order' not in n:
+        return A.transpose(at.get(0, at.turn()))
+    order = [int(i) for i in n['order']]
+    # the index is the cell's, by drawn column and row: read turned only where the turn is of those two
+    return A.reorder(at.get(0, at.turn() if order[:2] == [1, 0] else None), order)
+
+
+def v_stack(n, at):
+    return A.stack([at.get(k) for k in range(len(n['inputs']))], [(int(a['col']), int(a['row'])) for a in n['at']], int(n['type']['rows']), int(n['type']['cols']))
 
 
 OPS = {
     'variable': v_variable,
     'matmul': v_matmul,
     'scale': lambda n, at: A.binary('*', at.get(0), at.get(1)),
-    'transpose': lambda n, at: A.transpose(at.get(0, at.turn())),
+    'transpose': v_transpose,
     'add': v_add,
-    'ewise': lambda n, at: A.spread(A.binary('/' if n['fn'] == 'div' else '*', at.get(0), at.get(1)), int(n['type']['rows']), int(n['type']['cols'])),
+    'ewise': lambda n, at: A.spread(A.binary('/' if n['fn'] == 'div' else '*', at.get(0), at.get(1)), int(n['type']['rows']), int(n['type']['cols']), lengths(n['type'])),
     'block': v_block,
     'slice': v_slice,
     'source': v_source,
     'noise': v_noise,
     'measure': v_measure,
     'map': v_map,
-    'apply': lambda n, at: at.call(n['fn'], at.get(0), at.key_of(0)),
+    'apply': positioned(lambda n, at: at.call(n['fn'], at.get(0), at.key_of(0))),
     'param': lambda n, at: at.given(n),
     'repeat': v_repeat,
-    'mapalong': v_mapalong,
+    'mapalong': lambda n, at: (positioned(v_mapalong) if 'fn' in n else v_mapalong)(n, at),
+    'stack': v_stack,
+    'entry': lambda n, at: A.entry(at.get(0), int(n['at']['col']), int(n['at']['row'])),
 }
 
 
@@ -420,7 +487,7 @@ class Run:
             if waiting:
                 todo.extend(waiting)
                 continue
-            most, where = n['type']['cols'] * n['type']['rows'], i
+            most, where = numbers(n['type']), i
             bad = None
             if n['op'] == 'variable' and 'error' in n:
                 e = n['error']
@@ -441,7 +508,7 @@ class Run:
             seen, todo, total = {start}, [start], 0
             while todo:
                 n = self.nodes[todo.pop()]
-                total += n['type']['cols'] * n['type']['rows']
+                total += numbers(n['type'])
                 deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
                 if n['op'] in ('apply', 'mapalong') and 'fn' in n:
                     deps.append(self.functions[n['fn']]['body'])
@@ -545,6 +612,8 @@ class Run:
             given, takes = (spec['range'] if is_obj(spec) else self.nodes[of]['type']), self.nodes[self.functions[fn]['input']]['type']
             if (given['cols'], given['rows']) != (takes['cols'], takes['rows']):      # what a function is given is the size of its input, or it is given nothing
                 raise Trouble('its binding gives the function %s %s × %s, and the function takes %s × %s' % (fn, given['cols'], given['rows'], takes['cols'], takes['rows']))
+            if lengths(self.nodes[of]['type']) != lengths(takes):      # (inside a function that is run at each inner position there is no one input to look at it from)
+                raise Trouble('its binding gives the function %s inner data its input does not hold' % fn)
             params[fn] = {'spec': spec, 'values': None, 'key': 'given ' + json.dumps(spec, sort_keys=True)}
         cells = [c for c in (binding.get('cells') if isinstance(binding.get('cells'), list) else []) if is_obj(c)]
         if len(cells) > MAX_BINDING_CELLS:

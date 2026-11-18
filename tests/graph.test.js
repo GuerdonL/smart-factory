@@ -437,11 +437,12 @@ const refused = (change, what) => { const g = JSON.parse(JSON.stringify(good()))
 const first = (g, op) => Object.entries(g.nodes).find(([, n]) => n.op === op)[1];
 test('validate accepts what build made, of every operation', () => {
   const g = good(); assert.deepEqual(validate(g), []);
-  assert.deepEqual([...new Set(Object.values(g.nodes).map(n => n.op))].sort(), Object.keys(OPS).sort());
+  assert.deepEqual([...new Set(Object.values(g.nodes).map(n => n.op))].sort(), Object.keys(OPS).filter(op => op !== 'stack' && op !== 'entry').sort());      /* (those two are built in tests/inner.test.js) */
 });
 test('validate refuses a graph that is not one', () => {
   for (const g of [null, 7, 'graph', {}, { version: 1 }, { version: 1, nodes: [], functions: {}, spaces: {}, blocks: {} }]) assert.ok(validate(g).length > 0);
-  refused(g => { g.version = 2; }, 'another version');
+  refused(g => { g.version = 3; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
+  for (const v of [1, 2]){ const g = JSON.parse(JSON.stringify(good())); g.version = v; assert.deepEqual(validate(g), [], 'a version 1 graph is a version 2 graph as it stands'); }
   const inf = good(); inf.nodes['v:A'].entries['1,1'] = Infinity; assert.ok(validate(inf).length > 0);      /* an infinity is written "inf" */
   const undef = good(); undef.nodes['v:A'].entries['1,1'] = undefined; assert.ok(validate(undef).length > 0);
 });
@@ -769,12 +770,12 @@ test('phase 7: validate refuses a noise or a file source that is not in its stat
   refused(g => { fileOf(g).kind = { file: 1 }; }, 'a kind that is no word');
 });
 
-test('phase 7: a type may gain fields: validate checks its four and lets any other be', () => {
-  const g = JSON.parse(JSON.stringify(good()));
-  for (const n of Object.values(g.nodes)) n.type = { ...n.type, axes: [{ length: n.type.cols, name: null }], inner: 0 };
-  assert.deepEqual(validate(g), []);
+test('a type holds its four fields, inner where it has inner axes, and no other key', () => {
   refused(h => { first(h, 'matmul').type = { cols: 4, rows: 2, colsName: null }; }, 'a type with one of its four fields gone');
   refused(h => { first(h, 'matmul').type.rowsName = 7; }, 'a side name that is no text');
+  refused(h => { first(h, 'matmul').type.axes = [{ length: 4, name: null }]; }, 'a key a type has not got');
+  for (const inner of [0, [], 'x', [{ length: 0, name: null }], [{ length: 2 }], [{ length: 2, name: '' }], [{ length: 2, name: null, more: 1 }], [2], Array.from({ length: 7 }, () => ({ length: 1, name: null }))])
+    refused(h => { h.nodes['v:C'].type.inner = inner; }, 'inner that is ' + JSON.stringify(inner));
 });
 
 /* the same cases, with the same verdicts, are in backend/tests/test_check.py: "the bounds of a formula are graph.js's" */

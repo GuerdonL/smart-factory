@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from .support import HAVE_NUMPY, T, all_cells, changed, close, fixture, graph_of, needs_numpy, variable
+from .support import HAVE_NUMPY, T, all_cells, changed, close, deep as deep_variable, fixture, graph_of, needs_numpy, positions, variable
 from backend import limits
 
 if HAVE_NUMPY:
@@ -33,6 +33,11 @@ def whole(graph, node, **more):
     return [[cells[(c, r)] for c in range(1, t['cols'] + 1)] for r in range(1, t['rows'] + 1)]
 
 
+def flat(rows):
+    """Every value of a fixture's rows, however many inner axes they are nested for."""
+    return [v for row in rows for v in (flat(row) if isinstance(row, list) else [row])]
+
+
 def as_float(v):
     return math.inf if v == 'inf' else -math.inf if v == '-inf' else math.nan if v == 'err' or isinstance(v, dict) else v
 
@@ -44,7 +49,7 @@ class SameAnswers(unittest.TestCase):
 
     def test_every_node_of_every_fixture(self):
         graphs = fixture('graphs.json')
-        compared = errors = unknown = 0
+        compared = errors = unknown = deep = 0
         for G in graphs:
             g = G['graph']
             asks = [(i, None, a) for i, a in G['nodes'].items()] + [(b['node'], b['binding'], b['answer']) for b in G['bound']]
@@ -59,7 +64,7 @@ class SameAnswers(unittest.TestCase):
                     errors += 1
                 elif 'deferred' in a:
                     continue      # the browser did not work it out: nothing to hold this to
-                elif any(v is None for row in a['rows'] for v in row):      # an entry the browser leaves unknown: never a number here
+                elif None in flat(a['rows']):      # an entry the browser leaves unknown: never a number here
                     self.assertIsNotNone(err, at)
                     self.assertIn('unknown', err, at)
                     unknown += 1
@@ -68,14 +73,21 @@ class SameAnswers(unittest.TestCase):
                     self.assertIn(G['name'], ('unknown entries',), at)
                     unknown += 1
                 else:
-                    cells = {(c, r): v for c, r, v in res['cells']}
-                    self.assertEqual((res['cols'], res['rows']), (len(a['rows'][0]), len(a['rows'])), at)
-                    for r, row in enumerate(a['rows']):
-                        for c, want in enumerate(row):
-                            got = as_float(cells[(c + 1, r + 1)])
-                            self.assertTrue(close(got, as_float(want)), '%s, entry %d,%d: %r here and %r exactly' % (at, c + 1, r + 1, got, want))
-                            compared += 1
+                    cells = {tuple(cell[:-1]): cell[-1] for cell in res['cells']}
+                    self.assertEqual(res.get('inner', []), a.get('inner', []), at)      # a node that holds no inner data answers with no inner at all
+                    for ks in positions(g['nodes'][i]['type']):
+                        rows = a['rows']
+                        for k in ks:      # nested once for each inner axis, outermost first
+                            rows = rows[k - 1]
+                        self.assertEqual((res['cols'], res['rows']), (len(rows[0]), len(rows)), at)
+                        for r, row in enumerate(rows):
+                            for c, want in enumerate(row):
+                                got = as_float(cells[(c + 1, r + 1) + ks])
+                                self.assertTrue(close(got, as_float(want)), '%s, entry %s: %r here and %r exactly' % (at, (c + 1, r + 1) + ks, got, want))
+                                compared += 1
+                                deep += bool(ks)
         self.assertGreater(compared, 2000)
+        self.assertGreater(deep, 400)      # entries at an inner position
         self.assertGreater(errors, 5)
         self.assertGreater(unknown, 5)
 

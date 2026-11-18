@@ -181,9 +181,13 @@
                                     innermost tile's, said once however deep it lies). What overlaps is named
                                     for what it is: two blocks, a tile and a block, two tiles. (A tile that
                                     overlapping names has no matrix: whoever asks says so before asking this.)
+                                    A rect may carry inner, the axes of what each of its block's entries holds
+                                    (algebra.js): all the pattern's blocks have to hold the same, or the tile has
+                                    no matrix, and the answer then carries that inner too.
    entries(repeat, across, down, rects, valuesIn) -> a Map from "column,row": that matrix's entries, every cell's.
                                     valuesIn(n, cx, cy) gives the entries (a Map) of the n-th rect's block as it is
                                     in cell (cx, cy): a block differs from cell to cell only through the index.
+                                    An inner position after a key's column and row goes with its entry.
    whole(arrow, size)            -> the arrow as it reads a tile: all of the tile's matrix, start 1 and the whole
                                     side ({ cols, rows }) for its span. A tile is not a matrix to take rows of: the
                                     rows are taken from the block seated on the output.
@@ -217,7 +221,7 @@
                                     of all running past the input is the warning.
    startIn(arrow, k)             -> the arrow's start in cell k, from 1 */
 import { evaluate, entered, refs } from './expression.js';
-import { isWhole, isError, valueText } from './algebra.js';
+import { isWhole, isError, valueText, nested } from './algebra.js';
 
 export const LIMIT = 64, DEPTH = 8;
 export const NO_INDEX = { err: 'not in a tile: there is no index' };
@@ -397,13 +401,15 @@ export function matrix(repeat, across, down, rects){
   for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) if (over(rects[i], rects[j]))
     return { error: rects[i].tile && rects[j].tile ? 'two tiles in its pattern overlap' : rects[i].tile || rects[j].tile ? 'a tile and a block in its pattern overlap' : 'two blocks in its pattern overlap' };
   if (rects.reduce((sum, r) => sum + r.w * r.h, 0) !== p.w * p.h) return { error: 'its pattern has a gap' };
-  return filled(repeat, across, down);
+  let inner = rects[0].inner || [];
+  for (const r of rects.slice(1)){ const n = nested(inner, r.inner, true); if (!n.ok) return { error: 'its blocks do not hold the same inner data: ' + n.note }; inner = n.inner; }
+  return { ...filled(repeat, across, down), ...(inner.length ? { inner } : {}) };
 }
 export function entries(repeat, across, down, rects, valuesIn){
   const out = new Map();
   for (let cy = 1; cy <= down; cy++) for (let cx = 1; cx <= across; cx++) rects.forEach((rect, n) => {
     const ox = (cx - 1) * repeat.cols + rect.x - repeat.x, oy = (cy - 1) * repeat.rows + rect.y - repeat.y;
-    for (const [key, v] of valuesIn(n, cx, cy)){ const [c, r] = key.split(',').map(Number); if (c >= 1 && c <= rect.w && r >= 1 && r <= rect.h) out.set((ox + c) + ',' + (oy + r), v); } });
+    for (const [key, v] of valuesIn(n, cx, cy)){ const [c, r, ...ks] = key.split(',').map(Number); if (c >= 1 && c <= rect.w && r >= 1 && r <= rect.h) out.set((ox + c) + ',' + (oy + r) + (ks.length ? ',' + ks.join(',') : ''), v); } });
   return out;
 }
 export const whole = (arrow, size) => ({ ...arrow, start: 1, span: along(arrow.side) === 'rows' ? size.rows : size.cols });

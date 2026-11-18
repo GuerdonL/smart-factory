@@ -1,13 +1,16 @@
 /* A graph worked out, exactly. No drawing here: a graph (graph.js) and a node's id in, that node's entries out.
 
    evaluate(graph, nodeId, { maxEntries = 4096, binding = null })
-       -> { type, entries }                    worked out: entries is keyed "column,row" from 1 and holds values of
+       -> { type, entries }                    worked out: entries is keyed "column,row" from 1 (and, where the type
+                                               holds inner data, "column,row,k1,k2,…": one more number, from 1, for
+                                               each inner axis) and holds values of
                                                the kinds values.js sets out, written as the graph writes them (an
                                                infinity is "inf" or "-inf"). An entry that depends on an unknown
                                                entry is unknown, and is absent. An entry that cannot be worked out
                                                (a division by zero, ∞ − ∞) is there, as the error value { err }.
         | { type, deferred: true }             too large to work out here: the node, or something its value is
-                                               worked out from, has more than maxEntries entries
+                                               worked out from, holds more than maxEntries numbers (its columns
+                                               times its rows times every inner length)
         | { error: { code, note, node } }      its value is worked out from a variable that has an error; node is
                                                that variable's id. (Also for an id the graph has not got: no-source.)
         | { type, deferred: true, backend: true }   it is worked out from noise or from a data file, whose numbers
@@ -21,7 +24,7 @@
                                                node is, so such a node has the value it had. (Only what was worked
                                                out under no binding is taken: what a function's body came to for one
                                                input says nothing once the input has changed.) Gives how many nodes.
-   MOST                                        4096, the default maxEntries: the most entries the browser works out
+   MOST                                        4096, the default maxEntries: the most numbers the browser works out
    tooLarge(type, most)                        the sentence that says so of a result that size
    toMap(entries)                              an answer's entries as the page keeps them: a Map, infinities as numbers
 
@@ -53,7 +56,8 @@
        { params: { "<function id>": "<node id>" | { of: "<node id>", range: { col, row, cols, rows } } },
          cells:  [ { x, y, dx, dy, cx, cy, turned, of: ["t:<frame id>"], at: { "<node id>": { col, row } } } ] }
    params gives a function's input its value (a node, or a part of one), so that the nodes of its body can be asked
-   for; cells is the chain of tile cells the node sits in, outermost first: x and y are the columns and rows of
+   for (where that node holds inner data and the function's input block holds none, the function is run at each
+   inner position, and what is asked for is seen at the first); cells is the chain of tile cells the node sits in, outermost first: x and y are the columns and rows of
    the filled tile that lie before the cell, dx and dy those of the pattern that lie before the node asked for
    (graph.js: indexAt), cx and cy which cell it is, counted from 1 (left out: the first; only noise reads them, and
    only the backend makes noise), and at says where in the pattern other nodes lie, so that a piece of two blocks of one tile
@@ -69,14 +73,17 @@
        at.call(fn, values, key)   function fn's body with values as its input; key names those values among all
                            the function is applied to
        at.keyOf(k)         a key for input k's entries as they are under this env
-       at.given(node)      the entries a function's input has been given, none where it has been given nothing */
-import { OPS, readsIndex } from './graph.js';
+       at.given(node)      the entries a function's input has been given, none where it has been given nothing
+       at.ks               where the rule is being repeated over inner data, the inner position of this run */
+import { OPS, readsIndex, tailsOf } from './graph.js';
 import { passed } from './arrows.js';
+import { numbers } from './algebra.js';
 
 export const MOST = 4096;
-export const tooLarge = (type, most = MOST) => type.cols * type.rows > most
-  ? `it has ${type.cols} × ${type.rows} entries, more than the ${most} that are worked out here: its size is shown, and its numbers are not`
-  : `it is worked out from more than the ${most} entries that are worked out here: its size is shown, and its numbers are not`;
+const hasInner = type => Array.isArray(type.inner) && type.inner.length > 0;
+export const tooLarge = (type, most = MOST) => numbers(type) > most
+  ? `it holds ${[type.cols, type.rows, ...(hasInner(type) ? type.inner.map(a => a.length) : [])].join(' × ')} numbers, more than the ${most} that are worked out here: its size is shown, and its numbers are not`
+  : `it is worked out from more than the ${most} numbers that are worked out here: its size is shown, and its numbers are not`;
 export function toMap(entries){
   const out = new Map(); for (const [key, v] of Object.entries(entries || {})) out.set(key, v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v); return out;
 }
@@ -108,7 +115,7 @@ function needsOf(graph, st, id, open = new Set()){
   if (st.needs.has(id)) return st.needs.get(id);
   const n = nodeAt(graph, id);
   if (!n) return { most: 0, bad: { code: 'no-source', note: 'no such node', node: String(id) } };
-  let most = n.type.cols * n.type.rows, bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
+  let most = numbers(n.type), bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
   let remote = n.op === 'noise' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
   if (open.has(id)) return { most, bad: bad || { code: 'loop', note: '', node: id }, remote };
   open.add(id);
@@ -143,6 +150,35 @@ function homesOf(graph, st){
 }
 const inner = (cells, change) => cells.length ? [...cells.slice(0, -1), change(cells[cells.length - 1])] : cells;
 
+/* ---- inner data: a rule repeated at each inner position ----
+   The rules in graph.js's table are two-dimensional, and stay so. A node one of whose inputs holds inner data is
+   worked out by running its rule once for each inner position: every input that holds inner data is handed its
+   entries at that position (keyed "column,row"), an input that holds none is handed whole to every run, and the
+   results are joined under the long keys, "column,row,k1,k2,…". A rule marked deep reads the long keys itself (a
+   variable, a slice, a stack, an entry and so on), and a function whose input block holds inner data is handed its
+   input whole: those are run once. */
+const EMPTY = new Map(), splits = new WeakMap(), flats = new WeakMap();
+/* a value's entries sorted by inner position: tail (",k1,k2") -> a Map from "column,row". Kept with the value. */
+function split(values){
+  if (!splits.has(values)){ const by = new Map();
+    for (const [key, v] of values){ const i = key.indexOf(','), j = key.indexOf(',', i + 1), tail = j < 0 ? '' : key.slice(j);
+      if (!by.has(tail)) by.set(tail, new Map()); by.get(tail).set(j < 0 ? key : key.slice(0, j), v); }
+    splits.set(values, by); }
+  return splits.get(values);
+}
+const flatType = t => { const { inner: _, ...rest } = t; return rest; };
+const flatNode = n => { if (!flats.has(n)) flats.set(n, hasInner(n.type) ? { ...n, type: flatType(n.type) } : n); return flats.get(n); };
+function repeated(rule, n, at, types){
+  const out = new Map(), lead = types.find(hasInner), flat = flatNode(n);
+  for (const tail of tailsOf(lead)){
+    const here = { ...at, ks: tail.slice(1).split(',').map(Number),
+      type: k => hasInner(types[k]) ? flatType(types[k]) : types[k],
+      get: (k, e) => hasInner(types[k]) ? split(at.get(k, e)).get(tail) || EMPTY : at.get(k, e),
+      keyOf: k => at.keyOf(k) + (hasInner(types[k]) ? '#k' + tail : '') };
+    for (const [key, v] of rule.value(flat, here)) out.set(key + tail, v); }
+  return out;
+}
+
 function run(graph, st, id, env){
   const n = graph.nodes[id], home = env.cells.length ? homesOf(graph, st).homes.get(id) : undefined;
   /* a block is in the cells of the tiles it is itself in, and no others, whoever reads it */
@@ -164,9 +200,13 @@ function run(graph, st, id, env){
       return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn] }); },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */
-        const all = nodeAt(graph, of) ? run(graph, st, of, { ...env, params: rest }) : new Map(); p.values = typeof spec === 'string' || !spec.range ? all : passed(all, spec.range); }
+        const from = nodeAt(graph, of), all = from ? run(graph, st, of, { ...env, params: rest }) : new Map(), part = typeof spec === 'string' || !spec.range ? all : passed(all, spec.range);
+        /* looked at from inside a function that is run at each inner position of what it is given (its input block holds no inner data, and this does): what is seen is the first position's */
+        p.values = from && hasInner(from.type) && !hasInner(node.type) ? split(part).get(tailsOf(from.type)[0]) || EMPTY : part; }
       return p.values; } };
-  const value = OPS[n.op].value(n, at);
+  const rule = OPS[n.op], types = n.inputs.map((_, k) => at.type(k));
+  const deep = !types.some(hasInner) || (typeof rule.deep === 'function' ? rule.deep(n, { node: i => nodeAt(graph, i), fn: f => fnAt(graph, f) }) : !!rule.deep);
+  const value = deep ? rule.value(n, at) : repeated(rule, n, at, types);
   mine.set(key, value); return value;
 }
 
@@ -185,8 +225,8 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
     const env = { params: Object.fromEntries(given.map(([fn, spec]) => [fn, { spec, key: 'given ' + bkey }])), active: [],
       cells: ((binding && Array.isArray(binding.cells) && binding.cells) || []).filter(c => c && typeof c === 'object').map(aCell) };
     const values = run(graph, st, nodeId, env), entries = {};
-    for (let r = 1; r <= n.type.rows; r++) for (let c = 1; c <= n.type.cols; c++){ const v = values.get(c + ',' + r);
-      if (v !== null && v !== undefined) entries[c + ',' + r] = v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v; }
+    for (const tail of tailsOf(n.type)) for (let r = 1; r <= n.type.rows; r++) for (let c = 1; c <= n.type.cols; c++){ const v = values.get(c + ',' + r + tail);
+      if (v !== null && v !== undefined) entries[c + ',' + r + tail] = v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v; }
     return done({ type: n.type, entries });
   } catch (e){      /* never thrown: a function inside itself is a loop, and anything else is a graph that is not well formed */
     return done({ error: e === LOOP ? { code: 'loop', note: '', node: nodeId } : { code: 'no-source', note: 'it could not be worked out: ' + (e && e.message ? e.message : String(e)), node: nodeId } });

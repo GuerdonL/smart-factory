@@ -45,12 +45,14 @@ class OnItsOwn(unittest.TestCase):
         return graph_of({'a': variable(2, 2, [[1, 2], [3, 4]]), 'b': {'op': 'source', 'inputs': [], 'type': T(2, 2), 'kind': 'identity'},
                          'matmul(a,b)': {'op': 'matmul', 'inputs': ['a', 'b'], 'type': T(2, 2)}})
 
-    def test_a_type_may_gain_fields(self):
+    def test_a_type_holds_its_four_fields_inner_and_no_other_key(self):
         g = self.good()
         self.assertEqual(validate(g), [])
-        for n in g['nodes'].values():
-            n['type'] = dict(n['type'], axes=[{'length': 2, 'name': None}], inner=0)
-        self.assertEqual(validate(g), [])
+        for more in ({'axes': [{'length': 2, 'name': None}]}, {'inner': 0}, {'inner': []}, {'depth': None}):
+            g = self.good()
+            g['nodes']['a']['type'] = dict(g['nodes']['a']['type'], **more)
+            self.assertNotEqual(validate(g), [], more)
+        g = self.good()
         del g['nodes']['a']['type']['rowsName']
         self.assertNotEqual(validate(g), [])
 

@@ -43,8 +43,12 @@
                                     different from every path in taken (a Set, or anything with has)
    entry(kind, column, row)      -> that entry: 0 or 1. undefined where kind is none of the three, or the place is
                                     not a whole column and row from 1
-   values(kind, cols, rows)      -> a Map from "column,row" to every entry of a source that size; empty for noise and
-                                    for a file. The same Map is given for the same question: it is not to be changed
+   values(kind, cols, rows, inner) -> a Map from "column,row" to every entry of a source that size; empty for noise and
+                                    for a file. The same Map is given for the same question: it is not to be changed.
+                                    inner: the lengths of the inner axes of a source whose entries hold inner data
+                                    (left out: none). Its keys are then "column,row,k1,k2,…", and what a number is
+                                    still follows from its column and row alone: zeros and ones everywhere, an
+                                    identity 1 where column equals row at every inner position
    typable(source, name)         -> { ok: true } | { refused: a sentence }: whether entries can be typed into a block.
                                     Not into a source: its entries are what it is
    holds(source, name)           -> { ok: true } | { refused }: whether shapes can stand in its matrix (snap to
@@ -78,11 +82,12 @@ export function seedOf(value){
 const place = n => Number.isInteger(n) && n >= 1;
 export const entry = (kind, column, row) => !byKind.has(kind) || !place(column) || !place(row) ? undefined : kind === 'zeros' ? 0 : kind === 'ones' ? 1 : column === row ? 1 : 0;
 const made = new Map();                         /* "kind cols rows" -> its Map: a source is asked for its entries often, and they never differ */
-export function values(kind, cols, rows){
-  if (!byKind.has(kind) || !place(cols) || !place(rows)) return new Map();
-  const key = kind + ' ' + cols + ' ' + rows;
+export function values(kind, cols, rows, inner = []){
+  if (!byKind.has(kind) || !place(cols) || !place(rows) || !Array.isArray(inner) || !inner.every(place)) return new Map();
+  const key = kind + ' ' + [cols, rows, ...inner].join(' ');
   if (!made.has(key)){ if (made.size > 200) made.clear();
-    const out = new Map(); for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) out.set(c + ',' + r, entry(kind, c, r));
+    let tails = ['']; for (const n of inner) tails = tails.flatMap(t => Array.from({ length: n }, (_, k) => t + ',' + (k + 1)));      /* every inner position, the first axis slowest */
+    const out = new Map(); for (const t of tails) for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) out.set(c + ',' + r + t, entry(kind, c, r));
     made.set(key, out); }
   return made.get(key);
 }

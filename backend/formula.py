@@ -26,7 +26,8 @@ the tree is walked with a list of its own, so a long sum is no deeper than a sho
     names_in(text)              -> the names in it that are not words of the language, in order; raises Wrong
     formula_ok(text, most, arrow=False, empty=False)
                                 -> whether it is a formula a graph may hold (graph.js: formulaOk): it reads, and
-                                   every name is $1 to $most, index.x or index.y, or (arrow) x, i or j
+                                   every name is $1 to $most, index.x or index.y, k1 to k6 (the inner position
+                                   of the entry: INNER), or (arrow) x, i or j
     axis_of(name)               -> 'x' | 'y' for index.x and index.y, else None
     evaluate(tree, leaf, ops)   -> what it comes to. leaf(name) gives a name's value; ops does the arithmetic:
                                    ops.number(float), ops.binary(op, a, b) for + - * / ^ == != < > <= >= && ||,
@@ -63,6 +64,7 @@ NAME = re.compile(r'[A-Za-z_][\w.]*', re.ASCII)
 INPUT = re.compile(r'\$\d+', re.ASCII)
 DOLLAR = re.compile(r'\$([1-9]\d*)', re.ASCII)
 AXIS = re.compile(r'index\.(x|y)')
+INNER = re.compile(r'[kK]([1-6])')      # k1 to k6: the inner position of the entry being worked out (graph.js: INNER)
 TWO = ('==', '!=', '<=', '>=', '&&', '||')
 ONE = set('+-*/^(),<>!√∜∞')
 UNREAD = 'that cannot be read as arithmetic'
@@ -277,7 +279,7 @@ def formula_ok(text, most, arrow=False, empty=False):
         if m:
             if int(m.group(1)) > most:
                 return False
-        elif axis_of(name) is None and not (arrow and name.lower() in ('x', 'i', 'j')):
+        elif axis_of(name) is None and not INNER.fullmatch(name) and not (arrow and name.lower() in ('x', 'i', 'j')):
             return False
     return True
 

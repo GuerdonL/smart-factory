@@ -1,22 +1,27 @@
 """Every array there is. This is the one module that imports NumPy: another library takes its place by giving
 these same functions, and nothing else in the backend would change.
 
-An array is 32-bit floats with its rows and columns as its LAST two axes: shape (..., rows, cols). Everything here
-reads and writes from the end (a[..., r, c], axis -2 and -1), so leading axes can be added later and every
-function below repeats over them. An entry that has no value (a division by zero, ∞ − ∞, 0 × ∞, the root or the
+An array is 32-bit floats with its rows and columns as its LAST two axes: shape (..., rows, cols). The axes before
+them are the inner axes of a matrix whose entries hold inner data (graph.js: a type's inner), in their order: entry
+"column,row,k1,k2" is a[k1 - 1, k2 - 1, row - 1, column - 1]. Everything here reads and writes from the end
+(a[..., r, c], axis -2 and -1), so every function below repeats over the leading axes, and an array with none of
+them is used at every inner position of one that has them. inner, where a function takes it, is the lengths of
+those axes, () for none. An entry that has no value (a division by zero, ∞ − ∞, 0 × ∞, the root or the
 logarithm of a negative number: the browser's error value) is NaN, and stays NaN through whatever is made of it;
 an infinity is an infinity. Nothing here raises for what the numbers are.
 
 Making them
     number(x)                        one number
-    full(rows, cols, x)              every entry x
-    identity(rows, cols)             1 where the column is the row, else 0
-    blank(rows, cols)                every entry without a value, to be set into (place, put)
+    full(rows, cols, x, inner)       every entry x
+    identity(rows, cols, inner)      1 where the column is the row, else 0, at every inner position
+    blank(rows, cols, inner)         every entry without a value, to be set into (place, put)
     table(text, skip)                the numbers of a CSV already seen to be one (data.py: inspect), skip lines passed over
     row(values)                      Python numbers as one row
-    spread(a, rows, cols)            one entry, one row or one column spread over a whole matrix (a matrix is itself)
+    spread(a, rows, cols, inner)     one entry, one row or one column spread over a whole matrix (a matrix is itself).
+                                     inner given: over every inner position too; left out: the leading axes a has
     grid(rows, cols)                 (i, j): each entry's column and its row, from 1, as arrays that spread over the matrix
-    noise(seed, key, rows, cols, dist, tick, cells)     see below
+    along(inner)                     [k1, k2, …]: each entry's place along each inner axis, from 1, likewise
+    noise(seed, key, rows, cols, dist, tick, cells, inner)     see below
 Putting them together
     matmul(a, b)                     the matrix product
     transpose(a)
@@ -29,11 +34,21 @@ Putting them together
     part(a, row, col, rows, cols)    a range of it, from 0
     place(out, a, row, col)          a set into out with its top-left corner there
     repeat(a, down, across)          a set down across by down times
-    take(a, rs, cs)                  the entries at those rows and columns (lists, from 0), as one row
-    put(out, rs, cs, row)            and such a row set back at those places
+    take(a, rs, cs, ks)              the entries at those rows and columns (lists, from 0), as one row. ks: for each
+                                     inner axis, the places along it (lists, from 0); an array with no inner axes
+                                     is read at its rows and columns alone
+    put(out, rs, cs, row, ks)        and such a row set back at those places
+    reorder(a, order)                its axes moved: axis k of the result is axis order[k] of a, counted as a type
+                                     counts them (graph.js: axes), 0 the columns, 1 the rows, 2 the first inner axis
+    stack(parts, at, rows, cols)     matrices put into the entries of one: part k is entry at[k] = (col, row), from
+                                     0. The result's inner axes are a part's columns, its rows, then its own
+    entry(a, col, row)               one entry taken out again: its columns and rows are a's first two inner axes
+                                     (one inner axis: that many columns in one row)
+    at_position(a, where)            the matrix at one inner position (a tuple, from 0)
+    join(parts, inner)               and matrices, one for each inner position in order, joined into one array
 Reading them
-    shape(a) -> (rows, cols);  size(a) -> how many bytes it takes
-    item(a, r, c) -> one entry as a Python float (from 0)
+    shape(a) -> (rows, cols);  inner(a) -> the lengths of its inner axes;  size(a) -> how many bytes it takes
+    item(a, r, c, ks) -> one entry as a Python float (from 0; ks: its inner position, from 0)
     summary(a) -> (least, most, mean) of the entries that have a value, as Python floats, or (None, None, None)
 
 How the arithmetic differs from plain floating point, so that it is the browser's (values.js) wherever both have an
@@ -56,7 +71,10 @@ Noise. The generator is the specification's, written out so that any implementat
     uniform:  u(0)
     normal:   sqrt(-2 * ln(1 - u(0))) * cos(2 * pi * u(1))
 In a tile the cell joins the key: for each cell (cx, cy) the block is in, outermost first, k becomes
-mix(mix(k xor cx) xor cy), except for cell (1, 1), which leaves k as it is. It is worked out for the whole matrix at
+mix(mix(k xor cx) xor cy), except for cell (1, 1), which leaves k as it is. Inner data joins the key in the same
+way, after the cells: at inner position (k1, k2, …), all from 1, k becomes mix(… mix(mix(k xor k1) xor k2) …), one
+mix for each inner axis in order, except at the first position (every one of them 1), which leaves k as it is: so
+giving a noise block inner data changes none of the numbers it already had. It is worked out for the whole matrix at
 once in 64-bit numbers and made 32-bit at the end; a uniform number that would round up to 1 is the largest 32-bit
 number below 1, so it is always less than 1."""
 import hashlib
@@ -78,16 +96,16 @@ def number(x):
     return np.asarray(x, dtype=F)
 
 
-def full(rows, cols, x):
-    return np.full((rows, cols), x, dtype=F)
+def full(rows, cols, x, inner=()):
+    return np.full(tuple(inner) + (rows, cols), x, dtype=F)
 
 
-def identity(rows, cols):
-    return np.eye(rows, cols, dtype=F)
+def identity(rows, cols, inner=()):
+    return np.array(np.broadcast_to(np.eye(rows, cols, dtype=F), tuple(inner) + (rows, cols)))
 
 
-def blank(rows, cols):
-    return np.full((rows, cols), NAN, dtype=F)
+def blank(rows, cols, inner=()):
+    return np.full(tuple(inner) + (rows, cols), NAN, dtype=F)
 
 
 def table(text, skip):
@@ -99,8 +117,13 @@ def row(values):
     return np.asarray(values, dtype=F)[None, :]
 
 
-def spread(a, rows, cols):
-    return np.array(np.broadcast_to(a, np.shape(a)[:-2] + (rows, cols)), dtype=F)
+def spread(a, rows, cols, inner=None):
+    return np.array(np.broadcast_to(a, (np.shape(a)[:-2] if inner is None else tuple(inner)) + (rows, cols)), dtype=F)
+
+
+def along(inner):
+    n = len(inner)
+    return [np.arange(1, length + 1, dtype=F).reshape((length,) + (1,) * (n - k + 1)) for k, length in enumerate(inner)]
 
 
 def grid(rows, cols):
@@ -128,24 +151,72 @@ def repeat(a, down, across):
     return np.tile(a, (1,) * (a.ndim - 2) + (down, across))
 
 
-def take(a, rs, cs):
+def take(a, rs, cs, ks=()):
+    if ks and np.ndim(a) == 2 + len(ks):
+        return a[tuple(ks) + (rs, cs)][None, :]
     return a[..., rs, cs][..., None, :]
 
 
-def put(out, rs, cs, row):
-    out[..., rs, cs] = np.broadcast_to(row, row.shape[:-2] + (1, len(rs)))[..., 0, :]
+def put(out, rs, cs, row, ks=()):
+    if ks:
+        out[tuple(ks) + (rs, cs)] = np.broadcast_to(row, (1, len(rs)))[0]
+    else:
+        out[..., rs, cs] = np.broadcast_to(row, row.shape[:-2] + (1, len(rs)))[..., 0, :]
+
+
+def _dim(axis, n):
+    """Where a type's axis is among an array's: the columns last, the rows before them, the n inner axes first."""
+    return n + 1 if axis == 0 else n if axis == 1 else axis - 2
+
+
+def reorder(a, order):
+    n = len(order) - 2
+    perm = [0] * len(order)
+    for k, source in enumerate(order):
+        perm[_dim(k, n)] = _dim(source, n)
+    return np.ascontiguousarray(np.transpose(a, perm))
+
+
+def stack(parts, at, rows, cols):
+    n = parts[0].ndim - 2
+    turn = (n + 1, n) + tuple(range(n))      # a part's columns and rows become the first two inner axes, its own follow
+    first = np.transpose(parts[0], turn)
+    out = np.full(first.shape + (rows, cols), NAN, dtype=F)
+    for part, (col, row) in zip(parts, at):
+        out[..., row, col] = np.transpose(part, turn)
+    return out
+
+
+def entry(a, col, row):
+    got = a[..., row, col]
+    if got.ndim == 1:
+        return np.array(got[None, :])
+    n = got.ndim
+    return np.ascontiguousarray(np.transpose(got, tuple(range(2, n)) + (1, 0)))
+
+
+def at_position(a, where):
+    return a[tuple(where)]
+
+
+def join(parts, inner):
+    return np.stack(parts).reshape(tuple(inner) + parts[0].shape)
 
 
 def shape(a):
     return int(a.shape[-2]), int(a.shape[-1])
 
 
+def inner(a):
+    return tuple(int(x) for x in a.shape[:-2])
+
+
 def size(a):
     return int(a.nbytes)
 
 
-def item(a, r, c):
-    return float(a[..., r, c])
+def item(a, r, c, ks=()):
+    return float(a[tuple(ks) + (r, c)] if ks else a[..., r, c])
 
 
 def summary(a):
@@ -273,21 +344,37 @@ def _mix1(z):
     return int(_mix(np.array([z & M64], dtype=np.uint64))[0])
 
 
-def noise(seed, key, rows, cols, dist, tick=0, cells=()):
+def _draw(k, r, c, dist, tick):
+    """The numbers at rows r of columns c under keys k: arrays of unsigned 64-bit integers that spread over one another."""
+    base = _mix(_mix(_mix(k ^ c) ^ r) ^ np.uint64(tick & M64))
+    u = lambda n: (_mix(base ^ np.uint64(n)) >> np.uint64(11)).astype(D) / float(1 << 53)
+    if dist == 'normal':
+        return (np.sqrt(-2.0 * np.log(1.0 - u(0))) * np.cos(2.0 * math.pi * u(1))).astype(F)
+    return np.minimum(u(0).astype(F), BELOW_ONE)
+
+
+def noise(seed, key, rows, cols, dist, tick=0, cells=(), inner=()):
     k = int.from_bytes(hashlib.sha256(('%d:%s' % (seed, key)).encode('utf8')).digest()[:8], 'big')
+    inner = tuple(inner)
     with quiet():
         for cx, cy in cells:
             if (cx, cy) != (1, 1):
                 k = _mix1(_mix1(k ^ (cx & M64)) ^ (cy & M64))
-        out = np.empty((rows, cols), dtype=F)
+        out = np.empty(inner + (rows, cols), dtype=F)
         c = np.arange(1, cols + 1, dtype=np.uint64)[None, :]
-        step = max(1, (1 << 18) // cols)      # some rows at a time: the 64-bit numbers on the way are never more than a small part of the matrix
-        for at in range(0, rows, step):
-            r = np.arange(at + 1, min(rows, at + step) + 1, dtype=np.uint64)[:, None]
-            base = _mix(_mix(_mix(np.uint64(k) ^ c) ^ r) ^ np.uint64(tick & M64))
-            u = lambda n: (_mix(base ^ np.uint64(n)) >> np.uint64(11)).astype(D) / float(1 << 53)
-            if dist == 'normal':
-                out[at:at + step] = (np.sqrt(-2.0 * np.log(1.0 - u(0))) * np.cos(2.0 * math.pi * u(1))).astype(F)
-            else:
-                out[at:at + step] = np.minimum(u(0).astype(F), BELOW_ONE)
+        flat = out.reshape((-1, rows, cols))      # one matrix for each inner position, the first axis slowest
+        at_once = max(1, (1 << 18) // (rows * cols))      # how many inner positions' keys are worked out together
+        for p in range(0, flat.shape[0], at_once):
+            # each position's key: one mix for each inner axis in order, but the first position, which keeps k itself
+            where = np.unravel_index(np.arange(p, min(flat.shape[0], p + at_once)), inner) if inner else ()
+            keys = np.full(min(flat.shape[0], p + at_once) - p, k, dtype=np.uint64)
+            for w in where:
+                keys = _mix(keys ^ (w.astype(np.uint64) + np.uint64(1)))
+            if inner and p == 0:
+                keys[0] = np.uint64(k)
+            keys = keys[:, None, None]
+            step = max(1, (1 << 18) // (cols * keys.shape[0]))      # some rows at a time: the 64-bit numbers on the way are never more than a small part of the matrix
+            for at in range(0, rows, step):
+                r = np.arange(at + 1, min(rows, at + step) + 1, dtype=np.uint64)[None, :, None]
+                flat[p:p + at_once, at:at + step] = _draw(keys, r, c[None], dist, tick)
         return out

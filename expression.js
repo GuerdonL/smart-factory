@@ -24,7 +24,8 @@
    An odd root of a negative number is the real one: (-8)^(1/3) is -2. An even root of one is an error.
    Nothing is ever rounded. The kinds of value, and how they combine, are set out in values.js.
    A name may have dots in it (Keys.x, index.x). What a name stands for is the lookup's to say: x, i and j in an
-   arrow's formula are arrows.js's, and index.x and index.y, an entry's place in its tile, are tiles.js's.
+   arrow's formula are arrows.js's, and index.x and index.y, an entry's place in its tile, are tiles.js's. k1, k2
+   and so on are the inner position of the entry a formula is in, where its shape's entries hold inner data.
    $ and a number is a name too: $1, $2 and so on are how a formula in the graph (graph.js) names the nodes it
    depends on. Nothing on the page knows such a name, so typed there it is an unknown name, as any other is.
 
@@ -32,11 +33,13 @@
    renaming the variable breaks nothing. In the text it is one of
        @[b3k2m9x:x]   @[b3k2m9x:y]      the variable's width and height
        @[b3k2m9x:m]                     a scalar's mass
+       @[b3k2m9x:d1]  …  @[b3k2m9x:d6]  the length of an inner axis of a variable whose entries hold inner data
+                                        (inner.js): d1 the first, the columns of one entry
        @[b3k2m9x:a:heads]               an attribute, by name
        @[b3k2m9x:g]                     an arrow's gap, where it has been given a name (it is layout, and a number)
        @[b3k2m9x]                       the whole matrix: read here, and refused everywhere but in an arrow's entry
                                         formula ({ matrices: true }), with "choose one of its measures"
-   and as an object { id, measure: 'x' | 'y' | 'm' | 'g' | 'a' | null, name: the attribute's or null }.
+   and as an object { id, measure: 'x' | 'y' | 'm' | 'g' | 'd1' … 'd6' | 'a' | null, name: the attribute's or null }.
 
    evaluate(text, lookup, { matrices }) -> { value }             what it comes to: any kind of value (values.js)
                                          | { value, unread: true }   the text itself cannot be read (not arithmetic, an
@@ -98,7 +101,7 @@ class Wrong extends Error {}
 const ARITY = { select: 3, max: 2, min: 2, abs: 1, sqrt: 1, exp: 1, ln: 1, tanh: 1, erf: 1 };
 const CONSTANT = { inf: Infinity, infinity: Infinity, true: true, false: false };
 const SIGN = { '×': '*', '·': '*', '∙': '*', '÷': '/', '−': '-', '–': '-', '≠': '!=', '≤': '<=', '≥': '>=' };
-const ONE = /^@\[([^\]:\s]+)(?::([xymg])|:a:([^\]]+))?\]/, CAPSULE = new RegExp(ONE.source.slice(1), 'g');
+const ONE = /^@\[([^\]:\s]+)(?::([xymg]|d[1-6])|:a:([^\]]+))?\]/, CAPSULE = new RegExp(ONE.source.slice(1), 'g');
 const capsuleOf = m => ({ id: m[1], measure: m[3] !== undefined ? 'a' : m[2] || null, name: m[3] ?? null });
 
 export const capsuleText = ({ id, measure, name }) => '@[' + id + (measure === 'a' ? ':a:' + name : measure ? ':' + measure : '') + ']';
@@ -227,6 +230,7 @@ export const typed = stored => stored === null || stored === undefined ? '' : is
 
 /* ---- choosing a variable ---- */
 export const measuresOf = v => [{ measure: 'x', name: null, label: 'x' }, { measure: 'y', name: null, label: 'y' }, ...(v.scalar ? [{ measure: 'm', name: null, label: 'mass' }] : []),
+  ...Array.from({ length: Math.max(0, Math.min(6, v.inner | 0)) }, (_, k) => ({ measure: 'd' + (k + 1), name: null, label: 'd' + (k + 1) })),      /* the lengths of its inner axes */
   ...(v.attributes || []).map(name => ({ measure: 'a', name, label: name }))];
 /* the variable whose name the text begins with: [variable, how many letters of the text are its name], the longest that fits */
 function named(text, variables){

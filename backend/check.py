@@ -13,26 +13,33 @@ What is checked: every input is in the graph; there are no cycles, through input
 apply; every node carries its operation's own fields in their stated form (a formula reads, and names nothing but
 its inputs: formula.py); every type follows from its inputs by its operation's rule; every block is covered exactly
 by its parts; every node is marked with the functions and the tiles it belongs to, exactly (within); spaces name
-pieces, arrows and tiles in their stated form. A type is checked for its four fields and may hold others.
+pieces, arrows and tiles in their stated form. A type is its four fields, and inner where its entries hold inner
+data: the axes of what one entry holds, 1 to 6 of exactly { length, name }; it has no other key. Every rule acts on
+the two drawn sides and is repeated at each inner position; whether two shapes' inner data agrees is nested, which
+is algebra.js's nested again.
 
-Also here, since the evaluator asks the same things: T, same, one, covered, covered_type, run_of, reads_index,
-tiles_of, data_path, as_int."""
+Also here, since the evaluator asks the same things: T, same, one, inner_of, lengths, numbers, fn_whole, covered,
+covered_type, run_of, reads_index, tiles_of, data_path, as_int."""
 import math
 import re
 
 from .formula import formula_ok, reads_index as text_reads_index
 from .limits import MAX_JSON_DEPTH
 
-VERSION = 1
+VERSION = 2                 # 2 added stack, entry, a transpose's order and inner axes: a version 1 graph is a version 2 graph as it stands
+VERSIONS = (1, 2)
+AXES = 6                    # the most inner axes a type has
 CODES = ('mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown')
 PIECE_CODES = ('mismatch', 'not-a-row', 'mixed', 'size-unknown')
-DEFINED = ('entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source')
+DEFINED = ('entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source', 'entry')
 KINDS = ('zeros', 'ones', 'identity')
 DISTS = ('uniform', 'normal')
 ROOTS = 6
 SAFE = 2 ** 53 - 1
 BIGGEST = 2 ** 1024 - 1      # past the largest number JavaScript holds, a number in JSON is an infinity there
-ENTRY = re.compile(r'([1-9]\d*),([1-9]\d*)', re.ASCII)
+PLACE = re.compile(r'[1-9]\d*', re.ASCII)
+SIDE = re.compile(r'x|y|m|a|d[1-6]')
+TYPE_KEYS = ('cols', 'rows', 'colsName', 'rowsName', 'inner')
 PATH = re.compile(r'data/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')
 MISSING = object()
 
@@ -68,25 +75,95 @@ def data_path(path):
 
 
 # ---- types ----
-def T(cols, rows, cols_name=None, rows_name=None):
-    return {'cols': cols, 'rows': rows, 'colsName': cols_name or None, 'rowsName': rows_name or None}
+def inner_of(t):
+    return t['inner'] if isinstance(t.get('inner'), list) else []
+
+
+def lengths(t):
+    """The lengths of a type's inner axes, as whole numbers."""
+    return tuple(int(a['length']) for a in inner_of(t))
+
+
+def numbers(t):
+    """How many numbers a type holds: its columns times its rows times every inner length (algebra.js: numbers)."""
+    n = int(t['cols']) * int(t['rows'])
+    for length in lengths(t):
+        n *= length
+    return n
+
+
+def T(cols, rows, cols_name=None, rows_name=None, inner=None):
+    t = {'cols': cols, 'rows': rows, 'colsName': cols_name or None, 'rowsName': rows_name or None}
+    if inner:
+        t['inner'] = [{'length': a['length'], 'name': a['name'] or None} for a in inner]
+    return t
+
+
+def axes(t):
+    """Every axis of a type in order: the two drawn ones, then the inner ones."""
+    return [{'length': t['cols'], 'name': t['colsName'] or None}, {'length': t['rows'], 'name': t['rowsName'] or None}] + list(inner_of(t))
+
+
+def ok_axis(a):
+    return is_obj(a) and len(a) == 2 and whole1(a.get('length')) and 'name' in a and (a['name'] is None or (isinstance(a['name'], str) and a['name'] != ''))
 
 
 def ok_type(t):
     return (is_obj(t) and whole1(t.get('cols')) and whole1(t.get('rows')) and 'colsName' in t and 'rowsName' in t
-            and (t['colsName'] is None or isinstance(t['colsName'], str)) and (t['rowsName'] is None or isinstance(t['rowsName'], str)))
+            and (t['colsName'] is None or isinstance(t['colsName'], str)) and (t['rowsName'] is None or isinstance(t['rowsName'], str))
+            and ('inner' not in t or (isinstance(t['inner'], list) and 1 <= len(t['inner']) <= AXES and all(ok_axis(a) for a in t['inner'])))
+            and all(k in TYPE_KEYS for k in t))
 
 
 def one(t):
-    return t['cols'] == 1 and t['rows'] == 1
+    """A scalar: one number and nothing else. A one by one type that holds inner data is a matrix of one entry."""
+    return t['cols'] == 1 and t['rows'] == 1 and not inner_of(t)
 
 
-def same(a, b):
+def drawn_same(a, b):
     return a['cols'] == b['cols'] and a['rows'] == b['rows']
 
 
+def same(a, b):
+    """One size, inner lengths and all."""
+    return drawn_same(a, b) and [x['length'] for x in inner_of(a)] == [x['length'] for x in inner_of(b)]
+
+
 def alike(a, b):
-    return same(a, b) and a['colsName'] == b['colsName'] and a['rowsName'] == b['rowsName']
+    return same(a, b) and a['colsName'] == b['colsName'] and a['rowsName'] == b['rowsName'] and [x['name'] for x in inner_of(a)] == [x['name'] for x in inner_of(b)]
+
+
+def nested(a, b, strict=False):
+    """Two lists of inner axes that are to be one (algebra.js: nested): what they come to, or None where they do not
+    agree. strict: one with none against one with some does not agree."""
+    if not a and not b:
+        return []
+    if not strict and (not a or not b):
+        return a or b
+    if len(a) != len(b):
+        return None
+    for x, y in zip(a, b):
+        if x['name'] and y['name'] and x['name'] != y['name']:
+            return None
+    for x, y in zip(a, b):
+        if x['length'] != y['length']:
+            return None
+    return [{'length': x['length'], 'name': x['name'] or y['name'] or None} for x, y in zip(a, b)]
+
+
+def agreed(lists):
+    """What several lists of axes come to where all of them have to be the same (the parts of one matrix), or None."""
+    inner = lists[0]
+    for other in lists[1:]:
+        inner = nested(inner, other, True)
+        if inner is None:
+            return None
+    return inner
+
+
+def named_fits(t, out):
+    """A matrix a formula names beside x: the output's own size, inner data and all; or its drawn size with no inner data; or a scalar."""
+    return one(t) or (drawn_same(t, out) and (not inner_of(t) or same(t, out)))
 
 
 def covers(types, at, cols, rows):
@@ -114,15 +191,16 @@ def together(a, b, broadcast):
     c = differ(a['cols'], a['colsName'], b['cols'], b['colsName'])
     r = differ(a['rows'], a['rowsName'], b['rows'], b['rowsName'])
     ok = (not c and not r) or (broadcast and (one(a) or one(b) or (not c and (a['rows'] == 1 or b['rows'] == 1)) or (not r and (a['cols'] == 1 or b['cols'] == 1))))
-    if not ok:
+    inner = nested(inner_of(a), inner_of(b), not broadcast)      # a sum never broadcasts: its inner data agrees exactly
+    if not ok or inner is None:
         return None
     cols, rows = max(a['cols'], b['cols']), max(a['rows'], b['rows'])
     return T(cols, rows, (a['cols'] == cols and a['colsName']) or (b['cols'] == cols and b['colsName']) or None,
-             (a['rows'] == rows and a['rowsName']) or (b['rows'] == rows and b['rowsName']) or None)
+             (a['rows'] == rows and a['rowsName']) or (b['rows'] == rows and b['rowsName']) or None, inner)
 
 
 def broadcast_of(a, b):
-    return 'none' if same(a, b) else 'scalar' if one(a) or one(b) else 'row' if a['cols'] == b['cols'] else 'col'
+    return 'none' if drawn_same(a, b) else 'scalar' if one(a) or one(b) else 'row' if a['cols'] == b['cols'] else 'col'
 
 
 # ---- arrows: the part of an input a run covers (arrows.js) ----
@@ -144,7 +222,7 @@ def covered_type(arrow, t):
     part = covered(arrow, t)
     if not part:
         return None
-    return T(part['cols'], part['rows'], t['colsName'] if part['cols'] == t['cols'] else None, t['rowsName'] if part['rows'] == t['rows'] else None)
+    return T(part['cols'], part['rows'], t['colsName'] if part['cols'] == t['cols'] else None, t['rowsName'] if part['rows'] == t['rows'] else None, inner_of(t))
 
 
 # ---- values as the graph writes them ----
@@ -230,9 +308,34 @@ def fn_fits(n, g, given):
     b = g['node'](f['body']) if f else None
     if not f or not p or not b:
         return 'its function is not in the graph'
-    if not same(p['type'], given):
+    if not drawn_same(p['type'], given):
         return 'its input is %s × %s and the function takes %s × %s' % (given['cols'], given['rows'], p['type']['cols'], p['type']['rows'])
-    return b['type']
+    pi, gi = inner_of(p['type']), inner_of(given)
+    if pi:      # its input block holds inner data: what is given holds the same, and it is applied once
+        return b['type'] if nested(pi, gi, True) is not None else "its input's inner data is not what the function takes"
+    if not gi:
+        return b['type']
+    if inner_of(b['type']):      # run at each inner position, the result takes those axes: so it may come to none of its own
+        return 'its function is run at each inner position of its input, and comes to inner data of its own'
+    return T(b['type']['cols'], b['type']['rows'], b['type']['colsName'], b['type']['rowsName'], gi)
+
+
+def fn_whole(n, g):
+    """Whether a function is handed its input whole, inner data and all: its input block holds inner data."""
+    f = g['fn'](n['fn']) if 'fn' in n else None
+    p = g['node'](f['input']) if f else None
+    return bool(p) and len(inner_of(p['type'])) > 0
+
+
+def ok_entry_key(key, t):
+    """A column and a row, and one more number for each inner axis, each within its length."""
+    p = key.split(',')
+    if len(p) < 2 or not all(PLACE.fullmatch(x) for x in p):
+        return False
+    if t is None:
+        return True
+    ax = axes(t)
+    return len(p) == len(ax) and all(int(x) <= a['length'] for x, a in zip(p, ax))
 
 
 def variable_fields(n):
@@ -253,8 +356,7 @@ def variable_fields(n):
         return bad + ['entries is not an object']
     typed = ok_type(n.get('type'))
     for key, v in n['entries'].items():
-        m = ENTRY.fullmatch(key)
-        if not m or (typed and (int(m.group(1)) > n['type']['cols'] or int(m.group(2)) > n['type']['rows'])):
+        if not ok_entry_key(key, n['type'] if typed else None):
             bad.append('entry %s is not an entry of it' % key)
         elif is_obj(v) and 'expr' in v:
             if n.get('defined') != 'entries' or len(v) != 1 or not formula_ok(v['expr'], len(n['inputs'])):
@@ -270,7 +372,7 @@ def variable_type(n, ins, g):
     if n['defined'] == 'entries' or not ins:
         return n['type']
     t = ins[0]['type']
-    kinds = {'measure': ('measure',), 'standing': ('block',), 'joined': ('block',), 'source': ('source', 'map', 'noise')}
+    kinds = {'measure': ('measure',), 'standing': ('block', 'stack'), 'joined': ('block',), 'source': ('source', 'map', 'noise'), 'entry': ('entry',)}
     if n['defined'] in kinds and ins[0]['op'] not in kinds[n['defined']]:
         return 'defined "%s" over a %s' % (n['defined'], ins[0]['op'])
     if not same(t, n['type']):
@@ -279,6 +381,8 @@ def variable_type(n, ins, g):
         for k in ('colsName', 'rowsName'):
             if t[k] and n['type'][k] and t[k] != n['type'][k]:
                 return "its definition's side is %s and its own is %s" % (t[k], n['type'][k])
+        if nested(inner_of(t), inner_of(n['type']), True) is None:
+            return "its definition's inner data is not its own"
     return n['type']
 
 
@@ -291,13 +395,16 @@ def matmul_type(n, ins, g):
     if not scalar and a['colsName'] and b['rowsName'] and a['colsName'] != b['rowsName']:
         return why
     # the first one's rows and the last one's columns; single entries only scale, and say nothing of the size
+    inner = nested(inner_of(a), inner_of(b))      # one product at each inner position; an input with no inner data is used at every one
+    if inner is None:
+        return 'a product of shapes whose inner data does not agree'
     solid = [t for t in (a, b) if not one(t)] or [a, b]
-    return T(solid[-1]['cols'], solid[0]['rows'], solid[-1]['colsName'], solid[0]['rowsName'])
+    return T(solid[-1]['cols'], solid[0]['rows'], solid[-1]['colsName'], solid[0]['rowsName'], inner)
 
 
 def add_type(n, ins, g):
     t = ins[0]['type']
-    acc = T(t['cols'], t['rows'], t['colsName'], t['rowsName'])
+    acc = T(t['cols'], t['rows'], t['colsName'], t['rowsName'], inner_of(t))
     for before, i in zip(ins, ins[1:]):
         if not together(before['type'], i['type'], False):      # each touch on its own, and then against what came before it
             return 'a sum of shapes that are not one size'
@@ -323,19 +430,26 @@ def block_type(n, ins, g):
     rows = max(a['row'] + t['rows'] for a, t in zip(n['at'], ts))
     if not covers(ts, n['at'], cols, rows):
         return 'its parts do not cover it exactly'
+    inner = agreed([inner_of(t) for t in ts])
+    if inner is None:
+        return 'its parts do not hold the same inner data'
     first = next(t for a, t in zip(n['at'], ts) if a['col'] == 0 and a['row'] == 0)
-    return T(cols, rows, first['colsName'] if first['cols'] == cols else None, first['rowsName'] if first['rows'] == rows else None)
+    return T(cols, rows, first['colsName'] if first['cols'] == cols else None, first['rowsName'] if first['rows'] == rows else None, inner)
 
 
 def slice_type(n, ins, g):
     a, r = ins[0]['type'], n['range']
     if r['col'] + r['cols'] > a['cols'] or r['row'] + r['rows'] > a['rows']:
         return 'its range runs past its input'
-    return T(r['cols'], r['rows'], a['colsName'] if r['cols'] == a['cols'] else None, a['rowsName'] if r['rows'] == a['rows'] else None)
+    return T(r['cols'], r['rows'], a['colsName'] if r['cols'] == a['cols'] else None, a['rowsName'] if r['rows'] == a['rows'] else None, inner_of(a))
 
 
 def own_size(n, ins, g):
-    return T(n['type']['cols'], n['type']['rows']) if ok_type(n.get('type')) else 'it has no size of its own'
+    if not ok_type(n.get('type')):
+        return 'it has no size of its own'
+    if n.get('kind') == 'file' and inner_of(n['type']):
+        return 'a data file holds no inner data'
+    return T(n['type']['cols'], n['type']['rows'], None, None, [{'length': a['length'], 'name': None} for a in inner_of(n['type'])])
 
 
 def source_fields(n):
@@ -353,7 +467,7 @@ def noise_fields(n):
 
 
 def measure_fields(n):
-    if not isinstance(n.get('side'), str) or n['side'] not in ('x', 'y', 'm', 'a'):
+    if not isinstance(n.get('side'), str) or not SIDE.fullmatch(n['side']):
         return ['side is "%s"' % (n.get('side'),)]
     if n['side'] != 'a':
         return ['a side or a mass is read off one input'] if len(n['inputs']) != 1 else ['only an attribute has a name and a formula'] if 'name' in n or 'formula' in n else []
@@ -362,20 +476,24 @@ def measure_fields(n):
 
 
 def measure_type(n, ins, g):
-    return 'only a single entry has a mass' if n['side'] == 'm' and not one(ins[0]['type']) else T(1, 1)
+    if n['side'] == 'm' and not one(ins[0]['type']):
+        return 'only a single number has a mass'
+    if n['side'][0] == 'd' and int(n['side'][1:]) > len(inner_of(ins[0]['type'])):
+        return 'its input has no inner axis %s' % n['side'][1:]
+    return T(1, 1)
 
 
 def map_type(n, ins, g):
     x = ins[0]['type']
     for i in ins[1:]:
-        if not one(i['type']) and not same(i['type'], x):
+        if not named_fits(i['type'], x):
             return 'a matrix its formula names is not the size of the output'
-    return T(x['cols'], x['rows'], x['colsName'], x['rowsName'])
+    return T(x['cols'], x['rows'], x['colsName'], x['rowsName'], inner_of(x))
 
 
 def apply_type(n, ins, g):
     t = fn_fits(n, g, ins[0]['type'])
-    return t if isinstance(t, str) else T(t['cols'], t['rows'], t['colsName'], t['rowsName'])
+    return t if isinstance(t, str) else T(t['cols'], t['rows'], t['colsName'], t['rowsName'], inner_of(t))
 
 
 def repeat_fields(n):
@@ -389,7 +507,10 @@ def repeat_type(n, ins, g):
     p = n['pattern']
     if not covers([i['type'] for i in ins], n['at'], p['cols'], p['rows']):
         return 'its inputs do not cover its pattern exactly'
-    return T(p['cols'] * n['across'], p['rows'] * n['down'])
+    inner = agreed([inner_of(i['type']) for i in ins])
+    if inner is None:
+        return 'its inputs do not hold the same inner data'
+    return T(p['cols'] * n['across'], p['rows'] * n['down'], None, None, inner)
 
 
 def ok_through(v):
@@ -430,13 +551,73 @@ def mapalong_type(n, ins, g):
             return came
     else:
         for i in ins[1:]:
-            if not one(i['type']) and not same(i['type'], part):
+            if not named_fits(i['type'], part):
                 return 'a matrix its formula names is not the size of one output'
     if n['count'] == 1:
-        return T(came['cols'], came['rows'], came['colsName'], came['rowsName'])
+        return T(came['cols'], came['rows'], came['colsName'], came['rowsName'], inner_of(came))
     if n['axis'] == 'rows':
-        return T(came['cols'], came['rows'] * n['count'], came['colsName'], None)
-    return T(came['cols'] * n['count'], came['rows'], None, came['rowsName'])
+        return T(came['cols'], came['rows'] * n['count'], came['colsName'], None, inner_of(came))
+    return T(came['cols'] * n['count'], came['rows'], None, came['rowsName'], inner_of(came))
+
+
+def transpose_fields(n):
+    if 'order' not in n:
+        return []
+    o = n['order']
+    ok = isinstance(o, list) and 3 <= len(o) <= AXES + 2 and all(is_int(i) and 0 <= i < len(o) for i in o) and len(set(o)) == len(o)
+    return [] if ok else ['order is not its axes, each once, counted from 0']
+
+
+def transpose_type(n, ins, g):
+    """With no order it swaps the two drawn sides. order names every axis of the input: axis k of the result is axis order[k] of the input."""
+    a = ins[0]['type']
+    if 'order' not in n:
+        return T(a['rows'], a['cols'], a['rowsName'], a['colsName'], inner_of(a))
+    ax, o = axes(a), [int(i) for i in n['order']]
+    if len(o) != len(ax):
+        return 'order names %d axes and its input has %d' % (len(o), len(ax))
+    if all(i == k + 2 for k, i in enumerate(o[2:])):
+        return 'order moves no inner axis: that is no turn, or a transpose with no order'      # one spelling
+    to = [ax[i] for i in o]
+    return T(to[0]['length'], to[1]['length'], to[0]['name'], to[1]['name'], to[2:])
+
+
+def stack_fields(n):
+    ok = ok_places(n) and all(a['col'] >= 0 and a['row'] >= 0 and len(a) == 2 for a in n['at'])
+    return [] if ok else ['at is not one { col, row } for each part, from 0']
+
+
+def stack_type(n, ins, g):
+    """Matrices put into the entries of one: one part to an entry, all of one size and holding the same. Its inner
+    axes are the parts' two drawn sides, then the parts' own."""
+    ts = [i['type'] for i in ins]
+    cols, rows = max(a['col'] for a in n['at']) + 1, max(a['row'] for a in n['at']) + 1
+    if len(ts) != cols * rows or len(set((a['col'], a['row']) for a in n['at'])) != len(ts):
+        return 'its parts do not cover its entries, one part to an entry'
+    inner = agreed([axes(t) for t in ts])
+    if inner is None:
+        return 'its parts are not one size, holding the same inner data'
+    if len(inner) > AXES:
+        return 'it would have %d inner axes: there are at most %d' % (len(inner), AXES)
+    return T(cols, rows, None, None, inner)
+
+
+def entry_fields(n):
+    a = n.get('at')
+    ok = is_obj(a) and is_int(a.get('col')) and is_int(a.get('row')) and a['col'] >= 0 and a['row'] >= 0 and len(a) == 2
+    return [] if ok else ['at is not { col, row }, from 0']
+
+
+def entry_type(n, ins, g):
+    """One entry taken out: its drawn sides are the input's first two inner axes (one: that many columns in one row)."""
+    a = ins[0]['type']
+    inner = inner_of(a)
+    if not inner:
+        return 'its input holds no inner data: an entry of it is one number'
+    if n['at']['col'] >= a['cols'] or n['at']['row'] >= a['rows']:
+        return 'its input has no such entry'
+    second = inner[1] if len(inner) > 1 else {'length': 1, 'name': None}
+    return T(inner[0]['length'], second['length'], inner[0]['name'], second['name'], inner[2:])
 
 
 def none(n):
@@ -447,8 +628,8 @@ INF = math.inf
 RULES = {
     'variable': {'inputs': (0, INF), 'fields': variable_fields, 'type': variable_type},
     'matmul': {'inputs': (2, 2), 'fields': none, 'type': matmul_type},
-    'scale': {'inputs': (2, 2), 'fields': none, 'type': lambda n, ins, g: T(ins[1]['type']['cols'], ins[1]['type']['rows'], ins[1]['type']['colsName'], ins[1]['type']['rowsName']) if one(ins[0]['type']) else 'the first input of a scale is a single entry'},
-    'transpose': {'inputs': (1, 1), 'fields': none, 'type': lambda n, ins, g: T(ins[0]['type']['rows'], ins[0]['type']['cols'], ins[0]['type']['rowsName'], ins[0]['type']['colsName'])},
+    'scale': {'inputs': (2, 2), 'fields': none, 'type': lambda n, ins, g: T(ins[1]['type']['cols'], ins[1]['type']['rows'], ins[1]['type']['colsName'], ins[1]['type']['rowsName'], inner_of(ins[1]['type'])) if one(ins[0]['type']) else 'the first input of a scale is a single number'},
+    'transpose': {'inputs': (1, 1), 'fields': transpose_fields, 'type': transpose_type},
     'add': {'inputs': (2, INF), 'fields': none, 'type': add_type},
     'ewise': {'inputs': (2, 2), 'type': ewise_type,
               'fields': lambda n: ([] if n.get('fn') in ('mul', 'div') and isinstance(n['fn'], str) else ['fn is "%s"' % (n.get('fn'),)])
@@ -456,13 +637,15 @@ RULES = {
     'block': {'inputs': (1, INF), 'fields': lambda n: [] if ok_places(n) else ['at is not one { col, row } for each part'], 'type': block_type},
     'slice': {'inputs': (1, 1), 'fields': lambda n: [] if ok_range(n.get('range')) and len(n['range']) == 4 else ['range is not { col, row, cols, rows }'], 'type': slice_type},
     'source': {'inputs': (0, 0), 'fields': source_fields, 'type': own_size},
-    'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': own_size},
+    'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g)},
     'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type},
     'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type},
     'apply': {'inputs': (1, 1), 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type},
     'param': {'inputs': (0, 0), 'fields': none, 'type': lambda n, ins, g: n['type'] if ok_type(n.get('type')) else 'it has no size of its own'},
     'repeat': {'inputs': (1, INF), 'fields': repeat_fields, 'type': repeat_type},
     'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type},
+    'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type},
+    'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type},
 }
 
 
@@ -581,7 +764,7 @@ def check(graph):
     bad = []
     if not is_obj(graph):
         return ['it is not a graph']
-    if not is_num(graph.get('version')) or graph['version'] != VERSION:
+    if not is_num(graph.get('version')) or graph['version'] not in VERSIONS:
         bad.append('version is %s, not %s' % (graph.get('version'), VERSION))
     for k in ('nodes', 'functions', 'spaces', 'blocks'):
         if not is_obj(graph.get(k)):
@@ -609,7 +792,7 @@ def check(graph):
             bad.append('%s: its input %s is not in the graph' % (i, gone[0]))
             continue
         if not ok_type(n.get('type')):
-            bad.append('%s: its type is not { cols, rows, colsName, rowsName }' % i)
+            bad.append('%s: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to %d of { length, name }, where it holds inner data' % (i, AXES))
             continue
         w = n.get('within', MISSING)
         if w is not MISSING and not (isinstance(w, list) and w and all(isinstance(x, str) and x[:2] in ('f:', 't:') for x in w) and len(set(w)) == len(w)):
@@ -686,7 +869,8 @@ def check(graph):
             bad.append('%s: %s' % (i, t))
             continue
         if not alike(t, n['type']):
-            bad.append('%s: its type is %s × %s (%s, %s) and its inputs give %s × %s (%s, %s)' % (i, n['type']['cols'], n['type']['rows'], n['type']['colsName'], n['type']['rowsName'], t['cols'], t['rows'], t['colsName'], t['rowsName']))
+            said = lambda u: '%s (%s)' % (' × '.join(str(x['length']) for x in axes(u)), ', '.join(str(x['name']) for x in axes(u)))
+            bad.append('%s: its type is %s and its inputs give %s' % (i, said(n['type']), said(t)))
             continue
         typed.add(i)
         want, got = scopes(n, ins, g['fn']), sorted(functions_of(n.get('within')))
