@@ -317,7 +317,7 @@ function cellIn(s, t, r = null, over = false){      /* r: where in the pattern w
   for (const k of mine) if (!isArrow(k) && g.blocks[k.id]){ const r = unitsOf(k); at[g.blocks[k.id]] = { col: r.x - rep.x, row: r.y - rep.y }; }
   for (const [c, cr] of s.repeats) if (tileUp(s, c) === t){ const id = findIn(g).tiles.get('t:' + c)?.node; if (id && !(id in at)) at[id] = { col: cr.x - rep.x, row: cr.y - rep.y }; }      /* a tile in the pattern is one part of it */
   for (const k of mine) if (isArrow(k)){ const id = findIn(g).arrows.get(k.id)?.node, r = id && !(id in at) ? outputOf(k).place : null; if (r) at[id] = { col: r.x - rep.x, row: r.y - rep.y }; }      /* an output lies where it is written */
-  return { x: (now.cx - 1) * rep.cols, y: (now.cy - 1) * rep.rows, dx: r ? r.x - rep.x : 0, dy: r ? r.y - rep.y : 0, turned: over, at };
+  return { x: (now.cx - 1) * rep.cols, y: (now.cy - 1) * rep.rows, dx: r ? r.x - rep.x : 0, dy: r ? r.y - rep.y : 0, turned: over, of: ['t:' + t], at };      /* of: which tile's cell it is, so that a block read from a tile inside its own is still worked out in its own tile's cell alone (evaluate.js) */
 }
 /* the chain of cells something in tile t is in: a cell of every tile t is inside, outermost first, and last t's own */
 function cellsOf(s, t, r = null, over = false){

@@ -331,6 +331,40 @@ test('the index a block of the inner tile reads is the inner tile\'s, the same i
   assert.deepEqual(text(worked(g, 'v:A', { binding: { cells } })), text(rowsOf([[3, 4]])));
   assert.deepEqual(text(worked(g, 'v:A', { binding: { cells: [{ x: 0, y: 0, dx: 0, dy: 0 }, { x: 0, y: 0, dx: 0, dy: 0 }] } })), text(rowsOf([[1, 2]])));
 });
+test('after review: the index a block reads is that of the innermost tile the block itself is in, whoever reads it', () => {
+  const F = e => ({ expr: e }), G2 = (outer, inner, om, im) => [{ id: 'outer', name: null, members: om, repeat: { x: 0, y: 0, across: 1, down: 1, ...outer }, groups: [{ id: 'inner', name: null, members: im, groups: [], repeat: { across: 1, down: 1, ...inner } }] }];
+  /* 1. Q, a block of the outer tile, holds index.x; P, in a tile inside it, holds Q's number times 10 and its own index */
+  let g = make(snap([B('Q', 0, 0, 1, 1, { entries: { '1,1': F('index.x') } }), B('P', 1, 0, 1, 1, { entries: { '1,1': F('@[Q:m] * 10 + index.x') } }), arrow('out', { id: 'outer', as: 'tile' })],
+    G2({ cols: 3, rows: 1, across: 2 }, { x: 1, y: 0, cols: 1, rows: 1, across: 2 }, [0], [1])));
+  assert.deepEqual(text(out(g)), text(rowsOf([[1, 11, 12, 4, 41, 42]])));
+  /* asked for as the page asks, under both cells: P in the outer tile's second cell and the inner tile's second is 42 */
+  const cells = (ox, ix) => [{ x: ox, y: 0, dx: 1, dy: 0, of: ['t:outer'], at: { 'v:Q': { col: 0, row: 0 } } }, { x: ix, y: 0, dx: 0, dy: 0, of: ['t:inner'] }];      /* at: where the outer pattern's blocks lie, as the page says it */
+  assert.deepEqual(text(worked(g, 'v:P', { binding: { cells: cells(3, 1) } })), { '1,1': '42' });
+  assert.deepEqual(text(worked(g, 'v:Q', { binding: { cells: cells(3, 1) } })), { '1,1': '4' });      /* and Q, asked under the same chain, is in the outer cell alone, at its own place */
+  /* 2. M, of the outer tile, holds index.x; an arrow in the inner tile passes it through to S, seated in the inner tile */
+  g = make(snap([B('M', 0, 0, 2, 1, { entries: { '1,1': F('index.x'), '2,1': F('index.x') } }), arrow('f', { id: 'M', as: 'block' }, { side: 's', span: 2 }), B('S', 0, 1, 2, 1, { seat: 'f' }), arrow('out', { id: 'outer', as: 'tile' })],
+    G2({ cols: 2, rows: 2, across: 2 }, { x: 0, y: 1, cols: 2, rows: 1 }, [0], [1, 2])));
+  assert.deepEqual(text(worked(g, g.spaces.top.arrows.find(a => a.arrow === 'out').node)), text(rowsOf([[1, 2, 3, 4], [1, 2, 3, 4]])));
+  /* 3. M, of the outer tile, holds formulas of index.y; a max(x, 0) arrow under its column 1 is repeated in the inner tile */
+  g = make(snap([B('M', 0, 0, 4, 1, { entries: { '1,1': F('index.y'), '2,1': F('0 - index.y'), '3,1': F('2 * index.y'), '4,1': -3 } }), arrow('relu', { id: 'M', as: 'block' }, { side: 's', formula: 'max(x, 0)' }, { x: 0, y: 1 })],
+    G2({ cols: 4, rows: 3, down: 2 }, { x: 0, y: 1, cols: 1, rows: 2, across: 4 }, [0], [1])));
+  const relu = g.spaces.top.arrows[0].node, under = oy => ({ binding: { cells: [{ x: 0, y: oy, dx: 0, dy: 1, of: ['t:outer'], at: { 'v:M': { col: 0, row: 0 } } }, { x: 0, y: 0, dx: 0, dy: 0, of: ['t:inner'] }] } });
+  assert.equal(g.nodes[relu].op, 'mapalong');
+  assert.deepEqual(text(worked(g, relu, under(0))), text(rowsOf([[1, 0, 2, 0]])));      /* the outer tile's first cell: index.y is 1 */
+  assert.deepEqual(text(worked(g, relu, under(3))), text(rowsOf([[4, 0, 8, 0]])));      /* its second: 4 */
+  /* the same root, older than nesting: a block in no tile has no index, though an arrow in a tile reads it */
+  g = make(snap([B('M', 0, 0, 4, 1, { entries: { '1,1': F('index.y'), '2,1': 5, '3,1': -6, '4,1': 7 } }), arrow('relu', { id: 'M', as: 'block' }, { side: 's', formula: 'max(x, 0)' }, { x: 0, y: 1 })],
+    [{ id: 't1', name: null, members: [1], groups: [], repeat: { x: 0, y: 1, cols: 1, rows: 2, across: 4, down: 1 } }]));
+  const free = worked(g, g.spaces.top.arrows[0].node, { binding: { cells: [{ x: 0, y: 0, dx: 0, dy: 0, of: ['t:t1'] }] } });
+  assert.deepEqual(text(free), { '1,1': '!', '2,1': '5', '3,1': '0', '4,1': '7' }); assert.match(free['1,1'].err, /not in a tile/);
+  assert.match(worked(g, 'v:M', { binding: { cells: [{ x: 0, y: 0, dx: 0, dy: 0, of: ['t:t1'] }] } })['1,1'].err, /not in a tile/);
+  /* a block in the definition space of a block of a tile is in that block's cell, as before */
+  g = make(snap([B('P', 0, 0, 2, 1, { inside: { shapes: [B('ix', -3, 0, 2, 1, { name: 'index.x', from: { id: 'P', index: 'x' } })], groups: [], operations: [] } }), arrow('out', { id: 't1', as: 'tile' })],
+    [{ id: 't1', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 2, down: 1 } }]));
+  assert.deepEqual(text(out(g)), text(rowsOf([[1, 2, 3, 4]])));
+  /* a cell that does not say which tile it is of is kept, whatever the block */
+  assert.deepEqual(text(worked(g, 'v:P', { binding: { cells: [{ x: 2, y: 0, dx: 0, dy: 0 }] } })), text(rowsOf([[3, 4]])));
+});
 test('three tiles, one inside the next: the bindings compose from a snapshot too', () => {
   const g = make(snap([B('A', 0, 0, 1, 1, { entries: { '1,1': { expr: 'index.x * 10 + index.y' } } }), arrow('out', { id: 'a', as: 'tile' })],
     [{ id: 'a', name: null, members: [], repeat: { x: 0, y: 0, cols: 4, rows: 2, across: 2, down: 1 }, groups: [{ id: 'b', name: null, members: [], repeat: { x: 0, y: 0, cols: 2, rows: 2, across: 2, down: 1 },
