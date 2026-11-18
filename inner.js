@@ -55,7 +55,26 @@
    pathType(type, path)          the type of what is opened at path ({ cols, rows, colsName, rowsName, inner }), or
                                  null where the path does not lead anywhere in a shape of that type (an entry it
                                  has not got, or deeper than its axes go)
-   trail(name, path)             the heading over an opened entry: "QKV › 2,1" */
+   trail(name, path)             the heading over an opened entry: "QKV › 2,1"
+
+   Turning. A use of a variable has an axis order, as a use has T: which of the variable's axes this use draws. The
+   variable's axes are its columns (0), its rows (1), then its inner axes (2 on); an order is a list naming each
+   once, and axis k of the use is axis order[k] of the variable. The first two are drawn; the rest are what each
+   entry of the use holds. So an arrow, a cut or a tile set against a turned use works along what was an inner axis,
+   with no rule of its own for it.
+   ordered(order, count)         the order as it is kept, for a variable with count inner axes: null where it is
+                                 none (not a list of 0 to count + 1, each once), where it moves nothing, and where
+                                 it only swaps the two drawn axes: that is a transpose, and is kept as one
+   plainly(order, count)         'same' | 'transposed' | 'turned' | null: what an order amounts to (null: no order)
+   turnedAxes(all, order)        the use's axes, [{ length, name }], from all the variable's (columns, rows, inner)
+   moved(order, from, to)        the order after the axis at place `from` of the use is dragged to place `to`
+   turnable(shape)               { ok: true } | { refused }: whether a use can be turned. shape: { name, origin,
+                                 inner: how many inner axes, arrow, input, part, entry, measure, seated, fused,
+                                 standing }. The shape a variable was made as keeps the variable's own way round
+                                 (its size is where the variable's lengths are kept): another use of it is turned.
+   toVariable(key, order)        an entry's key in the variable, from its key in a turned use; toUse the reverse
+   axisLabels(all)               what each of the variable's axes is called in the panel's list: its name, or x,
+                                 y, d1, d2 … */
 import { readSide } from './algebra.js';
 
 export const MOST = 6;
@@ -142,3 +161,33 @@ export function pathType(type, path){
   return at;
 }
 export const trail = (name, path) => [name, ...path.map(p => p[0] + ',' + p[1])].join(' › ');
+
+/* ---- turning ---- */
+const isOrder = (order, n) => Array.isArray(order) && order.length === n && order.every((i, k) => Number.isInteger(i) && i >= 0 && i < n && order.indexOf(i) === k);
+export function plainly(order, count){
+  const n = count + 2; if (!isOrder(order, n)) return null;
+  if (order.slice(2).every((i, k) => i === k + 2)) return order[0] === 0 ? 'same' : 'transposed';
+  return 'turned';
+}
+export const ordered = (order, count) => plainly(order, count) === 'turned' ? [...order] : null;
+export const turnedAxes = (all, order) => order.map(i => all[i]);
+export function moved(order, from, to){
+  const out = [...order]; if (!(from >= 0 && from < out.length && to >= 0 && to < out.length)) return out;
+  const [a] = out.splice(from, 1); out.splice(to, 0, a); return out;
+}
+export function turnable(shape){
+  const name = shape.name || 'It';
+  if (shape.arrow) return { refused: 'An arrow has no axes of its own to turn' };
+  if (shape.input) return { refused: 'in is the function\'s input: it lies as the arrow\'s input does' };
+  if (shape.part || shape.entry) return { refused: `${name} is part of another shape: turn that shape` };
+  if (shape.measure) return { refused: `${name} is one number: there is nothing to turn` };
+  if (shape.seated) return { refused: `${name} is seated: it lies as the arrow's output does` };
+  if (shape.fused) return { refused: `${name} is fused from other shapes: it lies as they do` };
+  if (shape.standing) return { refused: `${name} stands in a matrix: it is an entry there, as it lies` };
+  if (!shape.inner) return { refused: `${name} holds no inner data: its two sides are all there is to turn, and T turns those` };
+  if (shape.origin) return { refused: `${name} is the shape its variable was made as, and keeps the variable's own way round: drag another use of it from the list and turn that` };
+  return { ok: true };
+}
+export const toVariable = (key, order) => { const p = String(key).split(','), out = new Array(order.length); order.forEach((i, k) => { out[i] = p[k]; }); return out.join(','); };
+export const toUse = (key, order) => { const p = String(key).split(','); return order.map(i => p[i]).join(','); };
+export const axisLabels = all => all.map((a, i) => a.name || (i === 0 ? 'x' : i === 1 ? 'y' : 'd' + (i - 1)));

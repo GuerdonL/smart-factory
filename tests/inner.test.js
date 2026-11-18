@@ -500,11 +500,63 @@ test('projects/inner-data: QKV is a stack of its three matrices, attend takes it
   const id = name => p.top.shapes.find(d => d.name === name).id, qkv = g.nodes['v:' + id('QKV')];
   assert.equal(qkv.defined, 'standing'); assert.equal(g.nodes[qkv.inputs[0]].op, 'stack'); assert.deepEqual(qkv.type, t(3, 1, [ax(2, 'key'), ax(4, 'embed')]));
   assert.equal(Object.keys(evaluate(g, 'v:' + id('QKV')).entries).length, 24);
-  const out = g.spaces.top.arrows[0]; assert.equal(out.error, null); assert.equal(g.nodes[out.node].op, 'apply'); assert.deepEqual(g.nodes[out.node].inputs, ['v:' + id('QKV')]);
+  const out = g.spaces.top.arrows.find(a => a.arrow === id('attend')); assert.equal(out.error, null); assert.equal(g.nodes[out.node].op, 'apply'); assert.deepEqual(g.nodes[out.node].inputs, ['v:' + id('QKV')]);
   const fn = g.nodes[out.node].fn; assert.deepEqual(g.nodes[g.functions[fn].input].type, qkv.type);      /* in is 3 by 1 of 2 by 4 */
   assert.deepEqual(Object.keys(g.nodes).filter(k => k.startsWith('entry(')).sort(), [0, 1, 2].map(c => `entry(param(${fn});${c},0)`));
   assert.deepEqual(evaluate(g, out.node).entries, { '1,1': 18, '2,1': 18, '1,2': 16, '2,2': 16, '1,3': 14, '2,3': 14 });
   /* X against three heads at once: one product for each */
   const heads = g.spaces.top.pieces.find(x => x.blocks.includes(id('Heads'))); assert.equal(heads.error, null); assert.deepEqual(g.nodes[heads.node].type, t(2, 3, [ax(3, 'head')]));
   const h = evaluate(g, heads.node).entries; assert.equal(Object.keys(h).length, 18); assert.equal(h['1,1,1'], 3); assert.equal(h['1,1,3'], 9); assert.equal(h['2,2,2'], 4);
+  /* a second use of Heads, turned so that head is drawn, and an arrow along it that takes heads 2 and 3 */
+  const use = p.top.shapes.find(d => d.name === 'Heads' && d.axes), node = g.blocks[use.id]; assert.deepEqual(use.axes, [2, 1, 0]);
+  assert.deepEqual(g.nodes[node], { op: 'transpose', inputs: ['v:' + id('Heads')], type: t(3, 4, [2], 'head'), order: [2, 1, 0] });
+  const along = g.spaces.top.arrows.find(a => a.arrow !== id('attend')); assert.equal(along.error, null); assert.deepEqual(g.nodes[along.node].type, t(2, 4, [2]));
+  const taken = evaluate(g, along.node).entries, whole = evaluate(g, 'v:' + id('Heads')).entries;
+  for (const [key, v] of Object.entries(taken)){ const [hd, row, x] = key.split(',').map(Number); assert.equal(v, whole[`${x},${row},${hd + 1}`], key); }
+  assert.equal(Object.keys(taken).length, 16);
+});
+
+/* ---- turning: a use with an axis order ---- */
+test('build: a turned use is a transpose with its order, and an arrow, a cut and a tile set against it work along what was an inner axis', () => {
+  const W = B('W', 0, 0, 2, 1, { variable: 1, inner: [ax(3, 'head')], entries: fill(2, 1, [ax(3)], (c, r, k) => c * 10 + k) });
+  const use = more => B('Wt', 10, 0, 3, 1, { name: 'W', variable: 1, reference: true, colsName: 'head', inner: [ax(2)], axes: [2, 1, 0], ...more });
+  const g = made(snap([W, use()]));
+  assert.equal(g.blocks.Wt, 'transpose(v:W;2,1,0)'); assert.deepEqual(g.nodes['transpose(v:W;2,1,0)'], { op: 'transpose', inputs: ['v:W'], type: t(3, 1, [2], 'head'), order: [2, 1, 0] });
+  assert.deepEqual(evaluate(g, g.blocks.Wt).entries, { '1,1,1': 11, '2,1,1': 12, '3,1,1': 13, '1,1,2': 21, '2,1,2': 22, '3,1,2': 23 });
+  /* an arrow along its columns covers heads 2 and 3 */
+  const a = made(snap([W, use(), arrow('f', { id: 'Wt', as: 'block' }, { side: 's', start: 2, span: 2 })])), out = a.spaces.top.arrows[0];
+  assert.equal(out.error, null); assert.deepEqual(a.nodes[out.node].type, t(2, 1, [2])); assert.deepEqual(evaluate(a, out.node).entries, { '1,1,1': 12, '2,1,1': 13, '1,1,2': 22, '2,1,2': 23 });
+  /* a cut of it is a range of heads */
+  const c = made(snap([W, use(), B('part', 20, 0, 1, 1, { name: 'Shape 3', inner: [ax(2)], from: { id: 'Wt', range: { col: 2, row: 0, cols: 1, rows: 1, toEnd: { cols: true, rows: true } } } })]));
+  assert.deepEqual(evaluate(c, 'v:part').entries, { '1,1,1': 13, '1,1,2': 23 });
+  /* in a tile it is repeated as it lies */
+  const tl = made(snap([W, use()], [{ id: 't1', name: null, members: [1], groups: [], repeat: { x: 10, y: 0, cols: 3, rows: 1, across: 2, down: 1 } }]));
+  assert.equal(tl.spaces.top.tiles[0].error, null); assert.deepEqual(tl.nodes[tl.spaces.top.tiles[0].node].type, t(6, 1, [2])); assert.equal(evaluate(tl, tl.spaces.top.tiles[0].node).entries['6,1,2'], 23);
+  /* it touches by what it draws: three heads against a 3-row matrix is a product, at each of the two that are now inner */
+  const p = made(snap([W, use({ x: 10 }), B('M', 13, 0, 1, 3, { entries: { '1,1': 1, '1,2': 1, '1,3': 1 } })])).spaces.top.pieces.find(x => x.blocks.includes('Wt'));
+  assert.equal(p.error, null);
+});
+test('build: an order that is no turn of its variable is none, and only a reference is turned', () => {
+  const W = B('W', 0, 0, 2, 1, { variable: 1, inner: [ax(3)] }), ref = (axes, more = {}) => B('Wt', 10, 0, 2, 1, { name: 'W', variable: 1, reference: true, inner: [ax(3)], axes, ...more });
+  for (const axes of [[0, 1, 2], [1, 0, 2], [2, 1], [2, 1, 0, 3], [2, 2, 0], [2, 1, 'x'], 'x', {}, null]) assert.equal(made(snap([W, ref(axes)])).blocks.Wt, 'v:W', JSON.stringify(axes));
+  assert.equal(made(snap([{ ...W, axes: [2, 1, 0] }])).blocks.W, 'v:W');      /* the shape the variable was made as */
+  assert.equal(made(snap([B('P', 0, 0, 2, 2, { variable: 2 }), B('Pt', 10, 0, 2, 2, { name: 'P', variable: 2, reference: true, axes: [1, 0] })])).blocks.Pt, 'v:P');      /* no inner data: nothing to turn */
+  /* a use drawn at another size than its order gives does not touch as it is drawn, and the graph still holds together */
+  made(snap([W, ref([2, 1, 0]), B('M', 12, 0, 4, 2)]));
+});
+test('mapalong carries inner data: an arrow repeated in a tile along an input that holds some, by a formula and by a function', () => {
+  const M = B('M', 0, 0, 4, 1, { inner: [ax(2)], entries: fill(4, 1, [ax(2)], (c, r, k) => c * 10 + k) });
+  const tile = [{ id: 't1', name: null, members: [1], groups: [], repeat: { x: 0, y: 1, cols: 2, rows: 2, across: 2, down: 1 } }];
+  const g = made(snap([M, arrow('f', { id: 'M', as: 'block' }, { side: 's', span: 2, formula: 'x + 100 * k1' }, { x: 0, y: 1 })], tile)), out = g.spaces.top.arrows[0];
+  assert.equal(out.error, null); assert.equal(g.nodes[out.node].op, 'mapalong'); assert.deepEqual(g.nodes[out.node].type, t(4, 1, [2]));
+  assert.deepEqual(evaluate(g, out.node).entries, fill(4, 1, [ax(2)], (c, r, k) => c * 10 + k + 100 * k));
+  /* by a function whose input block holds no inner data: each run at each inner position */
+  const fn = space([B('in', -20, 0, 2, 1, { in: true }), B('W', -18, 0, 1, 2, { entries: { '1,1': 1, '1,2': 2 } })]);
+  const h = made(snap([M, arrow('f', { id: 'M', as: 'block' }, { side: 's', span: 2 }, { x: 0, y: 1, name: 'dot', inside: fn })], tile)), o2 = h.spaces.top.arrows[0];
+  assert.equal(o2.error, null); assert.equal(h.nodes[o2.node].op, 'mapalong'); assert.deepEqual(h.nodes[o2.node].type, t(2, 1, [2]));
+  assert.deepEqual(evaluate(h, o2.node).entries, { '1,1,1': 11 + 2 * 21, '2,1,1': 31 + 2 * 41, '1,1,2': 12 + 2 * 22, '2,1,2': 32 + 2 * 42 });
+  /* and by one whose input block holds the same: each run handed whole */
+  const whole = space([B('in', -20, 0, 2, 1, { in: true, inner: [ax(2)] }), B('E', 0, 0, 2, 1, { name: 'Shape 2', from: { id: 'in', entry: { col: 2, row: 1 } } })]);
+  const w = made(snap([M, arrow('f', { id: 'M', as: 'block' }, { side: 's', span: 2 }, { x: 0, y: 1, name: 'second', inside: whole })], tile)), o3 = w.spaces.top.arrows[0];
+  assert.equal(o3.error, null); assert.deepEqual(w.nodes[o3.node].type, t(4, 1)); assert.deepEqual(evaluate(w, o3.node).entries, { '1,1': 21, '2,1': 22, '3,1': 41, '4,1': 42 });
 });

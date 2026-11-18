@@ -11,7 +11,7 @@
                                              with the request as a whole is under the key "*".
     upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" }; raises
                                              data.Refused(why)
-    health()                              -> { "ok": true, "version": 1 }
+    health()                              -> { "ok": true, "version": 2 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
@@ -33,7 +33,7 @@ import math
 import sys
 
 from . import arrays as A
-from .check import is_int, is_obj, lengths, validate
+from .check import VERSION, is_int, is_obj, lengths, validate
 from .data import NAME, Refused, inspect, keep, read_text
 from .evaluate import Run, Trouble
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
@@ -45,7 +45,7 @@ WHOLE = '*'
 
 
 def health():
-    return {'ok': True, 'version': 1}      # the service's own version, not the graph's (check.py: VERSIONS says which graphs are read)
+    return {'ok': True, 'version': VERSION}      # the version of graph it writes and reads (check.py: VERSIONS has every one it accepts)
 
 
 def refuse(why):

@@ -1,7 +1,7 @@
 /* The properties of what is selected: a small panel that comes up in the corner while one shape is selected, with
    every attribute of the variable together, each of them editable.
 
-   createProperties({ onName(text), onValue(key, text), onLabel(key, text), onAdd(), onAction(key), onEntry(key, text), textOf(key), onInto(c, r), onUp(), onTake(x, y), look, reach, onOpen, onClose }) -> { el, show(what), focus(k) }
+   createProperties({ onName(text), onValue(key, text), onLabel(key, text), onAdd(), onAction(key), onEntry(key, text), textOf(key), onInto(c, r), onUp(), onTake(x, y), onTurn(from, to), look, reach, onOpen, onClose }) -> { el, show(what), focus(k) }
      show   takes what to put up, or null to take the panel down:
               { id, name, color, cols, rows, scalar, matrix, attributes, notes, shape, plain, fixed }
               id           whatever tells one shape from another: the panel is kept as it is while this stays the same
@@ -30,6 +30,10 @@
                            Pressing it goes back up one level (onUp()). A press that becomes a drag and is let
                            go off the panel is handed on as onTake(x, y), where it was let go on the screen:
                            the opened entry dragged out onto the canvas.
+              axes         where given, { labels: [text], drawn: 2 }: the axes of the shape in the order this use has
+                           them, written as a list with a bar after the ones that are drawn: key, embed | head.
+                           Dragging one to another place in the list turns the use: onTurn(from, to), places
+                           counted from 0.
               notes        lines written under the matrix in the warning colour: why an entry shows the error mark
               actions      [{ key, label }]: buttons under the rows, each handed to onAction(key) when pressed (a file
                            source's "Choose a CSV file…")
@@ -71,6 +75,11 @@ style('properties', `
 .properties-action { font: 13px var(--font-ui); color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; cursor: pointer; }
 .properties-action:hover { background: var(--hover); } .properties-action:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .properties-value { padding: 5px 7px 3px; align-self: flex-start; }
+/* the axes of a use, in the order it has them: those before the bar are drawn. Each can be dragged to another place */
+.properties-axes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font: 12px/1.4 var(--font-ui); color: var(--muted); user-select: none; -webkit-user-select: none; }
+.properties-axes .axis { padding: 1px 7px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); background: var(--bg); cursor: grab; touch-action: none; }
+.properties-axes .axis.held { opacity: .5; cursor: grabbing; } .properties-axes .axis.over { border-color: var(--select); box-shadow: 0 0 0 2px var(--select-halo); }
+.properties-axes .bar { width: 1px; align-self: stretch; margin: 0 3px; background: var(--muted); }
 /* the heading over an opened entry: where it is, and the way back up */
 .properties-trail { all: unset; box-sizing: border-box; align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px 1px 3px; border-radius: 4px; cursor: pointer;
   font: 12px/1.5 var(--font-ui); color: var(--muted); font-variant-numeric: tabular-nums; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -88,9 +97,17 @@ style('properties', `
 
 const CELL = 26;
 
-export function createProperties({ onName = () => {}, onValue = () => {}, onLabel = () => {}, onAdd = () => {}, onAction = () => {}, onEntry = () => {}, textOf = () => '', onInto = () => {}, onUp = () => {}, onTake = () => {}, look = () => null, reach = () => [], onOpen = () => {}, onClose = () => {} } = {}){
-  const el = html`<div class="properties" aria-label="Properties" hidden><div class="properties-name" tabindex="0"></div><div class="properties-shape"></div><div class="properties-rows"></div><button type="button" class="properties-add" aria-label="Add an attribute" title="Add an attribute">+</button><div class="properties-actions" hidden></div><button type="button" class="properties-trail" title="Back up one level (Escape). Drag it onto the canvas to take the entry out as a block" hidden></button><div class="properties-value"></div><div class="properties-notes" hidden></div></div>`;
-  const [name, shape, rows, add, actions, trail, value, notes] = el.children;
+export function createProperties({ onName = () => {}, onValue = () => {}, onLabel = () => {}, onAdd = () => {}, onAction = () => {}, onEntry = () => {}, textOf = () => '', onInto = () => {}, onUp = () => {}, onTake = () => {}, onTurn = () => {}, look = () => null, reach = () => [], onOpen = () => {}, onClose = () => {} } = {}){
+  const el = html`<div class="properties" aria-label="Properties" hidden><div class="properties-name" tabindex="0"></div><div class="properties-shape"></div><div class="properties-rows"></div><button type="button" class="properties-add" aria-label="Add an attribute" title="Add an attribute">+</button><div class="properties-actions" hidden></div><div class="properties-axes" aria-label="Axes: drag one to turn the shape" title="The axes of this use: those before the bar are drawn. Drag one to another place to turn it" hidden></div><button type="button" class="properties-trail" title="Back up one level (Escape). Drag it onto the canvas to take the entry out as a block" hidden></button><div class="properties-value"></div><div class="properties-notes" hidden></div></div>`;
+  const [name, shape, rows, add, actions, axes, trail, value, notes] = el.children;
+  /* an axis held and let go over another: it takes that place (the pointer is followed on the window) */
+  axes.addEventListener('pointerdown', e => { const chip = e.target.closest?.('.axis'); if (!chip) return; const from = +chip.dataset.at; chip.classList.add('held'); let to = from;
+    const at = ev => { const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.properties-axes .axis'); return over ? +over.dataset.at : null; };
+    const move = ev => { const now = at(ev); for (const c of axes.querySelectorAll('.axis')) c.classList.toggle('over', now !== null && now !== from && +c.dataset.at === now); if (now !== null) to = now; else to = from; };
+    const up = ev => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); removeEventListener('pointercancel', up, true);
+      for (const c of axes.querySelectorAll('.axis')) c.classList.remove('held', 'over');
+      if (ev.type === 'pointerup' && to !== from){ showing = ''; onTurn(from, to); } };
+    addEventListener('pointermove', move, true); addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true); });
   /* the trail: a press goes back up; a press that moves is the entry being dragged out, and where it is let go is handed on.
      (The pointer is followed on the window: it leaves the trail at once.) */
   let dragged = false;
@@ -126,7 +143,7 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
   const self = { el, focus(k){ want = k; },
     show(what){
       if (!what){ el.hidden = true; showing = ''; held = null; return; }
-      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.notes, what.shape, what.plain, what.fixed, what.actions, what.trail, what.matrix && { ...what.matrix, values: valuesKey(what.matrix.values) }]);
+      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.notes, what.shape, what.plain, what.fixed, what.actions, what.trail, what.axes, what.matrix && { ...what.matrix, values: valuesKey(what.matrix.values) }]);
       if (key === showing && !want) return;
       if (el.contains(document.activeElement) && document.activeElement.isContentEditable && what.id === shownId){ held = what; return; }      /* being typed in: drawn again when that is done */
       showing = key; held = null; shownId = what.id;
@@ -141,6 +158,8 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
         else if (a.result != null){ const r = html`<span class="outcome"></span>`; r.textContent = '= ' + a.result; cellV.append(r); }
         rows.append(label, cellV); }
       trail.hidden = !what.trail; trail.textContent = what.trail || '';
+      axes.hidden = !what.axes; axes.replaceChildren();
+      (what.axes?.labels || []).forEach((label, i) => { if (i === what.axes.drawn) axes.append(html`<i class="bar"></i>`); const chip = html`<span class="axis" data-at="${i}"></span>`; chip.textContent = label; axes.append(chip); });
       actions.replaceChildren(...(what.actions || []).map(a => { const b = html`<button type="button" class="properties-action"></button>`; b.textContent = a.label; b.addEventListener('click', () => onAction(a.key)); return b; })); actions.hidden = !what.actions?.length;
       if (!what.matrix){ value.replaceChildren(); notes.replaceChildren(...(what.notes || []).map(n => { const p = html`<div></div>`; p.textContent = n; return p; })); notes.hidden = !what.notes?.length; el.hidden = false;
         if (want){ const c = el.querySelector(`[data-k="${CSS.escape(want)}"]`); want = null; if (c) c.focus(); } return; }

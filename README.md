@@ -594,8 +594,20 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
 - **How much is worked out here.** The browser's limit counts numbers: columns times rows times every inner length,
   4,096 as before. A 4 by 4 shape of 16 by 16 matrices is worked out; one of 17 by 16 is the backend's.
 
-`projects/inner-data` shows these. Not built: turning a use so that an inner axis is drawn (the graph has the
-operation, a `transpose` with `order`; nothing on the page makes one yet).
+- **Turning.** An arrow's span, a cut's range and a tile's counts never name an inner axis. To work along one, turn
+  a use so that the axis is drawn. Each use of a variable has an axis order, as each use has T. Select a use of a
+  shape that holds inner data: its panel lists its axes, `x y | head`, with a bar after the two that are drawn.
+  Drag one to another place in the list, `head x | y`, and this use draws those two and holds the rest: its
+  entries are still the variable's, read in that order, so a number typed into a turned use is typed into the
+  variable. Now an arrow set under it covers heads, a cut takes a range of heads, and a tile repeats it as it lies.
+  T on a turned use swaps the two axes it draws; dragging the axes back to `x y | …` takes the turn off, and an
+  order that only swaps x and y is the transpose. The shape a variable was made as keeps the variable's own way
+  round and is not turned (its rectangle is where the variable's two drawn lengths are kept): drag another use of
+  it from the list and turn that. A turned use is the size its variable gives it, so nothing is typed on its
+  sides or its data dimensions: change those on the shape it was made as, and every turned use follows. Copied
+  and pasted, it is a shape of its own, lying as the use lay. In the graph it is a `transpose` with `order`.
+
+`projects/inner-data` shows these.
 
 ## The graph and the evaluator
 
@@ -743,7 +755,7 @@ on the canvas and in its panel, whether it is one block, a piece of several or a
 changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 1 }`. `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 2 }` (the version of graph it reads; it still takes a version 1 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,

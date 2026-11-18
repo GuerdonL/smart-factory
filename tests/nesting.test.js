@@ -73,3 +73,30 @@ test('an entry opened: its type, its numbers and the shape\'s own key for each, 
   assert.equal(inner.pathType({ cols: 3, rows: 1 }, [[1, 1]]), null);
   assert.equal(inner.trail('QKV', [[2, 1]]), 'QKV › 2,1'); assert.equal(inner.trail('QKV', [[2, 1], [1, 3]]), 'QKV › 2,1 › 1,3'); assert.equal(inner.trail('QKV', []), 'QKV');
 });
+
+/* ---- turning ---- */
+test('an axis order names every axis of the variable once; one that moves no inner axis is no turn, or a transpose', () => {
+  assert.deepEqual(inner.ordered([2, 1, 0], 1), [2, 1, 0]); assert.deepEqual(inner.ordered([2, 3, 0, 1], 2), [2, 3, 0, 1]); assert.deepEqual(inner.ordered([0, 1, 3, 2], 2), [0, 1, 3, 2]);
+  assert.equal(inner.plainly([0, 1, 2], 1), 'same'); assert.equal(inner.plainly([1, 0, 2], 1), 'transposed'); assert.equal(inner.plainly([2, 1, 0], 1), 'turned');
+  for (const [order, count] of [[[0, 1, 2], 1], [[1, 0, 2], 1], [[2, 1, 0], 2], [[2, 1, 0, 0], 2], [[0, 1], 0], [[1, 0], 0], [[2, 1, 3], 1], [[2, 1, '0'], 1], [null, 1], ['x', 1], [[2.5, 1, 0], 1]]) assert.equal(inner.ordered(order, count), null, JSON.stringify(order));
+  assert.equal(inner.plainly([2, 1, 0], 2), null);
+});
+test('a turned use draws the axes its order puts first, and holds the rest; a key goes to the variable\'s and back', () => {
+  const all = [ax(3), ax(1), ax(2, 'key'), ax(4, 'embed')];
+  assert.deepEqual(inner.turnedAxes(all, [2, 3, 0, 1]), [ax(2, 'key'), ax(4, 'embed'), ax(3), ax(1)]);
+  assert.deepEqual(inner.turnedAxes(all, [2, 1, 0, 3]), [ax(2, 'key'), ax(1), ax(3), ax(4, 'embed')]);
+  assert.equal(inner.toUse('3,1,2,4', [2, 3, 0, 1]), '2,4,3,1'); assert.equal(inner.toVariable('2,4,3,1', [2, 3, 0, 1]), '3,1,2,4');
+  for (const order of [[2, 1, 0, 3], [3, 0, 1, 2], [1, 2, 3, 0]]) assert.equal(inner.toVariable(inner.toUse('5,6,7,8', order), order), '5,6,7,8');
+  assert.deepEqual(inner.axisLabels(all), ['x', 'y', 'key', 'embed']); assert.deepEqual(inner.axisLabels([ax(3, 'n'), ax(1), ax(2), ax(2)]), ['n', 'y', 'd1', 'd2']);
+});
+test('dragging an axis to another place in the list gives the new order', () => {
+  assert.deepEqual(inner.moved([0, 1, 2], 2, 0), [2, 0, 1]);      /* head, before the bar: drawn as the columns */
+  assert.deepEqual(inner.moved([0, 1, 2, 3], 3, 1), [0, 3, 1, 2]); assert.deepEqual(inner.moved([0, 1, 2], 0, 2), [1, 2, 0]); assert.deepEqual(inner.moved([0, 1, 2], 1, 1), [0, 1, 2]);
+  assert.deepEqual(inner.moved([0, 1, 2], 5, 0), [0, 1, 2]); assert.deepEqual(inner.moved([0, 1, 2], 0, -1), [0, 1, 2]);
+});
+test('what can be turned: a use that holds inner data and is not the shape its variable was made as, nor defined by something else', () => {
+  assert.deepEqual(inner.turnable({ name: 'W', inner: 1 }), { ok: true });
+  assert.match(inner.turnable({ name: 'W', inner: 1, origin: true }).refused, /another use of it from the list/);
+  assert.match(inner.turnable({ name: 'W', inner: 0 }).refused, /holds no inner data/);
+  for (const k of ['arrow', 'input', 'part', 'entry', 'measure', 'seated', 'fused', 'standing']) assert.ok(inner.turnable({ name: 'W', inner: 2, [k]: true }).refused, k);
+});

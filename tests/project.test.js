@@ -745,3 +745,17 @@ test('projects/inner-data holds a shape of matrices with a matrix standing in ea
   const byPath = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
   assert.deepEqual(byPath(write(p)), byPath(files));      /* and they are the files that are shipped */
 });
+test('format 4: a turned use keeps its axis order, beside its own size as it is drawn; what is no order of its variable is dropped', () => {
+  const inner = [{ length: 3, name: 'head' }], W = shape('W', { id: 'b00000w', cols: 2, rows: 1, inner, variable: 1 });
+  const use = more => shape('W', { id: 'b0000w2', cols: 3, rows: 1, colsName: 'head', inner: [{ length: 2, name: null }], variable: 1, reference: true, axes: [2, 1, 0], ...more });
+  const p = project(space([W, use()])), files = write(p);
+  assert.deepEqual(json(files, 'W (2).json').axes, [2, 1, 0]); assert.equal('axes' in json(files, 'W.json'), false); assert.equal('transposed' in json(files, 'W (2).json'), false);
+  assert.deepEqual(read(files), p); assert.deepEqual(write(read(files)), files);
+  const kept = d => { const f = write(project(space([W, d]))); return json(f, 'W (2).json').axes ?? null; };
+  assert.deepEqual(kept(use({ axes: [0, 2, 1] })), [0, 2, 1]);
+  for (const axes of [[0, 1, 2], [1, 0, 2], [2, 1], [2, 1, 0, 3], [2, 2, 0], [2, 1, '0'], 'x', null]) assert.equal(kept(use({ axes })), null, JSON.stringify(axes));      /* nothing moved, a plain transpose, not every axis once */
+  assert.equal(kept(use({ reference: false })), null);                                   /* only a reference is turned */
+  assert.equal(kept(use({ inner: null, axes: [1, 0] })), null);                           /* no inner data: nothing to turn */
+  const back = c => read([head(), file('S.json', config('S', { named: true, size: { cols: 3, rows: 1, inner: [2] }, sides: {}, ...c }))]).top.shapes[0];
+  assert.deepEqual(back({ reference: true, axes: [2, 1, 0] }).axes, [2, 1, 0]); assert.equal('axes' in back({ axes: [2, 1, 0] }), false); assert.equal('axes' in back({ reference: true, axes: [5, 1, 0] }), false);
+});

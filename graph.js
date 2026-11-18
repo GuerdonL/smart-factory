@@ -162,7 +162,7 @@
    of it, or, where the variable's entries hold inner data (two axes or more), a stack: each stands for one entry,
    is that entry's size, and lies at its entry's place in a matrix laid out entry for entry, each entry as large as
    the matrix it holds. A block whose from names an entry ({ id, entry: { col, row } }, from 1) is that entry of
-   the block with that id, taken out. Otherwise the pieces are algebra.js's, each
+   the block with that id, taken out. A reference that carries axes is a turned use: a transpose with that order. Otherwise the pieces are algebra.js's, each
    turned into a node by its rule; an arrow's output is a slice, a map, an apply or a mapalong of what it reads.
    Sizes are settled here: a tile's count that is a formula is worked out from sizes alone (tiles.js: settled), and
    may not depend on its own tile's size (tiles.js: circular). A tile's size follows its own counts only, so a count
@@ -696,7 +696,12 @@ export function build(snapshot){
     return id; };
   /* what a variable's value is read from: its node, or the param it is where it is a function's input */
   const base = v => v.given ? paramOf(v.given.ctx) : varNode(v);
-  const blockNode = rec => { const id = base(rec.v); return rec.d.transposed && !rec.members.length ? N('transpose', [id]) : id; };
+  /* a use stands for its variable; for its transpose where it is a transposed use; and, where it is a turned use (a
+     reference with axes, an order of all its variable's axes that moves an inner one), for that turn of it. An order
+     that is none of the variable's is no turn: the use is then the variable as it stands. */
+  const blockNode = rec => { const id = base(rec.v), flat = rec.d.transposed && !rec.members.length ? N('transpose', [id]) : id, order = rec.d.axes;
+    if (!flat || !rec.d.reference || rec.members.length || !Array.isArray(order)) return flat;
+    return N('transpose', [flat], { order: [...order] }) || flat; };
 
   const stack = [];
   function varNode(v){

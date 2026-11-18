@@ -207,6 +207,7 @@ const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: '
   ...FUNCTIONS.map(f => ({ kind: 'arrow', name: f.name, color: 'function', cols: 1, rows: 1, builtin: true }))];      /* the program's own functions (a project's arrow of the same name is listed in its place) */
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at, transposed = false){      /* transposed: whether the new use is to be the variable's transpose */
+  if (orderOf(of)) of = originOf(of);          /* a new use is the variable its own way round, whichever use it was dragged from */
   if (loops(of, space)) return hud.say(`${bare(of.name)} cannot go inside its own definition`);
   const u = view.unit, on = v => Math.round(v / u) * u, over = !of.members && !!of.t !== !!transposed, r = over ? { w: of.rect.h, h: of.rect.w } : of.rect;
   const b = makeBlock({ ...of.shape }, { x: on(at.x - r.w / 2), y: on(at.y - r.h / 2), w: r.w, h: r.h }, of.name);
@@ -269,13 +270,16 @@ const flipped = values => new Map([...values].map(([k, v]) => { const i = k.inde
 const working = guard();
 const workedAt = (b, key) => { const v = b.values.get(key); if (!isFormula(v)) return v; const [c, r, ...ks] = key.split(',').map(Number); return working(originOf(b).id + ' ' + key, () => evaluate(v.expr, lookupFor(b, { c, r, ks })).value ?? null); };      /* the entry's place, for a formula that reads the index */
 function worked(b){
-  if (b.source){ const u = view.unit, w = Math.round(b.rect.w / u), h = Math.round(b.rect.h / u); return sourceValues(b.source, turned(b) ? h : w, turned(b) ? w : h, dataOf(b).map(a => a.length)); }      /* a source stores no entries: they follow from its kind and its size (sources.js), the variable's own way round */
+  if (b.source){ const all = orderOf(b) ? variableAxes(b) : null, u = view.unit, w = Math.round(b.rect.w / u), h = Math.round(b.rect.h / u);      /* (a turned use: by its variable's own columns and rows) */
+    return all ? sourceValues(b.source, all[0].length, all[1].length, all.slice(2).map(a => a.length)) : sourceValues(b.source, turned(b) ? h : w, turned(b) ? w : h, dataOf(b).map(a => a.length)); }      /* a source stores no entries: they follow from its kind and its size (sources.js), the variable's own way round */
   let any = false; for (const v of b.values.values()) if (isFormula(v)){ any = true; break; }
   if (!any) return b.values;
   const out = new Map(); for (const [k, v] of b.values){ const w = isFormula(v) ? workedAt(b, k) : v; if (w !== null && w !== undefined) out.set(k, w); }
   return out;
 }
-const own = (b, plain = false) => turned(b) && !plain ? flipped(worked(b)) : worked(b);
+const own = (b, plain = false) => { const order = plain ? null : orderOf(b); return order ? reordered(worked(b), order) : turned(b) && !plain ? flipped(worked(b)) : worked(b); };
+/* a variable's entries as a turned use reads them: each key's numbers in the use's order of axes (a key that is not one of its entries is left out) */
+const reordered = (values, order) => { const out = new Map(); for (const [k, v] of values) if (k.split(',').length === order.length) out.set(nesting.toUse(k, order), v); return out; };
 /* ---- the graph and the evaluator ----
    What anything on the page comes to is not worked out here. The whole project is built into a graph (graph.js) and
    every result that is drawn is asked of the evaluator (evaluate.js): what a block holds, what a piece comes to,
@@ -421,7 +425,7 @@ const evaluated = (b, plain) => steadily(() => { const n = nodeFor(b, plain); re
 /* a block's node in the graph, where it is looked at from, and what it is on the screen (backend.js: slot); null where it has none */
 function nodeFor(b, plain){
   const g = graphNow(); let id = g.blocks[b.id]; if (!id) return null;
-  const over = turned(b) && plain; if (over){ if (g.nodes[id].op !== 'transpose') return null; id = g.nodes[id].inputs[0]; }
+  const over = (turned(b) || !!orderOf(b)) && plain; if (over){ if (g.nodes[id].op !== 'transpose') return null; id = g.nodes[id].inputs[0]; }
   return { id, binding: bindingOf([b], spaceWith(b), over), slot: 'b ' + b.id + (over ? ' over' : '') };
 }
 /* why a block's variable has no value in the graph, as a sentence for the properties panel; null where it has one */
@@ -485,6 +489,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   if (rangedOf(a)) return hud.say(`${bare(a.name)} is part of ${partOf(a)}: change it there`);      /* its entries are its source's */
   if (isArrow(a) || givenOf(a) || seatedOf(a)) return hud.say(isArrow(a) ? 'An arrow\'s output is what its function comes to: nothing stands in it' : `${bare(a.name)} ${givenOf(a) ? 'is the function\'s input' : 'is seated'}: its entries are not its own`);
   if ([...kinOf(a)].includes(v)) return hud.say('A shape cannot go into its own matrix');
+  if (orderOf(v)) v = originOf(v);             /* what stands there is the variable its own way round */
   if (holds(a.source, bare(a.name)).refused) return hud.say(holds(a.source, bare(a.name)).refused);
   if (w > cols || h > rows) return hud.say(`Snap to matrix: ${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
@@ -588,7 +593,9 @@ const spaceWith = b => everySpace().find(s => s.blocks.includes(b));
    Such a name can be typed on any other side, which is then that length and stays so. A side that has been given a
    name goes by that one. (A side's own automatic name is only a handle: it does not make the side a variable one,
    so it neither elides the shape's matrix nor has to match a neighbour's name in a product.) */
-const autoSide = (b, dim) => isNamed(b) && !isArrow(b) ? bare(b.name).trim().slice(0, 10) + ((dim === 'w') !== turned(b) ? '.x' : '.y') : null;
+const autoSide = (b, dim) => { if (!isNamed(b) || isArrow(b)) return null; const order = orderOf(b), name = bare(b.name).trim().slice(0, 10);
+  if (order){ const axis = order[dim === 'w' ? 0 : 1]; return axis === 0 ? name + '.x' : axis === 1 ? name + '.y' : null; }      /* a turned use: only where the side is its variable's width or height */
+  return name + ((dim === 'w') !== turned(b) ? '.x' : '.y'); };
 /* a named scalar has a third measure beside its two sides: its mass, the number it holds, called
    by the shape's name with .mass. ('m' stands for it wherever 'w' and 'h' stand for the sides.) */
 const single = b => !b.members && !isArrow(b) && b.rect.w === view.unit && b.rect.h === view.unit && !dataOf(b).length;      /* a scalar: one number and nothing else. A one by one block that holds inner data (a part cut down to one entry) is no scalar */
@@ -602,6 +609,7 @@ const single = b => !b.members && !isArrow(b) && b.rect.w === view.unit && b.rec
    hold, a seated block what the output it sits on holds, and a measure or an index one number. */
 function dataOf(b, depth = 0){
   if (!b || isArrow(b) || depth > 8) return NO_DATA;
+  const as = asTurned(b); if (as) return as.slice(2);      /* a turned use: what is left of its variable's axes after the two it draws */
   if (b.members) return b.members.length ? dataOf(b.members[0].block, depth + 1) : NO_DATA;
   const part = rangedOf(b); if (part){ const src = sourceOf(part); return src && src !== b ? dataOf(src, depth + 1) : NO_DATA; }
   const taken = takenOf(b); if (taken){ const src = sourceOf(taken); return src && src !== b ? nesting.entryType(dataOf(src, depth + 1)).inner : NO_DATA; }
@@ -612,10 +620,32 @@ function dataOf(b, depth = 0){
   return b.inner || NO_DATA;
 }
 const NO_DATA = Object.freeze([]);
+/* ---- turning ----
+   A use of a variable that holds inner data can be turned: block.axes is an order of all the variable's axes (its
+   columns 0, its rows 1, then its inner axes), and the use draws the first two and holds the rest (inner.js). Its
+   entries stay the variable's and are read in that order, as a transpose's are read turned; its size and its sides'
+   names are worked out from the variable's each time the screen is brought up to date (follow), so nothing is
+   typed on them. Only a reference is turned: the shape a variable was made as keeps the variable's own way round,
+   since its rectangle is where the variable's two drawn lengths are kept. An order that only swaps columns and
+   rows is a transpose and is kept as one (T), and one that moves nothing is none. */
+const variableAxes = b => { const o = originOf(b), u = view.unit, w = { length: Math.round(o.rect.w / u), name: o.sides.w || null }, h = { length: Math.round(o.rect.h / u), name: o.sides.h || null };
+  return [...(turned(o) ? [h, w] : [w, h]), ...(o.inner || [])]; };
+const orderOf = b => b && b.axes && b.ref && !b.members && originOf(b) !== b ? nesting.ordered(b.axes, (originOf(b).inner || []).length) : null;
+const asTurned = b => { const order = orderOf(b); return order ? nesting.turnedAxes(variableAxes(b), order) : null; };
+/* the order a use has now, turned or not: for the panel's list, and for what a drag or T makes of it */
+const orderNow = b => orderOf(b) || (all => turned(b) && !b.members ? [1, 0, ...all.slice(2)] : all)(variableAxes(b).map((_, i) => i));
+/* gives a use that order: none, a transpose, or a turn; and the size and side names that go with it */
+function setOrder(b, order){
+  const all = variableAxes(b), kind = nesting.plainly(order, all.length - 2), u = view.unit; if (!kind) return false;
+  b.axes = kind === 'turned' ? [...order] : null; b.turn(kind === 'transposed');
+  const as = nesting.turnedAxes(all, order); b.set({ ...b.rect, w: as[0].length * u, h: as[1].length * u }); b.sides = { w: as[0].name, h: as[1].name };
+  return true;
+}
+const turnableNow = b => nesting.turnable({ name: bare(b.name), origin: originOf(b) === b || !b.ref, inner: (originOf(b).inner || []).length, arrow: isArrow(b), input: !!givenOf(b), part: !!rangedOf(b), entry: !!takenOf(b), measure: measures(b) || !!indexedOf(b), seated: !!seatedOf(b), fused: !!b.members, standing: !!b.standing });
 /* the block that is an entry taken out of another: b itself, or, for another use of one that was named, that one */
 const takenOf = b => b.from?.entry ? b : kin.has(b) ? [...kin.get(b)].find(k => k.from?.entry) || null : null;
 /* a block's axes that are its own to set, with their names: what a named length reaches (see "named sides") */
-const axesOf = b => isArrow(b) || b.members || b.from || b.seat || b.in ? NO_DATA : b.inner || NO_DATA;
+const axesOf = b => isArrow(b) || b.members || b.from || b.seat || b.in || orderOf(b) ? NO_DATA : b.inner || NO_DATA;      /* (a turned use's are its variable's: they are reached through the shape it was made as) */
 /* a length along dim: 'w' or 'h' a side of the block's rectangle; 'k0', 'k1', … an inner axis, as many units as it is long */
 const lenOf = (b, dim) => dim[0] === 'k' ? (axesOf(b)[+dim.slice(1)]?.length ?? 1) * view.unit : b.rect[dim];
 const setLen = (b, dim, length) => { if (dim[0] !== 'k') return b.set({ ...b.rect, [dim]: length }); const a = axesOf(b)[+dim.slice(1)]; if (a) a.length = Math.round(length / view.unit); };
@@ -666,7 +696,10 @@ function agree(b){
   while (todo.length){
     const c = todo.pop(); if (done.has(c)) continue; done.add(c);
     if (isArrow(c)) continue;                  /* an arrow's rectangle is the gap it is drawn in: no size any other shape shares */
-    for (const k of kinOf(c)) if (k !== c){ const over = !!k.t !== !!c.t, w = over ? c.rect.h : c.rect.w, h = over ? c.rect.w : c.rect.h;      /* a transpose of it is the other way round */
+    if (orderOf(c)) continue;                  /* a turned use lies as its variable does: nothing takes its size from it */
+    for (const k of kinOf(c)) if (k !== c){ const as = asTurned(k);
+      if (as){ const w = as[0].length * view.unit, h = as[1].length * view.unit; k.sides = { w: as[0].name, h: as[1].name }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } continue; }      /* a turned use: the two axes it draws */
+      const over = !!k.t !== !!c.t, w = over ? c.rect.h : c.rect.w, h = over ? c.rect.w : c.rect.h;      /* a transpose of it is the other way round */
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = everySpace().find(s => withKept(s).includes(c)); if (!s) continue;
     for (const dim of ['w', 'h', 'm', ...axesOf(c).map((_, i) => 'k' + i)]) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o, d]) => d[0] !== 'k' && rootSide(o) !== null) || group.find(pinned);      /* a single entry's number settles the length: it is not resized to suit the others. So does a part's shortened side */
@@ -701,6 +734,7 @@ function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
 function typedNow(b, dim, text){
   if (isArrow(b)) return hud.say('An arrow has no sides of its own: its start, span and gap are in its properties');
   if (b.in) return hud.say('in is the function\'s input: its sides are those of what the arrow covers');
+  if (orderOf(b)) return hud.say(`${bare(b.name)} is turned here: its sides are its variable's axes. Change them on the shape it was made as`);
   if (b.seat && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is seated: its size is the output's`);
   if (b.from?.index && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is the index of its block: it is that block's size`);
   const read = readSide(text), name = read.name; let n = read.length;      /* algebra.js: a number is a length only apart from the name, so "d2" is a name */
@@ -1045,7 +1079,8 @@ function attributesOf(b){
   return [...fixed, ...attrsOf(b).map((a, i) => ({ key: 'a' + i, custom: true, label: a.name, text: a.text, ...seen(a.text), ...told(a.text, attrValue(b, a)) }))];
 }
 /* the block an entry of the selected shape's matrix really belongs to, and its key there */
-const entryOfSelected = key => { const b = [...selected][0], [c, r, ...ks] = key.split(',').map(Number), home = b ? entryHome(b, c, r) : null; return home ? [home[0], home[1] + (ks.length ? ',' + ks.join(',') : '')] : null; };      /* an inner position goes with its entry */
+const entryOfSelected = key => { const b = [...selected][0], order = b ? orderOf(b) : null; if (order) return key.split(',').length === order.length ? [b, nesting.toVariable(key, order)] : null;      /* a turned use: the entry's own key in its variable */
+  const [c, r, ...ks] = key.split(',').map(Number), home = b ? entryHome(b, c, r) : null; return home ? [home[0], home[1] + (ks.length ? ',' + ks.join(',') : '')] : null; };      /* an inner position goes with its entry */
 const properties = createProperties({ ...fields,
   onAction: key => { const b = [...selected][0]; if (key === 'file' && b) chooseFile(b); },
   onName: text => { if (pickedTile) return bus.send('name', { frame: pickedTile, ids: [], name: text, color: null });
@@ -1055,6 +1090,7 @@ const properties = createProperties({ ...fields,
   onEntry: (key, text) => { const home = entryOfSelected(keyOpened(key)); if (home) bus.send('entry.set', { id: home[0].id, key: home[1], text: text === '' ? null : text }); },
   /* an entry that holds inner data, pressed: it is opened in the panel, one level down; the trail pressed goes back up, and dragged takes the entry out */
   onInto: (c, r) => { const b = [...selected][0]; if (!b) return; opened = { id: b.id, path: [...openPath(b), [c, r]] }; shown(); },
+  onTurn: (from, to) => { const b = [...selected][0]; if (b) bus.send('turn', { id: b.id, order: nesting.moved(orderNow(b), from, to) }); },
   onUp: () => { if (opened.path.length){ opened = { id: opened.id, path: opened.path.slice(0, -1) }; shown(); } },
   onTake: (x, y) => { const b = [...selected][0], path = b ? openPath(b) : []; if (!b || !path.length) return;
     if (isArrow(b)) return hud.say('An arrow\'s output is not a block: seat a block on it, and take the entry out of that');
@@ -1105,6 +1141,7 @@ function setDims(b, n){
   const o = originOf(b), kind = sourceKind(b.source), can = nesting.countable({ name: bare(b.name), scalar: single(b), arrow: isArrow(b), source: kind, part: !!rangedOf(b), entry: !!takenOf(b), measure: measures(b) || !!indexedOf(b), seated: !!seatedOf(b), input: !!givenOf(b) }, n);
   if (can.refused){ hud.say(can.refused); return shown(); }
   if (b.members){ hud.say(`${bare(b.name)} is fused from other shapes: it holds what they hold`); return shown(); }
+  if (orderOf(b)){ hud.say(`${bare(b.name)} is turned here: change its data dimensions on the shape it was made as`); return shown(); }
   if (n === o.inner.length) return shown();
   const lost = nesting.rekeyed(o.values, o.inner, nesting.resized(o.inner, n)).lost, send = () => bus.send('inner.count', { id: b.id, count: n });
   if (!lost) return send();
@@ -1156,6 +1193,7 @@ function paint(){
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar, attributes: attributesOf(one), fixed: !!one.source,
       shape: one.source ? `${[...SOURCES, ...DATA].find(s => s.kind === kind).label.toLowerCase()}${kind === 'file' ? ' (' + (one.source.file || 'no file chosen') + ')' : ''}: ${sized}` : data.length ? sized : undefined,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
+      ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
       notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(quiet ? [quiet] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values, transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
@@ -1327,7 +1365,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
 const picture = (b, s) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
-  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, inner: dataOf(b).map(a => ({ ...a })), attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) || indexedOf(b) || takenOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
+  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, inner: dataOf(b).map(a => ({ ...a })), attrs: attrsOf(b).map(a => ({ ...a })), values: orderOf(b) ? [...reordered(b.values, orderOf(b))] : measures(b) || indexedOf(b) || takenOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -1401,6 +1439,7 @@ function transpose(){
      with their names; its entries stay as the variable has them and are read turned. A joined shape is turned bodily,
      with everything it was joined from, and so are all its uses. */
   const flip = b => { if (done.has(b)) return;
+    if (orderOf(b)){ done.add(b); const o = orderOf(b); setOrder(b, [o[1], o[0], ...o.slice(2)]); return; }      /* a turned use: the two axes it draws change places */
     for (const k of b.members ? kinOf(b) : [b]){ done.add(k); k.turn(!k.t); k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; }
     for (const m of b.members || []){ [m.fx, m.fy, m.fw, m.fh] = [m.fy, m.fx, m.fh, m.fw]; flip(m.block); } };
   list.forEach(flip);
@@ -1455,6 +1494,7 @@ const lost = b => { const o = rangedOf(b); return (!!o && !rangeNow(o)) || (b.me
 function rangeValues(o, depth, over = false){
   const src = sourceOf(o), u = view.unit; if (!src) return new Map();
   flow(src);                                   /* a fused source's entries are gathered from what it was fused from */
+  if (orderOf(src)) return partEntries(o.from.range, { cols: Math.round(src.rect.w / u), rows: Math.round(src.rect.h / u), entries: valuesOf(src, depth + 1), turned: false }, over);      /* a part of a turned use: of its entries as it reads them */
   return partEntries(o.from.range, { cols: Math.round(src.rect.w / u), rows: Math.round(src.rect.h / u), entries: valuesOf(src, depth + 1, true), turned: turned(src) }, over);
 }
 /* every part takes the size its range now has in its source (a part of a part after the part it is of), and what
@@ -1465,6 +1505,10 @@ function follow(){
     for (const o of everyKnown()){ const at = o.from?.range && rangeNow(o); if (!at) continue;
       const w = (turned(o) ? at.rows : at.cols) * u, h = (turned(o) ? at.cols : at.rows) * u;
       if (o.rect.w !== w || o.rect.h !== h){ o.set({ ...o.rect, w, h }); agree(o); moved = true; } }
+    /* a turned use is the size of the two axes of its variable that it draws, under their names */
+    for (const o of everyKnown()){ const as = asTurned(o); if (!as) continue; const w = as[0].length * u, h = as[1].length * u;
+      if (o.sides.w !== as[0].name || o.sides.h !== as[1].name) o.sides = { w: as[0].name, h: as[1].name };
+      if (o.rect.w !== w || o.rect.h !== h){ o.set({ ...o.rect, w, h }); moved = true; } }
     /* an entry taken out is the size of one entry of its source, with its first two axes' names for its sides */
     for (const o of everyKnown()){ const src = o.from?.entry && sourceOf(o); if (!src || src === o) continue; const t = nesting.entryType(dataOf(src)), w = (turned(o) ? t.rows : t.cols) * u, h = (turned(o) ? t.cols : t.rows) * u;
       if (!dataOf(src).length) continue;       /* its source holds no inner data now: it keeps the size it had, and has no value */
@@ -2344,7 +2388,7 @@ function gather(light = false){      /* light: each block's entries as their sta
   const written = new Set(), once = s => !written.has(s) && !!written.add(s);
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, inner: dataOf(b).length ? dataOf(b).map(a => ({ length: a.length, name: a.name || null })) : null, entries: b.members || b.source ? {} : light === true ? { stamp: stampOf(b.values) } : light === 'kept' ? entriesOut(b.values) : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
+    ...(orderOf(b) ? { axes: [...b.axes] } : {}), standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
     arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
     seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in,
@@ -2424,7 +2468,7 @@ function rebuild(data){
     if (d.arrow){ const { formula, ...use } = d.arrow; b.arrow = { ...use, input: { ...use.input }, output: use.output ? { ...use.output } : null }; b.fn = { formula: formula || null }; }
     if (d.seat) b.seat = typeof d.seat === 'string' ? d.seat : { hollow: [...d.seat.hollow] };
     if (d.in) b.in = true;
-    b.sides = { w: d.colsName, h: d.rowsName }; b.inner = d.arrow ? [] : nesting.kept(d.inner); b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (sourceKept(d.source)) b.source = sourceKept(d.source); if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.inner = d.arrow ? [] : nesting.kept(d.inner); b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (sourceKept(d.source)) b.source = sourceKept(d.source); if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); if (Array.isArray(d.axes) && d.reference) b.axes = [...d.axes]; b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -2868,10 +2912,12 @@ bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(
    entry.take { id, col, row, at }: a block that is that entry of the shape, set down at a world point. */
 bus.on('inner.count', ({ id, count }) => { const b = blockOf(id), o = b && originOf(b); if (!o || isArrow(o)) return;
   const can = nesting.countable({ name: bare(b.name), scalar: single(b), source: sourceKind(b.source), part: !!rangedOf(b), entry: !!takenOf(b), measure: measures(b) || !!indexedOf(b), seated: !!seatedOf(b), input: !!givenOf(b) }, count);
-  if (can.refused || b.members){ hud.say(can.refused || `${bare(b.name)} is fused from other shapes: it holds what they hold`); return shown(); }
+  if (can.refused || b.members || orderOf(b)){ hud.say(can.refused || (b.members ? `${bare(b.name)} is fused from other shapes: it holds what they hold` : `${bare(b.name)} is turned here: change its data dimensions on the shape it was made as`)); return shown(); }
   const next = nesting.resized(o.inner, count), keyed = nesting.rekeyed(o.values, o.inner, next);
   o.values.clear(); for (const [k, v] of keyed.entries) o.values.set(k, v); touched(o.values);      /* in place: every use shares the one Map, and the one list */
+  for (const k of kinOf(o)) if (k.axes){ k.axes = null; hud.say(`${bare(k.name)} has other axes now: its uses are no longer turned`); }      /* an order names every axis: with another number of them it is no order */
   o.inner.splice(0, o.inner.length, ...next);
+  keepTouching(() => agree(o));
   if (opened.id === b.id) opened = { id: b.id, path: [] };
   write(); shown(); }, changes);
 bus.on('inner.set', ({ id, index, length, name }) => { const b = blockOf(id), a = b && axesOf(b)[index];
@@ -2883,6 +2929,16 @@ bus.on('inner.set', ({ id, index, length, name }) => { const b = blockOf(id), a 
       else if (sidesCalled(called, space).some(([o, d]) => sideLength(o, d) === null)){ hud.say(`${called} is not a whole number: it cannot be an axis's length`); return; }
       else { a.name = null; const has = lengthCalled(called, space, null); a.name = called; if (has !== undefined) a.length = Math.round(has / view.unit); } }      /* the length the name has here or above already; a new name is this axis's length */
     for (const k of kinOf(b)) agree(k); });
+  write(); shown(); }, changes);
+/* turn { id, order }: the use draws its variable's axes in that order (every axis once: columns 0, rows 1, inner
+   ones from 2). An order that moves nothing takes the turn off, and one that only swaps columns and rows is T. */
+bus.on('turn', ({ id, order }) => { const b = blockOf(id); if (!b) return;
+  const can = turnableNow(b), kind = can.refused ? null : nesting.plainly(order, (originOf(b).inner || []).length);
+  if (can.refused || !kind){ hud.say(can.refused || 'An order names each of its axes once'); return shown(); }
+  keepTouching(() => { setOrder(b, order); });
+  if (opened.id === b.id) opened = { id: b.id, path: [] };
+  const names = nesting.axisLabels(variableAxes(b));
+  hud.say(kind === 'turned' ? `${bare(b.name)} turned: it draws ${names[order[0]]} by ${names[order[1]]}` : kind === 'transposed' ? `${bare(b.name)} is its transpose here` : `${bare(b.name)} lies as its variable does`);
   write(); shown(); }, changes);
 bus.on('entry.take', ({ id, col, row, at }) => { const src = blockOf(id), data = src ? dataOf(src) : [], u = view.unit, on = v => Math.round(v / u) * u;
   if (!src || !data.length){ hud.say('Only a shape whose entries hold inner data has an entry to take out'); return shown(); }

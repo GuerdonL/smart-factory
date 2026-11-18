@@ -21,7 +21,9 @@ The format is 4. Format 4 adds inner data to format 3: a shape whose entries eac
 `"size": { "cols": 3, "rows": 1, "inner": [2, 4] }, "sides": { "cols": null, "rows": null, "inner": ["key", "embed"] }`;
 its entries are keyed `"column,row,k1,k2,…"`, one more number from 1 for each inner axis (`"2,1,1,3"` is entry 2,1,
 column 1 and row 3 of the matrix it holds); and a block that is one entry of such a shape, taken out, has
-`"from": { "id", "entry": { "col": 2, "row": 1 } }` and no entries of its own. A format 3 project has none of these,
+`"from": { "id", "entry": { "col": 2, "row": 1 } }` and no entries of its own; and a use of such a shape that is
+turned has `"axes": [2, 1, 0]`, the order in which it has its variable's axes (columns 0, rows 1, then the inner
+ones), with its `size` and `sides` as it is drawn. A format 3 project has none of these,
 opens exactly as it was, and saved again differs only in the format number.
 
 What follows is what format 3 holds. An entry is a literal value (a whole number, `"inf"` or `"-inf"`, `{ "n", "d", "k" }`, `true` or
@@ -242,7 +244,12 @@ travelling as one input. Open it: `in` is 3 by 1 of 2 by 4, and `Q`, `K` and `V`
 At the right, `X` against `Heads`, which is 2 by 4 and holds 3 numbers to an entry (`head`): one product for each
 head, written as brackets, `[3]`. Select `Heads` and press an entry to see its three numbers.
 
-In a file, `QKV` has `"size": { "cols": 3, "rows": 1, "inner": [2, 4] }` and
+Under them is a second `Heads`, the same variable turned: its panel lists its axes as `head y | x`, so it is drawn
+3 wide (the heads) by 4 tall and each entry holds 2 numbers. The arrow under it covers its second and third
+columns, which are heads 2 and 3: an arrow reaching along what is an inner axis of the variable. Drag `x` back
+before the bar in the panel's list, and it lies as `Heads` does again.
+
+In a file, the turned use has `"axes": [2, 1, 0]`. `QKV` has `"size": { "cols": 3, "rows": 1, "inner": [2, 4] }` and
 `"sides": { …, "inner": ["key", "embed"] }`; `Heads` has entries keyed `"1,1,1"` to `"2,4,3"`; and each of `Q`, `K`
 and `V` has `"from": { "id": <in's id>, "entry": { "col": 1, "row": 1 } }`.
 
