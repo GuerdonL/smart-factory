@@ -446,12 +446,12 @@ test('an arrow on a tile is drawn along the edge as the tile is drawn, not as lo
 
 test('map: an arrow in a tile is repeated along its input, each cell one span on', () => {
   const a = { side: 's', start: 1, span: 1, gap: 2 };
-  assert.deepEqual(mapped(a, rep(1, 2), 4, 1, 4), { count: 4, warn: null });      /* under column 1 of a 4-wide block, across 4 */
+  assert.deepEqual(mapped(a, rep(1, 2), 4, 1, 4), { count: 4, through: [], warn: null });      /* under column 1 of a 4-wide block, across 4 */
   assert.deepEqual([1, 2, 3, 4].map(k => startIn(a, k)), [1, 2, 3, 4]);
   const b = { side: 'e', start: 2, span: 2, gap: 1 };
-  assert.deepEqual(mapped(b, rep(3, 2), 1, 3, 7), { count: 3, warn: null });      /* rows 2-3, 4-5, 6-7 of 7: the last one just fits */
+  assert.deepEqual(mapped(b, rep(3, 2), 1, 3, 7), { count: 3, through: [], warn: null });      /* rows 2-3, 4-5, 6-7 of 7: the last one just fits */
   assert.deepEqual([1, 2, 3].map(k => startIn(b, k)), [2, 4, 6]);
-  assert.deepEqual(mapped(a, rep(1, 2), 1, 1, 4), { count: 1, warn: null });      /* counts of 1: once */
+  assert.deepEqual(mapped(a, rep(1, 2), 1, 1, 4), { count: 1, through: [], warn: null });      /* counts of 1: once */
 });
 
 test('map is refused where the tile repeats the other way, the pattern is not the span, or the last cell runs past the input', () => {
@@ -467,4 +467,26 @@ test('map is refused where the tile repeats the other way, the pattern is not th
   assert.equal(past.count, 5); assert.match(past.warn, /last cell runs past its input, which has 4 columns/);
   assert.match(mapped({ ...a, start: 2 }, rep(1, 2), 4, 1, 4).warn, /runs past/);      /* one column on is one too many */
   assert.equal(mapped({ ...a, start: 2 }, rep(1, 2), 3, 1, 4).warn, null);
+});
+
+test('after review: an arrow in a tile in a tile is repeated along its input through both, by the same rules at each level', () => {
+  const a = { side: 's', start: 1, span: 1, gap: 2 }, O = (cols, rows, across = 1, down = 1) => ({ repeat: rep(cols, rows), across, down });
+  /* under column 1 of an 8-wide block: the inner tile 4 across, the outer tile (a 4-wide pattern) twice across */
+  assert.deepEqual(mapped(a, rep(1, 2), 4, 1, 8, { outer: [O(4, 3, 2, 1)] }), { count: 4, through: [2], warn: null });
+  /* the boundary: the last cell of all just fits; an input one column shorter is run past */
+  assert.match(mapped(a, rep(1, 2), 4, 1, 7, { outer: [O(4, 3, 2, 1)] }).warn, /last cell runs past its input, which has 7 columns/);
+  assert.equal(mapped({ ...a, start: 2 }, rep(1, 2), 4, 1, 9, { outer: [O(4, 3, 2, 1)] }).warn, null); assert.match(mapped({ ...a, start: 2 }, rep(1, 2), 4, 1, 8, { outer: [O(4, 3, 2, 1)] }).warn, /runs past/);
+  /* an outer tile that does not repeat changes nothing, whatever its pattern */
+  assert.deepEqual(mapped(a, rep(1, 2), 4, 1, 4, { outer: [O(9, 9)] }), { count: 4, through: [1], warn: null });
+  /* the outer tile repeats the other way; or its pattern is not as wide as what the inner tile covers */
+  const wrongWay = mapped(a, rep(1, 2), 4, 1, 8, { outer: [O(4, 3, 1, 2)] }); assert.equal(wrongWay.count, 4); assert.match(wrongWay.warn, /a tile its tile is in repeats down, and an arrow against columns is repeated across only/);
+  assert.match(mapped(a, rep(1, 2), 4, 1, 8, { outer: [O(4, 3, 2, 2)] }).warn, /repeats down/);
+  assert.match(mapped(a, rep(1, 2), 4, 1, 80, { outer: [O(5, 3, 2, 1)] }).warn, /has a pattern 5 wide, and the arrow covers 4 columns of its input in each of that tile's cells/);
+  /* three levels: each pattern as long as what is covered inside it (2, then 2 × 3 = 6), 2 × 3 × 2 = 12 rows in all */
+  const e = { side: 'e', start: 1, span: 2, gap: 1 };
+  assert.deepEqual(mapped(e, rep(1, 2), 1, 1, 12, { outer: [O(3, 2, 1, 3), O(3, 6, 1, 2)] }), { count: 1, through: [3, 2], warn: null });
+  assert.match(mapped(e, rep(1, 2), 1, 1, 11, { outer: [O(3, 2, 1, 3), O(3, 6, 1, 2)] }).warn, /runs past its input, which has 11 rows/);
+  assert.match(mapped(e, rep(1, 2), 1, 1, 12, { outer: [O(3, 2, 1, 3), O(3, 4, 1, 2)] }).warn, /pattern 4 tall, and the arrow covers 6 rows/);
+  /* the innermost tile's own rules come first, as before */
+  assert.match(mapped(a, rep(2, 2), 2, 1, 8, { outer: [O(4, 3, 2, 1)] }).warn, /pattern is 2 wide and the arrow's span is 1/);
 });

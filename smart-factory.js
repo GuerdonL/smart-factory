@@ -972,7 +972,7 @@ function paint(){
   /* the properties of the one shape selected: its name, its shape, its value */
   if (pickedTile && space.repeats.has(pickedTile)){ const t = tileInfo(space, pickedTile), r = t.rep, typedAs = v => typeof v === 'object' ? v.expr : String(v);
     const row = k => ({ key: k, label: k, text: typedAs(r[k]), seen: refs(typedAs(r[k])).map(fields.look), result: typeof r[k] === 'object' ? String(t[k]) : null });
-    const read = space.blocks.some(a => isArrow(a) && a.arrow.input.as === 'tile' && a.arrow.input.id === pickedTile), mapWarn = t.members.filter(isArrow).map(a => outputOf(a).mapWarn).find(Boolean), up = tileUp(space, pickedTile);
+    const read = space.blocks.some(a => isArrow(a) && a.arrow.input.as === 'tile' && a.arrow.input.id === pickedTile), mapWarn = mapWarnIn(space, pickedTile), up = tileUp(space, pickedTile);
     properties.show({ id: 'tile ' + pickedTile, name: space.groupNames.get(pickedTile) || 'tile', color: '', cols: r.cols, rows: r.rows, scalar: false, plain: true, fixed: true,
       shape: `tile: a ${r.cols} × ${r.rows} pattern, ${t.across} across × ${t.down} down` + (t.matrix.error ? '' : `. Its matrix is ${t.matrix.cols} wide × ${t.matrix.rows} tall`)
         + (up !== undefined && !t.over ? `. It is inside ${space.groupNames.get(up) || 'a tile'}'s pattern, and is repeated with it` : ''),
@@ -1091,7 +1091,7 @@ function paint(){
   /* a tile inside another is drawn over it, so that its own frame and edges take the pointer: the innermost are set down last, each beneath those before it */
   for (const g of [...space.repeats.keys()].sort((a, b) => tileInfo(space, b).depth - tileInfo(space, a).depth)){ const t = tileInfo(space, g), tile = space.tiles.get(g) || createTile(), list = t.members; space.tiles.set(g, tile);
     for (const e of tile.el.querySelectorAll('[data-tile-grab], [data-tile-edge]')) e.dataset.tile = g;
-    const mapWarn = list.filter(isArrow).map(a => outputOf(a).mapWarn).find(Boolean);      /* an arrow repeated here that cannot be, or runs past its input */
+    const mapWarn = mapWarnIn(space, g);      /* an arrow repeated here, or through here from a tile inside, that cannot be, or runs past its input */
     tile.set({ x: t.rep.x * u, y: t.rep.y * u, unit: u, xs: t.lay.xs, ys: t.lay.ys, w: t.lay.w, h: t.lay.h, name: space.groupNames.get(g) || '', counts: `${t.across} × ${t.down}`, levels: t.levels,
       selected: pickedTile === g || room.host === g, warn: !!(t.warn || mapWarn || t.over), copies: copiesOf(space, t), written: writtenOn(t, list) });      /* over: it overlaps another tile without lying wholly inside its pattern (tiles.js: overlapping) */
     view.world.prepend(tile.el); view.world.append(tile.overEl); }
@@ -1627,7 +1627,8 @@ function indexMatrix(o){
   return out;
 }
 /* whether a block is a different matrix in each cell: an entry of its reads the index, or an index matrix stands in its matrix */
-const readsIndex = b => [...b.values.values()].some(v => isFormula(v) && tiles.reads(v.expr)) || (standingOf(b) || []).some(t => indexedOf(t.block));
+const readsIndex = b => [...b.values.values()].some(v => isFormula(v) && tiles.reads(v.expr)) || (standingOf(b) || []).some(t => indexedOf(t.block))
+  || steadily(() => { const g = graphNow(), n = g.nodes[g.blocks[b.id]]; return !!n && (n.within || []).some(w => w[0] === 't'); });      /* or the graph marks it as following its cell: it is made of something that does (seated on an arrow that reads such a block, or that is repeated through an outer tile) */
 const texts = values => new Map([...values].map(([k, v]) => [k, isError(v) ? '!' : valueText(v)]));
 /* what is drawn in the cells that are not the first: a copy of every block, and of every arrow, of the tile; and of
    every cell of every tile in its pattern, with what is in that (so a tile in a tile is seen repeated with it). How
@@ -1657,6 +1658,8 @@ const frameBox = id => { const r = space.repeats.get(id), u = view.unit; return 
 /* whether an arrow in tile g is repeated there: its input is outside the tile */
 const mapsIn = (s, a, g) => { const inp = a.arrow.input; if (inp.as === 'tile') return inp.id !== g && s.repeats.has(inp.id) && !tilesAbove(s, inp.id).includes(g);      /* another tile is outside this one too, unless it is in this one's pattern: tiles.js says what comes of that */
   const blk = s.blocks.find(k => k.id === inp.id); return !!blk && !chain(blk, s).includes(g); };
+/* why an arrow repeated in tile g, or through it from a tile inside it, cannot be: the first there is; null where all can */
+const mapWarnIn = (s, g) => inGroup(g, s).filter(a => isArrow(a) && !isOff(a) && mapsIn(s, a, g)).map(a => outputOf(a).mapWarn).find(Boolean) || null;
 const mapsAny = (s, g) => inGroup(g, s).some(a => isArrow(a) && mapsIn(s, a, g));      /* whether any arrow is repeated in the tile, or in a tile inside it, along something outside it */
 /* moves a tile, the tiles inside it and its blocks (dx, dy in units). Arrows and seated blocks are placed by what they read, so they are left to that. */
 function shiftTile(s, g, dx, dy){
@@ -1874,7 +1877,9 @@ function outputOf(a){
     const defined = arrow.formula || !sized(input) ? null : definedBy(a, input);
     /* in a tile, with its input outside it, the arrow is repeated along that input: how often, and whether it can be, is tiles.js's to say */
     const g = s ? tileOf(a, s) : undefined, tile = sized(input) && g !== undefined && mapsIn(s, a, g) ? tileInfo(s, g) : null, rows = along(arrow.side) === 'rows';
-    const map = tile ? tiles.mapped(arrow, tile.rep, tile.across, tile.down, rows ? input.rows : input.cols, { tile: a.arrow.input.as === 'tile' }) : null;
+    /* and through every tile that tile is in which its input is outside of too: in each of their cells it goes on along its input */
+    const above = tile && a.arrow.input.as !== 'tile' ? tilesAbove(s, g).filter(t => mapsIn(s, a, t)).map(t => tileInfo(s, t)) : [];
+    const map = tile ? tiles.mapped(arrow, tile.rep, tile.across, tile.down, rows ? input.rows : input.cols, { tile: a.arrow.input.as === 'tile', outer: above.map(t => ({ repeat: t.rep, across: t.across, down: t.down })) }) : null;
     /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
     const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map, drawn: drawnOf(arrow, sized(input)) });
     const out = { ...st, defined: !!defined, mapWarn: map?.warn || null,
@@ -1975,7 +1980,7 @@ function arrange(s = space){
       else if (b.seat){ const h = hollowOf(b.seat.hollow, s, alg); if (h) r = scaled(h.rect); }
       if (!r || (r.x === b.rect.x && r.y === b.rect.y && r.w === b.rect.w && r.h === b.rect.h)) continue;
       /* an arrow repeated in a tile takes the tile with it: the tile lies along the arrow's input */
-      if (isArrow(b) && (r.x !== b.rect.x || r.y !== b.rect.y)){ const g = tileOf(b, s); if (g !== undefined && mapsIn(s, b, g)) shiftTile(s, g, Math.round((r.x - b.rect.x) / u), Math.round((r.y - b.rect.y) / u)); }
+      if (isArrow(b) && (r.x !== b.rect.x || r.y !== b.rect.y)){ const g = tilesOf(b, s).filter(t => mapsIn(s, b, t)).at(-1); if (g !== undefined) shiftTile(s, g, Math.round((r.x - b.rect.x) / u), Math.round((r.y - b.rect.y) / u)); }      /* the outermost tile its input is outside of: every tile it is repeated in or through lies along that input, and what is in them goes too */
       const resized = r.w !== b.rect.w || r.h !== b.rect.h; b.set(r); if (resized && !isArrow(b)) agree(b); again = any = true; } }
   memo?.clear();
   return any;

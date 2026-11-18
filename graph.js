@@ -15,7 +15,8 @@
                                  written round it, so a new operation is a new entry and nothing else.
    CODES                         every error code
    indexAt(cells, c, r)          the index an entry reads, from the cell it is in (see "Bindings", below)
-   readsIndex(node)              whether a formula of the node's own reads the index
+   readsIndex(node)              whether the node of its own accord differs from cell to cell: a formula of its own
+                                 reads the index, or it is an arrow repeated through an outer tile
 
    The graph
        { "version": 1,
@@ -93,7 +94,10 @@
                    it lies wholly inside the pattern, by its filled size. Tiles that overlap in any other way have
                    no matrix (tiles.js: overlapping): the tile, and an arrow that reads it, have no-source with why.
        mapalong    an arrow repeated in a tile: fn or formula applied to each run of span rows or columns (axis)
-                   of its first input from start, count times, the outputs set side by side
+                   of its first input from start, count times, the outputs set side by side. through, where it
+                   has it: [{ tile: "t:<frame id>", count }], the tiles that tile is in which repeat it again along
+                   its input. Its type and value are those of one cell of them; in a later cell it starts as many
+                   rows or columns further on as lie before that cell (the cell's x or y), so it follows its cell.
    A formula in the graph names what it depends on as $1, $2 and so on: for a variable its inputs in order, for a
    map, a measure and a mapalong its inputs after the first. It is in the language of expression.js and holds
    nothing else: no capsule, and no name but $n, index.x and index.y, and x, i and j in an arrow's. So nothing a
@@ -243,7 +247,8 @@ function lookupIn(n, at, first, size, index){
   };
 }
 /* whether a formula of the node's own reads the index */
-export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' && Object.values(n.entries || {}).some(v => v && typeof v.expr === 'string' && tiles.reads(v.expr))) || (n.op === 'map' && tiles.reads(n.formula));
+export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' && Object.values(n.entries || {}).some(v => v && typeof v.expr === 'string' && tiles.reads(v.expr))) || (n.op === 'map' && tiles.reads(n.formula))
+  || (n.op === 'mapalong' && Array.isArray(n.through) && n.through.length > 0);      /* an arrow repeated through an outer tile reads another part of its input in each of that tile's cells */
 
 /* ---- the operations ----
    Each: inputs [least, most]; fields(n) -> what is wrong with its own fields (sentences); type(n, ins, g) -> the type
@@ -380,12 +385,14 @@ export const OPS = {
       const key = JSON.stringify(places);
       return tiles.entries({ x: 0, y: 0, cols: n.pattern.cols, rows: n.pattern.rows }, n.across, n.down, rects,
         (k, cx, cy) => at.get(k, at.cell({ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, at: places, atKey: key }))); } },
-  mapalong: { inputs: [1, Infinity], id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '')),
+  mapalong: { inputs: [1, Infinity], id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
     fields: n => [...((n.fn !== undefined) !== (n.formula !== undefined) ? [] : ['it has exactly one of fn and formula']),
       ...(n.fn !== undefined && (typeof n.fn !== 'string' || n.inputs.length !== 1) ? ['fn is a function id, and takes the one input'] : []),
       ...(n.formula !== undefined && !formulaOk(n.formula, n.inputs.length - 1, { arrow: true }) ? ['its formula is one the graph cannot hold: it does not read, or names what is not an input'] : []),
-      ...(n.axis === 'rows' || n.axis === 'cols' ? [] : [`axis is "${n.axis}"`]), ...([n.start, n.span, n.count].every(whole1) ? [] : ['start, span and count are whole numbers, at least 1']), ...(okAt(n.at) ? [] : ['at is not { col, row }'])],
-    type(n, ins, g){ const x = ins[0].type, side = runOf(n, 1).side, part = coveredType(runOf(n, n.count), x) && coveredType(runOf(n, 1), x);
+      ...(n.axis === 'rows' || n.axis === 'cols' ? [] : [`axis is "${n.axis}"`]), ...([n.start, n.span, n.count].every(whole1) ? [] : ['start, span and count are whole numbers, at least 1']), ...(okAt(n.at) ? [] : ['at is not { col, row }']),
+      ...(n.through === undefined || (Array.isArray(n.through) && n.through.length && n.through.every(t => t && typeof t === 'object' && typeof t.tile === 'string' && t.tile.startsWith('t:') && whole1(t.count) && t.count > 1)) ? [] : ['through is not a list of { tile, count } with counts of 2 or more'])],
+    /* its type is one cell's runs; the last run of the last cell of the tiles it is repeated through has to be inside its input too */
+    type(n, ins, g){ const x = ins[0].type, side = runOf(n, 1).side, part = coveredType(runOf(n, n.count * (n.through || []).reduce((all, t) => all * t.count, 1)), x) && coveredType(runOf(n, 1), x);
       if (!part) return 'its last run is past its input';
       let came = part;
       if (n.fn !== undefined){ came = fnFits(n, g, part); if (typeof came === 'string') return came; }
@@ -393,7 +400,9 @@ export const OPS = {
       const t = spread(came, n.count, side); return T(t.cols, t.rows, t.colsName, t.rowsName); },
     /* index.x and index.y in its formula are the arrow's own place in its tile (at), in the run being worked out */
     value(n, at){ const x = at.type(0), X = at.get(0), out = new Map(), rows = n.axis === 'rows';
-      for (let k = 1; k <= n.count; k++){ const part = covered(runOf(n, k), x), given = passed(X, part), size = T(part.cols, part.rows), off = (k - 1) * n.span;
+      /* in a later cell of a tile it is repeated through, it goes on where the cell before ended: as many rows or columns on as lie before that cell */
+      const on = (n.through || []).reduce((sum, t) => { const c = at.cells.find(c => c.of && c.of.includes(t.tile)); return sum + (c ? (rows ? c.y : c.x) : 0); }, 0);
+      for (let k = 1; k <= n.count; k++){ const run = runOf(n, k), part = covered({ ...run, start: run.start + on }, x); if (!part) continue; const given = passed(X, part), size = T(part.cols, part.rows), off = (k - 1) * n.span;
         const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + k)
           : worked(n.formula, { cols: part.cols, rows: part.rows, x: given, lookup: lookupIn(n, at, 1, size, p => n.at ? { x: n.at.col + p.c + (rows ? 0 : off), y: n.at.row + p.r + (rows ? off : 0) } : null) });
         const each = Math.round((rows ? n.type.rows : n.type.cols) / n.count);
@@ -831,9 +840,13 @@ export function build(snapshot){
     if (!part) return { error: E('size', `${rows ? 'rows' : 'columns'} ${use.start} to ${use.start + use.span - 1} of ${n}`) };
     /* in a tile, with its input outside it, it is repeated along that input: how often, and whether it can be, is tiles.js's to say */
     const mine = tileOf(a), isMapped = !!mine && (inp.as === 'tile' ? outside !== mine && !upTiles(outside).includes(mine) : !chain(outside).includes(mine)); let count = 1;      /* a tile in this tile's pattern is not outside it */
+    const through = [];      /* the tiles its tile is in that repeat it again along its input: { tile, count } */
     if (isMapped){ const c = countsOf(mine); if (c.error) return { error: c.error };
-      const m = tiles.mapped(use, mine.repeat, c.across, c.down, n, { tile: inp.as === 'tile' });
-      if (m.warn) return { error: E(/runs past/.test(m.warn) ? 'size' : 'mismatch', m.warn) }; count = m.count; }
+      const above = inp.as === 'tile' ? [] : upTiles(mine).filter(t => !chain(outside).includes(t)), counted = above.map(countsOf), lost = counted.find(k => k.error); if (lost) return { error: lost.error };
+      const m = tiles.mapped(use, mine.repeat, c.across, c.down, n, { tile: inp.as === 'tile', outer: above.map((t, i) => ({ repeat: t.repeat, across: counted[i].across, down: counted[i].down })) });
+      if (m.warn) return { error: E(/runs past/.test(m.warn) ? 'size' : 'mismatch', m.warn) }; count = m.count;
+      m.through.forEach((k, i) => { if (k > 1) through.push({ tile: 't:' + above[i].id, count: k }); }); }
+    const more = through.length ? { through } : {}, many = count > 1 || through.length > 0;
     const all = { [rows ? 'row' : 'col']: use.start - 1, [rows ? 'col' : 'row']: 0, [rows ? 'rows' : 'cols']: use.span * count, [rows ? 'cols' : 'rows']: rows ? type.cols : type.rows };
     const cut = r => r.cols === type.cols && r.rows === type.rows ? node : N('slice', [node], { range: { col: r.col, row: r.row, cols: r.cols, rows: r.rows } });
     const x = () => cut(covered(use, type));
@@ -841,16 +854,16 @@ export function build(snapshot){
     const formula = text((home ? home.arrow.formula : builtin ? builtin.formula : A.formula) || '').trim();
     const repeated = { axis: rows ? 'rows' : 'cols', start: use.start, span: use.span, count };
     let made;
-    if (formula){ const first = count > 1 ? node : x(), inputs = [first], f = rewrite(formula, { self: null, reader: 'A' + a.id, inputs, first: 1, mode: 'map', size: part });
+    if (formula){ const first = many ? node : x(), inputs = [first], f = rewrite(formula, { self: null, reader: 'A' + a.id, inputs, first: 1, mode: 'map', size: part });
       if (f.err !== undefined || f.unknown) return { error: E(f.err === 'not the size of the output' ? 'mismatch' : 'no-source', f.err || '') };      /* a formula that stands for an error: the arrow has it */
-      const spot = count > 1 && tiles.reads(formula) ? { at: { col: Math.round(a.x - mine.repeat.x), row: Math.round(a.y - mine.repeat.y) } } : {};
-      made = count > 1 ? N('mapalong', inputs, { formula: f.text, ...repeated, ...spot }) : N('map', inputs, { formula: f.text }); }
+      const spot = many && tiles.reads(formula) ? { at: { col: Math.round(a.x - mine.repeat.x), row: Math.round(a.y - mine.repeat.y) } } : {};
+      made = many ? N('mapalong', inputs, { formula: f.text, ...repeated, ...spot, ...more }) : N('map', inputs, { formula: f.text }); }
     else { const F = fnRead((home || a).v);
       if (F.loop) return { error: E('loop') };
       if (F.error) return { error: F.error };
-      if (F.pass) made = cut(all);
+      if (F.pass) made = through.length ? N('mapalong', [node], { formula: 'x', ...repeated, ...more }) : cut(all);      /* passed through, and from another part of its input in each cell of the outer tile: said as the formula x */
       else { const p = typeOf(F.param); if (!same(p, part)) return { error: E('mismatch', sizes(part, p)) };
-        made = count > 1 ? N('mapalong', [node], { fn: F.fn, ...repeated }) : N('apply', [x()], { fn: F.fn }); } }
+        made = many ? N('mapalong', [node], { fn: F.fn, ...repeated, ...more }) : N('apply', [x()], { fn: F.fn }); } }
     if (!made) return { error: E('mismatch') };
     const seat = ctx.recs.find(r => r.d.seat === a.id), out = A.output && whole1(A.output.cols) && whole1(A.output.rows) ? A.output : null;
     const kept = promised(out ? { cols: out.cols, rows: out.rows, colsName: sideName(seat?.d.colsName), rowsName: sideName(seat?.d.rowsName) } : null, typeOf(made));

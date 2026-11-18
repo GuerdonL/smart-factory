@@ -192,8 +192,16 @@
                                     tile: the input is another tile, outside this one (a tile in this one's
                                     pattern is not outside it, and an arrow that reads one is not repeated). An
                                     arrow that reads a tile reads all of it (whole), so it cannot be repeated
-                                    along it: that is refused, once, with what to do instead. An arrow in a tile
-                                    in a tile is repeated in the innermost, and by that one's counts.
+                                    along it: that is refused, once, with what to do instead.
+                                    outer: [{ repeat, across, down }], the tiles its tile is in that its input is
+                                    outside of too, innermost first. The arrow is repeated along its input through
+                                    each of them by the same rules: in the next cell of such a tile it goes on
+                                    where the cell before ended. So each must repeat only along the arrow's edge,
+                                    and its pattern must be as long that way as what is covered inside it (the
+                                    span times the counts inside); one that does not repeat at all changes
+                                    nothing. through: how many times each of them repeats it, in order (as far
+                                    as they could be told); count is still the innermost tile's. The last cell
+                                    of all running past the input is the warning.
    startIn(arrow, k)             -> the arrow's start in cell k, from 1 */
 import { evaluate, entered, refs } from './expression.js';
 import { isWhole, isError, valueText } from './algebra.js';
@@ -382,12 +390,19 @@ export const spanned = (arrow, patch) => ('start' in patch && patch.start !== ar
   ? { refused: 'An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that' } : { ok: true };
 
 export const startIn = (arrow, k) => arrow.start + (k - 1) * arrow.span;
-export function mapped(arrow, repeat, across, down, n, { tile = false } = {}){
-  if (tile) return { count: 1, warn: 'it is in a tile and reads another tile, all of it, so it cannot be repeated along it: seat a block on that tile\'s output outside this one, and repeat an arrow along the block' };
+export function mapped(arrow, repeat, across, down, n, { tile = false, outer = [] } = {}){
+  if (tile) return { count: 1, through: [], warn: 'it is in a tile and reads another tile, all of it, so it cannot be repeated along it: seat a block on that tile\'s output outside this one, and repeat an arrow along the block' };
   const rows = along(arrow.side) === 'rows', times = rows ? down : across, other = rows ? across : down, size = rows ? repeat.rows : repeat.cols;
   const way = rows ? 'down' : 'across', edge = rows ? 'rows' : 'columns';
-  if (other !== 1) return { count: 1, warn: `its tile repeats ${rows ? 'across' : 'down'}, and an arrow against ${edge} is repeated ${way} only` };
-  if (size !== arrow.span) return { count: 1, warn: `its tile's pattern is ${size} ${rows ? 'tall' : 'wide'} and the arrow's span is ${arrow.span}: to repeat along its input they must be the same` };
-  if (startIn(arrow, times) + arrow.span - 1 > n) return { count: times, warn: `its last cell runs past its input, which has ${n} ${edge}` };
-  return { count: times, warn: null };
+  if (other !== 1) return { count: 1, through: [], warn: `its tile repeats ${rows ? 'across' : 'down'}, and an arrow against ${edge} is repeated ${way} only` };
+  if (size !== arrow.span) return { count: 1, through: [], warn: `its tile's pattern is ${size} ${rows ? 'tall' : 'wide'} and the arrow's span is ${arrow.span}: to repeat along its input they must be the same` };
+  /* through each tile its tile is in, with the same rules: that tile repeats only along the arrow's edge, and its pattern is as long that way as what is covered inside it */
+  let covers = arrow.span * times; const through = [];
+  for (const o of outer){ const k = rows ? o.down : o.across, oth = rows ? o.across : o.down, len = rows ? o.repeat.rows : o.repeat.cols;
+    if (k === 1 && oth === 1){ through.push(1); continue; }      /* a tile that does not repeat changes nothing */
+    if (oth !== 1) return { count: times, through, warn: `a tile its tile is in repeats ${rows ? 'across' : 'down'}, and an arrow against ${edge} is repeated ${way} only` };
+    if (len !== covers) return { count: times, through, warn: `a tile its tile is in has a pattern ${len} ${rows ? 'tall' : 'wide'}, and the arrow covers ${covers} ${edge} of its input in each of that tile's cells: to go on along its input from cell to cell they must be the same` };
+    through.push(k); covers *= k; }
+  if (arrow.start + covers - 1 > n) return { count: times, through, warn: `its last cell runs past its input, which has ${n} ${edge}` };
+  return { count: times, through, warn: null };
 }

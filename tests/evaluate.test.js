@@ -365,6 +365,31 @@ test('after review: the index a block reads is that of the innermost tile the bl
   /* a cell that does not say which tile it is of is kept, whatever the block */
   assert.deepEqual(text(worked(g, 'v:P', { binding: { cells: [{ x: 2, y: 0, dx: 0, dy: 0 }] } })), text(rowsOf([[3, 4]])));
 });
+test('after review: an arrow repeated in the inner tile goes on along its input in each cell of the outer tile', () => {
+  /* M, 8 by 1, outside both tiles; a max(x, 0) arrow under its column 1 in an inner tile 4 across; S seated on the output, in the outer pattern (4 by 2); the outer tile twice across */
+  const shapes = (m, more = {}) => [B('M', 0, 0, m.length, 1, { entries: Object.fromEntries(m.map((v, i) => [`${i + 1},1`, v])) }), arrow('relu', { id: 'M', as: 'block' }, { side: 's', formula: 'max(x, 0)', ...more }, { x: 0, y: 1 }), B('S', 0, 3, 4, 1, { seat: 'relu' }), arrow('out', { id: 'outer', as: 'tile' })];
+  const groups = (across, down = 1) => [{ id: 'outer', name: null, members: [2], repeat: { x: 0, y: 1, cols: 4, rows: 3, across, down }, groups: [{ id: 'inner', name: null, members: [1], groups: [], repeat: { x: 0, y: 1, cols: 1, rows: 2, across: 4, down: 1 } }] }];
+  const M8 = [1, -2, 3, -4, 5, -6, 7, -8];
+  let g = make(snap(shapes(M8), groups(2)));
+  const relu = g.spaces.top.arrows.find(a => a.arrow === 'relu').node, outer = g.spaces.top.arrows.find(a => a.arrow === 'out').node;
+  assert.deepEqual(g.nodes[relu].through, [{ tile: 't:outer', count: 2 }]); assert.deepEqual(g.nodes[relu].type, t(4, 1)); assert.deepEqual(g.nodes[relu].within, ['t:outer', 't:inner']);
+  /* the outer tile's matrix: two blank rows (the arrow's own, no block), so it has none; S's row is read cell by cell */
+  assert.deepEqual(text(worked(g, relu)), text(rowsOf([[1, 0, 3, 0]])));      /* asked for under no cell: the first */
+  const cell = k => ({ binding: { cells: [{ x: (k - 1) * 4, y: 0, dx: 0, dy: 2, of: ['t:outer'] }] } });
+  assert.deepEqual(text(worked(g, 'v:S', cell(1))), text(rowsOf([[1, 0, 3, 0]]))); assert.deepEqual(text(worked(g, 'v:S', cell(2))), text(rowsOf([[5, 0, 7, 0]])));
+  assert.deepEqual(text(worked(g, relu, cell(2))), text(rowsOf([[5, 0, 7, 0]])));
+  /* (the outer tile itself has no matrix here: the arrow's rows of its pattern hold no block. Its copies are read as above.) */
+  assert.equal(g.spaces.top.arrows.find(a => a.arrow === 'out').node, null);
+  /* an arrow that passes its input through goes on the same way: said as the formula x */
+  const pass = make(snap([B('M', 0, 0, 8, 1, { entries: Object.fromEntries(M8.map((v, i) => [`${i + 1},1`, v])) }), arrow('p', { id: 'M', as: 'block' }, { side: 's' }, { x: 0, y: 1 }), B('S', 0, 3, 4, 1, { seat: 'p' })], groups(2)));
+  assert.equal(pass.nodes[pass.spaces.top.arrows[0].node].formula, 'x');
+  assert.deepEqual(text(worked(pass, 'v:S', cell(1))), text(rowsOf([M8.slice(0, 4)]))); assert.deepEqual(text(worked(pass, 'v:S', cell(2))), text(rowsOf([M8.slice(4)])));
+  /* it is never silent: an input too short, or an outer tile that repeats the other way, is an error on the arrow */
+  g = make(snap(shapes(M8.slice(0, 7)), groups(2))); assert.deepEqual(g.spaces.top.arrows.find(a => a.arrow === 'relu').error.code, 'size');
+  g = make(snap(shapes(M8), groups(1, 2))); assert.equal(g.spaces.top.arrows.find(a => a.arrow === 'relu').error.code, 'mismatch'); assert.match(g.spaces.top.arrows.find(a => a.arrow === 'relu').error.note, /a tile its tile is in repeats down/);
+  /* an outer tile that does not repeat: an ordinary mapalong, as before */
+  g = make(snap(shapes(M8.slice(0, 4)), groups(1))); assert.equal(g.nodes[g.spaces.top.arrows.find(a => a.arrow === 'relu').node].through, undefined);
+});
 test('three tiles, one inside the next: the bindings compose from a snapshot too', () => {
   const g = make(snap([B('A', 0, 0, 1, 1, { entries: { '1,1': { expr: 'index.x * 10 + index.y' } } }), arrow('out', { id: 'a', as: 'tile' })],
     [{ id: 'a', name: null, members: [], repeat: { x: 0, y: 0, cols: 4, rows: 2, across: 2, down: 1 }, groups: [{ id: 'b', name: null, members: [], repeat: { x: 0, y: 0, cols: 2, rows: 2, across: 2, down: 1 },
