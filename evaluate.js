@@ -155,15 +155,20 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
   }
 }
 
+const texts = new WeakMap();
 export function carry(from, to){
   const a = from && typeof from === 'object' ? states.get(from) : null; if (!a || !to || typeof to !== 'object' || from === to) return 0;
-  const b = stateOf(to), text = new Map(), told = new Map();
-  const written = (g, n) => { if (!text.has(n)) text.set(n, JSON.stringify(n)); return text.get(n); };
+  const b = stateOf(to), told = new Map();
+  /* a node written out, but for its entries, kept with it (it is asked again at the next carry); entries are told apart one by one, and are mostly the very same values */
+  const written = n => { if (!texts.has(n)) texts.set(n, JSON.stringify(n, (k, v) => k === 'entries' && v && typeof v === 'object' ? undefined : v)); return texts.get(n); };
+  const alike = (p, q) => { if (p === q || !p || !q || typeof p !== 'object' || typeof q !== 'object') return p === q; const ks = Object.keys(p); if (ks.length !== Object.keys(q).length) return false;
+    for (const k of ks){ const u = p[k], v = q[k]; if (u !== v && !(own(q, k) && u && v && typeof u === 'object' && typeof v === 'object' && JSON.stringify(u) === JSON.stringify(v))) return false; } return true; };
+  const sameNode = (x, y) => written(x) === written(y) && alike(x.entries, y.entries);
   /* the same node, of the same inputs, all the way down: walked with a list of its own, since a graph may be deep */
   const sameAt = start => { const todo = [start];
     while (todo.length){ const id = todo[todo.length - 1]; if (told.has(id)){ todo.pop(); continue; }
       const x = nodeAt(from, id), y = nodeAt(to, id);
-      if (!x || !y || written(from, x) !== written(to, y)){ told.set(id, false); todo.pop(); continue; }
+      if (!x || !y || !sameNode(x, y)){ told.set(id, false); todo.pop(); continue; }
       const f = (y.op === 'apply' || y.op === 'mapalong') && y.fn !== undefined ? [fnAt(from, y.fn), fnAt(to, y.fn)] : null;
       if (f && (!f[0] || !f[1] || f[0].input !== f[1].input || f[0].body !== f[1].body)){ told.set(id, false); todo.pop(); continue; }
       const deps = f ? [...y.inputs, f[1].body, f[1].input] : y.inputs, open = deps.filter(d => !told.has(d) && !todo.includes(d));

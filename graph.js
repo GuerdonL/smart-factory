@@ -165,10 +165,18 @@ function covers(types, at, cols, rows){
 const held = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v;
 /* an exact value in its one stated form: n over d under k square roots, in lowest terms, d left out where it is 1,
    and kept only where it is not a whole number. What values.js makes of it, or undefined where it is none at all. */
+/* the entries of a block that hold no formula, as the graph keeps them: a snapshot's entries object -> { cols, rows, entries }.
+   A caller that hands over the same object for entries that have not changed (the page does) has them read once. */
+const plains = new WeakMap();
+const exacts = new WeakMap();                   /* an entry's object -> what it is exactly: the same object is asked for at every build */
 function exactly(v){
+  if (!exacts.has(v)) exacts.set(v, exactlyNow(v));
+  return exacts.get(v);
+}
+function exactlyNow(v){
   if (!Number.isSafeInteger(v.n) || !Number.isInteger(v.k) || v.k < 0 || v.k > ROOTS || !(v.d === undefined || (Number.isSafeInteger(v.d) && v.d >= 1))) return undefined;
   let e; try { e = fromExact(exact(v.d === undefined ? { n: v.n, k: v.k } : { n: v.n, d: v.d, k: v.k })); } catch { return undefined; }
-  return typeof e === 'number' ? (Number.isSafeInteger(e) ? e : undefined) : e && Number.isInteger(e.n) ? (e.d === undefined || e.d === 1 ? { n: e.n, k: e.k } : { n: e.n, d: e.d, k: e.k }) : undefined;
+  return typeof e === 'number' ? (Number.isSafeInteger(e) ? e : undefined) : e && Number.isInteger(e.n) ? Object.freeze(e.d === undefined || e.d === 1 ? { n: e.n, k: e.k } : { n: e.n, d: e.d, k: e.k }) : undefined;
 }
 /* an entry as the graph keeps it, or undefined for what is no literal value (an error, a decimal, anything else) */
 function literal(v){
@@ -563,19 +571,22 @@ export function build(snapshot){
     nodes.set(v.nid, n); scoped(v.nid, n);
     v.state = 'done'; return v.nid;
   }
-  const inside = (v, key) => { const m = key.match(/^([1-9]\d*),([1-9]\d*)$/); return !!m && +m[1] <= v.type.cols && +m[2] <= v.type.rows; };
+  const inside = (v, key) => { const i = key.indexOf(','), c = +key.slice(0, i), r = +key.slice(i + 1); return c >= 1 && r >= 1 && c <= v.type.cols && r <= v.type.rows && key === c + ',' + r; };      /* an entry of it, in its one spelling */
   /* a variable's own entries that are plain values: what it keeps where something else defines it */
   function literals(v){ const out = {}; for (const [key, e] of entriesOf(v)) if (inside(v, key)){ const l = literal(e); if (l !== undefined) out[key] = l; } return out; }
   /* a variable's own entries as the graph holds them: values, and formulas with what they name as inputs. A formula
      that stands for an error (it does not read, or names what is not there) is that error; one that names what has
      no value yet is left out, as an entry never given is. alone: only what names nothing. */
   function typed(v, alone){
-    const inputs = [], entries = {};
+    const raw = v.src.d.entries, was = raw && typeof raw === 'object' ? plains.get(raw) : null;
+    if (was && was.cols === v.type.cols && was.rows === v.type.rows) return { inputs: [], entries: was.entries };      /* the very entries of the last build, where they hold no formula */
+    const inputs = [], entries = {}; let plain = true;
     for (const [key, e] of entriesOf(v)){ if (!inside(v, key)) continue;      /* a block made smaller can still hold entries beyond its size */
-      if (e && typeof e === 'object' && typeof e.expr === 'string'){ const before = inputs.length, r = rewrite(e.expr, { self: v, reader: v.key, inputs, first: 0, mode: 'entry', alone });
+      if (e && typeof e === 'object' && typeof e.expr === 'string'){ plain = false; const before = inputs.length, r = rewrite(e.expr, { self: v, reader: v.key, inputs, first: 0, mode: 'entry', alone });
         if (r.dropped){ inputs.length = before; continue; }
         if (r.err !== undefined) entries[key] = { err: r.err }; else if (!r.unknown) entries[key] = { expr: r.text }; }
       else { const l = literal(e); if (l !== undefined) entries[key] = l; } }
+    if (plain && raw && typeof raw === 'object') plains.set(raw, { cols: v.type.cols, rows: v.type.rows, entries: Object.freeze(entries) });
     return { inputs, entries };
   }
   const under = (id, v, defined, strict = false) => { if (!id) return { error: E('no-source') };

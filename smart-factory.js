@@ -21,9 +21,9 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, valueText } from './algebra.js';
+import { touches, joins, pieces, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph } from './graph.js';
-import { evaluate as workOut, toMap, tooLarge } from './evaluate.js';
+import { evaluate as workOut, carry, toMap, tooLarge } from './evaluate.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -80,7 +80,7 @@ function write(){
   if (!space.owner) return;
   if (isArrow(space.owner)){      /* an arrow's space: its output on the right, at the size it promises or, with no promise, the size it comes to */
     const a = space.owner, t = defSize(a); syncIn(space, a);
-    space.definition = createDefinition({ cols: t.cols, rows: t.rows, unit: view.unit, name: isNamed(a) ? a.name : 'output', letter: initials(a.name), color: 'function', values: new Map(), editable: false, colsName: t.colsName || null, rowsName: t.rowsName || null });
+    space.definition = createDefinition({ cols: t.cols, rows: t.rows, unit: view.unit, name: isNamed(a) ? a.name : 'output', letter: initials(a.name), color: 'function', values: outputOf(a).values || new Map(), editable: false, colsName: t.colsName || null, rowsName: t.rowsName || null });
     space.definition.wrote = defKey(a); view.world.prepend(space.definition.el); return; }
   flow(space.owner);
   const o = space.owner, r = o.rect, over = turned(o);      /* opened through a transpose, it is still the variable's own definition: the right way round */
@@ -261,17 +261,28 @@ const own = (b, plain = false) => turned(b) && !plain ? flipped(worked(b)) : wor
    What anything on the page comes to is not worked out here. The whole project is built into a graph (graph.js) and
    every result that is drawn is asked of the evaluator (evaluate.js): what a block holds, what a piece comes to,
    an arrow's output, a tile's cells. The page does no arithmetic of its own.
-   The graph is built from the project as it stands (gather), once for every time the screen is brought up to date
-   and again whenever that moves anything; a message being handled builds it afresh each time it asks, since it may
-   have changed what the graph was built from, but for a stretch that only reads (steadily), which asks once. */
-const GRAPH = Symbol('graph'); let handling = 0, graphIdle = null, holding = 0, graphHeld = null;
-const steadily = read => { holding++; try { return read(); } finally { if (!--holding) graphHeld = null; } };      /* read changes nothing: one graph serves all of it */
-bus.tap(phase => { handling += phase === 'before' ? 1 : -1; graphIdle = null; });
+   The graph is built once for each state of the project, and not again while that state stands: a message that
+   only looks (the camera, the selection, a hover) builds nothing. Whether the state still stands is told from the
+   project as it would be saved (gather), written out and compared, with each block's entries written as a stamp
+   that every change to them moves on (touched: said wherever entries are changed in place), so the comparison
+   costs the same however many numbers there are. When the graph is built again, what was worked out of the last
+   one is carried over for every node that is the same all the way down (evaluate.js: carry), so a change is
+   worked out where it reaches and nowhere else. */
+const GRAPH = Symbol('graph'), graphKept = { graph: null, light: null }; let holding = 0, graphHeld = null;
+const steadily = read => { holding++; try { return read(); } finally { if (!--holding) graphHeld = null; } };      /* read changes nothing: one look at the project serves all of it */
+const stamps = new WeakMap(); let stampAt = 0;
+const stampOf = values => { if (!stamps.has(values)) stamps.set(values, ++stampAt); return stamps.get(values); };      /* which entries these are, and how often changed */
+const touched = values => { stamps.set(values, ++stampAt); };
+/* a block's entries as plain data: the same object for as long as they are not changed, so that whoever reads the project again (graph.js) can tell at once */
+const entriesKept = new WeakMap();
+function entriesOut(values){ const at = stampOf(values), was = entriesKept.get(values); if (was && was.at === at) return was.data; const data = Object.freeze(Object.fromEntries(values)); entriesKept.set(values, { at, data }); return data; }
 function graphNow(){
-  if (memo){ if (!memo.has(GRAPH)) memo.set(GRAPH, buildGraph(gather())); return memo.get(GRAPH); }
-  if (holding) return graphHeld ||= buildGraph(gather());
-  if (handling) return buildGraph(gather());
-  return graphIdle ||= buildGraph(gather());
+  if (memo?.has(GRAPH)) return memo.get(GRAPH);
+  if (holding && graphHeld) return graphHeld;
+  const light = JSON.stringify(gather(true).top);
+  if (light !== graphKept.light){ const g = buildGraph(gather('kept')); if (graphKept.graph) carry(graphKept.graph, g); graphKept.graph = g; graphKept.light = light; }
+  memo?.set(GRAPH, graphKept.graph); if (holding) graphHeld = graphKept.graph;
+  return graphKept.graph;
 }
 /* a graph's pieces and arrows, found by the blocks they are of */
 const found = new WeakMap();
@@ -292,25 +303,26 @@ function answerOf(node, binding = null){
 }
 const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), node, binding ? { binding } : undefined).deferred;
 /* Where a node is looked at from (evaluate.js: binding). A block of a tile, or one in the definition space of a block
-   of a tile, is in a cell: the first, or the one being drawn (cellNow). A block in an arrow's definition space is in
-   a function's body: the function's input is what the arrow that space was opened through is given.
-   of: the blocks whose node is asked for. A cell says where one block lies in its pattern, so where several blocks
-   of one tile read their index only the first cell's own block can be given its place: more than one such, and
-   nothing is said (false: there are then no numbers to show). */
-function cellOf(k, s, over = false){
-  const t = s ? tileOf(k, s) : undefined; if (t === undefined) return null;
-  const rep = s.repeats.get(t), r = unitsOf(k), here = cellNow.of === rep;
-  return { x: ((here ? cellNow.cx : 1) - 1) * rep.cols + r.x - rep.x, y: ((here ? cellNow.cy : 1) - 1) * rep.rows + r.y - rep.y, turned: over };
+   of a tile, is in a cell: the first, or the one being drawn (cellNow). The cell says where every block of the
+   pattern lies, and every arrow's output there, so that each reads its own place however it is reached (a product
+   of two blocks of one tile gives each its own index). A block in an arrow's definition space is in a function's
+   body: the function's input is what the arrow that space was opened through is given.
+   of: the blocks whose node is asked for; a: the arrow, where it is an arrow's output; over: the node asked for is
+   under a transpose that is not being asked for (a variable's own way round, through a use that is turned). */
+function cellIn(s, t, focus = null, over = false){
+  const rep = s.repeats.get(t), here = cellNow.of === rep, g = graphNow(), at = {};
+  for (const k of inGroup(t, s)) if (!isArrow(k) && g.blocks[k.id]){ const r = unitsOf(k); at[g.blocks[k.id]] = { col: r.x - rep.x, row: r.y - rep.y }; }
+  for (const k of inGroup(t, s)) if (isArrow(k)){ const id = findIn(g).arrows.get(k.id)?.node, r = id && !(id in at) ? outputOf(k).place : null; if (r) at[id] = { col: r.x - rep.x, row: r.y - rep.y }; }      /* an output lies where it is written */
+  const r = focus ? unitsOf(focus) : null;
+  return { x: ((here ? cellNow.cx : 1) - 1) * rep.cols, y: ((here ? cellNow.cy : 1) - 1) * rep.rows, dx: r ? r.x - rep.x : 0, dy: r ? r.y - rep.y : 0, turned: over, at };
 }
-function bindingOf(of, s, over = false){
-  const g = graphNow(), params = {}; let cells = null;
-  const inCell = of.filter(k => s && tileOf(k, s) !== undefined && (g.nodes[g.blocks[k.id]]?.within || []).some(w => w[0] === 't'));
-  if (inCell.length > 1) return false;
-  if (inCell.length) cells = [cellOf(inCell[0], s, over)];
-  for (let at = s; at && at.owner; at = spaceWith(at.owner)){ const o = at.owner;
+function bindingOf(of, s, over = false, a = null){
+  const g = graphNow(), params = {}, first = a || of[0], t = s && first ? tileOf(first, s) : undefined;
+  let cells = t !== undefined ? [cellIn(s, t, over ? first : null, over)] : null;
+  for (let at = s; at && at.owner; at = spaceWith(at.owner)){ const o = at.owner, up = spaceWith(o);
     if (isArrow(o)){ const inner = at.blocks.find(k => k.in), param = inner && g.blocks[inner.id], fn = param && (g.nodes[param].within || []).find(w => w[0] === 'f'), given = givenTo(o);
       if (fn && given && !(fn in params)) params[fn] = given; }
-    else if (!cells){ const c = cellOf(o, spaceWith(o), turned(o)); if (c) cells = [c]; } }      /* what is in a block's definition is the variable's own way round: read through a transposed use, its entries stand turned */
+    else if (!cells && up && tileOf(o, up) !== undefined) cells = [cellIn(up, tileOf(o, up), o, turned(o))]; }      /* what is in a block's definition is at that block's place, the variable's own way round */
   return cells || Object.keys(params).length ? { params, ...(cells ? { cells } : {}) } : null;
 }
 /* what an arrow gives its function: the covered part of its input, as the graph has it */
@@ -328,8 +340,7 @@ const evaluated = (b, plain) => steadily(() => evaluatedNow(b, plain));
 function evaluatedNow(b, plain){
   const g = graphNow(); let id = g.blocks[b.id]; if (!id) return null;
   const over = turned(b) && plain; if (over){ if (g.nodes[id].op !== 'transpose') return null; id = g.nodes[id].inputs[0]; }
-  const binding = bindingOf([b], spaceWith(b), over);
-  return binding === false ? null : answerOf(id, binding);
+  return answerOf(id, bindingOf([b], spaceWith(b), over));
 }
 /* why a block's variable has no value in the graph, as a sentence for the properties panel; null where it has one */
 const WHY = { loop: () => 'It depends on itself, so nothing is worked out from it', pieces: n => `Its definition space holds ${n}, which is not one matrix: it keeps the entries typed into it`,
@@ -344,7 +355,7 @@ function whyNot(b){
 const pieceValues = (bs, s = space) => steadily(() => pieceValuesNow(bs, s));
 function pieceValuesNow(bs, s){
   const g = graphNow(), p = findIn(g).pieces.get(bs.map(b => b.id).join(' ')); if (!p || !p.node) return null;
-  const binding = bindingOf(bs, s); return binding === false ? null : answerOf(p.node, binding);
+  return answerOf(p.node, bindingOf(bs, s));
 }
 /* a block's entries: what the evaluator says its node comes to. plain: the variable's own way round, whatever this use is */
 function valuesOf(b, depth = 0, plain = false){
@@ -588,7 +599,7 @@ function typedNow(b, dim, text){
   const single = isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit;
   if (single && measures(b)){ hud.say(`${bare(b.name)} is a measure of another shape: change it there`); return; }
   if (single && b.source && n !== null){ hud.say(`${bare(b.name)} is a source: a length typed on a single entry sets its number, and a source's is not typed. Pull it larger by an edge`); return; }
-  const size = length => single ? b.values.set('1,1', (length / view.unit) ** 2) : b.set({ ...b.rect, [dim]: length });
+  const size = length => { if (single){ b.values.set('1,1', (length / view.unit) ** 2); touched(b.values); } else b.set({ ...b.rect, [dim]: length }); };
   if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) size(n * view.unit); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
   if (name && sidesCalled(name, space).some(([o, d]) => o !== b && sideLength(o, d) === null)){ hud.say(`${name} is not a whole number: it cannot be a side's length`); return; }
   if (name){ b.sides[dim] = null; const has = lengthCalled(name, space, null);      /* the length the name already has here or above, looked up before this side joins it */
@@ -855,7 +866,7 @@ function measured(b, measure, name){
   if (measure === 'g') return isArrow(b) ? b.arrow.gap : { err: 'not an arrow: it has no gap' };
   if (measure === 'm') return single(b) ? scalarOf(b) : { err: 'not a scalar: it has no mass' };
   if (measure === 'a'){ const key = String(name).trim().toLowerCase(), a = attrsOf(b).find(a => a.name.trim().toLowerCase() === key); return a ? attrValue(b, a) : undefined; }
-  if (single(b)){ const v = scalarOf(b); if (unset(b)) return null; if (isError(v)) return v; const r = rootSide(b); if (r !== null) return r; }      /* a scalar's side is the root of its mass */
+  if (single(b)){ const v = scalarOf(b); if (v === null || isError(v)) return v; const r = rootSide(b); return r !== null ? r : { err: 'it has no root to be a side' }; }      /* a scalar's side is the root of its mass, and where that has no root it has none */
   return Math.round(((measure === 'x') !== turned(b) ? b.rect.w : b.rect.h) / view.unit);
 }
 /* what a name or a capsule in one of b's formulas stands for (expression.js: evaluate's lookup). A capsule names a
@@ -933,7 +944,7 @@ const properties = createProperties({ ...fields,
    result is placed once that result has been written, and a block seated on it after that: so the screen is drawn,
    the arrows and seats are put in their places again (arrange), and where any moved it is drawn once more. */
 function shown(){
-  memo = new Map(); graphIdle = null;
+  memo = new Map();
   try { arrangeAll(); for (let pass = 0; pass < 4; pass++){ const was = paint(); memo.clear(); if (!arrangeAll() && standingNow() === was) break; } } finally { memo = null; }
 }
 /* how every arrow on screen stands just now: whether it warns, and where its output is. What was drawn is drawn again where this is no longer so. */
@@ -1016,11 +1027,11 @@ function paint(){
     /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
     if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), standing: standingLook(first) };
     if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), standing: standingLook(first), transposed: turned(first) };
-    /* scalars times at most one other shape: an entry not known is written as the scalars against its symbol, each
-       scalar as its number where it has one */
+    /* scalars times at most one other shape: an entry not known is written as the scalars against its symbol: as the
+       one number they come to where each has one, else by their letters */
     const one = b => b.rect.w === u && b.rect.h === u && !b.members, scalars = bs.filter(one), solid = bs.filter(b => !one(b));
     if (scalars.length && solid.length <= 1){ const of = solid[0] || scalars.pop(), ks = scalars.map(b => valuesOf(b).get('1,1') ?? null), known = ks.every(k => k !== null && !isError(k));
-      return { letter: (known ? ks.map(asText).join('·') : scalars.map(b => initials(b.name)).join('')) + initials(of.name), color: of.shape.color, values, transposed: turned(of) }; }
+      return { letter: (known ? asText(ks.reduce((a, b) => combine('*', a, b))) : scalars.map(b => initials(b.name)).join('')) + initials(of.name), color: of.shape.color, values, transposed: turned(of) }; }      /* (what the known scalars come to together is combine's to say) */
     const ends = solid.length ? solid : bs; return { values, product: { rows: { letter: initials(ends[0].name), color: ends[0].shape.color }, cols: { letter: initials(ends[ends.length - 1].name), color: ends[ends.length - 1].shape.color } } }; };
   /* a definition space sets what is here beside its block's promised size. The Menu has no promise, so it
      writes out what each piece comes to, beside that piece. (Shapes that do not touch are separate pieces.) */
@@ -1416,7 +1427,7 @@ function discard(blocks){
   /* and so is a formula that names it: its capsules are pointed at the use that stays (expression.js: repoint). A formula
      naming a variable of which nothing stays is left as it is, broken: it comes to "missing variable". */
   for (const b of going){ const stay = [...kinOf(b)].find(k => !going.has(k)), ids = new Set([b.id]); if (!stay) continue;
-    for (const d of everyKnown()){ for (const [k, v] of d.values) if (isFormula(v) && refersTo(v.expr, ids)) d.values.set(k, { expr: repoint(v.expr, b.id, stay.id) });
+    for (const d of everyKnown()){ for (const [k, v] of d.values) if (isFormula(v) && refersTo(v.expr, ids)){ d.values.set(k, { expr: repoint(v.expr, b.id, stay.id) }); touched(d.values); }
       for (const a of attrsOf(d)) if (refersTo(a.text, ids)) a.text = repoint(a.text, b.id, stay.id);
       if (d.fn?.formula && refersTo(d.fn.formula, ids)) d.fn.formula = repoint(d.fn.formula, b.id, stay.id); }
     for (const s of everySpace()) for (const r of s.repeats.values()) for (const k of ['across', 'down']) if (typeof r[k] === 'object' && refersTo(r[k].expr, ids)) r[k] = { expr: repoint(r[k].expr, b.id, stay.id) }; }      /* and a tile's count */
@@ -1789,7 +1800,7 @@ function outputOf(a){
     const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map, drawn: drawnOf(arrow, sized(input)) });
     const out = { ...st, defined: !!defined, mapWarn: map?.warn || null,
       get values(){ return outputValues(a, s); },
-      get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id), binding = e?.node ? bindingOf(readBy(a, s), s) : false; return binding !== false && deferredAt(e.node, binding) ? tooLarge(graphNow().nodes[e.node].type) : null; }); } };
+      get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id); return e?.node && deferredAt(e.node, bindingOf(readBy(a, s), s, false, a)) ? tooLarge(graphNow().nodes[e.node].type) : null; }); } };
     if (firstCell()) memo?.set(a, out);
     return out;
   } finally { busy.delete(a); }
@@ -1803,7 +1814,7 @@ function readBy(a, s){
 const outputValues = (a, s = spaceWith(a)) => steadily(() => outputValuesNow(a, s));
 function outputValuesNow(a, s){
   const e = findIn(graphNow()).arrows.get(a.id); if (!e || !e.node) return null;
-  const binding = bindingOf(readBy(a, s), s); return binding === false ? null : answerOf(e.node, binding);
+  return answerOf(e.node, bindingOf(readBy(a, s), s, false, a));
 }
 /* the rects an arrow's edge has to be free of: every block of the space that touches, but for its own input */
 const othersOf = (s, input, seat = null) => { const own = input.as === 'tile' ? new Set(inGroup(input.id, s)) : null;      /* a tile's own blocks are not against its edge: they are it */
@@ -2046,10 +2057,10 @@ const typeNamed = name => shapes.find(s => s.name === name) || (name === 'arrow'
 const wasOf = was => was ? was.map(w => ({ order: w.order, frames: w.frames.map(f => ({ ...f })) })) : null;      /* where an operation's kept blocks were, as plain data of its own */
 const fromOf = f => !f ? null : f.range ? { id: f.id, range: { ...f.range, toEnd: { ...f.range.toEnd } } } : { ...f };      /* a block's from, as plain data of its own */
 /* the page's spaces as plain data, lengths in units */
-function gather(){
+function gather(light = false){      /* light: each block's entries as their stamp, for telling cheaply whether anything has changed; 'kept': as the object they were last given as, while they are unchanged (for the graph: what is saved is always written afresh) */
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
-    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members || b.source ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members || b.source ? {} : light === true ? { stamp: stampOf(b.values) } : light === 'kept' ? entriesOut(b.values) : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
     standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
     arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
@@ -2474,7 +2485,7 @@ bus.on('entry.set', ({ id, key, text = null, settle = false }) => { const o = bl
   if (o && (isArrow(o) || givenOf(o) || seatedOf(o))){ hud.say(isArrow(o) ? 'An arrow\'s output is worked out: change its input or its formula' : givenOf(o) ? 'in is whatever the arrow is given: change the arrow\'s input' : `${bare(o.name)} is seated: its value is the arrow's output`); return shown(); }
   if (o){ const t = text === null ? { text: '' } : bound(text, reachList()), got = t.refused ? t : entered(t.text, lookupFor(o), { settle });
     if (got.refused) hud.say(`Not kept: ${got.refused}`);
-    else { if (got.clear) o.values.delete(key); else o.values.set(key, got.value);
+    else { if (got.clear) o.values.delete(key); else o.values.set(key, got.value); touched(o.values);
       keepTouching(() => { for (const k of kinOf(o)) agree(k); }); } }      /* a single entry's number is its sides' length: whatever shares their names follows */
   write(); shown(); }, changes);
 bus.on('attr.add', ({ id }) => { const b = blockOf(id); if (b){ const list = attrsOf(b); let n = list.length + 1; while (list.some(a => a.name === 'attribute' + n)) n++; list.push({ name: 'attribute' + n, text: '' }); } shown(); }, changes);
@@ -2523,7 +2534,7 @@ bus.on('summon', ({ name, key, group: all, at }) => { summon({ name, key, group:
 bus.on('length.add', ({ name, units, at, of = null, side = null }) => { const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
   const src = of ? blockOf(of) : null;      /* from the list: not a copy of the length but the length itself, the source's colour and always what the source's side is */
   const b = makeBlock({ ...typeNamed('tensor'), color: src ? src.shape.color : someColour() }, { x: on(at.x - u / 2), y: on(at.y - u / 2), w: u, h: u }, name);
-  if (src){ b.from = { id: src.id, side: side === 'y' || side === 'm' ? side : 'x' }; b.ref = true; } else b.values.set('1,1', units);
+  if (src){ b.from = { id: src.id, side: side === 'y' || side === 'm' ? side : 'x' }; b.ref = true; } else { b.values.set('1,1', units); touched(b.values); }
   space.blocks.push(b); view.world.append(b.el); select([b]); }, changes);
 
 /* shift, held, shows the list's shapes as their transposes */
