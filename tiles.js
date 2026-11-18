@@ -26,14 +26,14 @@
    circular(tile, reads, next)   -> whether a count depends on its own tile's size: whether tile (an id) is reached
                                     from any of reads (the ids the count's formula names), going on through
                                     next(id), the ids whose size that one's size follows. A tile's size follows
-                                    what its counts read, and a tile goes with its nest (nest, below): the tile it
-                                    is in and the tiles in its pattern, so a count that reads what comes of any
-                                    tile of its own nest is refused, at whatever level. An arrow's output follows
-                                    its input (a tile it reads, a tile it is repeated in); a seated block its
-                                    arrow; a reference its variable; a side the sides that share its name. The
-                                    page and graph.js gather next; this walks it, once.
-   nest(id, list)                -> the ids a tile goes with in that walk: the tile it is in and the tiles
-                                    directly in its pattern (list: [{ id, in }], every tile of its space)
+                                    what its counts read, and nothing else: not the tile it is in, nor the tiles
+                                    in its pattern, whose sizes are their own. So only a real cycle is refused:
+                                    an inner tile's count may read the block seated on the arrow of the tile it
+                                    is in, or of a tile beside it, and an outer tile's count what comes of a tile
+                                    in its pattern, so long as that does not come back round. An arrow's output
+                                    follows its input (a tile it reads, a tile it is repeated in); a seated block
+                                    its arrow; a reference its variable; a side the sides that share its name.
+                                    The page and graph.js gather next; this walks it, once.
    count(stored, lookup, { loops, entryOf }) -> { count, formula } | { refused: a sentence }: what a stored count comes to.
                                     loops: the formula depends on the tile's own size (circular): it is refused
                                     with "it depends on itself", whatever it would come to.
@@ -237,7 +237,6 @@ export function circular(tile, reads, next){
   while (todo.length){ const id = todo.pop(); if (id === tile) return true; if (seen.has(id)) continue; seen.add(id); todo.push(...next(id)); }
   return false;
 }
-export const nest = (id, list) => { const me = list.find(t => t.id === id); return [...(me && me.in !== null && me.in !== undefined ? [me.in] : []), ...list.filter(t => t.in === id && t.id !== id).map(t => t.id)]; };
 const WORDS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf', 'inf', 'infinity', 'true', 'false']);
 const NOT_SETTLED = 'a count comes from what is settled before anything is worked out: a width, a height, or the mass of a scalar that holds a number or a formula of those; not ';
 export function settled(text, entryOf = () => undefined, depth = 0, inner = false){
@@ -256,7 +255,7 @@ export function settled(text, entryOf = () => undefined, depth = 0, inner = fals
 export function count(stored, lookup = () => undefined, { loops = false, entryOf = () => undefined } = {}){
   if (typeof stored === 'number') return whole1(stored) ? { count: stored, formula: false } : { refused: NOT(stored) };
   if (!stored || typeof stored !== 'object' || typeof stored.expr !== 'string') return { refused: NOT(stored) };
-  if (loops) return { refused: 'it depends on itself: what it reads follows this tile\'s own size, or comes of a tile it is inside or that is inside it' };
+  if (loops) return { refused: 'it depends on itself: what it reads follows this tile\'s own size' };
   const from = settled(stored.expr, entryOf); if (from.refused) return from;
   const got = evaluate(stored.expr, lookup);
   if (got.empty) return { refused: 'nothing was typed' };

@@ -126,7 +126,8 @@
    definition space whose blocks are all standing shapes has no pieces. Otherwise the pieces are algebra.js's, each
    turned into a node by its rule; an arrow's output is a slice, a map, an apply or a mapalong of what it reads.
    Sizes are settled here: a tile's count that is a formula is worked out from sizes alone (tiles.js: settled), and
-   may not read what comes of its own tile or of a tile of its nest (the tile it is in, a tile in its pattern).
+   may not depend on its own tile's size (tiles.js: circular). A tile's size follows its own counts only, so a count
+   may read what comes of the tile it is in, of a tile beside it or of a tile in its pattern, short of a real cycle.
    A block's zone, for what it touches, is the innermost tile it is in (algebra.js: zoneOf).
    Definitions are read 64 deep, one inside the next, and no deeper. */
 import { pieces, touches, zoneOf, rangeIn, combine, rootOf, isError, isFormula, exact, held as fromExact } from './algebra.js';
@@ -755,8 +756,7 @@ export function build(snapshot){
      or an index matrix, its source; a use of a variable, the other uses; a function's input, its arrow; a named
      side, the sides of that name on its canvas; a single entry whose number is a formula, what that reads */
   function sizeNext(id){
-    const grp = groupsById.get(id); if (grp && grp.repeat) return [...['across', 'down'].flatMap(k => grp.repeat[k] && typeof grp.repeat[k] === 'object' ? capsulesOf(grp.repeat[k].expr).map(c => c.id) : []),
-      ...tiles.nest(grp.id, tilesIn(grp.ctx).map(t => ({ id: t.id, in: t.in })))];      /* and a tile goes with its nest: the tile it is in, the tiles in its pattern */
+    const grp = groupsById.get(id); if (grp && grp.repeat) return ['across', 'down'].flatMap(k => grp.repeat[k] && typeof grp.repeat[k] === 'object' ? capsulesOf(grp.repeat[k].expr).map(c => c.id) : []);      /* a tile: what its counts read, and nothing else */
     const rec = blocks.get(id); if (!rec) return [];
     const out = [], ctx = rec.ctx;
     if (rec.arrow){ const inp = rec.arrow.input && typeof rec.arrow.input === 'object' ? rec.arrow.input : {}, at = ctx.recs.find(r => r.id === inp.id), home = homeOf(rec), mine = tileOf(rec);

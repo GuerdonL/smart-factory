@@ -1568,8 +1568,7 @@ const sizeLookup = token => { if (typeof token === 'string') return undefined; c
    any use of a variable, the other uses; a function's input block, its arrow; a named side, the sides of that name;
    a single entry whose number is a formula, what that reads */
 function sizeDeps(id){
-  for (const s of everySpace()) if (s.repeats.has(id)){ const r = s.repeats.get(id);      /* a tile: what its counts read; and it goes with its nest, the tile it is in and the tiles in its pattern (tiles.js: nest) */
-    return [...['across', 'down'].flatMap(k => typeof r[k] === 'object' ? refs(r[k].expr).map(c => c.id) : []), ...tiles.nest(id, [...s.repeats.keys()].map(g => ({ id: g, in: tileUp(s, g) ?? null })))]; }
+  for (const s of everySpace()) if (s.repeats.has(id)){ const r = s.repeats.get(id); return ['across', 'down'].flatMap(k => typeof r[k] === 'object' ? refs(r[k].expr).map(c => c.id) : []); }      /* a tile: what its counts read, and nothing else. The tile it is in and the tiles in its pattern have sizes of their own */
   const k = blockOf(id); if (!k) return [];
   const s = spaceWith(k), out = [...depsOf(id)];
   if (isArrow(k) && s){ const g = tileOf(k, s); if (g !== undefined && mapsIn(s, k, g)) out.push(g); if (k.arrow.input.as === 'tile') out.push(k.arrow.input.id); }      /* the tile it reads, and the tile it is repeated in */
@@ -2544,7 +2543,7 @@ bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) retur
        the tiles inside it: let go wholly inside another tile's pattern it is then in that tile, and clear of the
        one it was in it has left it. cols, rows are the pattern's size; across, down a count: a whole number of at
        least 1, or { expr } that comes to one from what is settled (a width, a height, a settled scalar's mass).
-       Refused, with a sentence, where a count is no such number or depends on its own tile or a tile of its nest,
+       Refused, with a sentence, where a count is no such number or depends on its own tile's size,
        the tiles would come to overlap where they did not (one lying over another, or a tile running past the
        pattern of the tile it is in), or it is to be moved and an arrow is repeated in it.
    frame.enter { ids, frame }: as for any frame; a whole tile among the blocks goes into a tile only where it lies

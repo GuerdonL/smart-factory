@@ -657,17 +657,26 @@ test('after review: a tile and a block that overlap are called that, and a tile 
   for (let k = 0; k < 8; k++) assert.equal(deep.spaces.top.tiles[k].error.note, 'a tile in its pattern has no matrix: it lies too deep: tiles lie one inside the next at most 8 deep');
   assert.equal(deep.spaces.top.arrows[0].error.note, 'a tile in its pattern has no matrix: it lies too deep: tiles lie one inside the next at most 8 deep');
 });
-test('a count that reads what comes of a tile of its own nest is not settled, at whatever level; one that reads elsewhere is', () => {
-  const nest = (outer, inner) => [{ id: 'outer', name: null, members: [], repeat: { x: 0, y: 0, cols: 4, rows: 1, across: 1, down: 1, ...outer }, groups: [{ id: 'inner', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 2, down: 1, ...inner } }] }];
+test('after review: a count may read what comes of the tile it is in, a tile beside it or a tile in its pattern; only a real cycle is not settled', () => {
+  const nest = (outer, inner, more = []) => [{ id: 'outer', name: null, members: [], repeat: { x: 0, y: 0, cols: 4, rows: 1, across: 1, down: 1, ...outer }, groups: [{ id: 'inner', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 2, down: 1, ...inner } }, ...more] }];
   const shapes = [B('A', 0, 0, 2, 1), arrow('out', { id: 'outer', as: 'tile' }), B('SO', 6, 0, 4, 1, { seat: 'out' }), arrow('in', { id: 'inner', as: 'tile' }, { side: 'n' }), B('SI', 0, -4, 4, 1, { seat: 'in' }), B('Other', 20, 20, 2, 3)];
-  const up = make(snap(shapes, nest({}, { across: { expr: '@[SO:x] / 2' } })));      /* the inner tile's count reads what is seated on the outer tile's arrow */
-  assert.deepEqual(up.spaces.top.tiles.map(t => t.error && t.error.code), ['size-unknown', 'size-unknown']);
-  const down = make(snap(shapes, nest({ down: { expr: '@[SI:y]' } }, {})));          /* the outer tile's count reads what is seated on the inner tile's arrow */
-  assert.deepEqual(down.spaces.top.tiles.map(t => t.error && t.error.code), ['size-unknown', null]);
-  assert.deepEqual(down.spaces.top.arrows.map(a => a.error && a.error.code), ['size-unknown', null]);
-  const free = make(snap(shapes, nest({ down: { expr: '@[Other:y]' } }, { across: { expr: '@[Other:x]' } })));
-  assert.deepEqual(free.spaces.top.tiles.map(t => t.node), ['repeat(repeat(v:A@0,0;2×1;2×1)@0,0;4×1;1×3)', 'repeat(v:A@0,0;2×1;2×1)']);
+  const both = 'repeat(repeat(v:A@0,0;2×1;2×1)@0,0;4×1;1×1)';
+  const up = make(snap(shapes, nest({}, { across: { expr: '@[SO:x] / 2' } })));      /* the inner tile's count reads what is seated on the outer tile's arrow: 4 / 2 */
+  assert.deepEqual(up.spaces.top.tiles.map(t => t.node), [both, 'repeat(v:A@0,0;2×1;2×1)']);
+  const down = make(snap(shapes, nest({ down: { expr: '@[SI:y] + 2' } }, {})));          /* the outer tile's count reads what is seated on the inner tile's arrow: 1 + 2 */
+  assert.deepEqual(down.spaces.top.tiles.map(t => t.node), ['repeat(repeat(v:A@0,0;2×1;2×1)@0,0;4×1;1×3)', 'repeat(v:A@0,0;2×1;2×1)']);
+  /* a tile beside it in the same pattern: the outer pattern 6 wide, a second inner tile whose count is the first one's matrix's height */
+  const beside = { id: 'beside', name: null, members: [6], groups: [], repeat: { x: 4, y: 0, cols: 2, rows: 1, across: { expr: '@[SI:y]' }, down: 1 } };
+  const sib = make(snap([...shapes, B('C', 4, 0, 2, 1)], nest({ cols: 6 }, {}, [beside])));
+  assert.deepEqual(sib.spaces.top.tiles.map(t => [t.tile, !!t.node]), [['t:outer', true], ['t:inner', true], ['t:beside', true]]);
+  /* a real cycle: each of the two reads what comes of the other */
+  const round = make(snap(shapes, nest({ down: { expr: '@[SI:y]' } }, { across: { expr: '@[SO:y] + 1' } })));
+  assert.deepEqual(round.spaces.top.tiles.map(t => t.error && t.error.code), ['size-unknown', 'size-unknown']);
+  assert.deepEqual(round.spaces.top.arrows.map(a => a.error && a.error.code), ['size-unknown', 'size-unknown']);
+  /* and its own, as before */
+  const own = make(snap(shapes, nest({}, { across: { expr: '@[SI:x] / 2' } }))); assert.equal(own.spaces.top.tiles[1].error.code, 'size-unknown');
 });
+
 test('arrows and nested tiles: one in a tile that reads a tile in that tile\'s pattern is not repeated; one in the inner tile is repeated by the inner tile', () => {
   /* the outer pattern is 4 by 3: an inner tile (a 2 by 1 pattern, twice across) in its first row, and an arrow of the outer tile under the inner tile */
   const inside = make(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': 1, '2,1': 2 } }), arrow('f', { id: 'inner', as: 'tile' }, { side: 's' })],

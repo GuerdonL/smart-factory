@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { reframed, lostWithin, DEPTH, nest, laid, overlaps, overlapping, allowed, home, moved, indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { reframed, lostWithin, DEPTH, laid, overlaps, overlapping, allowed, home, moved, indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -324,19 +324,21 @@ test('no tile is drawn more than 64 times: an inner tile draws as many cells as 
   assert.equal(slots(8, 8, {}, 64).xs.length, 8);      /* and a tile in no other is drawn as before */
 });
 
-test('a count goes with its tile\'s nest: the tile it is in and the tiles in its pattern', () => {
-  const list = [{ id: 'o', in: null }, { id: 'i', in: 'o' }, { id: 'j', in: 'o' }, { id: 'k', in: 'i' }, { id: 'far', in: null }];
-  assert.deepEqual(nest('o', list), ['i', 'j']); assert.deepEqual(nest('i', list), ['o', 'k']); assert.deepEqual(nest('k', list), ['i']); assert.deepEqual(nest('far', list), []); assert.deepEqual(nest('gone', list), []);
-  /* what follows what: each tile its nest; an arrow the tile it reads; a block seated on it the arrow */
-  const next = id => ({ aO: ['o'], BO: ['aO'], aI: ['i'], BI: ['aI'], aFar: ['far'], BFar: ['aFar'], keys: [] })[id] || nest(id, list);
-  assert.equal(circular('i', ['BO'], next), true);       /* the inner tile's count reads what comes of the tile it is in */
-  assert.equal(circular('o', ['BI'], next), true);       /* the outer tile's count reads what comes of a tile in its pattern */
-  assert.equal(circular('k', ['BO'], next), true);       /* two levels up */
-  assert.equal(circular('o', ['k'], next), true);        /* two levels down */
-  assert.equal(circular('i', ['BI'], next), true);       /* its own, as before */
-  assert.equal(circular('j', ['BI'], next), true);       /* a tile beside it in the same pattern is of the same nest */
-  assert.equal(circular('i', ['BFar'], next), false);    /* a tile outside the nest */
-  assert.equal(circular('far', ['BO'], next), false); assert.equal(circular('i', ['keys'], next), false);
+test('after review: a tile\'s size follows its own counts only, so only a real cycle through a nest is refused', () => {
+  /* tiles o (outer), i and j (in its pattern), k (in i). An arrow follows the tile it reads; the block seated on it, the arrow.
+     counts: what each tile's counts read, as next gives it */
+  const walk = counts => id => ({ aO: ['o'], BO: ['aO'], aI: ['i'], BI: ['aI'], aJ: ['j'], BJ: ['aJ'], aK: ['k'], BK: ['aK'], keys: [] })[id] || counts[id] || [];
+  const none = walk({});
+  assert.equal(circular('i', ['BI'], none), true);        /* its own tile's arrow, as before */
+  assert.equal(circular('i', ['BO'], none), false);       /* the inner tile's count reads what comes of the tile it is in: the outer tile's size is its own */
+  assert.equal(circular('o', ['BI'], none), false);       /* the outer tile's count reads what comes of a tile in its pattern */
+  assert.equal(circular('i', ['BJ'], none), false);       /* a tile beside it in the same pattern */
+  assert.equal(circular('k', ['BO'], none), false); assert.equal(circular('o', ['BK'], none), false);      /* two levels apart */
+  /* real cycles: i reads what comes of j, whose count reads what comes of i; and round three */
+  const two = walk({ j: ['BI'] }); assert.equal(circular('i', ['BJ'], two), true); assert.equal(circular('j', ['BI'], walk({ i: ['BJ'] })), true);
+  assert.equal(circular('o', ['BI'], walk({ i: ['BO'] })), true);      /* the outer tile reads the inner, whose count reads the outer */
+  assert.equal(circular('i', ['BJ'], walk({ j: ['BK'], k: ['BI'] })), true);
+  assert.equal(circular('i', ['BJ'], walk({ j: ['BK'], k: ['BO'] })), false);      /* a chain that ends at the outer tile and does not come back */
 });
 
 test('an arrow that reads a tile keeps its start and its span: only what leaves them as they are is taken', () => {

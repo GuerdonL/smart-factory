@@ -400,8 +400,9 @@ arrow's output are each refused, with the reason in the readout.
   holds a number or a formula of those. A count that is not a whole number of at least 1, that reads anything else
   (an attribute, a gap, a mass that is worked out), or that depends on the tile's own size (the width of the block
   seated on the tile's own arrow, say) is refused; one found in a project that is opened counts as 1, and the tile
-  is drawn in the warning colour. Where tiles lie one inside another (below), a count may not read what comes of
-  any tile of its own nest either: the tile it is in, or a tile in its pattern.
+  is drawn in the warning colour. Where tiles lie one inside another (below), each tile's size is its own: an
+  inner tile's count may read the block seated on the outer tile's arrow, or on the arrow of a tile beside it, and
+  an outer tile's count what comes of a tile in its pattern. Only a real cycle is refused.
 - **What is real.** Only the blocks of the first cell, the top-left one, exist. The others are drawn copies that
   cannot be selected. At most 64 cells are drawn; beyond that, the first three and the last each way, with an
   ellipsis between.
