@@ -279,10 +279,15 @@ def noise(seed, key, rows, cols, dist, tick=0, cells=()):
         for cx, cy in cells:
             if (cx, cy) != (1, 1):
                 k = _mix1(_mix1(k ^ (cx & M64)) ^ (cy & M64))
+        out = np.empty((rows, cols), dtype=F)
         c = np.arange(1, cols + 1, dtype=np.uint64)[None, :]
-        r = np.arange(1, rows + 1, dtype=np.uint64)[:, None]
-        base = _mix(_mix(_mix(np.uint64(k) ^ c) ^ r) ^ np.uint64(tick & M64))
-        u = lambda n: (_mix(base ^ np.uint64(n)) >> np.uint64(11)).astype(np.float64) / float(1 << 53)
-        if dist == 'normal':
-            return (np.sqrt(-2.0 * np.log(1.0 - u(0))) * np.cos(2.0 * math.pi * u(1))).astype(F)
-        return np.minimum(u(0).astype(F), BELOW_ONE)
+        step = max(1, (1 << 18) // cols)      # some rows at a time: the 64-bit numbers on the way are never more than a small part of the matrix
+        for at in range(0, rows, step):
+            r = np.arange(at + 1, min(rows, at + step) + 1, dtype=np.uint64)[:, None]
+            base = _mix(_mix(_mix(np.uint64(k) ^ c) ^ r) ^ np.uint64(tick & M64))
+            u = lambda n: (_mix(base ^ np.uint64(n)) >> np.uint64(11)).astype(D) / float(1 << 53)
+            if dist == 'normal':
+                out[at:at + step] = (np.sqrt(-2.0 * np.log(1.0 - u(0))) * np.cos(2.0 * math.pi * u(1))).astype(F)
+            else:
+                out[at:at + step] = np.minimum(u(0).astype(F), BELOW_ONE)
+        return out

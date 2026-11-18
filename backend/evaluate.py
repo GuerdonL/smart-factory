@@ -26,8 +26,10 @@ under. Which cells a block's node sits in is read off the graph's spaces (homes)
 Formulas are read once each (formula.py) and applied to whole arrays: a variable's formula to all the entries that
 hold it at once, a map's to the whole matrix. A select works both its sides out and keeps the chosen one.
 
-What has been worked out is remembered for the run, up to MAX_HELD bytes: past that the oldest results are let go,
-and worked out again if they are asked for again."""
+What has been worked out is remembered for the run, up to half the room the run was given for its arrays (room, in
+bytes: limits.py says how it follows from the machine's memory): past that the oldest results are let go, and worked
+out again if they are asked for again. weight(node) says how many entries a node is worked out from in all, so that
+run.py can refuse one that would not fit before any of it is made."""
 import json
 import math
 from collections import OrderedDict
@@ -35,7 +37,7 @@ from collections import OrderedDict
 from . import arrays as A
 from .check import covered, data_path, is_int, is_obj, ok_range, one, reads_index, run_of, same
 from .formula import DOLLAR, SYMBOLIC, Wrong, axis_of, evaluate as work, parse, parse_symbolic
-from .limits import MAX_BINDING_CELLS, MAX_HELD
+from .limits import MAX_BINDING_CELLS, MEMORY_LEAST
 
 NAN = math.nan
 
@@ -363,8 +365,9 @@ def reads(n, ins):
 
 
 class Run:
-    def __init__(self, graph, read_file=None, tick=0):
+    def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST):
         self.graph, self.nodes, self.functions, self.tick = graph, graph['nodes'], graph['functions'], tick
+        self.room, self._weights = room, {}      # room: the bytes its arrays may take in all
         self.read_file, self.files, self.trees = read_file, {}, {}
         self.kept, self.held = OrderedDict(), 0
         self._needs, self._follows, self._homes, self.repeats = {}, {}, None, {}
@@ -430,6 +433,24 @@ class Run:
             self._needs[i] = {'most': most, 'where': where, 'bad': bad}
             todo.pop()
         return self._needs[start]
+
+    def weight(self, start):
+        """How many entries there are in everything a node's value is worked out from, itself included, each node
+        counted once: what a run of it may come to hold at once. Walked with a list of its own."""
+        if start not in self._weights:
+            seen, todo, total = {start}, [start], 0
+            while todo:
+                n = self.nodes[todo.pop()]
+                total += n['type']['cols'] * n['type']['rows']
+                deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
+                if n['op'] in ('apply', 'mapalong') and 'fn' in n:
+                    deps.append(self.functions[n['fn']]['body'])
+                for d in deps:
+                    if d not in seen:
+                        seen.add(d)
+                        todo.append(d)
+            self._weights[start] = total
+        return self._weights[start]
 
     def homes(self):
         """The tiles each block's node is itself in, and which tiles each repeat is the matrix of (evaluate.js: homesOf)."""
@@ -499,7 +520,7 @@ class Run:
         value = OPS[n['op']](n, At(self, i, n, env))
         self.kept[key] = value
         self.held += A.size(value)
-        while self.held > MAX_HELD and len(self.kept) > 1:      # the oldest are let go: they are worked out again if they are asked for
+        while self.held > self.room // 2 and len(self.kept) > 1:      # the oldest are let go: they are worked out again if they are asked for
             _, gone = self.kept.popitem(last=False)
             self.held -= A.size(gone)
         return value
@@ -521,6 +542,9 @@ class Run:
             why = self.needs(of)['bad']
             if why:
                 raise Trouble(why)
+            given, takes = (spec['range'] if is_obj(spec) else self.nodes[of]['type']), self.nodes[self.functions[fn]['input']]['type']
+            if (given['cols'], given['rows']) != (takes['cols'], takes['rows']):      # what a function is given is the size of its input, or it is given nothing
+                raise Trouble('its binding gives the function %s %s × %s, and the function takes %s × %s' % (fn, given['cols'], given['rows'], takes['cols'], takes['rows']))
             params[fn] = {'spec': spec, 'values': None, 'key': 'given ' + json.dumps(spec, sort_keys=True)}
         cells = [c for c in (binding.get('cells') if isinstance(binding.get('cells'), list) else []) if is_obj(c)]
         if len(cells) > MAX_BINDING_CELLS:

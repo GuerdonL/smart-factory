@@ -2,4 +2,6 @@
 .pin
 # the backend's own Python environment (see README: The backend), and what Python leaves behind
 backend/.venv/
+# the token server.py shows the backend, made afresh each time the backend starts
+backend/.token
 __pycache__/

@@ -25,14 +25,17 @@ Nothing in a request is executed: the graph is data, a formula is read by formul
 resolved inside the named project's data/ directory by data.py."""
 import json
 import math
+import sys
 
 from . import arrays as A
 from .check import VERSION, is_int, is_obj, validate
 from .data import NAME, Refused, inspect, keep, read_text
 from .evaluate import Run, Trouble
-from .limits import MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, megabytes, plural
+from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
 NO_VALUE = 'that has no value'
+NO_MEMORY = 'the run needs more memory than the backend may take'
+BROKEN = 'the backend could not work this out: what went wrong is in its log'
 WHOLE = '*'
 
 
@@ -59,18 +62,20 @@ def no_constant(text):
     raise ValueError('%s is not JSON' % text)
 
 
-def run(body, root=None):
+def run(body, root=None, room=None):
+    """room: the bytes this run's arrays may take (limits.py: memory_for_arrays); left out, what the machine allows."""
     try:
-        return answer(body, root)
+        return answer(body, root, memory_for_arrays() if room is None else room)
     except MemoryError:
-        return refuse('the run needs more memory than the backend may take')
+        return refuse(NO_MEMORY)
     except RecursionError:
         return refuse('the graph is nested too deep to be worked out')
-    except Exception as e:      # nothing is let out as a crash: the process goes on, and the page is told
-        return refuse('the backend could not work this out (%s: %s)' % (type(e).__name__, e))
+    except Exception as e:      # nothing is let out as a crash: the process goes on, and the page is told, in words of the backend's own
+        sys.stderr.write('a run could not be worked out: %s: %s\n' % (type(e).__name__, e))
+        return refuse(BROKEN)
 
 
-def answer(body, root):
+def answer(body, root, room):
     if len(body) > MAX_BODY:
         return refuse('the request is larger than %s' % megabytes(MAX_BODY))
     try:
@@ -86,6 +91,9 @@ def answer(body, root):
         return refuse('the graph has %s, more than %s' % (plural(len(graph['nodes']), 'node'), format(MAX_NODES, ',')))
     if not isinstance(want, list) or len(want) > MAX_WANTS:
         return refuse('want is a list of at most %s' % plural(MAX_WANTS, 'node'))
+    asked_cells = sum(len(w['cells']) for w in want if is_obj(w) and isinstance(w.get('cells'), list))
+    if asked_cells > MAX_ALL_CELLS:
+        return refuse('the request asks for %s in all, more than the %s one run gives' % (plural(asked_cells, 'entry').replace('entrys', 'entries'), format(MAX_ALL_CELLS, ',')))
     if not is_int(tick) or tick < 0 or tick >= 2 ** 53:
         return refuse('tick is a whole number, from 0')
     if project is not None and not (isinstance(project, str) and NAME.fullmatch(project)):
@@ -104,7 +112,7 @@ def answer(body, root):
             raise Trouble(str(e))
         return A.table(text, skip)
 
-    work = Run(graph, read_file, int(tick))
+    work = Run(graph, read_file, int(tick), room)
     results, errors = {}, {}
     for w in want:
         key = w.get('as', w.get('node')) if is_obj(w) else None
@@ -116,6 +124,12 @@ def answer(body, root):
             errors.pop(key, None)
         except Trouble as e:
             errors[key] = str(e)
+            results.pop(key, None)
+        except (MemoryError, RecursionError):
+            raise
+        except Exception as e:      # this one alone has no answer; the others have theirs. What went wrong is the log's to say, not the answer's
+            sys.stderr.write('%s could not be worked out: %s: %s\n' % (key, type(e).__name__, e))
+            errors[key] = BROKEN
             results.pop(key, None)
     return {'results': results, 'errors': errors}
 
@@ -137,6 +151,10 @@ def one(work, graph, w):
         raise Trouble('%s × %s entries%s, more than the %s that are worked out' % (format(at['cols'], ','), format(at['rows'], ','), '' if need['where'] == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
     if need['bad']:
         raise Trouble(need['bad'])
+    # refused before anything is made: what it is worked out from, all held at once, and room to work on the largest of it
+    wanted = BYTES_AN_ENTRY * (work.weight(node) + ROOM_TO_WORK * need['most'])
+    if wanted > work.room:
+        raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(work.weight(node), ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
     value = work.value(node, w.get('binding'))
     least, most, mean = A.summary(value)
     return {'cols': cols, 'rows': rows, 'cells': [[int(c), int(r), written(A.item(value, int(r) - 1, int(c) - 1))] for c, r in cells],

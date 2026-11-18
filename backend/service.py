@@ -6,44 +6,82 @@
     POST /run                         <- { "graph", "want", "tick", "project" }   -> { "results", "errors" }   (run.py has both in full)
     POST /data?project=<name>&path=data/<file>.csv     <- the file's bytes        -> { "path", "cols", "rows" }, or { "error": why } where it is refused (413 where it is too large to be read at all)
 
-It listens on 127.0.0.1 and nowhere else, and has no password of its own: the page reaches it through server.py,
-which passes /api/backend/* on to it and is what the PIN guards. So that a web page open in a browser on the same
-machine cannot reach it behind server.py's back, a request that carries an Origin, or names a Host other than this
-address, is refused.
+Whom it answers. It listens on 127.0.0.1 and nowhere else, and it answers only server.py, which the PIN guards:
+  - Every request has to carry the token, in the header X-Smart-Factory-Token. The token is 32 random bytes made
+    afresh each time the backend starts and written to a file only its owner can read (backend/.token, or the path
+    in SMART_FACTORY_BACKEND_TOKEN; never in git). server.py, run by the same user, reads it and sends it. So another
+    user of the machine, or a process in a container, that can reach the port still cannot use it: without the
+    token nothing is answered but a refusal. It is compared in constant time.
+  - A request that carries an Origin, or names a Host other than this address, is refused too, so that a web page
+    open in a browser on the same machine cannot reach it either.
 
-Every run is worked out in a worker, a process of its own (WORKERS of them, started with the server). A run that
-takes longer than MAX_SECONDS is stopped by ending its worker, and a new one takes its place: the server itself does
-no arithmetic, so it stays answering whatever a run does. A worker may take MAX_MEMORY bytes and no more; a run that
-needs more ends with "more memory than the backend may take". A graph nested very deep is worked out on a stack made
-large for it. The limits are limits.py's."""
+Every run, and every file that is uploaded, is worked on in a worker, a process of its own (WORKERS of them,
+started with the server). One that takes longer than MAX_SECONDS is stopped by ending its worker, and a new one
+takes its place: the server itself reads no graph and no file, so it stays answering whatever a request holds.
+Memory: a run is refused before anything is made where what it is worked out from would not fit in the room a
+worker has for arrays (limits.py: memory_for_arrays: by default a quarter of the machine's physical memory each
+for two workers; SMART_FACTORY_BACKEND_MEMORY sets it, in megabytes for each worker). Behind that, a worker's
+address space is capped (its room, its stack and SLACK for Python and NumPy themselves), so that what the count
+missed ends as "more memory than the backend may take" and not as a machine out of memory. A graph nested very deep
+is worked out on a stack made large for it. At most UPLOADS files are taken at once.
+
+Stopping. On SIGTERM or SIGINT the server ends its workers and goes. A worker also watches for its server: when
+the server is gone, however it went, the worker ends itself within a second, whatever it was working out."""
+import hmac
 import json
 import multiprocessing
 import os
 import queue
+import secrets
+import signal
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import limits
-from .data import Refused
 
-STACK = 512 << 20      # bytes of stack a run has: a graph may be 20,000 nodes deep
+STACK = 256 << 20      # bytes of stack a run has: a graph may be 20,000 nodes deep
+SLACK = 1536 << 20     # bytes of address space allowed for Python, NumPy and their threads, beside a worker's arrays and its stack
+HEADER = 'X-Smart-Factory-Token'
+TOKEN_FILE = os.environ.get('SMART_FACTORY_BACKEND_TOKEN') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '.token')
 
 
-def worker(conn, root, memory):
-    """A worker's whole life: a request's bytes in, the answer's bytes out, until the server goes."""
+def new_token(path):
+    """Makes the token and writes it where only this user can read it; gives the token."""
+    token = secrets.token_hex(32)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)      # made anew, never written into what was there
+    with os.fdopen(fd, 'w') as f:
+        f.write(token + '\n')
+    return token
+
+
+def worker(conn, root, room, address, parent):
+    """A worker's whole life: a job in, its answer out, until the server goes."""
+    def watch():      # the server gone, however it went: so is this, at once, whatever it is working out
+        import time
+        while os.getppid() == parent:
+            time.sleep(0.5)
+        os._exit(1)
+    threading.Thread(target=watch, daemon=True).start()
+    signal.signal(signal.SIGINT, signal.SIG_IGN)      # (the server is told to stop, and ends its workers itself)
     try:
         import resource
-        if memory:
-            resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
+        if address:
+            resource.setrlimit(resource.RLIMIT_AS, (address, address))
     except (ImportError, ValueError, OSError):
-        pass      # (where it cannot be set, the other limits still hold)
+        pass      # (where it cannot be set, the count of what a run needs still holds)
     from . import run
+    from .data import Refused
     sys.setrecursionlimit(1_000_000)
     threading.stack_size(STACK)
     while True:
         try:
+            job = json.loads(conn.recv_bytes().decode('utf8'))
             body = conn.recv_bytes()
         except (EOFError, OSError):
             return
@@ -51,29 +89,40 @@ def worker(conn, root, memory):
 
         def work():
             try:
-                out.append(json.dumps(run.run(body, root)).encode())
-            except BaseException as e:      # (a MemoryError met while the answer was being written, say)
-                out.append(json.dumps(run.refuse('the backend could not work this out (%s)' % type(e).__name__)).encode())
+                if job['kind'] == 'data':
+                    try:
+                        out.append(run.upload(job['project'], job['path'], body, root))
+                    except Refused as e:
+                        out.append({'error': str(e)})
+                else:
+                    out.append(run.run(body, root, room))
+            except MemoryError:
+                out.append(run.refuse(run.NO_MEMORY) if job['kind'] == 'run' else {'error': run.NO_MEMORY})
+            except BaseException as e:
+                sys.stderr.write('a worker could not finish: %s: %s\n' % (type(e).__name__, e))
+                out.append(run.refuse(run.BROKEN) if job['kind'] == 'run' else {'error': run.BROKEN})
         t = threading.Thread(target=work)
         t.start()
         t.join()
-        conn.send_bytes(out[0])
+        conn.send_bytes(json.dumps(out[0]).encode())
 
 
 class Workers:
-    def __init__(self, count=limits.WORKERS, seconds=limits.MAX_SECONDS, root=None, memory=None):
+    def __init__(self, count=limits.WORKERS, seconds=limits.MAX_SECONDS, root=None, memory=None, address=None):
         self.seconds, self.root = seconds, root
-        self.memory = limits.MAX_MEMORY if memory is None else memory
+        self.room = limits.memory_for_arrays(os.environ.get('SMART_FACTORY_BACKEND_MEMORY'), count) if memory is None else memory
+        self.address = self.room + STACK + SLACK if address is None else address
         self.spawn = multiprocessing.get_context('spawn')
         self.free = queue.Queue()
         self.all = []
         self.lock = threading.Lock()
+        self.closed = False
         for _ in range(count):
             self.free.put(self.start())
 
     def start(self):
         here, there = self.spawn.Pipe()
-        p = self.spawn.Process(target=worker, args=(there, self.root, self.memory), daemon=True)
+        p = self.spawn.Process(target=worker, args=(there, self.root, self.room, self.address, os.getpid()), daemon=True)
         p.start()
         there.close()
         with self.lock:
@@ -89,27 +138,32 @@ class Workers:
             if p in self.all:
                 self.all.remove(p)
 
-    def run(self, body):
-        from .run import refuse
+    def ask(self, job, body):
+        """A job done in a worker: its answer as bytes. Never longer than the time a run may take, and the wait for a worker."""
+        why = lambda text: json.dumps({'results': {}, 'errors': {'*': text}} if job['kind'] == 'run' else {'error': text}).encode()
         try:
             w = self.free.get(timeout=limits.MAX_WAIT)
         except queue.Empty:
-            return json.dumps(refuse('the backend is busy with other runs: try again')).encode()
+            return why('the backend is busy with other runs: try again')
         p, conn = w
         try:
+            conn.send_bytes(json.dumps(job).encode())
             conn.send_bytes(body)
             if conn.poll(self.seconds):
                 answer = conn.recv_bytes()
                 self.free.put(w)
                 return answer
-            why = 'the run took longer than %s and was stopped' % limits.plural(self.seconds, 'second')
+            said = 'it took longer than %s and was stopped' % limits.plural(self.seconds, 'second')
+            said = ('the run took' + said[7:]) if job['kind'] == 'run' else ('reading the file took' + said[7:])
         except (EOFError, OSError):      # the worker went: out of memory past what it could say, or ended from outside
-            why = 'the run ended before it was worked out: it needed more memory than the backend may take'
+            said = 'it ended before it was done: it needed more memory than the backend may take'
         self.end(w)
-        self.free.put(self.start())
-        return json.dumps(refuse(why)).encode()
+        if not self.closed:
+            self.free.put(self.start())
+        return why(said)
 
     def close(self):
+        self.closed = True
         with self.lock:
             every = list(self.all)
         for p in every:
@@ -139,11 +193,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def local(self):
-        """Whether the request came the way it is meant to: for this address, and from no web page."""
+    def allowed(self):
+        """Whether the request is server.py's: for this address, from no web page, and carrying the token. Nothing
+        else is answered but this refusal, which says nothing of what is here."""
         host = (self.headers.get('Host') or '').strip().lower()
         ours = ('127.0.0.1:%d' % self.server.server_address[1], 'localhost:%d' % self.server.server_address[1])
-        if self.headers.get('Origin') is not None or host not in ours:
+        given = self.headers.get(HEADER) or ''
+        if self.headers.get('Origin') is not None or host not in ours or not hmac.compare_digest(given.encode('utf8', 'replace'), self.server.token.encode()):
             self.reply(403, {'error': 'the backend answers server.py on this machine, and nothing else'})
             return False
         return True
@@ -168,34 +224,33 @@ class Handler(BaseHTTPRequestHandler):
         return data
 
     def do_GET(self):
-        if not self.local():
+        if not self.allowed():
             return
         if urlsplit(self.path).path == '/health':
-            from .run import health
-            return self.reply(200, health())
+            return self.reply(200, {'ok': True, 'version': 1})
         self.reply(404, {'error': 'not found'})
 
     def do_POST(self):
-        if not self.local():
+        if not self.allowed():
             return
         url = urlsplit(self.path)
         if url.path == '/run':
             body = self.body(limits.MAX_BODY, 'the request')
             if body is not None:
-                self.reply(200, self.server.workers.run(body))
+                self.reply(200, self.server.workers.ask({'kind': 'run'}, body))
             return
         if url.path == '/data':
-            body = self.body(limits.MAX_UPLOAD, 'the file')
-            if body is None:
-                return
-            asked = parse_qs(url.query, keep_blank_values=True)
-            from .run import upload
+            if not self.server.uploads.acquire(blocking=False):      # a file is up to 50 MB held here on its way to a worker: only so many at once
+                return self.reply(200, {'error': 'the backend is taking other files just now: choose the file again in a moment'})
             try:
-                return self.reply(200, upload((asked.get('project') or [None])[-1], (asked.get('path') or [None])[-1], body, self.server.workers.root))
-            except Refused as e:      # an answer, not a failure of the service: the page says why, and a browser logs nothing
-                return self.reply(200, {'error': str(e)})
-            except MemoryError:
-                return self.reply(400, {'error': 'the file is too large to be read'})
+                body = self.body(limits.MAX_UPLOAD, 'the file')
+                if body is None:
+                    return
+                asked = parse_qs(url.query, keep_blank_values=True)
+                answer = json.loads(self.server.workers.ask({'kind': 'data', 'project': (asked.get('project') or [None])[-1], 'path': (asked.get('path') or [None])[-1]}, body))
+                return self.reply(200, {'error': answer['error']} if 'error' in answer else answer)      # refused: an answer, not a failure of the service
+            finally:
+                self.server.uploads.release()
         self.reply(404, {'error': 'not found'})
 
 
@@ -203,10 +258,12 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, seconds=limits.MAX_SECONDS, root=None, workers=limits.WORKERS, quiet=False, memory=None):
+    def __init__(self, port, seconds=limits.MAX_SECONDS, root=None, workers=limits.WORKERS, quiet=False, memory=None, address=None, token=None):
         super().__init__(('127.0.0.1', port), Handler)      # the loopback address, and no other
         self.quiet = quiet
-        self.workers = Workers(workers, seconds, root, memory)
+        self.token = token if token is not None else new_token(TOKEN_FILE)
+        self.uploads = threading.BoundedSemaphore(limits.UPLOADS)
+        self.workers = Workers(workers, seconds, root, memory, address)
 
     def server_close(self):
         super().server_close()
@@ -216,12 +273,15 @@ class Server(ThreadingHTTPServer):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     port = int(argv[0]) if argv else 8001
-    memory = os.environ.get('SMART_FACTORY_BACKEND_MEMORY')
-    server = Server(port, memory=int(memory) if memory else None)
-    print('the backend is answering on http://127.0.0.1:%d (loopback only)' % port, flush=True)
+    server = Server(port)
+
+    def stop(*_):      # asked to stop: the workers are ended with it, whatever they are working out
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    print('the backend is answering on http://127.0.0.1:%d (loopback only, and only with the token in %s); each of its %d workers may hold %s in arrays'
+          % (server.server_address[1], TOKEN_FILE, limits.WORKERS, limits.megabytes(server.workers.room)), flush=True)
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
-        pass
     finally:
         server.server_close()

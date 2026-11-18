@@ -2,10 +2,14 @@
 import json
 import os
 import shutil
+import signal
+import subprocess
+import sys
 import tempfile
 import threading
 import time
 import unittest
+import http.client
 from http.client import HTTPConnection
 
 from .support import HAVE_NUMPY, T, graph_of, needs_numpy, variable
@@ -22,6 +26,8 @@ def endless():
     return graph_of({'v:p': v, 'rep': rep}, spaces={'top': {'owner': None, 'pieces': [], 'arrows': [], 'tiles': [{'tile': 't:t', 'blocks': ['p'], 'arrows': [], 'node': 'rep', 'error': None}]}}, blocks={'p': 'v:p'})
 
 
+TOKEN = 'a-token-for-these-tests'
+HEADER = 'X-Smart-Factory-Token'
 SMALL = graph_of({'s': {'op': 'source', 'inputs': [], 'type': T(2, 2), 'kind': 'identity'}})
 
 
@@ -32,7 +38,10 @@ class Service(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = tempfile.mkdtemp(prefix='smart-factory-service-')
-        cls.server = Server(0, seconds=cls.SECONDS, root=cls.root, quiet=True)      # (port 0: any free port, on the loopback address)
+        os.makedirs(os.path.join(cls.root, 'my project'))
+        with open(os.path.join(cls.root, 'my project', 'project.json'), 'w') as f:
+            f.write('{}')
+        cls.server = Server(0, seconds=cls.SECONDS, root=cls.root, quiet=True, token=TOKEN, memory=2 << 30)      # (port 0: any free port, on the loopback address)
         cls.port = cls.server.server_address[1]
         threading.Thread(target=cls.server.serve_forever, args=(0.05,), daemon=True).start()
 
@@ -42,9 +51,9 @@ class Service(unittest.TestCase):
         cls.server.server_close()
         shutil.rmtree(cls.root, ignore_errors=True)
 
-    def request(self, method, path, body=None, headers=None, timeout=60):
+    def request(self, method, path, body=None, headers=None, timeout=60, token=TOKEN):
         c = HTTPConnection('127.0.0.1', self.port, timeout=timeout)
-        c.request(method, path, body=body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode(), headers=headers or {})
+        c.request(method, path, body=body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode(), headers=dict({} if token is None else {HEADER: token}, **(headers or {})))
         r = c.getresponse()
         text = r.read().decode('utf8')
         c.close()
@@ -72,9 +81,33 @@ class Service(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.root, 'p')))
         self.assertEqual(self.request('GET', '/health', headers={'Host': 'localhost:%d' % self.port})[0], 200)
 
+    def test_nothing_is_answered_without_the_token(self):
+        """Any process on the machine can reach the port; only one that can read the token's file is answered."""
+        for token in [None, '', 'wrong', TOKEN + 'x', TOKEN[:-1], TOKEN.upper(), 'ü' * 40]:
+            headers = {} if token is None else {HEADER: token.encode('utf8').decode('latin1')}
+            for method, path, body in [('GET', '/health', None), ('POST', '/run', {'graph': SMALL, 'want': [{'node': 's', 'cells': [[1, 1]]}]}), ('POST', '/data?project=my%20project&path=data/t.csv', b'1,2\n')]:
+                status, out = self.request(method, path, body, headers, token=None)
+                self.assertEqual((status, out), (403, {'error': 'the backend answers server.py on this machine, and nothing else'}), (token, path))
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'my project', 'data', 't.csv')))      # and nothing was written
+
+    def test_the_token_is_made_anew_in_a_file_only_its_owner_can_read(self):
+        from backend.service import new_token
+        path = os.path.join(self.root, 'token')
+        with open(path, 'w') as f:
+            f.write('an old one, readable by all')
+        os.chmod(path, 0o644)
+        first = new_token(path)
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        with open(path) as f:
+            self.assertEqual(f.read(), first + '\n')
+        self.assertEqual(len(first), 64)
+        self.assertNotEqual(new_token(path), first)
+        os.unlink(path)
+
     def test_an_outsized_body_is_refused_unread(self):
         c = HTTPConnection('127.0.0.1', self.port, timeout=20)
         c.putrequest('POST', '/run')
+        c.putheader(HEADER, TOKEN)
         c.putheader('Content-Length', str(limits.MAX_BODY + 1))
         c.endheaders()      # the body is never sent: the answer comes from the headers alone
         r = c.getresponse()
@@ -82,6 +115,7 @@ class Service(unittest.TestCase):
         c.close()
         c = HTTPConnection('127.0.0.1', self.port, timeout=20)
         c.putrequest('POST', '/data?project=p&path=data/a.csv')
+        c.putheader(HEADER, TOKEN)
         c.putheader('Content-Length', str(limits.MAX_UPLOAD + 1))
         c.endheaders()
         r = c.getresponse()
@@ -92,6 +126,7 @@ class Service(unittest.TestCase):
         for headers in [{'Transfer-Encoding': 'chunked'}, {'Content-Length': 'many'}, {'Content-Length': '-5'}]:
             c = HTTPConnection('127.0.0.1', self.port, timeout=20)
             c.putrequest('POST', '/run')
+            c.putheader(HEADER, TOKEN)
             for k, v in headers.items():
                 c.putheader(k, v)
             c.endheaders()
@@ -151,31 +186,139 @@ class Service(unittest.TestCase):
             self.assertEqual(status, 200, query)      # refused, and said so in the answer
             self.assertEqual(list(out), ['error'], query)
             self.assertIn(why, out['error'], query)
+        for project in ['not saved', 'menu']:      # a project that has not been saved has no directory made for it
+            status, out = self.request('POST', '/data?project=%s&path=data/w.csv' % project.replace(' ', '%20'), b'1,2\n')
+            self.assertEqual((status, out), (200, {'error': 'there is no saved project called %s: save the project under a name first, and its data files are kept with it' % project}))
+        status, out = self.request('POST', '/data?project=my%20project&path=data/w.csv', b'9,9\n')      # and a file that is there is not replaced
+        self.assertIn('a data file is not replaced', out['error'])
+        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/w.csv', b'a,b\n1,2\n3,4\n'), (200, {'path': 'data/w.csv', 'cols': 2, 'rows': 2}))      # the same file again is the file
         status, out = self.request('POST', '/data?project=my%20project&path=data/bad.csv', b'1,2\n3,oops\n')
         self.assertEqual((status, out['error'][:21]), (200, 'line 2 is not numbers'))
         self.assertEqual(sorted(os.listdir(self.root)), ['my project'])
         self.assertEqual(os.listdir(os.path.join(self.root, 'my project', 'data')), ['w.csv'])
 
+    def test_a_file_is_read_in_a_worker_under_the_same_time_as_a_run(self):
+        """The server itself reads no file: one that takes too long to read is stopped as a run is, and the server goes on."""
+        slow = (','.join(['1'] * 2000) + '\n').encode() * 5000      # ten million numbers: more than two seconds of reading, here
+        began = time.monotonic()
+        status, out = self.request('POST', '/data?project=my%20project&path=data/slow.csv', slow)
+        self.assertEqual((status, out), (200, {'error': 'reading the file took longer than 2 seconds and was stopped'}))
+        self.assertLess(time.monotonic() - began, self.SECONDS + 5)
+        self.assertEqual(self.request('GET', '/health')[0], 200)
+        self.assertEqual([n for n in os.listdir(os.path.join(self.root, 'my project', 'data')) if not n.startswith('.')] if os.path.isdir(os.path.join(self.root, 'my project', 'data')) else [], [n for n in ['w.csv'] if os.path.exists(os.path.join(self.root, 'my project', 'data', n))])
+
+    def test_only_so_many_files_are_taken_at_once(self):
+        held = [self.server.uploads.acquire(blocking=False) for _ in range(limits.UPLOADS)]
+        try:
+            self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/x.csv', b'1\n'), (200, {'error': 'the backend is taking other files just now: choose the file again in a moment'}))
+        finally:
+            for h in held:
+                self.server.uploads.release()
+
 
 @needs_numpy
 class Memory(unittest.TestCase):
-    def test_a_run_that_needs_more_memory_than_a_worker_may_take_is_refused_and_the_worker_goes_on(self):
-        server = Server(0, seconds=20, quiet=True, workers=1, memory=1200 << 20)      # 1.2 GB for this worker, its stack included
+    def post(self, port, graph, want):
+        c = HTTPConnection('127.0.0.1', port, timeout=60)
+        c.request('POST', '/run', json.dumps({'graph': graph, 'want': want}).encode(), {HEADER: TOKEN})
+        out = json.loads(c.getresponse().read())
+        c.close()
+        return out
+
+    def test_what_the_count_of_a_runs_memory_missed_ends_in_a_refusal_and_the_worker_goes_on(self):
+        """The backstop: a worker told it has room it has not got (8 GB) with an address space of 1.2 GB."""
+        server = Server(0, seconds=20, quiet=True, workers=1, memory=8 << 30, address=1200 << 20, token=TOKEN)
         threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
         try:
             port = server.server_address[1]
-            nodes = {'n%d' % k: {'op': 'noise', 'inputs': [], 'type': T(4000, 4000), 'seed': k, 'dist': 'normal', 'key': 'b'} for k in range(8)}
+            nodes = {'n%d' % k: {'op': 'noise', 'inputs': [], 'type': T(4000, 4000), 'seed': k, 'dist': 'normal', 'key': 'b'} for k in range(12)}
             nodes['sum'] = {'op': 'add', 'inputs': list(nodes), 'type': T(4000, 4000)}
-
-            def post(graph, want):
-                c = HTTPConnection('127.0.0.1', port, timeout=60)
-                c.request('POST', '/run', json.dumps({'graph': graph, 'want': want}).encode())
-                out = json.loads(c.getresponse().read())
-                c.close()
-                return out
-            out = post(graph_of(nodes), [{'node': 'sum', 'cells': [[1, 1]]}])
+            out = self.post(port, graph_of(nodes), [{'node': 'sum', 'cells': [[1, 1]]}])
             self.assertIn('more memory than the backend may take', out['errors']['*'])
-            self.assertEqual(post(SMALL, [{'node': 's', 'cells': [[1, 1]]}])['errors'], {})
+            self.assertEqual(self.post(port, SMALL, [{'node': 's', 'cells': [[1, 1]]}])['errors'], {})
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_a_tiny_request_for_a_great_deal_is_refused_by_a_worker_with_the_machines_share(self):
+        server = Server(0, seconds=20, quiet=True, workers=1, memory=limits.memory_for_arrays(None, 2), token=TOKEN)
+        threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True).start()
+        try:
+            n = 4000
+            nodes = {'n0': {'op': 'source', 'inputs': [], 'type': T(n, n), 'kind': 'ones'}, 'm': {'op': 'source', 'inputs': [], 'type': T(n, n), 'kind': 'identity'}}
+            for k in range(1, 400):
+                nodes['n%d' % k] = {'op': 'add', 'inputs': ['n%d' % (k - 1), 'm'], 'type': T(n, n)}
+            began = time.monotonic()
+            out = self.post(server.server_address[1], graph_of(nodes), [{'node': 'n399', 'cells': [[1, 1]]}])
+            self.assertLess(time.monotonic() - began, 3)
+            self.assertIn('which needs about', out['errors']['n399'])
+            self.assertIn('this backend may take for a run', out['errors']['n399'])
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+@needs_numpy
+class Stopping(unittest.TestCase):
+    """The backend as it is run, `python -m backend`: told to stop, or gone without being told, no worker is left working."""
+
+    def start(self):
+        self.dir = tempfile.mkdtemp(prefix='smart-factory-stop-')
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        env = dict(os.environ, SMART_FACTORY_BACKEND_TOKEN=os.path.join(self.dir, 'token'), SMART_FACTORY_PROJECTS=self.dir, PYTHONDONTWRITEBYTECODE='1')
+        from .support import ROOT
+        p = subprocess.Popen([sys.executable, '-B', '-m', 'backend', '0'], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        self.addCleanup(lambda: (p.poll() is None and p.kill(), p.stdout.close(), p.wait()))
+        line = p.stdout.readline()
+        port = int(line.split('127.0.0.1:')[1].split(' ')[0])
+        with open(os.path.join(self.dir, 'token')) as f:
+            token = f.read().strip()
+        self.assertEqual(os.stat(os.path.join(self.dir, 'token')).st_mode & 0o777, 0o600)
+        for _ in range(100):      # the workers, once they are up
+            with open('/proc/%d/task/%d/children' % (p.pid, p.pid)) as f:
+                kids = [int(k) for k in f.read().split()]
+            if len(kids) >= limits.WORKERS:
+                break
+            time.sleep(0.1)
+
+        def busy():
+            c = HTTPConnection('127.0.0.1', port, timeout=60)
+            try:
+                c.request('POST', '/run', json.dumps({'graph': endless(), 'want': [{'node': 'rep', 'cells': [[1, 1]]}]}).encode(), {HEADER: token})
+                c.getresponse().read()
+            except (OSError, http.client.HTTPException):
+                pass
+            finally:
+                c.close()
+        threading.Thread(target=busy, daemon=True).start()
+        time.sleep(1.5)      # a worker is now deep in a run that would take minutes
+        return p, kids
+
+    @staticmethod
+    def alive(pid):
+        try:
+            with open('/proc/%d/stat' % pid) as f:
+                return f.read().split(') ')[1][0] != 'Z'
+        except OSError:
+            return False
+
+    def gone(self, pids, within):
+        until = time.monotonic() + within
+        while time.monotonic() < until:
+            left = [k for k in pids if self.alive(k)]
+            if not left:
+                return True
+            time.sleep(0.1)
+        return False
+
+    def test_told_to_stop_it_ends_its_workers_whatever_they_are_working_out(self):
+        p, kids = self.start()
+        p.send_signal(signal.SIGTERM)
+        self.assertEqual(p.wait(10), 0)
+        self.assertTrue(self.gone(kids, 5), 'a worker outlived the backend that was told to stop')
+
+    def test_gone_without_being_told_its_workers_end_themselves(self):
+        p, kids = self.start()
+        p.kill()      # nothing of the server's own runs: the workers have to see it for themselves
+        p.wait(10)
+        self.assertTrue(self.gone(kids, 5), 'a worker went on working after its backend was gone')

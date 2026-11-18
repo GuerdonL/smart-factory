@@ -31,6 +31,7 @@ KINDS = ('zeros', 'ones', 'identity')
 DISTS = ('uniform', 'normal')
 ROOTS = 6
 SAFE = 2 ** 53 - 1
+BIGGEST = 2 ** 1024 - 1      # past the largest number JavaScript holds, a number in JSON is an infinity there
 ENTRY = re.compile(r'([1-9]\d*),([1-9]\d*)', re.ASCII)
 PATH = re.compile(r'data/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')
 MISSING = object()
@@ -556,7 +557,7 @@ def json_safe(value):
         if v is None or isinstance(v, (str, bool)):
             continue
         if isinstance(v, (int, float)):
-            if isinstance(v, float) and not math.isfinite(v):
+            if (isinstance(v, float) and not math.isfinite(v)) or (isinstance(v, int) and abs(v) > BIGGEST):      # (JSON read in JavaScript makes such a number an infinity, which no graph holds)
                 return False
         elif isinstance(v, dict):
             if any(not isinstance(k, str) for k in v):

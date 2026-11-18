@@ -13,12 +13,15 @@ from backend import limits
 if HAVE_NUMPY:
     from backend import run as R
     from backend import arrays as A
-    from backend.evaluate import Run, Trouble, number_of
+    from backend.evaluate import OPS as E_OPS, Run, Trouble, number_of
 
 
-def ask(graph, want, root=None, **more):
+ROOM = 2 << 30      # the bytes of arrays a run is given in these tests, whatever machine they are run on
+
+
+def ask(graph, want, root=None, room=ROOM, **more):
     """A request sent as bytes, as the service sends it, and the answer read as JSON would give it back."""
-    return json.loads(json.dumps(R.run(json.dumps(dict({'graph': graph, 'want': want}, **more)).encode(), root)))
+    return json.loads(json.dumps(R.run(json.dumps(dict({'graph': graph, 'want': want}, **more)).encode(), root, room)))
 
 
 def whole(graph, node, **more):
@@ -201,17 +204,24 @@ class DataFiles(unittest.TestCase):
         self.g = graph_of({'f': {'op': 'source', 'inputs': [], 'type': T(3, 2), 'kind': 'file', 'path': 'data/w.csv'}, 't': {'op': 'transpose', 'inputs': ['f'], 'type': T(2, 3)}})
 
     def test_a_file_source_reads_the_projects_file(self):
+        for name in ('mine', 'other'):
+            os.makedirs(os.path.join(self.root, name), exist_ok=True)
+            with open(os.path.join(self.root, name, 'project.json'), 'w') as f:
+                f.write('{}')
         self.assertEqual(R.upload('mine', 'data/w.csv', b'a,b,c\n1,2,3\n4,5.5,-6\n', self.root), {'path': 'data/w.csv', 'cols': 3, 'rows': 2})
         self.assertEqual(whole(self.g, 'f', root=None), 'data/w.csv: the project has to be saved under a name before its data files can be read')
-        out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 't', 'cells': all_cells(T(2, 3))}], 'project': 'mine'}).encode(), self.root)
+        out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 't', 'cells': all_cells(T(2, 3))}], 'project': 'mine'}).encode(), self.root, ROOM)
         self.assertEqual([v for _, _, v in out['results']['t']['cells']], [1, 4, 2, 5.5, 3, -6])
         for project, why in [('other', 'data/w.csv is not in the project other'), ('../mine', 'project is not the name of a project'), (7, 'project is not the name')]:
-            out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 'f', 'cells': []}], 'project': project}).encode(), self.root)
+            out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 'f', 'cells': []}], 'project': project}).encode(), self.root, ROOM)
             self.assertIn(why, json.dumps(out['errors']))
 
     def test_a_file_of_another_size_than_its_block_is_an_error_saying_both(self):
+        os.makedirs(os.path.join(self.root, 'mine'))
+        with open(os.path.join(self.root, 'mine', 'project.json'), 'w') as f:
+            f.write('{}')
         R.upload('mine', 'data/w.csv', b'1,2\n3,4\n', self.root)
-        out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 'f', 'cells': []}], 'project': 'mine'}).encode(), self.root)
+        out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 'f', 'cells': []}], 'project': 'mine'}).encode(), self.root, ROOM)
         self.assertEqual(out['errors']['f'], 'data/w.csv holds 2 × 2 numbers, and its block is 3 × 2: make the block the size of its file')
 
     def test_a_hostile_path_in_a_graph_never_reaches_a_file(self):
@@ -220,7 +230,7 @@ class DataFiles(unittest.TestCase):
         for path in ['../secret.csv', 'data/../../secret.csv', '/etc/passwd', 'data/../secret.csv', os.path.join(self.root, 'secret.csv'), 'data/w.csv\0']:
             g = json.loads(json.dumps(self.g))
             g['nodes']['f']['path'] = path
-            out = R.run(json.dumps({'graph': g, 'want': [{'node': 'f', 'cells': []}], 'project': 'mine'}).encode(), self.root)
+            out = R.run(json.dumps({'graph': g, 'want': [{'node': 'f', 'cells': []}], 'project': 'mine'}).encode(), self.root, ROOM)
             self.assertIn('path is not a file under data/', out['errors']['*'])
 
 
@@ -233,13 +243,13 @@ class Refused(unittest.TestCase):
                           (b'{"graph": {"nodes": Infinity}}', 'not JSON'), (b'\xff\xfe', 'not JSON'), (b'[' * 200000, 'nested too deep'), (json.dumps({'graph': {}, 'want': 7}).encode(), 'want is a list'),
                           (json.dumps({'graph': {}, 'want': [], 'tick': -1}).encode(), 'tick is a whole number'), (json.dumps({'graph': {}, 'want': [], 'tick': 'x'}).encode(), 'tick is a whole number')]:
             began = time.monotonic()
-            out = R.run(body)
+            out = R.run(body, None, ROOM)
             self.assertLess(time.monotonic() - began, 2)
             self.assertEqual(out['results'], {})
             self.assertIn(why, out['errors']['*'], body[:30])
 
     def test_the_limits_each_with_its_reason(self):
-        self.assertEqual(R.run(b' ' * (limits.MAX_BODY + 1))['errors'], {'*': 'the request is larger than 5 MB'})
+        self.assertEqual(R.run(b' ' * (limits.MAX_BODY + 1), None, ROOM)['errors'], {'*': 'the request is larger than 5 MB'})
         many = graph_of({'n%d' % k: {'op': 'source', 'inputs': [], 'type': T(1, 1), 'kind': 'ones'} for k in range(limits.MAX_NODES + 1)})
         self.assertEqual(ask(many, [])['errors'], {'*': 'the graph has 20,001 nodes, more than 20,000'})
         del many['nodes']['n0']
@@ -294,7 +304,7 @@ class Refused(unittest.TestCase):
         for m in mutations[::7]:
             g = changed(graphs[m['graph']]['graph'], m)
             nodes = [i for i in (g.get('nodes') if isinstance(g.get('nodes'), dict) else {})][:40]
-            out = R.run(json.dumps({'graph': g, 'want': [{'node': i, 'cells': [[1, 1]]} for i in nodes]}).encode())
+            out = R.run(json.dumps({'graph': g, 'want': [{'node': i, 'cells': [[1, 1]]} for i in nodes]}).encode(), None, ROOM)
             self.assertEqual(set(out), {'results', 'errors'})
             self.assertEqual('*' in out['errors'], not m['valid'])
             self.assertNotIn('could not work this out', json.dumps(out['errors']))      # every refusal is one that was meant
@@ -304,13 +314,59 @@ class Refused(unittest.TestCase):
                       'p': {'op': 'matmul', 'inputs': ['a', 't'], 'type': T(300, 300)}, 'q': {'op': 'add', 'inputs': ['p', 'a', 't'], 'type': T(300, 300)}})
         want = [{'node': n, 'cells': [[1, 1], [300, 300], [7, 211]]} for n in ('q', 'p', 'a', 'q')]
         kept = ask(g, want)
-        from backend import evaluate as E
-        real = E.MAX_HELD
+        self.assertEqual(ask(g, want, room=4 * 300 * 300 * 12), kept)      # room for the run and no more: results are let go and worked out again, and nothing changes
+
+    def test_a_run_that_would_not_fit_in_memory_is_refused_before_anything_is_made(self):
+        """A request of a few kilobytes: one entry of 40 sums, one inside the next, of 4000 by 4000. Refused from the
+        sizes alone, at once."""
+        n = 4000
+        nodes = {'n0': {'op': 'source', 'inputs': [], 'type': T(n, n), 'kind': 'ones'}, 'm': {'op': 'source', 'inputs': [], 'type': T(n, n), 'kind': 'identity'}}
+        for k in range(1, 41):
+            nodes['n%d' % k] = {'op': 'add', 'inputs': ['n%d' % (k - 1), 'm'], 'type': T(n, n)}
+        g = graph_of(nodes)
+        began = time.monotonic()
+        out = ask(g, [{'node': 'n40', 'cells': [[1, 1]]}, {'node': 'n1', 'cells': [[1, 1]]}], room=977 << 20)
+        self.assertLess(time.monotonic() - began, 1)
+        self.assertEqual(out['errors'], {'n40': 'it is worked out from 672,000,000 entries in all, which needs about 2929 MB of memory, more than the 977 MB this backend may take for a run'})
+        self.assertEqual(out['results']['n1']['cells'], [[1, 1, 2.0]])      # what does fit is worked out: three such matrices, and room to work
+        small = ask(graph_of({'s': {'op': 'source', 'inputs': [], 'type': T(4000, 4000), 'kind': 'ones'}}), [{'node': 's', 'cells': [[1, 1]]}], room=64 << 20)
+        self.assertIn('more than the 64 MB this backend may take', small['errors']['s'])
+        from backend import limits
+        self.assertEqual(limits.memory_for_arrays('300'), 300 << 20)      # SMART_FACTORY_BACKEND_MEMORY, megabytes for each worker
+        have = limits.physical_memory()
+        self.assertEqual(limits.memory_for_arrays(None, 2), max(limits.MEMORY_LEAST, int(have * .5 / 2)))      # else half the machine's memory between the workers
+        self.assertLessEqual(2 * limits.memory_for_arrays(None, 2), max(have, 2 * limits.MEMORY_LEAST))
+
+    def test_all_the_entries_one_run_asks_for_are_bounded_so_its_answer_is(self):
+        g = graph_of({'s': {'op': 'source', 'inputs': [], 'type': T(64, 64), 'kind': 'ones'}})
+        cells = [[c, r] for r in range(1, 65) for c in range(1, 65)]      # 4,096 of them
+        self.assertEqual(ask(g, [{'node': 's', 'as': str(k), 'cells': cells} for k in range(17)])['errors'], {'*': 'the request asks for 69,632 entries in all, more than the 65,536 one run gives'})
+        full = R.run(json.dumps({'graph': g, 'want': [{'node': 's', 'as': str(k), 'cells': cells} for k in range(16)]}).encode(), None, ROOM)      # the boundary
+        self.assertEqual((len(full['results']), full['errors']), (16, {}))
+        self.assertLess(len(json.dumps(full)), limits.MAX_ANSWER)
+
+    def test_one_want_that_cannot_be_worked_out_fails_alone_and_says_so_in_plain_words(self):
+        p = {'op': 'param', 'inputs': [], 'type': T(2, 2), 'within': ['f:f']}
+        body = {'op': 'transpose', 'inputs': ['p'], 'type': T(2, 2), 'within': ['f:f']}
+        g = graph_of({'p': p, 'body': body, 'three': variable(3, 3, [[1, 2, 3]] * 3), 'two': variable(2, 2, [[1, 2], [3, 4]]), 'ap': {'op': 'apply', 'inputs': ['two'], 'type': T(2, 2), 'fn': 'f:f'}}, {'f:f': {'input': 'p', 'body': 'body'}})
+        out = ask(g, [{'node': 'body', 'as': 'wrong', 'cells': [[1, 1]], 'binding': {'params': {'f:f': 'three'}}}, {'node': 'body', 'as': 'part', 'cells': [[1, 1]], 'binding': {'params': {'f:f': {'of': 'three', 'range': {'col': 0, 'row': 0, 'cols': 3, 'rows': 2}}}}},
+                      {'node': 'body', 'as': 'right', 'cells': [[2, 1]], 'binding': {'params': {'f:f': 'two'}}}, {'node': 'two', 'cells': [[1, 1]]}])
+        self.assertEqual(out['errors'], {'wrong': 'its binding gives the function f:f 3 × 3, and the function takes 2 × 2', 'part': 'its binding gives the function f:f 3 × 2, and the function takes 2 × 2'})
+        self.assertEqual((out['results']['right']['cells'], out['results']['two']['cells']), ([[2, 1, 3.0]], [[1, 1, 1.0]]))      # the others have their answers
+        huge = graph_of({'s': {'op': 'source', 'inputs': [], 'type': T(10 ** 400, 1), 'kind': 'ones'}, 'x': {'op': 'measure', 'inputs': ['s'], 'type': T(1, 1), 'side': 'x'}})
+        said = ask(huge, [{'node': 'x', 'cells': [[1, 1]]}])['errors']      # a size JSON's own numbers do not reach: no graph, as graph.js has it
+        self.assertEqual(list(said), ['*'])
+        self.assertIn('not well formed', said['*'])
+        # and where something does go wrong inside, that want alone says so, with nothing of Python in the answer
+        real = E_OPS['transpose']
         try:
-            E.MAX_HELD = 1      # nothing is remembered: everything is worked out again each time it is asked for
-            self.assertEqual(ask(g, want), kept)
+            E_OPS['transpose'] = lambda n, at: 1 // 0
+            out = ask(g, [{'node': 'ap', 'cells': [[1, 1]]}, {'node': 'two', 'cells': [[1, 1]]}])
         finally:
-            E.MAX_HELD = real
+            E_OPS['transpose'] = real
+        self.assertEqual(out['errors'], {'ap': 'the backend could not work this out: what went wrong is in its log'})
+        self.assertEqual(out['results']['two']['cells'], [[1, 1, 1.0]])
+        self.assertNotIn('ZeroDivision', json.dumps(out))
 
 
 def whole_error(graph, node):
