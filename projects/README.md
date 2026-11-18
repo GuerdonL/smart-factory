@@ -61,7 +61,7 @@ name `menu`, so your first save makes the Menu your own without touching `defaul
 Shapes framed together (press F on a selection) are a frame; projects saved before call it a group, and are still
 read. A frame is one file, `Name.frame.json`, holding its shapes and the frames inside it. A named frame is a variable:
 it is in the list at the right edge, and dragged from there all of it is made again. A frame with a `repeat` is a
-tile (see the main README): the same file, holding the shapes of its first cell, or none. What is named inside a named frame
+tile (see the main README): the same file, holding the shapes of its first cell, or none; a tile inside it is one of its `"groups"`, with a `"repeat"` of its own. What is named inside a named frame
 is listed under it, not beside it. A frame is no scope of its own. Everything in a frame whose name begins with a dot
 is a hidden variable, and its name is made lower case with a dot in front.
 
@@ -167,6 +167,21 @@ tile `Index`, 2 by 2: it reads 2, 3, 3, 4. `Pair` holds `index.x` and `10 * inde
 the arrow `relu` (`max(x, 0)`) sits under column 1 in the tile `Every column`, across 4: one arrow, mapped over
 every column, its outputs one 4 by 2 output with `R` seated on it. `Stack` is defined by two standing shapes: open
 it to find `Bias` standing in each row of its matrix.
+
+## tiles-inside-tiles/
+
+A tile inside a tile, beside a copy of the default Menu's `.config`. Above, `Pair` (1, 2) is in the tile `Twice`,
+twice across, and `Twice` lies wholly inside the pattern of the tile `Rows`, 4 by 1 and three down: it is part of
+that pattern, so every row of `Rows` is `Twice` again. The arrow on the right reads `Rows`: a 4 by 3 matrix, 1 2 1 2
+in every row. The arrow on the left reads `Twice` alone: 1 2 1 2. Pull `Twice`'s right edge and it is refused: it
+would run past the pattern it is in.
+
+Below, `Place` holds `index.x` in both entries, in the tile `Inner` (twice across) inside the tile `Outer`, whose
+pattern is 4 by 2 and which repeats twice down; `Under`, a block of `Outer` itself, holds `index.y`. The index a
+block reads is that of the innermost tile it is in: `Place` reads 1 2 and then 3 4 across `Inner`, the same in both
+cells of `Outer`, while `Under` reads `Outer`'s rows, 2 and then 4. The arrow out of `Outer` shows all of it.
+
+In a file, a tile inside a tile is a frame with a `"repeat"` among the `"groups"` of a frame with a `"repeat"`.
 
 ## graph-and-evaluator/
 

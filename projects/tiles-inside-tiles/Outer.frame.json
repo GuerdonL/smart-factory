@@ -1,0 +1,109 @@
+{
+  "format": "smart-factory/frame",
+  "version": 3,
+  "id": "gkezjj7",
+  "name": "Outer",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 3,
+      "id": "bb3qz4v",
+      "type": "tensor",
+      "name": "Under",
+      "named": true,
+      "commented": false,
+      "color": "tensor",
+      "position": {
+        "x": -40,
+        "y": -19
+      },
+      "size": {
+        "cols": 4,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": {
+            "expr": "index.y"
+          },
+          "2,1": {
+            "expr": "index.y"
+          },
+          "3,1": {
+            "expr": "index.y"
+          },
+          "4,1": {
+            "expr": "index.y"
+          }
+        }
+      },
+      "order": 41
+    }
+  ],
+  "groups": [
+    {
+      "id": "g8uu00q",
+      "name": "Inner",
+      "named": true,
+      "shapes": [
+        {
+          "format": "smart-factory/shape",
+          "version": 3,
+          "id": "baeduqk",
+          "type": "tensor",
+          "name": "Place",
+          "named": true,
+          "commented": false,
+          "color": "tensor",
+          "position": {
+            "x": -40,
+            "y": -20
+          },
+          "size": {
+            "cols": 2,
+            "rows": 1
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "resolved",
+            "entries": {
+              "1,1": {
+                "expr": "index.x"
+              },
+              "2,1": {
+                "expr": "index.x"
+              }
+            }
+          },
+          "order": 40
+        }
+      ],
+      "groups": [],
+      "repeat": {
+        "x": -40,
+        "y": -20,
+        "cols": 2,
+        "rows": 1,
+        "across": 2,
+        "down": 1
+      }
+    }
+  ],
+  "repeat": {
+    "x": -40,
+    "y": -20,
+    "cols": 4,
+    "rows": 2,
+    "across": 1,
+    "down": 2
+  }
+}

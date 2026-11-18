@@ -115,7 +115,10 @@
                                                            1 or a formula that comes to one from sizes alone. Its
                                                            shapes are those of the first cell: the copies, and what
                                                            the counts come to, are never written. A tile may hold no
-                                                           shapes. A frame inside another may be a tile too.
+                                                           shapes. A frame inside another may be a tile too; a
+                                                           tile directly or further inside a tile is in that tile:
+                                                           it lies in its pattern and is repeated with it (its x
+                                                           and y are still counted from the space's origin).
                                                            Absent: an ordinary frame.
 
    A frame with no name is the file "frame n.frame.json", n its place among the frames of its space, from 1. Reading,
