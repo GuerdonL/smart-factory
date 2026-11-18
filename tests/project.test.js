@@ -59,10 +59,82 @@ test('names are made safe to be file names, and different from one another', () 
   assert.equal(json(files, 'a-b- c-.json').name, 'a/b: c?');      /* the name itself is kept as it was */
 });
 
+/* every name in every directory of what was written, in lower case, with how many files and directories have it:
+   the ones had more than once, which a file system could not keep apart */
+const clashes = files => { const had = new Map(), dirs = new Set();
+  for (const f of files){ const parts = f.path.toLowerCase().split('/');
+    parts.slice(0, -1).forEach((_, i) => dirs.add(parts.slice(0, i + 1).join('/')));
+    had.set(f.path.toLowerCase(), (had.get(f.path.toLowerCase()) || 0) + 1); }
+  return [...had].filter(([path, n]) => n > 1 || dirs.has(path)).map(([path]) => path); };
+
+test('a shape and a frame whose names would make the same file are written to two', () => {
+  const p = project(space([shape('Keys.frame'), shape('A')], [{ id: 'g1', name: 'Keys', members: [1], groups: [] }]));
+  const files = write(p);
+  assert.deepEqual(paths(files), ['Keys (2).frame.json', 'Keys.frame.json', 'project.json']);
+  assert.equal(json(files, 'Keys.frame.json').format, 'smart-factory/shape');
+  assert.deepEqual(read(files), p);
+  const capitals = write(project(space([shape('KEYS.FRAME'), shape('A')], [{ id: 'g1', name: 'keys', members: [1], groups: [] }])));
+  assert.deepEqual(paths(capitals), ['KEYS.FRAME.json', 'keys (2).frame.json', 'project.json']);
+});
+
+test('no file is written over another or under the name of a directory, whatever the shapes are called', () => {
+  const def = () => space([shape('Inner')]);
+  const p = project(space([shape('Keys.json', { inside: def() }), shape('Keys'), shape('keys.JSON', { inside: def() }), shape('A.frame.json', { inside: def() }), shape('B'),
+    shape('project.json', { inside: def() }), shape('Pair.frame'), shape('pair.FRAME'), shape('C'), shape('Joined', { joined: [{ fx: 0, fy: 0, fw: 1, fh: 1, shape: shape('Joined.json', { inside: def() }) }] }),
+    shape('.config'), shape('config.frame')],
+    [{ id: 'g1', name: 'A', members: [4], groups: [] }, { id: 'g2', name: 'Pair', members: [8], groups: [] }, { id: 'g3', name: '.config', members: [], groups: [] }, { id: 'g4', name: '.config', members: [], groups: [] }]));
+  const files = write(p);
+  assert.deepEqual(clashes(files), []);
+  assert.equal(files.length, 1 + 10 + 5 + 4);      /* project.json, the shapes in no frame, a shape in each definition, the frames */
+  assert.deepEqual(read(files), p);
+});
+
+test('a shape and a frame of one name are written as they were: the frame takes a number', () => {
+  const files = write(project(space([shape('Keys'), shape('A')], [{ id: null, name: 'Keys', members: [1], groups: [] }])));
+  assert.deepEqual(paths(files), ['Keys (2).frame.json', 'Keys.json', 'project.json']);
+});
+
 test('only the first frame named .config is the file .config', () => {
   const files = write(project(space([], [{ id: null, name: '.config', members: [], groups: [] }, { id: null, name: '.config', members: [], groups: [] }])));
   assert.deepEqual(paths(files), ['.config', 'config.frame.json', 'project.json']);
   assert.equal(read(files).top.groups.length, 2);
+});
+
+test('a variable\'s definition is written once, under the first use that carries it', () => {
+  const def = () => space([shape('Embedding')]);
+  const files = write(project(space([shape('Keys', { variable: 1 }), shape('Keys', { variable: 1, inside: def() }), shape('Keys', { variable: 1, inside: def() }), shape('Lone', { inside: def() })])));
+  assert.deepEqual(paths(files), ['Keys (2).json', 'Keys (2)/Embedding.json', 'Keys (3).json', 'Keys.json', 'Lone.json', 'Lone/Embedding.json', 'project.json']);
+  assert.deepEqual(['Keys', 'Keys (2)', 'Keys (3)'].map(n => json(files, n + '.json').definition), [undefined, 'Keys (2)/', undefined]);
+  assert.deepEqual(['Keys', 'Keys (2)', 'Keys (3)'].map(n => json(files, n + '.json').value.as), ['computation', 'computation', 'computation']);      /* it is every use's definition */
+  assert.deepEqual(read(files).top.shapes.map(s => s.inside && s.inside.shapes.map(i => i.name)), [null, ['Embedding'], null, ['Embedding']]);
+});
+
+test('a definition carried by only one use of a variable survives a write and read, whichever use it is', () => {
+  const def = () => space([shape('Embedding', { variable: 2, inside: space([shape('Deep')]) }), shape('Embedding', { variable: 2, reference: true })]);
+  for (const carrier of [0, 1, 2]){
+    const p = project(space([0, 1, 2].map(i => shape('Keys', { id: 'b' + i, variable: 1, x: 10 * i, inside: i === carrier ? def() : null }))));
+    assert.deepEqual(read(write(p)), p);
+  }
+  const joined = project(space([shape('Keys', { variable: 1 }), shape('Joined', { joined: [{ fx: 0, fy: 0, fw: 1, fh: 1, shape: shape('Keys', { variable: 1, inside: def() }) }] })]));
+  assert.deepEqual(read(write(joined)), joined);
+});
+
+test('what is saved does not multiply with the uses of a variable', () => {
+  /* six levels, three uses of a variable at each, every use carrying the definition as projects saved before did */
+  let level = space([shape('Leaf')]);
+  for (let n = 6; n >= 1; n--) level = space([0, 1, 2].map(i => shape('Level ' + n, { variable: n, x: 10 * i, inside: level })));
+  const files = write(project(level));
+  assert.equal(files.length, 1 + 6 * 3 + 1);
+  let s = read(files).top, depth = 0;
+  for (; s.shapes[0].inside; depth++){ assert.deepEqual(s.shapes.map(sh => !!sh.inside), [true, false, false]); s = s.shapes[0].inside; }
+  assert.equal(depth, 6); assert.deepEqual(s.shapes.map(sh => sh.name), ['Leaf']);
+});
+
+test('projects saved before, where every use of a variable has its definition, are still read', () => {
+  const p = read([head(), file('Keys.json', config('Keys', { variable: 1, order: 0, definition: 'Keys/' })), file('Keys/Embedding.json', config('Embedding')),
+    file('Keys (2).json', config('Keys', { variable: 1, order: 1, definition: 'Keys (2)/' })), file('Keys (2)/Embedding.json', config('Embedding'))]);
+  assert.deepEqual(p.top.shapes.map(s => [s.variable, s.inside.shapes.map(i => i.name)]), [[1, ['Embedding']], [1, ['Embedding']]]);
+  assert.deepEqual(paths(write(p)), ['Keys (2).json', 'Keys.json', 'Keys/Embedding.json', 'project.json']);      /* and written again, it is there once */
 });
 
 test('value.as says how a shape\'s value stands', () => {
