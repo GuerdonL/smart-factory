@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { evaluate, MOST, tooLarge, toMap } from '../evaluate.js';
+import { evaluate, carry, MOST, tooLarge, toMap } from '../evaluate.js';
 import { build, validate } from '../graph.js';
 import { read } from '../project.js';
 import { valueText } from '../algebra.js';
@@ -16,7 +16,10 @@ const t = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsN
 /* a matrix given row by row: [[1, 2], [3, 4]]; null for an entry not given */
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
 const V = (rows, more = {}) => ({ op: 'variable', inputs: [], type: t(rows[0].length, rows.length), name: 'v', named: true, defined: 'entries', entries: rowsOf(rows), ...more });
-const G = (nodes, functions = {}) => { const g = { version: 1, nodes, functions, spaces: {}, blocks: {} }; assert.deepEqual(validate(g), []); return g; };
+/* a graph written by hand. tiles: [[tile id, the repeat that is its matrix]]: a repeat is always some tile's */
+const G = (nodes, functions = {}, tiles = []) => { const g = { version: 1, nodes, functions, blocks: {},
+    spaces: tiles.length ? { top: { owner: null, pieces: [], arrows: [], tiles: tiles.map(([tile, node]) => ({ tile, blocks: [], arrows: [], node, error: null })) } } : {} };
+  assert.deepEqual(validate(g), []); return g; };
 const N = (op, inputs, type, more = {}) => ({ op, inputs, type, ...more });
 const worked = (g, id, options) => { const r = evaluate(g, id, options); assert.ok(r.entries, JSON.stringify(r)); assert.deepEqual(r.type, g.nodes[id].type); assert.deepEqual(JSON.parse(JSON.stringify(r)), r); return r.entries; };
 const text = entries => Object.fromEntries(Object.entries(entries).map(([k, v]) => [k, v && v.err ? '!' : valueText(v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v)]));
@@ -133,7 +136,7 @@ test('measure of an attribute: its formula, with $1 and on for the inputs after 
 });
 test('a variable\'s formulas: $n is an input, and what could not be bound is the error it says', () => {
   const g = G({ k: { ...V([[0]]), type: t(4, 3), entries: {} }, x: N('measure', ['k'], t(1, 1), { side: 'x' }), tau: V([[null]]), m: N('measure', ['tau'], t(1, 1), { side: 'm' }),
-    w: { ...V([[0, 0, 0], [0, 0, 0]]), inputs: ['x', 'm'], entries: { '1,1': { expr: '1/√($1)' }, '2,1': { expr: '$2 * 2' }, '3,1': { expr: '@[!:a:missing variable] + 1' }, '1,2': { expr: 'select(2 > 3, 1/0, 5)' }, '2,2': { expr: '1/0' }, '3,2': { expr: '@[!:m] + $1' } } } });
+    w: { ...V([[0, 0, 0], [0, 0, 0]]), inputs: ['x', 'm'], entries: { '1,1': { expr: '1/√($1)' }, '2,1': { expr: '$2 * 2' }, '3,1': { err: 'missing variable' }, '1,2': { expr: 'select(2 > 3, 1/0, 5)' }, '2,2': { expr: '1/0' } } } });
   const e = worked(g, 'w');
   assert.deepEqual(text(e), { '1,1': '1/2', '3,1': '!', '1,2': '5', '2,2': '!' });      /* an unset mass leaves its entry a symbol, not 0 */
   assert.equal(e['3,1'].err, 'missing variable'); assert.equal(e['2,2'].err, 'divide by zero');
@@ -147,9 +150,11 @@ test('map: an entry formula at every entry, with x, i, j and what it names', () 
   assert.deepEqual(worked(G({ x: sq, m: N('map', ['x'], t(3, 3), { formula: 'select(i > j, -inf, x)' }) }), 'm'), rowsOf([[11, '-inf', '-inf'], [21, 22, '-inf'], [31, 32, 33]]));
   const g = G({ x, b: V([[0, 0], [9, 9]]), s: V([[10]]), m: N('map', ['x', 'b', 's'], t(2, 2), { formula: 'max(x, $1) * $2 + i' }) });      /* a matrix the size of the output is its entry at this place; a single entry is that number */
   assert.deepEqual(worked(g, 'm'), { '1,1': 21, '2,1': 2, '2,2': 92 });
-  assert.equal(worked(G({ x, m: N('map', ['x'], t(2, 2), { formula: 'x + w' }) }), 'm')['1,1'].err, 'unknown name: w');
+  const odd = { version: 1, nodes: { x, m: N('map', ['x'], t(2, 2), { formula: 'x + w' }) }, functions: {}, spaces: {}, blocks: {} };      /* validate refuses a name that is no input; worked out all the same, it is an error and nothing worse */
+  assert.ok(validate(odd).length > 0); assert.equal(evaluate(odd, 'm').entries['1,1'].err, 'unknown name: w');
   assert.deepEqual(worked(G({ x, m: N('map', ['x'], t(2, 2), { formula: 'i == j' }) }), 'm'), rowsOf([[true, false], [false, true]]));
-  assert.deepEqual(worked(G({ x, m: N('map', ['x'], t(2, 2), { formula: 'index.x + 10 * index.y', at: { col: 3, row: 1 } }) }), 'm'), rowsOf([[24, 25], [34, 35]]));      /* an arrow in a tile: its own place in the pattern */
+  const ix = G({ x, m: N('map', ['x'], t(2, 2), { formula: 'index.x + 10 * index.y' }) });      /* the index is the output's place in the cell it is worked out for */
+  assert.deepEqual(worked(ix, 'm', { binding: { cells: [{ x: 3, y: 1 }] } }), rowsOf([[24, 25], [34, 35]])); assert.equal(worked(ix, 'm')['1,1'].err, 'not in a tile: there is no index');
 });
 const fn = () => ({ 'p': N('param', [], t(2, 1), { within: ['f:lin'] }), w: V([[2], [3]]), body: N('matmul', ['p', 'w'], t(1, 1), { within: ['f:lin'] }) });
 test('apply and param: one function applied to two inputs gives two values', () => {
@@ -171,38 +176,38 @@ test('a function applied inside a function: each keeps its own input', () => {
   assert.deepEqual(worked(g, 'fx'), { '1,1': 20 }); assert.deepEqual(worked(g, 'fy'), { '1,1': 28 });
 });
 test('repeat: a tile\'s matrix; a block that reads the index differs from cell to cell', () => {
-  const row = G({ r: V([[1, 2, 3, 4]]), tile: N('repeat', ['r'], t(4, 3), { at: [{ col: 0, row: 0 }], pattern: { cols: 4, rows: 1 }, across: 1, down: 3 }) });
+  const row = G({ r: V([[1, 2, 3, 4]]), tile: N('repeat', ['r'], t(4, 3), { at: [{ col: 0, row: 0 }], pattern: { cols: 4, rows: 1 }, across: 1, down: 3 }) }, {}, [['t:g', 'tile']]);
   assert.deepEqual(worked(row, 'tile'), rowsOf([[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4]]));
   const p = { ...V([[{ expr: 'index.x + index.y' }]]), within: ['t:g'] };
-  const g = G({ p, tile: N('repeat', ['p'], t(2, 2), { at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across: 2, down: 2 }) });
+  const g = G({ p, tile: N('repeat', ['p'], t(2, 2), { at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across: 2, down: 2 }) }, {}, [['t:g', 'tile']]);
   assert.deepEqual(worked(g, 'tile'), rowsOf([[2, 3], [3, 4]]));
   /* a block set in from the pattern's corner, beside one that reads nothing */
   const wide = G({ q: V([[0]]), p: { ...V([[{ expr: 'index.x + index.y' }, { expr: '10 * index.x + index.y' }]]), within: ['t:g'] },
-    tile: N('repeat', ['q', 'p'], t(6, 2), { at: [{ col: 0, row: 0 }, { col: 1, row: 0 }], pattern: { cols: 3, rows: 1 }, across: 2, down: 2 }) });
+    tile: N('repeat', ['q', 'p'], t(6, 2), { at: [{ col: 0, row: 0 }, { col: 1, row: 0 }], pattern: { cols: 3, rows: 1 }, across: 2, down: 2 }) }, {}, [['t:g', 'tile']]);
   assert.deepEqual(worked(wide, 'tile'), rowsOf([[0, 3, 31, 0, 6, 61], [0, 4, 32, 0, 7, 62]]));
   assert.deepEqual(worked(wide, 'p', { binding: { cells: [{ x: 4, y: 1 }] } }), { '1,1': 7, '2,1': 62 });      /* one cell, looked at on its own */
   assert.equal(worked(wide, 'p')['1,1'].err, 'not in a tile: there is no index');
 });
 test('a tile past the limit is deferred at once: no cell is worked out, however many there are', () => {
-  const tile = (across, down) => G({ r: V([[7]]), tile: N('repeat', ['r'], t(across, down), { at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across, down }) });
+  const tile = (across, down) => G({ r: V([[7]]), tile: N('repeat', ['r'], t(across, down), { at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across, down }) }, {}, [['t:g', 'tile']]);
   assert.equal(Object.keys(worked(tile(64, 64), 'tile')).length, 4096);      /* exactly the limit */
   assert.deepEqual(evaluate(tile(4097, 1), 'tile'), { type: t(4097, 1), deferred: true });
   const before = performance.now(); assert.equal(evaluate(tile(1e9, 1e9), 'tile').deferred, true); assert.ok(performance.now() - before < 50);
 });
 test('the index goes through a transpose and through the parts of a block to where the entry stands', () => {
   const p = { ...V([[{ expr: 'index.x' }], [{ expr: 'index.x' }]]), within: ['t:g'] };      /* one column, two rows */
-  const g = G({ p, tr: N('transpose', ['p'], t(2, 1), { within: ['t:g'] }), tile: N('repeat', ['tr'], t(4, 1), { at: [{ col: 0, row: 0 }], pattern: { cols: 2, rows: 1 }, across: 2, down: 1 }) });
+  const g = G({ p, tr: N('transpose', ['p'], t(2, 1), { within: ['t:g'] }), tile: N('repeat', ['tr'], t(4, 1), { at: [{ col: 0, row: 0 }], pattern: { cols: 2, rows: 1 }, across: 2, down: 1 }) }, {}, [['t:g', 'tile']]);
   assert.deepEqual(worked(g, 'tile'), rowsOf([[1, 2, 3, 4]]));      /* turned, its two entries lie in columns 1 and 2 */
   const q = { ...V([[{ expr: 'index.x * 10 + index.y' }]]), within: ['t:g'] };
   const b = G({ q, a: V([[0]]), bl: N('block', ['a', 'q'], t(2, 1), { at: [{ col: 0, row: 0 }, { col: 1, row: 0 }], within: ['t:g'] }), own: { ...V([[0, 0]]), inputs: ['bl'], defined: 'standing', within: ['t:g'] },
-    tile: N('repeat', ['own'], t(2, 2), { at: [{ col: 0, row: 0 }], pattern: { cols: 2, rows: 1 }, across: 1, down: 2 }) });
+    tile: N('repeat', ['own'], t(2, 2), { at: [{ col: 0, row: 0 }], pattern: { cols: 2, rows: 1 }, across: 1, down: 2 }) }, {}, [['t:g', 'tile']]);
   assert.deepEqual(worked(b, 'tile'), rowsOf([[0, 21], [0, 22]]));
 });
 test('a tile inside a tile: the bindings compose, and the index is the innermost cell\'s', () => {
   /* the outer pattern is 3 wide: an inner tile (a 1 by 1 pattern, twice across) and, beside it, a block of the outer tile alone */
   const g = G({ p: { ...V([[{ expr: 'index.x' }]]), within: ['t:outer', 't:inner'] }, q: { ...V([[{ expr: '100 * index.x + index.y' }]]), within: ['t:outer'] },
     inner: N('repeat', ['p'], t(2, 1), { at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across: 2, down: 1, within: ['t:outer'] }),
-    outer: N('repeat', ['inner', 'q'], t(6, 2), { at: [{ col: 0, row: 0 }, { col: 2, row: 0 }], pattern: { cols: 3, rows: 1 }, across: 2, down: 2 }) });
+    outer: N('repeat', ['inner', 'q'], t(6, 2), { at: [{ col: 0, row: 0 }, { col: 2, row: 0 }], pattern: { cols: 3, rows: 1 }, across: 2, down: 2 }) }, {}, [['t:outer', 'outer'], ['t:inner', 'inner']]);
   assert.deepEqual(worked(g, 'outer'), rowsOf([[1, 2, 301, 1, 2, 601], [1, 2, 302, 1, 2, 602]]));      /* p reads the inner tile's cell, q the outer's */
   /* p has a value for each (outer cell, inner cell): asked for under a chain, it is that chain's, however the outer cell differs */
   assert.deepEqual(worked(g, 'p', { binding: { cells: [{ x: 3, y: 1 }, { x: 1, y: 0 }] } }), { '1,1': 2 });
@@ -212,7 +217,7 @@ test('a tile inside a tile: the bindings compose, and the index is the innermost
   /* and inside a function as well: a tile in a function's body, the function applied to two inputs */
   const f = G({ in: N('param', [], t(1, 1), { within: ['f:f'] }), cellv: { ...V([[{ expr: 'index.x * $1' }]]), inputs: ['m'], within: ['f:f', 't:inner'] }, m: N('measure', ['in'], t(1, 1), { side: 'm', within: ['f:f'] }),
     body: N('repeat', ['cellv'], t(3, 1), { at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across: 3, down: 1, within: ['f:f'] }),
-    a: V([[1]]), b: V([[10]]), fa: N('apply', ['a'], t(3, 1), { fn: 'f:f' }), fb: N('apply', ['b'], t(3, 1), { fn: 'f:f' }) }, { 'f:f': { input: 'in', body: 'body' } });
+    a: V([[1]]), b: V([[10]]), fa: N('apply', ['a'], t(3, 1), { fn: 'f:f' }), fb: N('apply', ['b'], t(3, 1), { fn: 'f:f' }) }, { 'f:f': { input: 'in', body: 'body' } }, [['t:inner', 'body']]);
   assert.deepEqual(worked(f, 'fa'), rowsOf([[1, 2, 3]])); assert.deepEqual(worked(f, 'fb'), rowsOf([[10, 20, 30]]));
 });
 test('mapalong: a formula or a function applied to each run, the outputs set side by side', () => {
@@ -299,4 +304,64 @@ test('every project that comes with the repository: every node is answered, and 
   const projects = join(dirname(fileURLToPath(import.meta.url)), '..', 'projects');
   for (const name of readdirSync(projects).filter(n => statSync(join(projects, n)).isDirectory())){ const g = build(read(tree(join(projects, name))));
     for (const id of Object.keys(g.nodes)){ const r = evaluate(g, id); assert.ok(r.entries || r.deferred || r.error, name + ' ' + id); assert.deepEqual(JSON.parse(JSON.stringify(r)), r); } }
+});
+
+/* ---- after review ---- */
+const tileOf = (repeat, members, shapes) => snap(shapes, [{ id: 't1', name: null, members, groups: [], repeat }]);
+test('an arrow in a tile whose formula reads the index: every cell has its own', () => {
+  const g = build(tileOf({ x: 0, y: 0, cols: 2, rows: 2, across: 3, down: 1 }, [0, 1, 2], [B('P', 0, 0, 2, 1, { entries: { '1,1': 0, '2,1': 0 } }),
+    arrow('f', { id: 'P', as: 'block' }, { side: 's', span: 2, gap: 1, formula: 'x + index.x' }, { x: 0, y: 1 }), B('H', 0, 1, 2, 1, { seat: 'f' }), arrow('out', { id: 't1', as: 'tile' })]));
+  assert.deepEqual(validate(g), []);
+  assert.deepEqual(worked(g, g.spaces.top.arrows[1].node), rowsOf([[0, 0, 0, 0, 0, 0], [1, 2, 3, 4, 5, 6]]));
+  /* and where the block it reads has an index of its own, that block is read at its own place in the pattern, not at the reader's */
+  const both = build(tileOf({ x: 0, y: 0, cols: 2, rows: 2, across: 2, down: 1 }, [0, 1, 2], [B('P', 0, 0, 2, 1, { entries: { '1,1': { expr: 'index.y' }, '2,1': { expr: 'index.x' } } }),
+    arrow('f', { id: 'P', as: 'block' }, { side: 's', span: 2, gap: 1, formula: '100 * x + 10 * index.y + index.x' }, { x: 0, y: 1 }), B('H', 0, 1, 2, 1, { seat: 'f' }), arrow('out', { id: 't1', as: 'tile' })]));
+  assert.deepEqual(worked(both, both.spaces.top.arrows[1].node), rowsOf([[1, 2, 1, 4], [121, 222, 123, 424]]));
+});
+test('a piece of a tile that follows its cell has a value for each cell, and each of its blocks its own place', () => {
+  const g = build(tileOf({ x: 0, y: 0, cols: 3, rows: 2, across: 4, down: 1 }, [0, 1], [B('P', 0, 0, 2, 1, { entries: { '1,1': { expr: 'index.x' }, '2,1': { expr: 'index.x' } } }), B('Q', 2, 0, 1, 2, { entries: { '1,1': 1, '1,2': 1 } })]));
+  const cell = x => ({ binding: { cells: [{ x, y: 0 }] } });
+  assert.deepEqual(worked(g, 'matmul(v:P,v:Q)', cell(0)), { '1,1': 3 }); assert.deepEqual(worked(g, 'matmul(v:P,v:Q)', cell(3)), { '1,1': 9 }); assert.deepEqual(worked(g, 'matmul(v:P,v:Q)', cell(0)), { '1,1': 3 });
+  /* two blocks that both read the index, in one product: where each lies in the pattern is said, and each reads its own */
+  const two = build(tileOf({ x: 0, y: 0, cols: 3, rows: 2, across: 2, down: 1 }, [0, 1], [B('P', 0, 0, 2, 1, { entries: { '1,1': { expr: 'index.x' }, '2,1': { expr: 'index.x' } } }), B('Q', 2, 0, 1, 2, { entries: { '1,1': { expr: 'index.x' }, '1,2': { expr: 'index.y' } } })]));
+  const at = x => ({ binding: { cells: [{ x, y: 0, at: { 'v:P': { col: 0, row: 0 }, 'v:Q': { col: 2, row: 0 } } }] } });
+  assert.deepEqual(worked(two, 'matmul(v:P,v:Q)', at(0)), { '1,1': 1 * 3 + 2 * 2 }); assert.deepEqual(worked(two, 'matmul(v:P,v:Q)', at(3)), { '1,1': 4 * 6 + 5 * 2 });
+});
+test('it never throws on what build made of a formula a user can type', () => {
+  for (const name of ['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty']){
+    const g = build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': { expr: name }, '2,1': 2 } }), B('C', 2, 0, 1, 2, { entries: { '1,1': 1, '1,2': 1 } })]));
+    assert.deepEqual(validate(g), []); const e = worked(g, 'matmul(v:A,v:C)'); assert.equal(e['1,1'].err, 'unknown name: ' + name); }
+});
+test('it never throws on a graph that is not well formed: what is no value is an error, not a crash', () => {
+  const raw = entries => ({ version: 1, nodes: { a: { ...V([[1, 1]]), entries }, b: V([[1], [1]]), p: N('matmul', ['a', 'b'], t(1, 1)) }, functions: {}, spaces: {}, blocks: {} });
+  for (const v of [{ n: 2, k: 60 }, { n: 1, d: 0, k: 0 }, {}, [], { sym: 7 }, { expr: '__proto__' }, { expr: 'constructor + 1' }, { expr: '(((' }, 'seven']){
+    const g = raw({ '1,1': v, '2,1': 1 }); assert.ok(validate(g).length > 0, JSON.stringify(v));
+    const r = evaluate(g, 'p'); assert.ok(r.entries || r.error, JSON.stringify(v)); assert.deepEqual(JSON.parse(JSON.stringify(r)), r); }
+  const junk = evaluate(raw({ '1,1': { sym: ')(' }, '2,1': 1 }), 'p'); assert.ok(junk.entries || junk.error);      /* text the solver cannot read */
+  for (const g of [{ nodes: { a: null } }, { nodes: { a: { op: 'constructor', inputs: [], type: t(1, 1) } } }, { nodes: { a: { op: 'toString' } } }, { nodes: { a: { op: 'apply', inputs: ['a'], type: t(1, 1), fn: '__proto__' } }, functions: {} }, { nodes: 7 }, 7, 'graph'])
+    for (const id of ['a', '__proto__', 'constructor']) assert.equal(evaluate(g, id).error.code === undefined, false);
+});
+test('a single entry\'s side with no root to write is an error', () => {
+  const side = v => worked(G({ s: V([[v]]), x: N('measure', ['s'], t(1, 1), { side: 'x' }) }), 'x')['1,1'];
+  for (const v of [-4, 'inf', '-inf', { n: -2, k: 1 }, true]) assert.equal(side(v).err, 'it has no root to be a side', JSON.stringify(v));
+  assert.equal(side(16), 4); assert.deepEqual(side({ n: 1, d: 4, k: 0 }), { n: 1, d: 2, k: 0 }); assert.equal(side({ err: 'divide by zero' }).err, 'divide by zero');
+});
+test('an index matrix is worked out at any size the caller allows', () => {
+  const g = build(tileOf({ x: 0, y: 0, cols: 100, rows: 50, across: 2, down: 1 }, [0], [B('P', 0, 0, 100, 50, { inside: { shapes: [B('ix', -101, -25, 100, 50, { name: 'index.x', from: { id: 'P', index: 'x' }, standing: true })], groups: [], operations: [] } })]));
+  assert.equal(evaluate(g, 'v:ix').deferred, true);      /* 5,000 entries: past the browser's limit */
+  const e = evaluate(g, 'v:ix', { maxEntries: 1e6, binding: { cells: [{ x: 100, y: 0 }] } }).entries;
+  assert.equal(Object.keys(e).length, 5000); assert.equal(e['1,1'], 101); assert.equal(e['100,50'], 200);
+});
+test('carry takes what was worked out to a new graph, for every node that is the same all the way down', () => {
+  const shapes = last => [B('A', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]) }), B('W', 2, 0, 2, 2, { entries: rowsOf([[5, 6], [7, 8]]) }), B('C', 9, 0, 2, 2, { entries: rowsOf([[1, 0], [0, 1]]) }), B('D', 11, 0, 2, 2, { entries: rowsOf([[2, 0], [0, last]]) })];
+  const one = build(snap(shapes(2))), first = evaluate(one, 'matmul(v:A,v:W)'), other = evaluate(one, 'matmul(v:C,v:D)'), c = evaluate(one, 'v:C'), d = evaluate(one, 'v:D');
+  const two = build(snap(shapes(3))); assert.ok(carry(one, two) > 0);
+  assert.equal(evaluate(two, 'matmul(v:A,v:W)'), first);      /* the very answer: nothing of it was worked out again */
+  assert.notEqual(evaluate(two, 'matmul(v:C,v:D)'), other); assert.deepEqual(evaluate(two, 'matmul(v:C,v:D)').entries, rowsOf([[2, 0], [0, 3]]));      /* what changed below it is worked out afresh */
+  assert.equal(evaluate(two, 'v:C'), c); assert.notEqual(evaluate(two, 'v:D'), d);
+  assert.equal(carry(null, two), 0); assert.equal(carry(one, one), 0); assert.equal(carry({}, two), 0);
+  /* what a function's body came to is not carried: its input may have changed and its own id not */
+  const fnShapes = v => [B('X', 0, 0, 2, 1, { entries: rowsOf([[v, 2]]) }), arrow('lin', { id: 'X', as: 'block' }, {}, { inside: { shapes: [B('in', -9, 0, 2, 1, { in: true }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[3], [4]]) })], groups: [], operations: [] } })];
+  const f1 = build(snap(fnShapes(1))); assert.deepEqual(worked(f1, 'apply(v:X;f:lin)'), { '1,1': 11 });
+  const f2 = build(snap(fnShapes(10))); carry(f1, f2); assert.deepEqual(worked(f2, 'apply(v:X;f:lin)'), { '1,1': 38 });
 });

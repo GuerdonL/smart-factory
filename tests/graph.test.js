@@ -30,7 +30,7 @@ test('1: two shapes side by side are one piece, a matmul of the left one\'s rows
   assert.deepEqual(g.nodes['matmul(v:A,v:B)'], { op: 'matmul', inputs: ['v:A', 'v:B'], type: type(4, 2) });
   assert.deepEqual(g.nodes['v:A'], { op: 'variable', inputs: [], type: type(3, 2), name: 'A', named: true, defined: 'entries', entries: {} });
   assert.deepEqual(g.blocks, { A: 'v:A', B: 'v:B' });
-  assert.deepEqual(g.spaces.top.owner, null); assert.deepEqual(g.spaces.top.arrows, []);
+  assert.deepEqual(g.spaces.top.owner, null); assert.deepEqual(g.spaces.top.arrows, []); assert.deepEqual(g.spaces.top.tiles, []);
 });
 test('2: named sides that agree are carried to the result; names that differ are a mismatch', () => {
   const A = B('A', 0, 0, 5, 6, { colsName: 'embed', rowsName: 'context' }), ok = make(snap([A, B('W', 5, 0, 4, 5, { colsName: 'key', rowsName: 'embed' })]));
@@ -105,7 +105,7 @@ const standing = (...shapes) => B('O', 0, 0, 2, 2, { entries: { '1,1': 5 }, insi
 test('12: standing shapes that cover every entry define the variable, and its space has no pieces', () => {
   const g = make(snap([standing(B('t1', -3, -1, 2, 1, { standing: true }), B('t2', -3, 0, 2, 1, { standing: true }))]));
   assert.equal(g.nodes['v:O'].defined, 'standing'); assert.deepEqual(g.nodes['v:O'].inputs, ['block(v:t1@0,0;v:t2@0,1)']);
-  assert.deepEqual(g.spaces['v:O'], { owner: 'v:O', pieces: [], arrows: [] });
+  assert.deepEqual(g.spaces['v:O'], { owner: 'v:O', pieces: [], arrows: [], tiles: [] });
   assert.equal(g.blocks.t1, 'v:t1');
 });
 test('13: with one entry left uncovered the variable keeps its own entries: the two are never mixed', () => {
@@ -120,7 +120,7 @@ const defined = (cols, rows, ...shapes) => B('K', 20, 0, cols, rows, { entries: 
 test('14: a definition that holds one matching product is the variable\'s value', () => {
   const g = make(snap([defined(4, 2, B('A', 0, 0, 3, 2), B('W', 3, 0, 4, 3))]));
   assert.deepEqual(g.nodes['v:K'], { op: 'variable', inputs: ['matmul(v:A,v:W)'], type: type(4, 2), name: 'K', named: true, defined: 'definition', entries: { '1,1': 9 } });
-  assert.deepEqual(g.spaces['v:K'], { owner: 'v:K', pieces: [{ blocks: ['A', 'W'], rule: 'product', node: 'matmul(v:A,v:W)', error: null }], arrows: [] });
+  assert.deepEqual(g.spaces['v:K'], { owner: 'v:K', pieces: [{ blocks: ['A', 'W'], rule: 'product', node: 'matmul(v:A,v:W)', error: null }], arrows: [], tiles: [] });
 });
 test('15: a definition of the wrong size is an error on the variable, which keeps its entries', () => {
   const g = make(snap([defined(4, 6, B('A', 0, 0, 3, 2), B('W', 3, 0, 5, 3))]));
@@ -203,17 +203,21 @@ test('an attribute capsule is a measure node with side a, its formula and what t
     B('W', 20, 0, 1, 2, { entries: { '1,1': { expr: '@[Keys:a:heads] / 3' }, '1,2': { expr: '@[Keys:a:twice]' } } })]));
   assert.deepEqual(g.nodes['v:W'].inputs, ['measure(v:Keys;a:heads)', 'measure(v:Keys;a:twice)']);
   assert.deepEqual(g.nodes['measure(v:Keys;a:heads)'], { op: 'measure', inputs: ['v:Keys', 'measure(v:Tau;m)'], type: type(1, 1), side: 'a', name: 'heads', formula: '2^(3) + $1' });
-  assert.deepEqual(g.nodes['measure(v:Keys;a:twice)'], { op: 'measure', inputs: ['v:Keys', 'measure(v:Keys;a:heads)', 'measure(v:Keys;x)'], type: type(1, 1), side: 'a', name: 'twice', formula: '$1 * 2 + $2' });
+  /* within an attribute, its variable's other attributes and its own width are written in: they are no nodes between a variable and itself */
+  assert.deepEqual(g.nodes['measure(v:Keys;a:twice)'], { op: 'measure', inputs: ['v:Keys', 'measure(v:Tau;m)'], type: type(1, 1), side: 'a', name: 'twice', formula: '(2^(3) + $1) * 2 + (4)' });
   /* a variable's own attribute, in its own entries, is written in where it is used: it is no loop */
   const own = make(snap([B('Keys', 0, 0, 2, 1, { attributes: [{ name: 'heads', value: '8' }], entries: { '1,1': { expr: 'heads + x' } } })]));
   assert.equal(own.nodes['v:Keys'].error, undefined); assert.deepEqual(own.nodes['v:Keys'].entries, { '1,1': { expr: '(8) + (2)' } });
 });
-test('what a formula cannot be bound to is written as the error it comes to', () => {
-  const g = make(snap([B('Keys', 0, 0, 4, 3, { attributes: [{ name: 'a', value: 'b + 1' }, { name: 'b', value: 'a + 1' }] }),
-    B('W', 20, 0, 3, 2, { entries: { '1,1': { expr: '@[gone:x] + 1' }, '2,1': { expr: '@[Keys:m]' }, '3,1': { expr: '@[Keys:a:none]' }, '1,2': { expr: '@[Keys]' }, '2,2': { expr: '@[Keys:a:a]' }, '3,2': { expr: '$1 + 1' } } })]));
-  assert.deepEqual(g.nodes['v:W'].entries, { '1,1': { expr: '@[!:a:missing variable] + 1' }, '2,1': { expr: '@[!:a:not a scalar: it has no mass]' }, '3,1': { expr: '@[!:a:missing attribute]' },
-    '1,2': { expr: '@[!:a:choose one of its measures]' }, '2,2': { expr: '$1' }, '3,2': { expr: '@[!:a:cannot read "$"] + 1' } });
-  assert.equal(g.nodes['measure(v:Keys;a:a)'].formula, '$1 + 1'); assert.equal(g.nodes['measure(v:Keys;a:b)'].formula, '@[!:a:depends on itself] + 1');      /* attributes round a loop: an error where it closes, and the graph has no cycle */
+test('a formula that names what is not there is not kept as text: the entry holds the error it comes to', () => {
+  const g = make(snap([B('Keys', 0, 0, 4, 3, { attributes: [{ name: 'a', value: 'b + 1' }, { name: 'b', value: 'a + 1' }, { name: 'blank', value: '' }] }),
+    B('W', 20, 0, 3, 3, { entries: { '1,1': { expr: '@[gone:x] + 1' }, '2,1': { expr: '@[Keys:m]' }, '3,1': { expr: '@[Keys:a:none]' }, '1,2': { expr: '@[Keys]' }, '2,2': { expr: '@[Keys:a:a]' }, '3,2': { expr: '$1 + 1' },
+      '1,3': { expr: 'nothing + 1' }, '2,3': { expr: '((( 2' }, '3,3': { expr: '@[Keys:a:blank] + 1' } } })]));
+  assert.deepEqual(g.nodes['v:W'].entries, { '1,1': { err: 'missing variable' }, '2,1': { err: 'not a scalar: it has no mass' }, '3,1': { err: 'missing attribute' },
+    '1,2': { err: 'choose one of its measures' }, '2,2': { err: 'depends on itself' }, '3,2': { err: 'cannot read "$"' }, '1,3': { err: 'unknown name: nothing' }, '2,3': { err: 'a bracket is not closed' }, '3,3': { expr: '$1 + 1' } });
+  assert.deepEqual(g.nodes['v:W'].inputs, ['measure(v:Keys;a:blank)']); assert.equal(g.nodes['measure(v:Keys;a:blank)'].formula, '');      /* an attribute with nothing typed has no value yet: that is no error */
+  assert.ok(!JSON.stringify(g).includes('@['));      /* no capsule is left anywhere in the graph */
+  for (const name of ['__proto__', 'constructor', 'toString']) assert.deepEqual(make(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': { expr: name } } }), B('C', 2, 0, 1, 2)])).nodes['v:A'].entries, { '1,1': { err: 'unknown name: ' + name } });
 });
 const fnSpace = (cols, rows, ...more) => space([B('in', -9, 0, cols, rows, { in: true }), ...more]);
 test('map: an entry formula is a map over the covered part, with what it names', () => {
@@ -225,7 +229,9 @@ test('map: an entry formula is a map over the covered part, with what it names',
   const all = make(snap([B('V', 0, 0, 2, 2), arrow('f', { id: 'V', as: 'block' }, { formula: 'max(x, 0)', span: 2 })]));      /* over the whole edge there is nothing to slice */
   assert.equal(all.spaces.top.arrows[0].node, 'map(v:V;max(x, 0))');
   const other = make(snap([B('V', 0, 0, 2, 2), B('Bm', 9, 9, 3, 3), arrow('f', { id: 'V', as: 'block' }, { formula: 'max(x, @[Bm])', span: 2 })]));
-  assert.equal(other.nodes[other.spaces.top.arrows[0].node].formula, 'max(x, @[!:a:not the size of the output])');
+  assert.deepEqual(other.spaces.top.arrows[0], { arrow: 'f', node: null, error: { code: 'mismatch', note: 'not the size of the output' } });      /* a formula that stands for an error: the arrow has it */
+  const lost = make(snap([B('V', 0, 0, 2, 2), arrow('f', { id: 'V', as: 'block' }, { formula: 'x + w', span: 2 })]));
+  assert.deepEqual(lost.spaces.top.arrows[0].error, { code: 'no-source', note: 'unknown name: w' });
 });
 test('an arrow with nothing defined passes its covered part through: a slice, or its input whole', () => {
   const g = make(snap([B('V', 0, 0, 4, 3), arrow('f', { id: 'V', as: 'block' }, { span: 3 }, { inside: fnSpace(4, 3) }), arrow('h', { id: 'V', as: 'block' }, { side: 's', start: 2, span: 2 }),
@@ -234,7 +240,7 @@ test('an arrow with nothing defined passes its covered part through: a slice, or
   assert.deepEqual(g.nodes['v:H'], { op: 'variable', inputs: ['v:V'], type: type(4, 3), name: 'H', named: true, defined: 'seat', entries: {} });
   assert.equal(g.spaces.top.pieces.find(p => p.blocks.includes('H')).node, 'matmul(v:H,v:W)');      /* a seated block touches like any other */
   assert.deepEqual(g.nodes['param(f:f)'], { op: 'param', inputs: [], type: type(4, 3), within: ['f:f'] });
-  assert.equal(g.blocks.in, 'param(f:f)'); assert.deepEqual(g.functions, {});      /* its space holds its input alone: no function */
+  assert.equal(g.blocks.in, 'param(f:f)'); assert.deepEqual(g.functions, { 'f:f': { input: 'param(f:f)', body: 'param(f:f)' } });      /* its space holds its input alone: the function that gives its input back */
 });
 const linear = (more = {}, inner = [B('W', -5, 0, 2, 4)]) => arrow('lin', { id: 'X', as: 'block' }, { span: 3, ...more }, { name: 'linear', variable: 7, inside: fnSpace(4, 3, ...inner) });
 test('apply and param: an arrow defined in its space applies a function that is stored once', () => {
@@ -245,7 +251,7 @@ test('apply and param: an arrow defined in its space applies a function that is 
   assert.deepEqual(g.nodes['apply(v:X;f:lin)'], { op: 'apply', inputs: ['v:X'], type: type(2, 3), fn: 'f:lin' });
   assert.deepEqual(g.nodes['matmul(param(f:lin),v:W)'], { op: 'matmul', inputs: ['param(f:lin)', 'v:W'], type: type(2, 3), within: ['f:lin'] });      /* marked with the function it belongs to */
   assert.equal(g.nodes['v:W'].within, undefined); assert.equal(g.nodes['apply(v:X;f:lin)'].within, undefined);
-  assert.deepEqual(g.spaces['f:lin'], { owner: null, pieces: [{ blocks: ['in', 'W'], rule: 'product', node: 'matmul(param(f:lin),v:W)', error: null }], arrows: [] });
+  assert.deepEqual(g.spaces['f:lin'], { owner: null, pieces: [{ blocks: ['in', 'W'], rule: 'product', node: 'matmul(param(f:lin),v:W)', error: null }], arrows: [], tiles: [] });
 });
 test('the program\'s functions, and an arrow of the project\'s that shadows one', () => {
   const use = (id, of) => arrow(id, { id: of, as: 'block' }, {}, { name: '.recip', reference: true });
@@ -306,7 +312,7 @@ test('a loop through a formula is in the graph as an error on each variable roun
   /* sizes are settled: two matrices that read each other's widths depend on nothing that is worked out */
   const sizes = make(snap([B('K', 0, 0, 4, 1, { entries: { '1,1': { expr: '@[W:x]' } } }), B('W', 9, 0, 3, 1, { entries: { '1,1': { expr: '@[K:x]' } } })]));
   assert.equal(sizes.nodes['v:K'].error, undefined); assert.equal(sizes.nodes['v:W'].error, undefined);
-  assert.deepEqual(sizes.nodes['v:W'].entries, { '1,1': { expr: '(4)' } }); assert.deepEqual(sizes.nodes['v:K'].inputs, ['measure(v:W;x)']);
+  assert.deepEqual(sizes.nodes['v:W'].entries, { '1,1': { expr: '(4)' } }); assert.deepEqual(sizes.nodes['v:K'].entries, { '1,1': { expr: '(3)' } }); assert.deepEqual(sizes.nodes['v:K'].inputs, []);
 });
 test('an arrow\'s error is in spaces, beside the pieces, and on the variable seated on it', () => {
   const past = make(snap([B('V', 0, 0, 4, 3), arrow('f', { id: 'V', as: 'block' }, { start: 2, span: 3 }), B('H', 9, 0, 4, 3, { seat: 'f' })]));
@@ -342,7 +348,12 @@ test('nothing loops without end: arrows that read each other, a seat on what it 
   const rec = make(snap([B('X', 0, 0, 4, 3), linear({}, [inner])]));
   assert.equal(rec.spaces.top.arrows[0].error.code, 'loop'); assert.deepEqual(rec.functions, {});
   const count = make(snap([B('Row', 0, 0, 2, 1), arrow('out', { id: 't1', as: 'tile' }), B('Seat', 4, 0, 2, 1, { seat: 'out' })], [tile({ cols: 2, across: { expr: '@[Seat:x]' }, down: 1 })]));      /* a count that reads what its own tile makes */
-  assert.ok(count.spaces.top.arrows[0].node || count.spaces.top.arrows[0].error);
+  assert.deepEqual(count.spaces.top.tiles[0].error, { code: 'size-unknown', note: '@[Seat:x]' });      /* refused as the page refuses it (tiles.js: circular), so the two agree */
+  assert.deepEqual(count.spaces.top.arrows[0], { arrow: 'out', node: null, error: { code: 'size-unknown', note: '@[Seat:x]' } }); assert.deepEqual(count.nodes['v:Seat'].error, { code: 'seat', note: 'size-unknown' });
+  const through = make(snap([B('Row', 0, 0, 2, 1), arrow('out', { id: 't1', as: 'tile' }), B('Seat', 4, 0, 2, 1, { seat: 'out', variable: 5 }), B('use', 9, 9, 2, 1, { name: 'Seat', variable: 5, reference: true })], [tile({ cols: 2, across: { expr: '@[use:x]' }, down: 1 })]));      /* through a reference to it */
+  assert.equal(through.spaces.top.tiles[0].error.code, 'size-unknown');
+  const fine = make(snap([B('Row', 0, 0, 2, 1), arrow('out', { id: 't1', as: 'tile' }), B('Other', 9, 9, 3, 1)], [tile({ cols: 2, across: { expr: '@[Other:x]' }, down: 1 })]));      /* a size that is not its own */
+  assert.equal(fine.spaces.top.tiles[0].node, 'repeat(v:Row@0,0;2×1;3×1)');
 });
 test('a block saved with no id is called by its place in the snapshot', () => {
   const g = make(snap([B(null, 0, 0, 3, 2, { name: 'A' }), B(null, 3, 0, 4, 3, { name: 'B', inside: space([B(null, 0, 0, 4, 3, { name: 'C' })]) }), { ...joined(), id: null, joined: joined().joined.map(j => ({ ...j, shape: { ...j.shape, id: null } })) }]));
@@ -488,7 +499,7 @@ test('validate refuses a variable that breaks its own rule', () => {
   refused(g => { g.nodes['v:J'].type.cols = 6; }, 'a variable that is not the size of what defines it');
   refused(g => { g.nodes['v:J'].defined = 'source'; }, 'a source over a block');
   refused(g => { g.nodes['v:A'].entries['4,1'] = 1; }, 'an entry outside it');
-  refused(g => { g.nodes['v:A'].entries['1,1'] = { err: 'divide by zero' }; }, 'an error kept as an entry');
+  refused(g => { g.nodes['v:A'].entries['1,1'] = { err: 7 }; }, 'an error that says nothing');
   refused(g => { g.nodes['v:A'].entries['1,1'] = 1.5; }, 'a decimal kept as an entry');
   refused(g => { g.nodes['v:A'].entries['2,1'] = { expr: '$2' }; }, 'a formula that names an input it has not got');
   refused(g => { g.nodes['v:C'].error = 'loop'; }, 'an error that is a bare string');
@@ -518,4 +529,140 @@ test('the index is read from the innermost cell, and that is the one place it is
   assert.deepEqual(indexAt([{ x: 4, y: 2 }], 2, 1), { x: 6, y: 3 });
   assert.deepEqual(indexAt([{ x: 100, y: 100 }, { x: 4, y: 2 }], 2, 1), { x: 6, y: 3 });      /* a tile in a tile: the inner one's */
   assert.deepEqual(indexAt([{ x: 4, y: 2, turned: true }], 2, 1), { x: 5, y: 4 });      /* read through a transpose, entry c,r stands in column r, row c */
+});
+
+/* ---- after review ---- */
+const sorted = g => ({ nodes: g.nodes, blocks: g.blocks, functions: g.functions, spaces: Object.fromEntries(Object.entries(g.spaces).map(([k, sp]) => [k, { ...sp, pieces: [...sp.pieces].sort((a, b) => a.blocks.join() < b.blocks.join() ? -1 : 1), arrows: [...sp.arrows].sort((a, b) => a.arrow < b.arrow ? -1 : 1) }])) });
+const eitherOrder = (shapes, check) => { const a = make(snap(shapes)), b = make(snap([...shapes].reverse())); assert.deepEqual(sorted(b), sorted(a)); check(a); return a; };
+test('a length is read without building what it is read off: the graph is the same whichever shape comes first', () => {
+  /* X holds a formula of K's width, and K's definition holds X: no loop, since a width is settled from sizes alone */
+  const inK = () => space([B('x2', 0, 0, 2, 3, { name: 'X', variable: 1, reference: true }), B('W', 2, 0, 4, 2)]);
+  eitherOrder([B('X', 0, 0, 2, 3, { variable: 1, entries: { '1,1': { expr: '@[K:x] + 1' } } }), B('K', 9, 0, 4, 3, { inside: inK() })], g => {
+    assert.equal(g.nodes['v:X'].error, undefined); assert.equal(g.nodes['v:K'].error, undefined); assert.equal(g.nodes['v:K'].defined, 'definition');
+    assert.deepEqual(g.nodes['v:X'].entries, { '1,1': { expr: '(4) + 1' } }); assert.deepEqual(g.nodes['v:X'].inputs, []); });
+  /* the same through a height, an attribute, and a block that is a measure of the other's side */
+  eitherOrder([B('X', 0, 0, 2, 3, { variable: 1, entries: { '1,1': { expr: '@[K:y] * @[K:a:heads]' } } }), B('K', 9, 0, 4, 3, { inside: inK(), attributes: [{ name: 'heads', value: 'x + 2' }] })], g => {
+    assert.equal(g.nodes['v:X'].error, undefined); assert.equal(g.nodes['v:K'].error, undefined); assert.deepEqual(g.nodes['v:X'].entries, { '1,1': { expr: '(3) * ((4) + 2)' } }); });
+  eitherOrder([B('m', 0, 0, 1, 1, { variable: 1, from: { id: 'K', side: 'x' } }), B('K', 9, 0, 1, 2, { inside: space([B('m2', 0, 0, 1, 1, { name: 'm', variable: 1, reference: true }), B('W', 1, 0, 1, 2)]) })], g => {
+    assert.equal(g.nodes['v:m'].error, undefined); assert.equal(g.nodes['v:K'].error, undefined); assert.deepEqual(g.nodes['v:m'].entries, { '1,1': 1 }); assert.equal(g.nodes['v:K'].defined, 'definition'); });
+  /* where nothing can come back round, a length and an attribute are nodes, in either order */
+  eitherOrder([B('W', 0, 0, 2, 1, { entries: { '1,1': { expr: '@[K:x] + @[K:a:heads]' } } }), B('K', 9, 0, 4, 3, { attributes: [{ name: 'heads', value: '8' }] })], g => assert.deepEqual(g.nodes['v:W'].inputs, ['measure(v:K;x)', 'measure(v:K;a:heads)']));
+  /* a single entry's side is the root of its mass: that is a value, and reading its own is a loop in either order */
+  eitherOrder([B('S', 0, 0, 1, 1, { entries: { '1,1': { expr: '@[T:x]' } } }), B('T', 9, 0, 1, 1, { entries: { '1,1': { expr: '@[S:m]' } } })], g => { assert.equal(g.nodes['v:S'].error.code, 'loop'); assert.equal(g.nodes['v:T'].error.code, 'loop'); });
+});
+test('an arrow in a tile whose formula reads the index is worked out for each cell: its nodes belong to the tile', () => {
+  const g = make(snap([B('P', 0, 0, 2, 1, { entries: { '1,1': 0, '2,1': 0 } }), arrow('f', { id: 'P', as: 'block' }, { side: 's', span: 2, gap: 1, formula: 'x + index.x' }, { x: 0, y: 1 }), B('H', 0, 1, 2, 1, { seat: 'f' }), arrow('out', { id: 't1', as: 'tile' })],
+    [{ id: 't1', name: null, members: [0, 1, 2], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 2, across: 3, down: 1 } }]));
+  assert.deepEqual(g.nodes['map(v:P;x + index.x)'], { op: 'map', inputs: ['v:P'], type: type(2, 1), formula: 'x + index.x', within: ['t:t1'] });      /* no place of its own: it is read where it is worked out */
+  assert.deepEqual(g.nodes['v:H'].within, ['t:t1']); assert.equal(g.nodes['v:P'].within, undefined);
+  assert.deepEqual(g.spaces.top.tiles, [{ tile: 't:t1', blocks: ['P', 'H'], arrows: ['f'], node: 'repeat(v:P@0,0;v:H@0,1;2×2;3×1)', error: null }]);
+});
+test('whatever follows its cell in a tile is marked with the tile, however it is reached: a piece, an arrow\'s output', () => {
+  const g = make(snap([B('P', 0, 0, 2, 1, { entries: { '1,1': { expr: 'index.x' }, '2,1': { expr: 'index.x' } } }), B('Q', 2, 0, 1, 2, { entries: { '1,1': 1, '1,2': 1 } }), arrow('f', { id: 'P', as: 'block' }, { side: 's', span: 2 }, { x: 0, y: 1 })],
+    [{ id: 't1', name: null, members: [0, 1, 2], groups: [], repeat: { x: 0, y: 0, cols: 3, rows: 2, across: 2, down: 1 } }]));
+  assert.deepEqual(g.nodes['matmul(v:P,v:Q)'].within, ['t:t1']); assert.deepEqual(g.nodes['v:P'].within, ['t:t1']); assert.equal(g.nodes['v:Q'].within, undefined);
+  assert.equal(g.spaces.top.arrows[0].node, 'v:P');
+  /* validate holds the marks to exactly that: one taken away, one too many, one of a tile that is not there */
+  const without = JSON.parse(JSON.stringify(g)); delete without.nodes['matmul(v:P,v:Q)'].within; assert.match(validate(without)[0], /within names the tiles none and it belongs to t:t1/);
+  const extra = JSON.parse(JSON.stringify(g)); extra.nodes['v:Q'].within = ['t:t1']; assert.ok(validate(extra).length > 0);
+  const other = JSON.parse(JSON.stringify(g)); other.nodes['v:P'].within = ['t:other']; assert.ok(validate(other).length > 0);
+});
+test('validate answers for any value at all, and never throws', () => {
+  for (const g of [null, undefined, 0, 'x', [], [1], { version: 1, nodes: null }, { version: 1, nodes: { a: null }, functions: {}, spaces: {}, blocks: {} }, { version: 1, nodes: { a: 7, b: 'x', c: [] }, functions: {}, spaces: {}, blocks: {} },
+    { version: 1, nodes: { a: { op: 'constructor', inputs: [], type: type(1, 1) }, b: { op: 'toString' }, c: { op: '__proto__', inputs: [] }, d: { op: 'hasOwnProperty', inputs: [], type: type(1, 1) } }, functions: {}, spaces: {}, blocks: {} },
+    { version: 1, nodes: {}, functions: { f: null, g: 7 }, spaces: { top: null, x: 7, y: { owner: null, pieces: [null, 7], arrows: [null], tiles: [null, 7, {}] } }, blocks: { a: null, b: 7 } },
+    { version: 1, nodes: { a: { op: 'variable', inputs: [], type: type(1, 1), name: 'a', named: true, defined: 'toString', entries: { '1,1': null } } }, functions: {}, spaces: {}, blocks: {} },
+    { version: 1, nodes: { a: { op: 'apply', inputs: ['a'], type: type(1, 1), fn: 'constructor' }, b: { op: 'mapalong', inputs: ['a'], type: type(1, 1), fn: '__proto__', axis: 'rows', start: 1, span: 1, count: 1 } }, functions: {}, spaces: {}, blocks: {} }]){
+    const bad = validate(g); assert.ok(Array.isArray(bad) && bad.length > 0 && bad.every(b => typeof b === 'string'), JSON.stringify(g)); }
+  const deep = good(); let at = deep.nodes['v:C']; for (let i = 0; i < 5000; i++) at = at.more = {}; assert.ok(validate(deep).length > 0);      /* however deep what it is handed goes */
+});
+test('validate reads every formula: nothing a node depends on can be hidden in one', () => {
+  for (const formula of ['$1 + @[b1:x]', '@[s:m]', '(((', 'eval(1)', 'x + 1', 'heads * 2', '$2', '$0', '__proto__', 'constructor', 'i + j', ''])
+    refused(g => { g.nodes['v:A'].entries['2,1'] = { expr: formula }; }, 'a variable holding ' + formula);
+  refused(g => { g.nodes['v:A'].entries['2,1'] = { expr: '$1', also: 1 }; }, 'a formula with something beside it');
+  for (const formula of ['max(x, @[b1:x])', 'x +', 'eval(x)', 'x + w', 'x + $2', 'x + Keys.x', ''])
+    for (const op of ['map', 'mapalong']) refused(g => { first(g, op).formula = formula; }, `a ${op} holding ${formula}`);
+  const attr = formula => ({ op: 'measure', inputs: ['v:A', 'measure(v:s;m)'], type: type(1, 1), side: 'a', name: 'h', formula });
+  for (const formula of ['$1 + @[b1:x]', '(((', 'eval($1)', '$1 + x', '$2'])
+    refused(g => { g.nodes['measure(v:A;a:h)'] = attr(formula); }, 'an attribute holding ' + formula);
+  const ok = good(); ok.nodes['measure(v:A;a:h)'] = attr('max($1, 2) + index.x'); assert.deepEqual(validate(ok), []);
+  const empty = good(); empty.nodes['measure(v:A;a:h)'] = attr(''); assert.deepEqual(validate(empty), []);      /* an attribute with nothing typed */
+  const names = good(); first(names, 'map').formula = 'select(i > j, -inf, X) + index.y + $1'; assert.deepEqual(validate(names), []);      /* an arrow's own names, any case */
+  /* and build writes none: across every project, every formula in the graph is one validate accepts, with no capsule in it */
+  for (const name of readdirSync(projects).filter(n => statSync(join(projects, n)).isDirectory())) assert.ok(!JSON.stringify(build(read(tree(join(projects, name))))).includes('@['), name);
+});
+test('validate holds an exact value to its one stated form, and an entry\'s key to its one spelling', () => {
+  for (const v of [{ n: 2, k: 60 }, { n: 2, k: 7 }, { n: 1, d: 0, k: 0 }, { n: 1, k: -1 }, { n: 2, d: 4, k: 0 }, { n: 1, d: -2, k: 0 }, { n: 1, d: 1, k: 0 }, { n: 4, k: 0 }, { n: 4, k: 1 }, { n: 0, k: 1 }, { n: 1.5, k: 0 }, { n: 1, d: 2, k: 0, x: 1 }, { n: 1, d: 2 }, { k: 1 },
+    { n: 2 ** 60, k: 1 }, {}, [], 1.5, NaN, 'seven', { sym: '' }, { sym: 7 }, { f: 0.5 }, null])
+    refused(g => { g.nodes['v:A'].entries['1,1'] = v; }, 'an entry holding ' + JSON.stringify(v));
+  for (const v of [{ n: 1, d: 2, k: 0 }, { n: 2, k: 1 }, { n: 2, k: 6 }, { n: -3, d: 4, k: 1 }, 'inf', '-inf', true, -7, { sym: '1+sqrt(2)' }, { err: 'divide by zero' }]){ const g = good(); g.nodes['v:A'].entries['1,1'] = v; assert.deepEqual(validate(g), [], JSON.stringify(v)); }
+  for (const key of ['01,1', '1,01', '0,1', '1,0', '4,1', '1,3', '1, 1', '1', '1,1,1', '-1,1', '1.0,1'])
+    refused(g => { g.nodes['v:A'].entries[key] = 3; }, 'an entry called ' + key);
+  /* build keeps a value that is not in that form as the value it is, and drops what is none */
+  const g = make(snap([B('A', 0, 0, 3, 2, { entries: { '1,1': { n: 2, d: 4, k: 0 }, '2,1': { n: 4, k: 1 }, '3,1': { n: 1, d: 0, k: 0 }, '1,2': { n: 2, k: 60 }, '2,2': { n: 6, d: 3, k: 0 }, '01,1': 5 } })]));
+  assert.deepEqual(g.nodes['v:A'].entries, { '1,1': { n: 1, d: 2, k: 0 }, '2,1': 2, '2,2': 2 });
+});
+test('a tile wholly inside another tile\'s pattern is one part of it: a repeat that is an input of a repeat', () => {
+  /* the outer pattern is 2 by 2: its first row is an inner tile (a 1 by 1 pattern, twice across), its second a block */
+  const g = make(snap([B('P', 0, 0, 1, 1, { entries: { '1,1': { expr: 'index.x' } } }), B('Under', 0, 1, 2, 1, { entries: { '1,1': { expr: 'index.x' }, '2,1': 9 } }), arrow('out', { id: 'outer', as: 'tile' })],
+    [{ id: 'outer', name: null, members: [1], repeat: { x: 0, y: 0, cols: 2, rows: 2, across: 3, down: 1 }, groups: [{ id: 'inner', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 2, down: 1 } }] }]));
+  const inner = 'repeat(v:P@0,0;1×1;2×1)', outer = `repeat(v:Under@0,1;${inner}@0,0;2×2;3×1)`;
+  assert.deepEqual(g.spaces.top.arrows, [{ arrow: 'out', node: outer, error: null }]);
+  assert.deepEqual(g.nodes[outer], { op: 'repeat', inputs: ['v:Under', inner], type: type(6, 2), at: [{ col: 0, row: 1 }, { col: 0, row: 0 }], pattern: { cols: 2, rows: 2 }, across: 3, down: 1 });
+  assert.deepEqual(g.nodes[inner], { op: 'repeat', inputs: ['v:P'], type: type(2, 1), at: [{ col: 0, row: 0 }], pattern: { cols: 1, rows: 1 }, across: 2, down: 1, within: ['t:outer'] });
+  assert.deepEqual(g.nodes['v:P'].within, ['t:outer', 't:inner']); assert.deepEqual(g.nodes['v:Under'].within, ['t:outer']);      /* every tile it belongs to, outermost first */
+  assert.deepEqual(g.spaces.top.tiles.map(t => [t.tile, t.blocks, t.node]), [['t:outer', ['P', 'Under'], outer], ['t:inner', ['P'], inner]]);
+  assert.deepEqual(g.spaces.top.pieces.map(p => p.blocks), [['P'], ['Under']]);      /* and nothing touches across the inner tile's edge */
+  const gap = make(snap([B('P', 0, 0, 1, 1), arrow('out', { id: 'outer', as: 'tile' })],      /* an inner tile that does not fill the pattern leaves a gap, as a block would */
+    [{ id: 'outer', name: null, members: [], repeat: { x: 0, y: 0, cols: 2, rows: 2, across: 1, down: 1 }, groups: [{ id: 'inner', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 2, down: 1 } }] }]));
+  assert.deepEqual(gap.spaces.top.arrows[0].error, { code: 'no-source', note: 'its pattern has a gap' }); assert.equal(gap.spaces.top.tiles[1].node, inner.replace('v:P', 'v:P'));
+});
+test('the graph says an index matrix by rule, at any size: only the evaluator has a limit', () => {
+  const g = make(snap([B('P', 0, 0, 100, 50, { inside: space([B('ix', -101, -25, 100, 50, { name: 'index.x', from: { id: 'P', index: 'x' }, standing: true })]) })],
+    [{ id: 't1', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 100, rows: 50, across: 2, down: 1 } }]));
+  assert.deepEqual(g.nodes['v:ix'], { op: 'variable', inputs: ['map(source(zeros;100×50);index.x)'], type: type(100, 50), name: 'index.x', named: true, defined: 'source', entries: {}, within: ['t:t1'] });
+  assert.deepEqual(g.nodes['map(source(zeros;100×50);index.x)'], { op: 'map', inputs: ['source(zeros;100×50)'], type: type(100, 50), formula: 'index.x', within: ['t:t1'] });
+  assert.equal(g.nodes['v:P'].defined, 'standing');
+});
+test('a single entry\'s side that has no root is an error, and a count that needs it is not settled', () => {
+  const count = v => make(snap([B('Row', 0, 0, 2, 1), arrow('out', { id: 't1', as: 'tile' }), B('Tau', 9, 9, 1, 1, { entries: { '1,1': v } })], [tile({ cols: 2, across: { expr: '@[Tau:x]' }, down: 1 })]));
+  assert.equal(count(9).spaces.top.tiles[0].node, 'repeat(v:Row@0,0;2×1;3×1)');
+  for (const v of [-4, Infinity, { n: -2, k: 1 }, true]) assert.deepEqual(count(v).spaces.top.tiles[0].error, { code: 'size-unknown', note: '@[Tau:x]' }, String(v));
+});
+test('definitions nested a thousand deep: build returns, and says where it stopped reading', () => {
+  let inner = null; for (let i = 1000; i >= 1; i--) inner = space([B('d' + i, 0, 0, 1, 1, { inside: inner })]);
+  const g = build(snap([B('d0', 0, 0, 1, 1, { inside: inner })]));
+  assert.deepEqual(validate(g), []);
+  assert.equal(g.nodes['v:d0'].defined, 'definition'); assert.equal(g.nodes['v:d63'].defined, 'definition');
+  assert.deepEqual(g.nodes['v:d64'].error, { code: 'no-source', note: 'its definition lies more than 64 definitions deep, and is not read' }); assert.equal(g.nodes['v:d65'], undefined);
+  let fused = B('f1000', 0, 0, 1, 1); for (let i = 999; i >= 0; i--) fused = B('f' + i, 0, 0, 1, 1, { joined: [{ fx: 0, fy: 0, fw: 1, fh: 1, shape: fused }] });      /* and shapes fused of shapes fused */
+  assert.deepEqual(validate(build(snap([fused]))), []);
+  const row = Array.from({ length: 3000 }, (_, i) => B('m' + i, i, 0, 1, 2 - (i % 2) * 0, { cols: 2, rows: 2, x: i * 2 })); assert.deepEqual(validate(build(snap(row))), []);      /* and a row of three thousand */
+});
+test('a variable with an error keeps its entries, formulas and all', () => {
+  const g = make(snap([B('Tau', 30, 30, 1, 1, { entries: { '1,1': 3 } }), B('K', 20, 0, 4, 6, { entries: { '1,1': { expr: '1+1' }, '2,1': 7, '3,1': { expr: '@[Tau:m] * 2' } }, inside: space([B('A', 0, 0, 5, 6)]) })]));
+  assert.deepEqual(g.nodes['v:K'], { op: 'variable', inputs: ['measure(v:Tau;m)'], type: type(4, 6), name: 'K', named: true, defined: 'entries', entries: { '1,1': { expr: '1+1' }, '2,1': 7, '3,1': { expr: '$1 * 2' } }, error: { code: 'size', note: '5 × 6 ≠ 4 × 6' } });
+  /* round a loop, a formula that names anything is what loops, or cannot be told from it: those are left out */
+  const loop = make(snap([B('T', 0, 0, 2, 1, { entries: { '1,1': { expr: '@[S:m] + 1' }, '2,1': { expr: '2 * 3' } } }), B('S', 9, 0, 1, 1, { entries: { '1,1': { expr: '@[T]' } }, from: null, inside: space([B('t2', 0, 0, 1, 1, { name: 'x' }), B('t3', 1, 0, 1, 1, { name: 'S', variable: 9, reference: true })]), variable: 9 })]));
+  assert.equal(loop.nodes['v:S'].error.code, 'loop');
+});
+test('sides that carry one name and are two lengths do not multiply', () => {
+  const g = make(snap([B('A', 0, 0, 3, 2, { colsName: 'e' }), B('W', 3, 0, 4, 5, { rowsName: 'e' })]));
+  assert.deepEqual(piece(g), { blocks: ['A', 'W'], rule: 'product', node: null, error: { code: 'mismatch', note: '3 ≠ 5' } });
+  refused(g => { g.nodes['v:W'].type = type(4, 5, null, 'e'); g.nodes['v:A'].type = type(3, 2, 'e', null); g.nodes['matmul(v:A,v:W)'].type = type(4, 2); }, 'a product of 3 columns e and 5 rows e');
+});
+test('a function\'s input is in the graph only with its function', () => {
+  for (const name of readdirSync(projects).filter(n => statSync(join(projects, n)).isDirectory())){ const g = build(read(tree(join(projects, name))));
+    for (const [id, n] of Object.entries(g.nodes)) if (n.op === 'param') assert.ok(Object.values(g.functions).some(f => f.input === id), name + ' ' + id); }
+  /* a space that comes to two pieces is no function: its input, and what is made of it there, are not in the graph */
+  const g = make(snap([B('X', 0, 0, 4, 3), arrow('lin', { id: 'X', as: 'block' }, { span: 3 }, { inside: fnSpace(4, 3, B('Wf', -5, 0, 2, 4), B('Z', 20, 0, 2, 2)) })]));
+  assert.deepEqual(g.functions, {}); assert.ok(!Object.values(g.nodes).some(n => n.op === 'param')); assert.equal(g.blocks.in, undefined);
+  assert.deepEqual(g.spaces.top.arrows[0].error, { code: 'pieces', note: '2 pieces' });
+  assert.deepEqual(g.spaces['f:lin'].pieces[0], { blocks: ['in', 'Wf'], rule: 'product', node: null, error: { code: 'mismatch', note: 'the function it is in comes to no one matrix' } });
+  assert.equal(g.spaces['f:lin'].pieces[1].node, 'v:Z');
+  assert.match(refused(h => { delete h.functions['f:lin']; h.spaces.top.arrows[0] = { arrow: 'lin', node: null, error: { code: 'pieces', note: '' } }; delete h.nodes['apply(v:X;f:lin)']; }, 'an input with no function').join(' '), /a function's input with no function/);
+});
+test('a block seated on an output of another size has the size error: the arrow has none', () => {
+  const g = make(snap([B('V', 0, 0, 4, 3), arrow('f', { id: 'V', as: 'block' }, { span: 3 }), B('H', 9, 0, 2, 2, { seat: 'f' })]));
+  assert.deepEqual(g.spaces.top.arrows[0], { arrow: 'f', node: 'v:V', error: null }); assert.deepEqual(g.nodes['v:H'].error, { code: 'size', note: '4 × 3 ≠ 2 × 2' });
 });
