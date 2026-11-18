@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lostWithin, DEPTH, nest, laid, overlaps, overlapping, allowed, home, moved, indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
+import { reframed, lostWithin, DEPTH, nest, laid, overlaps, overlapping, allowed, home, moved, indexless, drawnOn, movable, held, settled, circular, enterable, spanned, LIMIT, NO_INDEX, kept, count, typed, counts, filled, settable, dragged, slots, layout, footprint, within, members, makable, index, axisOf, reads, indexValues, matrix, entries, whole, mapped, startIn } from '../tiles.js';
 
 const rep = (cols, rows, across = 1, down = 1, x = 0, y = 0) => ({ x, y, cols, rows, across, down });
 const rect = (x, y, w, h) => ({ x, y, w, h });
@@ -530,4 +530,17 @@ test('after review: what is wrong is named for what it is, and once', () => {
   assert.equal(lostWithin('its pattern has a gap'), 'a tile in its pattern has no matrix: its pattern has a gap');
   assert.equal(lostWithin(lostWithin(lostWithin('its pattern has a gap'))), 'a tile in its pattern has no matrix: its pattern has a gap');
   const deep = matrix(p, 1, 1, [{ error: matrix(p, 1, 1, [{ error: 'it lies too deep' }]).error }]); assert.deepEqual(deep, { error: 'a tile in its pattern has no matrix: it lies too deep' });
+});
+
+test('after review: a framing gesture does not part a tile from the pattern it lies in', () => {
+  const o = T('o', null, 0, 0, 4, 1, 1, 3), i = up => T('i', up, 0, 0, 2, 1, 2, 1), far = T('far', null, 20, 0, 4, 4);
+  assert.deepEqual(reframed([o, i('o'), far], [o, i('o'), far]), { ok: true });      /* frames made round blocks, no tile in other hands */
+  assert.match(reframed([o, i('o'), far], [o, i(null), far]).refused, /^That would part a tile from the pattern it lies in/);      /* its frame taken out of the outer tile's, its pattern still there */
+  assert.match(reframed([o, i('o'), far], [o, i('far'), far]).refused, /part a tile from the pattern/);      /* handed to a tile whose pattern it does not lie in */
+  /* a tile that lies clear of every pattern may go into an ordinary frame and out of it: it is in no tile before or after */
+  assert.deepEqual(reframed([o, T('i', null, 30, 30, 2, 1)], [o, T('i', null, 30, 30, 2, 1)]), { ok: true });
+  /* one that was already parted (pasted on a pattern it is not in) may be handed to that tile: that mends it */
+  assert.deepEqual(reframed([o, i(null)], [o, i('o')]), { ok: true });
+  /* and one already past its tile's pattern may be taken out of it where it then lies clear */
+  assert.deepEqual(reframed([T('o', null, 0, 0, 4, 1), T('i', 'o', 9, 9, 2, 1)], [T('o', null, 0, 0, 4, 1), T('i', null, 9, 9, 2, 1)]), { ok: true });
 });

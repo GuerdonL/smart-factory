@@ -2327,6 +2327,8 @@ function dragged(el, from, e){
         /* out of its tile, its index matrices would be left defining it as nothing: they go with it, after the warning. Nothing is done until that is answered. */
         const leaves = t !== undefined && !(stays && upFrom(stays[0]).some(g => space.repeats.has(g))), rects = (cursor(''), collect()); shown();      /* still in a tile (the one round the tile it left), it still has an index */
         return warned([], 'Taking out', 'Take out', also => { if (rects.length) bus.send('place', { rects }); bus.send('frame.leave', { id: b.id, frame: stays ? stays[0] : null, also: idsOf(also) }); }, [], [], bare(b.name), leaves ? [b.id] : []); }
+      /* let go on a frame they cannot go into (a whole tile that would be parted from the pattern it lies in): nothing is moved */
+      if (host !== null && !enterFrame(idsOf(held), host, true)){ cursor(''); collect(); return shown(); }
       end();
       if (host !== null) bus.send('frame.enter', { ids: idsOf(held), frame: host }); },
     move(p){ let dx = snap(p.x - from.x), dy = snap(p.y - from.y), stopped = null; last = p;
@@ -2547,6 +2549,8 @@ bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) retur
        pattern of the tile it is in), or it is to be moved and an arrow is repeated in it.
    frame.enter { ids, frame }: as for any frame; a whole tile among the blocks goes into a tile only where it lies
        wholly inside that tile's pattern.
+   frame { ids }, frame.enter: refused, with a sentence and nothing changed, where the frame made or entered would
+       part a tile from the pattern it lies in (framing, above the handlers).
    frame.leave { id, frame, also }, tile.remove { frame, also }: also carries the index matrices of a block that is then in no tile.
    tile.remove { frame, also }: the tile is taken off. Its blocks, and the tiles in its pattern, stay: they are then in
        the tile it was in, or in none. also: the arrows that read it, and what goes with them.
@@ -2590,18 +2594,33 @@ bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b
   shown(); }, changes);
 bus.on('side.set', ({ id, dim, text }) => { const b = blockOf(id); if (b) typed(b, dim, text); shown(); }, changes);
 /* a frame is several shapes held together (in the code, and in projects saved before, a group) */
-bus.on('frame', ({ ids }) => { group(ids.map(blockOf).filter(Boolean)); shown(); hud.say('Framed: click its name to name it'); }, changes);
+/* A framing gesture: frames made, entered or left. A whole tile among the blocks goes as a tile, and framing never
+   moves a tile's pattern: so where the gesture would part a tile from the pattern it lies in (take an inner tile's
+   frame out of the outer tile's, or put it in a tile it does not lie in), it is undone and refused with a sentence
+   (tiles.js: reframed). Gives whether it stood. */
+function framing(change, trial = false){      /* trial: undone whether or not it could stand */
+  const before = tileList(space), was = [space.groupOf, space.groupUp, space.groupNames, space.repeats].map(m => [m, new Map(m)]), at = ids.state();
+  change();
+  const can = tiles.reframed(before, tileList(space)); if (!can.refused && !trial) return true;
+  for (const [m, kept] of was){ m.clear(); for (const [k, v] of kept) m.set(k, v); } ids.restore(at);      /* and no id is used up by what did not happen */
+  if (can.refused){ hud.say(can.refused); shown(); }
+  return !can.refused;
+}
+bus.on('frame', ({ ids }) => { if (!framing(() => group(ids.map(blockOf).filter(Boolean)))) return; shown(); hud.say('Framed: click its name to name it'); }, changes);
 bus.on('unframe', ({ frame: g }) => { if (space.repeats.has(g)){ hud.say('That frame is a tile: select the tile by its edge or its name, and press Delete to take it off'); return shown(); }
   ungroup(g); tidy(); shown(); hud.say('Frame taken off'); }, changes);
-bus.on('frame.enter', ({ ids, frame: host }) => { const held = new Set(ids.map(blockOf).filter(Boolean));
+bus.on('frame.enter', ({ ids, frame }) => { enterFrame(ids, frame); }, changes);
+/* blocks let go on a frame go into it. trial: only whether they would, with the sentence where they would not, and nothing changed (a drag asks before it sets the blocks down there) */
+function enterFrame(ids, host, trial = false){ const held = new Set(ids.map(blockOf).filter(Boolean));
   /* a whole tile among what is let go goes in as a tile: into a tile, only where it lies wholly inside that tile's pattern (tiles.js: enterable, allowed) */
   const to = upFrom(host).find(g => space.repeats.has(g)), whole = [...new Set([...held].flatMap(b => tilesOf(b)).filter(g => inGroup(g).every(x => held.has(x))))].filter((g, _, all) => !tilesAbove(space, g).some(k => all.includes(k)));
   const fits = to === undefined || whole.every(g => g !== to && !tilesAbove(space, to).includes(g)) && !tiles.allowed(tileList(space), tileList(space, t => whole.includes(t.id) ? { ...t, in: to } : null)).refused;
   const into = tiles.enterable(to !== undefined, whole.length > 0, fits);
-  if (into.refused){ hud.say(into.refused); return shown(); }
-  for (const b of held){ const outer = chain(b).at(-1), tile = tilesOf(b).find(g => whole.includes(g));
-    if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else if (tile !== undefined) space.groupUp.set(tile, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group, and a whole tile as a tile */
-  tidy(); shown(); }, changes);
+  if (into.refused){ hud.say(into.refused); shown(); return false; }
+  if (!framing(() => { for (const b of held){ const outer = chain(b).at(-1), tile = tilesOf(b).find(g => whole.includes(g));
+      if (outer !== undefined && inGroup(outer).every(x => held.has(x))) space.groupUp.set(outer, host); else if (tile !== undefined) space.groupUp.set(tile, host); else space.groupOf.set(b, host); }      /* a whole group goes in as a group, and a whole tile as a tile */
+    tidy(); }, trial)) return false;
+  shown(); return true; }
 /* a whole frame set down again from the list: everything in it, made anew, centred where it was dropped */
 bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupNames.has(frame) || s.repeats.has(frame)); if (!s) return;
   const pictures = inGroup(frame, s).map(b => picture(b, s));

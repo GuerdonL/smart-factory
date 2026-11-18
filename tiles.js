@@ -118,6 +118,12 @@
                                     tile comes to lie deeper than DEPTH. (So a tile already warned of can still be
                                     changed, to mend it.) This is what is asked when a tile is drawn, moved,
                                     pulled or typed into.
+   reframed(before, after)       -> { ok: true } | { refused }: whether a framing gesture may leave the tiles as
+                                    `after` (the same tiles in the same places, some now in other tiles or in
+                                    none, because frames were made, entered or left): not where a tile that has
+                                    changed hands would be parted from the pattern it lies in, or put in a tile
+                                    whose pattern it does not lie in (allowed). Framing blocks never moves a
+                                    tile's pattern, so a tile is taken from one tile to another only by its frame.
    home(list, id)                -> the id of the tile that tile lies wholly inside the pattern of, as the list
                                     stands: the innermost such that is not itself inside it; null for none. Where
                                     a tile is let go, this is the tile it is then in.
@@ -339,6 +345,11 @@ export function allowed(before, after){
   if (fresh) return { refused: fresh.why === 'past' ? 'That would leave a tile running past the pattern of the tile it is in: ' + PAST : 'A tile cannot lie over another tile: ' + OVER };
   const was = laid(before); for (const [id, t] of laid(after)) if (t.depth >= DEPTH && !(was.has(id) && was.get(id).depth >= DEPTH)) return { refused: 'That is too deep: ' + DEEP };
   return { ok: true };
+}
+export function reframed(before, after){
+  const was = new Map(before.map(t => [t.id, t.in ?? null]));
+  if (!after.some(t => was.has(t.id) && was.get(t.id) !== (t.in ?? null))) return { ok: true };
+  return allowed(before, after).refused ? { refused: 'That would part a tile from the pattern it lies in: a tile belongs to the tile whose pattern it lies inside. Move the tile by its frame, and what is in it goes with it' } : { ok: true };
 }
 export function home(list, id){
   const L = laid(list), me = L.get(id); if (!me) return null;
