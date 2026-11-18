@@ -598,3 +598,15 @@ test('noise and a file source are written as the format has them and read back; 
   assert.deepEqual(d.entries, {});
   assert.deepEqual(json(write(project(space([shape('S', { cols: 2, entries: { '1,1': { f: 0.5 }, '2,1': 3 } })])), ), 'S.json').value.entries, { '2,1': 3 });
 });
+
+test('projects/noise-and-data holds a noise block, a file source with its file under data/, and survives being written and read again', () => {
+  const files = tree(join(here, 'noise-and-data')), p = read(files), by = name => p.top.shapes.find(d => d.name === name);
+  assert.deepEqual(by('Noise').source, { noise: { seed: 0, dist: 'uniform' } }); assert.deepEqual([by('Noise').cols, by('Noise').rows, by('Noise').entries], [4, 4, {}]);
+  assert.deepEqual(by('Draw').source, { noise: { seed: 7, dist: 'normal' } }); assert.deepEqual(by('Weights').source, { file: 'data/weights.csv' });
+  assert.deepEqual(Object.keys(p.data), ['data/weights.csv']); assert.equal(p.data['data/weights.csv'].split('\n').length, 6);      /* a header and four rows of two: the block's size */
+  assert.deepEqual([by('Weights').cols, by('Weights').rows], [2, 4]);
+  assert.equal(p.top.shapes.find(d => d.arrow).arrow.formula, 'exp(x)');
+  for (const f of files) assert.ok(!/"f":|"err":/.test(f.text), f.path);      /* no decimal and no error in any file */
+  const again = write(p).map(f => f.path).sort(); assert.deepEqual(again, files.map(f => f.path).sort());
+  assert.deepEqual(read(write(p)).data, p.data);
+});
