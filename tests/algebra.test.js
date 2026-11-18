@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { joins, pieces, stacks, typeOf, readEntry, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials } from '../algebra.js';
+import { joins, pieces, stacks, typeOf, readEntry, readSide, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -108,6 +108,33 @@ test('readEntry reads whole numbers and infinities, and nothing else', () => {
   for (const t of ['-inf', '-infinity', '-∞', '−∞']) assert.equal(readEntry(t), -Infinity, t);
   assert.equal(readEntry(''), null); assert.equal(readEntry('   '), null);
   for (const t of ['1.5', 'abc', '1e3', '--1', '3/2', '√2']) assert.equal(readEntry(t), undefined, t);
+});
+
+const side = (text, name, length) => assert.deepEqual(readSide(text), { name, length }, text);
+test('a number on its own is a side\'s length, and a word on its own is its name', () => {
+  side('8', '', 8); side('8u', '', 8); side(' 12 U ', '', 12); side('8 u', '', 8);
+  side('context', 'context', null); side('  context ', 'context', null); side('Keys.x', 'Keys.x', null); side('', '', null);
+});
+
+test('a name and a length are both read when the number stands apart from the name', () => {
+  side('context 8', 'context', 8); side('context 8u', 'context', 8); side('context=8', 'context', 8); side('context: 8', 'context', 8);
+  side('context = 8 u', 'context', 8); side('Keys.x 6u', 'Keys.x', 6); side('key size 4', 'key size', 4); side('= 8', '', 8);
+  side('context=', 'context', null); side('context :', 'context', null);
+});
+
+test('a side\'s name can end in a digit', () => {
+  side('d2', 'd2', null); side('h1', 'h1', null); side('layer2', 'layer2', null); side('v1.5', 'v1.5', null); side('x_10', 'x_10', null);
+  side('d2 8', 'd2', 8); side('h1=3u', 'h1', 3); side('d2 6u', 'd2', 6);      /* as a measurement shows it, typed back in */
+});
+
+test('a dash takes the name off, with or without a new length', () => {
+  side('-', '-', null); side('- 8', '-', 8); side('-8', '-', 8); side('-8u', '-', 8);
+});
+
+test('a length that is not a whole number is not accepted, and not rounded', () => {
+  side('2.5', '', undefined); side('2.5u', '', undefined); side('context 2.5', 'context', undefined); side('d2 0.5', 'd2', undefined);
+  side('99999999999999999999', '', undefined);      /* too long to be held as the number typed */
+  side('3.0', '', 3); side('0', '', 0);
 });
 
 test('a value that comes out whole is a plain number; otherwise it is kept in algebraic form', () => {

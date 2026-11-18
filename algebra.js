@@ -27,6 +27,11 @@
    readEntry(text) -> what was typed into a matrix entry: a whole number ("7", "-3", "+12"), plus or minus infinity
        ("inf", "+inf", "-inf", "infinity", "∞", "-∞"), null for nothing typed (the entry goes back to being a
        symbol), or undefined for anything else (not accepted)
+   readSide(text) -> what was typed into a side's measurement, as { name, length }: "8" (or "8u") a length; "context" a
+       name; "context 8", "context=8", "context: 8" both; "-" the name '-', which takes a side's name off ("-8": and
+       gives it a length). A number is a length only where it stands alone or apart from the name, so "d2" and "h1"
+       are names. name is '' where none was typed; length is a whole number, null where none was typed, or undefined
+       where one was typed that is not whole ("2.5"): not accepted, and never rounded
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
 
 import { value as make, written as writtenExact } from './expression.js';
@@ -87,6 +92,12 @@ export function readEntry(text){
   if (/^[+-]?\d+$/.test(t)) return parseInt(t, 10);
   const m = t.match(/^([+-]?)(inf|infinity|∞)$/);
   return m ? (m[1] === '-' ? -Infinity : Infinity) : undefined;
+}
+
+export function readSide(text){
+  const t = String(text).trim(), m = t.match(/^(?:(.*?)[\s=:]+|(-?))(\d+(?:\.\d+)?)\s*u?$/i);      /* a name, then a space, = or : before the number; or no name, or only the "-" */
+  if (!m) return { name: t.replace(/[\s=:]+$/, ''), length: null };
+  return { name: (m[1] ?? m[2]).trim(), length: Number.isSafeInteger(Number(m[3])) ? Number(m[3]) : undefined };
 }
 
 /* A number that is not whole is kept in algebraic form, never as decimals: a fraction, a root, or a root of a

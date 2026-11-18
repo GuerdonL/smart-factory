@@ -17,7 +17,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { joins, pieces, stacks, typeOf, initials, readEntry, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
+import { joins, pieces, stacks, typeOf, initials, readEntry, readSide, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -249,10 +249,16 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   if (w > cols || h > rows) return hud.say(`${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
+<<<<<<< HEAD
   const def = spaceOf.get(a);
   if (def === spaceOf.get(v)) return hud.say('A shape cannot go into its own matrix');
   if (loops(v, def)) return hud.say(`${bare(a.name)} is inside ${bare(v.name)}'s definition: ${bare(v.name)} cannot go into ${bare(a.name)}'s matrix`);
   const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
+=======
+  const def = spaceOf.get(a), vdef = spaceOf.get(v), family = [...kinOf(v)];      /* v's definition and uses, noted now: v may itself be among what is taken out below */
+  if (def === vdef) return hud.say('A shape cannot go into its own matrix');
+  const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b, vdef); };
+>>>>>>> review-fixes
   let tiles = tilesOf(a);
   if (!tiles){ for (const b of [...def.blocks]) out(b); tiles = [];      /* the first shape in: whatever was in its definition goes */
     def.groupUp.clear(); def.groupNames.clear(); for (const f of def.frames.values()) f.el.remove(); def.frames.clear(); }
@@ -264,8 +270,8 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   const [X, Y] = best || [wantX, wantY];
   for (const t of over(X, Y)) out(t.block);
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
-  use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, spaceOf.get(v));
-  const set = kin.get(v) || new Set([v]); set.add(use); for (const k of set) kin.set(k, set); use.ref = true; use.attrs = attrsOf(v);
+  use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, vdef);
+  const set = new Set(family.filter(k => spaceOf.get(k) === vdef)); set.add(use); if (set.size > 1) for (const k of set) kin.set(k, set); use.ref = true;      /* the uses still there: v is not one of them if it was in the definition that has just been cleared */ use.attrs = attrsOf(v);
   def.blocks.push(use); if (def === space) view.world.append(use.el);
   select([]); shown();
   const left = cols * rows - (tilesOf(a) || []).reduce((sum, t) => sum + t.w * t.h, 0);
@@ -404,7 +410,8 @@ function keepTouching(change, except = () => false){
    "context 8" both;  "-" takes the name off. */
 function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
 function typedNow(b, dim, text){
-  const m = text.match(/^(.*?)[\s=:]*(?:(\d+(?:\.\d+)?)\s*u?)?$/i), name = (m[1] || '').trim(), n = m[2] ? Math.round(parseFloat(m[2])) : null;
+  const { name, length: n } = readSide(text);      /* algebra.js: a number is a length only apart from the name, so "d2" is a name */
+  if (n === undefined){ hud.say(`${String(text).trim()}: only a whole number can be a side's length`); return; }      /* never rounded: nothing changes */
   /* a named scalar stays a scalar: a length given to its side is the root of its number, so the number becomes the
      length squared, and the block keeps its one square */
   const single = isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit;
@@ -967,9 +974,20 @@ function disjoin(){
     j.el.remove(); space.blocks.splice(space.blocks.indexOf(j), 1); space.groupOf.delete(j); j.members = null; forget(j); }
   tidy(); select([...others, ...back]);
 }
-function forget(b){                             /* one use fewer of its variable; what it was joined from goes with it */
-  spaceOf.delete(b); const set = kin.get(b); if (set){ set.delete(b); kin.delete(b); if (set.size < 2) for (const k of set) kin.delete(k); }
-  for (const m of b.members || []) forget(m.block);
+/* b has been taken out of its space: one use fewer of its variable. With it goes whatever can no longer be come to
+   from the Menu: once the last use of a variable is gone, what was in its definition space, and in the definitions of
+   those, all the way down; and what it was joined from. So a reference in there is no longer counted as a use of its
+   variable. Whatever can still be come to is left alone: a definition another use of the variable still shares, and
+   the shapes a joined shape was joined from, which are in no space but are held by it. (Each space is walked once, so
+   a definition that leads back to itself does not go round for ever.)
+   held: a definition space to keep although nothing leads to it at this moment, because a block about to be made will */
+function forget(b, held = null){
+  const drop = o => { spaceOf.delete(o); const set = kin.get(o); if (set){ set.delete(o); kin.delete(o); if (set.size < 2) for (const k of set) kin.delete(k); } };
+  drop(b);
+  const kept = new Set(), walked = new Set(), walk = s => { if (!s || walked.has(s)) return; walked.add(s); s.blocks.forEach(keep); };
+  const keep = o => { if (kept.has(o)) return; kept.add(o); walk(spaceOf.get(o)); for (const m of o.members || []) keep(m.block); };
+  walk(top); trail().forEach(walk); walk(held);      /* the spaces on the way to where the user stands are kept whatever has become of their blocks */
+  for (const o of [...spaceOf.keys(), ...kin.keys()]) if (!kept.has(o)) drop(o);
 }
 function remove(also = []){                      /* also: blocks anywhere that go with the selection (see doomed) */
   const gone = [...new Set([...selected, ...also])], lost = new Set(gone), touched = new Set([space]); select([]);
@@ -1021,8 +1039,15 @@ const typeNamed = name => shapes.find(s => s.name === name) || { name, label: na
 /* the page's spaces as plain data, lengths in units */
 function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
+  /* a definition space is written once, under the first block met that has it: a variable used in several places is
+     several blocks with one space, and written under each, a space inside a space, the whole would multiply */
+  const written = new Set(), once = s => !written.has(s) && !!written.add(s);
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
+<<<<<<< HEAD
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && !writing.has(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
+=======
+    colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
+>>>>>>> review-fixes
     tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: b.from ? { ...b.from } : null,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   /* writing: the spaces being written out just now, one inside the next. A space is never written inside itself: no
@@ -1043,7 +1068,20 @@ function rebuild(data){
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
   ids = createIds(); if (data.ids) ids.restore(data.ids);
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
+  const defs = new Map(), sharing = new Map();   /* a variable's number -> its definition space, once a use that carries it has been met, and -> the blocks that share it */
   const u = view.unit;
+  /* A block's definition. One use of a variable carries it (any one: not always the first met here, and in projects
+     saved before, every one), and every use has it: those met already are given it now, and those to come as they
+     are made. What another use carries besides is a copy, and is left.
+     A shape written twice is treated likewise, by its id (a shape that several uses of a joined variable were joined
+     from is written under each, its definition under one): the one written without a definition has the other's. */
+  const define = (b, d, s) => { const v = d.variable ?? null, key = v ?? (d.id || null);
+    if (key !== null) sharing.set(key, [...(sharing.get(key) || []), b]);
+    if (defs.has(key) && (v !== null || !d.inside)) return spaceOf.set(b, defs.get(key));
+    if (!d.inside) return;
+    const def = newSpace(b, s); spaceOf.set(b, def);
+    if (key !== null && !defs.has(key)){ defs.set(key, def); for (const k of sharing.get(key)) spaceOf.set(k, def); }
+    fill(d.inside, def); };
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
@@ -1051,8 +1089,8 @@ function rebuild(data){
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
-    if (first){ b.values = first.values; b.attrs = first.attrs; if (spaceOf.has(first)) spaceOf.set(b, spaceOf.get(first)); return b; }      /* a later use: the first one's entries and definition */
-    if (d.inside){ const def = newSpace(b, s); spaceOf.set(b, def); fill(d.inside, def); }
+    if (first){ b.values = first.values; b.attrs = first.attrs; }      /* a later use: the first one's entries */
+    define(b, d, s);
     return b; };
   const fill = (plain, s) => {
     for (const d of plain.shapes) s.blocks.push(build(d, s));
@@ -1073,7 +1111,10 @@ const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(l
    one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
 ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
   if (first) bus.send('project.open', { name: first }).then(() => { current = 'menu'; });
-  else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => Promise.all(list.map(path => fetch('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e)))))
+  else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => { const text = url => fetch(url).then(r => r.ok ? r.text() : Promise.reject());
+      /* its .config is not among its files (each machine has its own): it is the one beside the directory, projects/default-menu.config */
+      return Promise.all([...list.filter(path => path !== '.config').map(path => text('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e))),
+        text('projects/default-menu.config').then(text => ({ path: '.config', text }), () => null)]); })
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
 
 async function save(name){
@@ -1269,7 +1310,8 @@ const changes = { changes: true };
    was: the space they were in and what was selected. Putting one back rebuilds the project from it (every block and
    group has its id again), keeps each space's view where it now is, and goes back to that place. */
 const history = createHistory(bus, {
-  snap: () => { const data = gather(); return { data, text: JSON.stringify(data.top), path: trail().slice(1).map(s => s.owner.id), selected: idsOf(selected) }; },
+  /* text: what two states are compared by. JSON writes both infinities as null, so here they are written as a saved file has them, and ∞ to -∞ is a step */
+  snap: () => { const data = gather(); return { data, text: JSON.stringify(data.top, (key, v) => v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v), path: trail().slice(1).map(s => s.owner.id), selected: idsOf(selected) }; },
   same: (a, b) => a.text === b.text,
   restore(state){
     const views = new Map([[null, space === top ? view.camera() : top.camera]]);      /* each space's camera, by the id of the block it defines */
