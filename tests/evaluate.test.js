@@ -455,3 +455,19 @@ test('carry takes what was worked out to a new graph, for every node that is the
   const f1 = build(snap(fnShapes(1))); assert.deepEqual(worked(f1, 'apply(v:X;f:lin)'), { '1,1': 11 });
   const f2 = build(snap(fnShapes(10))); carry(f1, f2); assert.deepEqual(worked(f2, 'apply(v:X;f:lin)'), { '1,1': 38 });
 });
+
+/* ---- phase 7: what only the backend has ---- */
+test('phase 7: what is made of noise or of a data file is not worked out here: deferred, and marked as the backend\'s', () => {
+  const g = make(snap([B('N', 0, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } }), B('M', 2, 0, 2, 2, { entries: { '1,1': 1, '2,1': 2, '1,2': 3, '2,2': 4 } }),
+    B('F', 10, 0, 2, 2, { source: { file: 'data/w.csv' } }), B('K', 20, 0, 2, 2, { entries: { '1,1': 5, '2,1': { expr: '@[N:x] + 1' } } }), B('Bad', 30, 0, 2, 2, { source: { file: null } }), B('Q', 32, 0, 2, 2)]));
+  const t = { cols: 2, rows: 2, colsName: null, rowsName: null };
+  assert.deepEqual(evaluate(g, 'v:N'), { type: t, deferred: true, backend: true });
+  assert.deepEqual(evaluate(g, 'matmul(v:N,v:M)'), { type: t, deferred: true, backend: true });      /* and everything made of it */
+  assert.deepEqual(evaluate(g, 'v:F'), { type: t, deferred: true, backend: true });
+  assert.deepEqual(evaluate(g, 'v:M').entries, { '1,1': 1, '2,1': 2, '1,2': 3, '2,2': 4 });      /* what is not made of it is worked out as ever */
+  assert.deepEqual(evaluate(g, 'v:K').entries, { '1,1': 5, '2,1': 3 });      /* its width is a size, and needs no numbers */
+  assert.equal(evaluate(g, 'matmul(v:Bad,v:Q)').error.code, 'no-source');      /* an error is still the error */
+  const big = make(snap([B('N', 0, 0, 100, 100, { source: { noise: {} } })]));
+  assert.deepEqual(evaluate(big, 'v:N'), { type: { cols: 100, rows: 100, colsName: null, rowsName: null }, deferred: true, backend: true });      /* too large here, and the backend's all the same */
+  assert.deepEqual(evaluate(big, 'v:N', { maxEntries: 1e6 }), { type: { cols: 100, rows: 100, colsName: null, rowsName: null }, deferred: true, backend: true });
+});

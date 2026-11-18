@@ -1,7 +1,7 @@
 /* sources.js: blocks that have values at any size without storing them. Run with: node --test */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SOURCES, kept, faceOf, entry, values, typable, holds } from '../sources.js';
+import { SOURCES, DATA, DISTS, kept, kindOf, remote, labelOf, faceOf, noise, seedOf, dataPath, dataName, entry, values, typable, holds } from '../sources.js';
 
 const rows = (kind, cols, rows_) => Array.from({ length: rows_ }, (_, r) => Array.from({ length: cols }, (_, c) => values(kind, cols, rows_).get((c + 1) + ',' + (r + 1))).join(' '));
 
@@ -45,7 +45,7 @@ test('a place that is no entry, and a kind that is no source, have no value', ()
 
 test('only a kind this program has is kept: anything else read from a file is no source', () => {
   assert.equal(kept('zeros'), 'zeros'); assert.equal(kept('ones'), 'ones'); assert.equal(kept('identity'), 'identity');
-  for (const other of [null, undefined, '', 'Zeros', 'noise', { noise: { seed: 1 } }, { file: 'data/a.csv' }, 1, true]) assert.equal(kept(other), null);
+  for (const other of [null, undefined, '', 'Zeros', 'noise', { seed: 1 }, [], 1, true]) assert.equal(kept(other), null);
 });
 
 test('entries cannot be typed into a source, and nothing stands in its matrix; any other block takes both', () => {
@@ -55,4 +55,38 @@ test('entries cannot be typed into a source, and nothing stands in its matrix; a
   assert.match(typable('identity', 'Eye').refused, /^Eye is an identity: a source/);
   assert.match(holds('ones', 'One').refused, /^One is ones: a source is defined by its kind alone/);
   assert.match(typable('zeros', '').refused, /^It is zeros/);
+});
+
+/* ---- phase 7: noise and data files, whose numbers only the backend has ---- */
+test('noise is kept as its seed and its distribution, and nothing else', () => {
+  assert.deepEqual(DATA.map(s => [s.kind, s.label]), [['noise', 'Noise'], ['file', 'File']]); assert.deepEqual(DISTS, ['uniform', 'normal']);
+  assert.deepEqual(kept({ noise: { seed: 7, dist: 'normal' } }), { noise: { seed: 7, dist: 'normal' } });
+  assert.deepEqual(kept({ noise: { seed: 7, dist: 'normal', more: 1 }, x: 2 }), { noise: { seed: 7, dist: 'normal' } });
+  assert.deepEqual(kept({ noise: {} }), { noise: { seed: 0, dist: 'uniform' } });      /* the defaults */
+  assert.deepEqual(kept({ noise: { seed: 1.5, dist: 'cauchy' } }), { noise: { seed: 0, dist: 'uniform' } });
+  assert.deepEqual(kept({ noise: { seed: -3 } }), { noise: { seed: -3, dist: 'uniform' } });
+  assert.deepEqual(noise(), { noise: { seed: 0, dist: 'uniform' } });
+  assert.equal(kindOf({ noise: {} }), 'noise'); assert.equal(kindOf('ones'), 'ones'); assert.equal(kindOf(null), null); assert.equal(kindOf({ file: null }), 'file');
+  assert.equal(remote({ noise: {} }), true); assert.equal(remote({ file: 'data/a.csv' }), true); assert.equal(remote('identity'), false); assert.equal(remote(null), false);
+  assert.equal(faceOf({ noise: {} }), '~'); assert.equal(faceOf({ file: null }), 'csv'); assert.equal(labelOf({ noise: {} }), 'noise'); assert.equal(labelOf('identity'), 'an identity');
+  assert.equal(values({ noise: {} }, 2, 2).size, 0);      /* nothing here can say its numbers */
+  assert.match(typable({ noise: {} }, 'N').refused, /^N is noise: a source stores no entries/); assert.match(holds({ file: 'data/a.csv' }, 'W').refused, /^W is a data file: a source/);
+});
+test('a seed is a whole number: the boundary', () => {
+  assert.deepEqual(seedOf(0), { seed: 0 }); assert.deepEqual(seedOf(-12), { seed: -12 }); assert.deepEqual(seedOf(Number.MAX_SAFE_INTEGER), { seed: Number.MAX_SAFE_INTEGER });
+  for (const no of [1.5, { n: 1, d: 2, k: 0 }, Infinity, null, true, '3', 2 ** 53, { f: 1 }]) assert.equal(seedOf(no).refused, 'A seed is a whole number');
+});
+test('a data file is at data/ and one .csv name, and nowhere else', () => {
+  for (const ok of ['data/a.csv', 'data/My Weights-2.v1.csv', 'data/0.csv']) assert.equal(dataPath(ok), ok);
+  for (const no of ['a.csv', 'data/a.json', 'data/../a.csv', 'data/..csv', 'data/sub/a.csv', '/data/a.csv', 'data/.a.csv', 'data\\a.csv', 'data/a.csv\0', 'data/a\0.csv', 'DATA/a.csv', 'data/.csv', 'data/' + 'a'.repeat(81) + '.csv', null, 7, {}])
+    assert.equal(dataPath(no), null, String(no));
+  assert.deepEqual(kept({ file: 'data/a.csv' }), { file: 'data/a.csv' });
+  assert.deepEqual(kept({ file: '../../etc/passwd' }), { file: null });      /* a file source still, with no file chosen */
+  assert.deepEqual(kept({ file: null }), { file: null });
+});
+test('a chosen file is given a path of its own under data/', () => {
+  assert.equal(dataName('weights.csv'), 'data/weights.csv'); assert.equal(dataName('My Weights.CSV'), 'data/My Weights.csv');
+  assert.equal(dataName('../../etc/passwd'), 'data/etc-passwd.csv'); assert.equal(dataName(''), 'data/data.csv'); assert.equal(dataName('...'), 'data/data.csv');
+  assert.equal(dataName('a.csv', new Set(['data/a.csv'])), 'data/a-2.csv'); assert.equal(dataName('a.csv', new Set(['data/a.csv', 'data/a-2.csv'])), 'data/a-3.csv');
+  for (const name of ['x'.repeat(300), 'ü.csv', 'a/b\\c.csv', '\0.csv', '..', '.hidden']) assert.equal(dataPath(dataName(name)), dataName(name), name);      /* whatever it was called, the path is one a project may hold */
 });

@@ -15,6 +15,7 @@
          Pair.frame.json           a frame: several shapes in one file
          .config                   the frame called .config, under exactly that name (see below)
          operations.json           what Difference and Intersect have cut in this space, if anything (see below)
+         data/                     the files its file sources read: data/weights.csv (only here, at the top)
 
    The project's own directory is the top space, the Menu.
 
@@ -40,6 +41,9 @@
                                                  "tile": true before phase 5; either is read
          "source": "zeros",                      it is a source (sources.js): "zeros", "ones" or "identity". Its entries follow
                                                  from its kind and its size, and none are written: its "entries" are empty
+         "source": { "noise": { "seed": 0, "dist": "uniform" } },
+                                                 or noise: a whole number for its seed, and "uniform" or "normal"
+         "source": { "file": "data/weights.csv" },   or the numbers of that file of the project (null: none chosen yet)
          "attributes": [ { "name": "heads", "value": "2^(3) + 1" } ],
                                                  attributes given to the variable by hand: a name, and a value as it was
                                                  typed (a number, or a formula; ^( ) is a power). It may hold
@@ -147,7 +151,10 @@
 
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
-   project: { top: space, saved: an ISO date, ids: where the project's source of ids has got to (ids.js), kept in project.json }
+   project: { top: space, saved: an ISO date, ids: where the project's source of ids has got to (ids.js), kept in project.json,
+              data: { "data/weights.csv": the file's text } }      the data files, written and read as they are: a path
+                                                                    that is not data/ and one .csv name (sources.js:
+                                                                    dataPath) is neither written nor read
 
    read's project also carries converted: how many old stacks were fused on the way in, and changed: how many other
    pieces of an old project now read differently (see below for both); each 0 for a project of this format.
@@ -161,7 +168,10 @@
    them. Reading, a repeat is given whole numbers, a pattern of at least 1 by 1 and counts of at least 1 (a count
    that is neither a number nor a formula is 1).
    It adds sources: a shape's "source". Reading, a source this program has not got (anything but those three
-   words; a format 2 project has none) is dropped, and the shape is an ordinary one with whatever entries its file has.
+   words, { noise } and { file }; a format 2 project has none) is dropped, and the shape is an ordinary one with
+   whatever entries its file has. A noise with a seed or a distribution that is none is given 0 and "uniform", and a
+   file whose path is not one under data/ is a file source with no file chosen. It adds data/, the directory of
+   the files that file sources read; a project without one has none.
    A standing shape's "standing": true was "tile": true in format 2 and in format 3 projects saved before the
    word tile was given to a region that repeats; "tile": true is read as "standing": true, and never written.
    It also adds to what an entry can hold:
@@ -190,7 +200,7 @@
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it],
               repeat: { x, y, cols, rows, across, down } only where the frame is a tile }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, entries: { "c,r": a literal value (Infinity for an infinity) or { expr } },
-              inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | null,
+              inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | { noise: { seed, dist } } | { file } | null,
               variable: a number shared by shapes that are one variable, or null,
               from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, index: 'x' | 'y' } | null,
               arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
@@ -198,7 +208,7 @@
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null } */
 
 import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.js';
-import { kept as sourceOf } from './sources.js';
+import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
 export const FORMAT = 3;
@@ -274,6 +284,7 @@ export function write(project){
   };
   files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, ...(project.ids ? { ids: project.ids } : {}) }, null, 2) + '\n' });
   space(project.top, '');
+  for (const path of Object.keys(project.data || {}).sort()) if (dataPath(path) && typeof project.data[path] === 'string') files.push({ path, text: project.data[path] });      /* the data files, as they are */
   return files;
 }
 
@@ -322,7 +333,8 @@ export function read(files){
     return { shapes, groups: set.map(g => g || rest.shift()), operations };
   };
   const top = space('');
-  let project = { top, saved: meta.saved || null, ids: meta.ids || null };
+  const data = {}; for (const [path, text] of at) if (dataPath(path) && typeof text === 'string') data[path] = text;
+  let project = { top, saved: meta.saved || null, ids: meta.ids || null, data };
   if ((meta.version || 1) < 2 && [...at.keys()].some(p => p.startsWith('_settings/'))){      /* format 1: see the note above */
     const menu = space('_settings/');
     if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'variable-3', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
