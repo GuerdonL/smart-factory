@@ -33,12 +33,19 @@
                   colour: it is no one block's), and only one that has none as what it is made from.
                   A decimal ({ f }: a number from the backend, see decimals.js) is never written like an exact
                   number. With decimal: 'square' it is a filled square, black at 0 or below, white at 1 or above
-                  and grey between, with its number as its title; otherwise it is written out to 9 significant
-                  digits, in columns three squares wide so that the digits can be read. Where the Map is marked stale (the numbers are of an older state of the project, and
-                  new ones are on their way) its decimals are drawn dimmed. Where it carries a note ("needs the
-                  backend") no entry is written, and the note is, across the middle.
+                  and grey between, with its number as its title; otherwise it is written out with exactly 9
+                  significant digits, in columns three squares wide so that the digits can be read, in a style of
+                  its own (class approx: a lighter, slanted weight, with ≈ before it). One that stands for an exact
+                  value the browser holds ({ f, exact: "exp(1)" }) has that written under its digits, and in its
+                  title either way. Where the Map is marked stale (the numbers are of an older state of the
+                  project, and new ones are on their way) its decimals are drawn dimmed. Where it carries a note
+                  ("needs the backend", or why the backend gave no numbers) no entry is written, and the note is,
+                  on one line; a matrix too narrow for its note is made as wide as the note, so that it lies
+                  inside the brackets and over nothing else.
      decimal      'square' for a matrix written on the canvas; left out, decimals are written as numbers
-     width, height  the size of what was made, in world units (for placing it)
+     noteMax      the most a note may make the matrix wide, in world units (the panel has only so much room); a
+                  longer note is cut short with dots, and is the matrix's title in full. Left out, no limit.
+     width, height  the size of what was made, in world units (for placing it): wider than its squares where a note made it so
 
    One row or one column is a vector, written k₁ … kₙ. Otherwise it is a matrix, each entry carrying its column then
    its row: k₁₁ … kₙ₁ down to k₁ₙ … kₙₙ (with a comma between them once either passes nine: k₁₀,₃). Past eight along
@@ -68,12 +75,17 @@ style('matrix', `
 .matrix > span.dots { font-style: normal; color: var(--muted); }
 .matrix > span.ghost { opacity: .5; }      /* an entry a variable side would have were it longer */
 .matrix > span.set.decimal { font-size: 0; line-height: 0; display: grid; place-items: center; }
-/* a decimal's square. Its two ends are the specification's own black and white, whatever the theme: they say a number, not a taste */
-.matrix .square { display: block; width: calc(var(--cell) * .62); height: calc(var(--cell) * .62); box-sizing: border-box; border: 1px solid var(--muted); border-radius: 2px;
+/* a decimal written out: never in the weight of an exact number, and marked; the exact form it stands for, where it has one, small beneath it */
+.matrix > span.set.approx { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; font-weight: 400; font-style: italic; }
+.matrix > span.set.approx .digits::before { content: "≈"; font-style: normal; opacity: .6; margin-right: .08em; }
+.matrix > span.set.approx .exact { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: .84em; font-style: normal; opacity: .7; }
+/* a decimal's square. Its two ends are the specification's own black and white, whatever the theme: they say a number, not a taste.
+   Its outline is the project's --muted, and in a project whose .config gives none the stylesheet's own --square-edge: a black square is seen on a dark canvas, and a white one on a light */
+.matrix .square { display: block; width: calc(var(--cell) * .62); height: calc(var(--cell) * .62); box-sizing: border-box; border: 1px solid var(--muted, var(--square-edge)); border-radius: 2px;
   background: color-mix(in srgb, #fff calc(var(--level) * 100%), #000); }
 .matrix > span.set.stale { opacity: .4; }      /* numbers of an older state of the project, while the new ones are waited for */
 .matrix > span.blank { visibility: hidden; }
-.matrix > .matrix-note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 0 .4em; white-space: nowrap; font: 11px/1.5 var(--font-ui); font-style: normal; color: var(--muted); background: var(--bg); border-radius: 3px; }
+.matrix > .matrix-note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); box-sizing: border-box; max-width: 100%; padding: 0 .4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 11px/1.5 var(--font-ui); font-style: normal; color: var(--muted); background: var(--bg); border-radius: 3px; }
 .matrix sub { font-style: normal; font-size: .68em; vertical-align: -0.35em; line-height: 0; margin-left: .04em; }
 /* the brackets: a tall stroke each side with short feet turned inwards */
 .matrix::before, .matrix::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: 5px; border: 1.2px solid var(--fg); }
@@ -89,7 +101,8 @@ const short = name => (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toL
 /* how many squares a side of n takes once written (the elided middle is one) */
 export const squares = (n, name = null) => shown(n, name).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, standing = [], transposed = false, colsName = null, rowsName = null, decimal = 'number' }){
+const NOTE_CHAR = 6.4, NOTE_PAD = 14;          /* a note's letters are 11px of the interface's typeface: about this wide each, and this much air round them all */
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, standing = [], transposed = false, colsName = null, rowsName = null, decimal = 'number', noteMax = Infinity }){
   const cs = shown(cols, colsName), rs = shown(rows, rowsName), vector = (cols === 1 && !colsName) || (rows === 1 && !rowsName);
   const num = (e, name) => e.last && name ? short(name) : e.i;      /* an entry's number along a side: the last of a variable side is that side's name */
   const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
@@ -103,13 +116,16 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
      written smaller on its own, to fit its square, and carries what it says in full as its title */
   /* decimals written as numbers are nine digits each: a matrix that holds any is written with columns three squares wide, so that they can be read */
   const roomy = decimal !== 'square' && !values.note && [...values.values()].some(isDecimal), cw = roomy ? cell * 3 : cell;
-  const LONG = 2.9 * cw / cell, wide = v => written(v).length * .72;
+  const LONG = 2.9 * cw / cell, wide = v => (written(v).length + (isDecimal(v) ? 1 : 0)) * .72;      /* (a decimal written out has its mark before it) */
   const square = v => decimal === 'square' && isDecimal(v);
   const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].filter(v => !square(v)).map(wide).filter(w => w <= LONG));
   /* a value in its entry: an error as the mark, a decimal as its square or its digits, anything else as it is written */
   const put = (entry, v) => { entry.className = isError(v) ? 'set error' : 'set'; if (isError(v)) entry.title = v.err;
     if (isDecimal(v) && values.stale) entry.classList.add('stale');
-    if (square(v)){ entry.classList.add('decimal'); entry.title = written(v); const s = html`<i class="square"></i>`; s.style.setProperty('--level', String(level(v.f))); entry.replaceChildren(s); return; }
+    if (square(v)){ entry.classList.add('decimal'); entry.title = (typeof v.exact === 'string' && v.exact ? v.exact + ' ≈ ' : '') + written(v); const s = html`<i class="square"></i>`; s.style.setProperty('--level', String(level(v.f))); entry.replaceChildren(s); return; }
+    if (isDecimal(v)){ entry.classList.add('approx'); const d = html`<span class="digits"></span>`; d.textContent = written(v); entry.replaceChildren(d); entry.title = written(v);      /* written out: in its own style, with the exact form it stands for */
+      if (typeof v.exact === 'string' && v.exact){ const x = html`<span class="exact"></span>`; x.textContent = v.exact; entry.append(x); entry.title = v.exact + ' ≈ ' + written(v); }
+      fit(entry, v); return; }
     entry.textContent = written(v); fit(entry, v); };
   const size = Math.min(cell * .6, cw * .8 / widest);
   const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cw * .92 / (written(v).length * .56) / size) + 'em'; if (!entry.title) entry.title = written(v); } };
@@ -138,6 +154,11 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
   if (!elided) for (const t of standing){ const b = likeness({ cols: t.w, rows: t.h, unit: cell, color: t.color, name: t.name }); b.el.title = t.name;
     if (t.id){ b.el.dataset.standing = t.id; b.el.style.pointerEvents = 'auto'; b.el.style.cursor = 'pointer'; }      /* it can be pressed: the page hears of it by this id */
     Object.assign(b.el.style, { left: t.x * cell + 'px', top: t.y * cell + 'px' }); el.append(b.el); }
-  if (values.note){ const n = html`<span class="matrix-note"></span>`; n.textContent = values.note; el.append(n); }
-  return { el, width: cs.length * cw, height: rs.length * cell };
+  /* a note in place of the entries: on one line, and the matrix is as wide as it takes (in whole squares), up to noteMax */
+  let width = cs.length * cw;
+  if (values.note){ const n = html`<span class="matrix-note"></span>`; n.textContent = values.note; el.append(n);
+    const needs = Math.ceil((values.note.length * NOTE_CHAR + NOTE_PAD) / cell) * cell, most = Math.max(width, Math.floor(noteMax / cell) * cell);
+    if (needs > most) el.title = values.note;      /* cut short: said in full where the pointer rests */
+    width = Math.max(width, Math.min(needs, most)); el.style.minWidth = width + 'px'; }
+  return { el, width, height: rs.length * cell };
 }

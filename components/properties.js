@@ -117,7 +117,7 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
       actions.replaceChildren(...(what.actions || []).map(a => { const b = html`<button type="button" class="properties-action"></button>`; b.textContent = a.label; b.addEventListener('click', () => onAction(a.key)); return b; })); actions.hidden = !what.actions?.length;
       if (!what.matrix){ value.replaceChildren(); notes.replaceChildren(...(what.notes || []).map(n => { const p = html`<div></div>`; p.textContent = n; return p; })); notes.hidden = !what.notes?.length; el.hidden = false;
         if (want){ const c = el.querySelector(`[data-k="${CSS.escape(want)}"]`); want = null; if (c) c.focus(); } return; }
-      const m = createMatrix({ ...what.matrix, cols: what.cols, rows: what.rows, cell: CELL });
+      const m = createMatrix({ ...what.matrix, cols: what.cols, rows: what.rows, cell: CELL, noteMax: 11 * CELL });      /* (a note longer than the panel has room for is cut short there: the notes beneath say it in full) */
       /* an entry pressed: a formula field opens over it, holding what the entry holds (its formula, not what that comes to) */
       m.el.addEventListener('click', e => { const s = e.target.closest('span[data-c]'); if (!s || s.querySelector('.formula') || what.fixed) return; const k = s.dataset.c + ',' + s.dataset.r, was = [...s.childNodes];
         const f = createFormula({ text: textOf(k), look, reach, onOpen, onClose, onKeep: text => { s.replaceChildren(...was); showing = ''; onEntry(k, text); }, onLeave: () => s.replaceChildren(...was) });

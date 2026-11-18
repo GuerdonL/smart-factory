@@ -32,7 +32,7 @@ import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColou
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds } from './sources.js';
-import { wanted, merged, noted, drawn as cellsDrawn, level as levelOf, NEEDS } from './decimals.js';
+import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
 import { createBackend } from './backend.js';
 import { squares } from './components/matrix.js';
 
@@ -82,12 +82,12 @@ function write(){
   if (!space.owner) return;
   if (isArrow(space.owner)){      /* an arrow's space: its output on the right, at the size it promises or, with no promise, the size it comes to */
     const a = space.owner, t = defSize(a); syncIn(space, a);
-    space.definition = createDefinition({ cols: t.cols, rows: t.rows, unit: view.unit, name: isNamed(a) ? a.name : 'output', letter: initials(a.name), color: 'function', values: outputOf(a).values || new Map(), editable: false, colsName: t.colsName || null, rowsName: t.rowsName || null });
+    space.definition = createDefinition({ cols: t.cols, rows: t.rows, unit: view.unit, name: isNamed(a) ? a.name : 'output', letter: initials(a.name), color: 'function', values: outputOf(a).asDrawn || new Map(), editable: false, colsName: t.colsName || null, rowsName: t.rowsName || null });
     space.definition.wrote = defKey(a); view.world.prepend(space.definition.el); return; }
   flow(space.owner);
   const o = space.owner, r = o.rect, over = turned(o);      /* opened through a transpose, it is still the variable's own definition: the right way round */
   space.definition = createDefinition({ cols: Math.round((over ? r.h : r.w) / view.unit), rows: Math.round((over ? r.w : r.h) / view.unit), unit: view.unit,
-    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: valuesOf(o, 0, true), inherited: inheritedBy(o, space.parent), editable: isNamed(o) && !o.source,      /* a named block's matrix is written in its colour */
+    name: o.name, letter: initials(o.name), color: isNamed(o) ? o.shape.color : null, values: laidOf(o, true), inherited: inheritedBy(o, space.parent), editable: isNamed(o) && !o.source,      /* a named block's matrix is written in its colour */
     colsName: over ? o.sides.h : o.sides.w, rowsName: over ? o.sides.w : o.sides.h, standing: standingLook(o) });
   space.definition.wrote = defKey(o);
   view.world.prepend(space.definition.el);     /* beneath the blocks */
@@ -307,40 +307,69 @@ function findIn(g){
   return found.get(g);
 }
 /* what the evaluator says of a node: its entries as a Map (infinities as numbers); an empty Map where it is too
-   large to be worked out here (its size is all that is shown); null where it has no value (an error in the graph) */
+   large to be worked out here, or is made of what only the backend has; null where it has no value (an error in the
+   graph). This is exact, always: no number of the backend's is ever in it. Everything the page works out, checks,
+   refuses or saves reads this (valuesOf, scalarOf and all that read them), and nothing else. */
 const asMaps = new WeakMap();
-/* ---- the backend ----
-   What the evaluator does not work out (a result too large for the browser, anything made of noise or of a data
-   file) and what it leaves symbolic (exp(1)) is asked of the backend, a separate process reached through the server
-   (backend.js has when it is asked and which answers are kept; decimals.js what is drawn of them). Asking never
-   waits: answerOf gives what is known now, and when an answer comes the screen is drawn again. With no backend
-   nothing is asked, and what is made of noise or of a data file says "needs the backend" where its numbers would
-   be; everything else is as it is without one. A decimal is never kept: it is no entry of any block. */
-const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
-  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null) });
-const laid = new WeakMap();                    /* an evaluator's answer -> the backend's laid over it: { result, stale, map } */
 function answerOf(node, binding = null){
   if (!node) return null;
-  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined);
+  const r = workOut(graphNow(), node, binding ? { binding } : undefined);
   if (!r.deferred && !r.entries) return null;
-  if (r.entries && !asMaps.has(r)) asMaps.set(r, toMap(r.entries));
-  const exact = r.entries ? asMaps.get(r) : new Map();
-  if (!wanted(r)) return exact;
-  if (backend.available() === false) return r.backend ? noted(NEEDS) : exact;
-  const got = backend.ask(g, node, binding, cellsDrawn(r.type)); if (!got) return exact;      /* only the entries that are drawn are asked for */
-  const was = laid.get(r); if (was && was.result === got.result && was.stale === got.stale) return was.map;
-  const map = merged(r, exact, got.result, got.stale); laid.set(r, { result: got.result, stale: got.stale, map }); return map;
+  if (!r.entries) return new Map();
+  if (!asMaps.has(r)) asMaps.set(r, toMap(r.entries));
+  return asMaps.get(r);
+}
+/* ---- the backend ----
+   What the evaluator does not work out (a result too large for the browser, anything made of noise or of a data
+   file) and an entry it leaves as exp, ln, tanh or erf (exp(1)) is asked of the backend, a separate process reached
+   through the server (backend.js has when it is asked and which answers are kept; decimals.js what is asked for and
+   what is drawn of an answer). Asking never waits: what is known now is given, and when an answer comes the screen
+   is drawn again.
+
+   The backend's numbers are decimals, and a decimal is for showing and for nothing else. They are kept apart, in
+   `backend` here, and laid over the evaluator's exact answer only by the four functions of this section, laidAt,
+   laidOf, pieceLaid and outputLaid, which only what draws may call: a result on the canvas, a tile's copies, a
+   block's face, the matrix in the properties panel and in a definition space, and the sentences beside them
+   (tests/decimals.test.js holds the page to that list). Nothing else reads them: an attribute, a side, a mass, a
+   comparison, a count, a size, a formula, what is fused, copied or saved all read valuesOf, which is exact. So what
+   the page works out is the same with a backend and without one, and no decimal is an entry of any block.
+
+   With no backend nothing is asked, and what is made of noise or of a data file says "needs the backend" where its
+   numbers would be; everything else is as it is without one. With one, what it gives no numbers for says why in
+   their place, and in the readout when the reason arrives. Whether there is one is asked again after a failure and
+   every quarter of a minute, so one started or stopped later is noticed. */
+const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
+  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null),
+  told: why => hud.say((/^the backend /.test(why[0]) ? cap(why[0]) : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
+const laidKept = new WeakMap();                /* an evaluator's answer -> what was last laid over it, and from what */
+const slotAt = (slot, binding) => slot + (binding && binding.cells ? ' ' + binding.cells.map(c => c.cx + ',' + c.cy).join(' ') : '');      /* what is drawn in one place, in one cell: the previous numbers there are dimmed while the new are waited for */
+function laidAt(node, binding = null, slot = null){
+  const exact = answerOf(node, binding); if (exact === null) return null;
+  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined); if (!wanted(r)) return exact;
+  const there = backend.available(), got = there === false ? null : backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)), why = got ? null : backend.problem(g, node, binding);      /* only the entries that are drawn are asked for */
+  const was = laidKept.get(r); if (was && was.there === there && was.result === (got ? got.result : null) && was.stale === (got ? got.stale : false) && was.why === why) return was.map;
+  const map = laid(r, exact, { there, got, why }); laidKept.set(r, { there, result: got ? got.result : null, stale: got ? got.stale : false, why, map }); return map;
 }
 const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), node, binding ? { binding } : undefined).deferred;
-/* what to say of a node whose numbers are not shown: that it needs the backend, why the backend gave none, or (for
-   one that is only too large) that it is; null where its numbers are shown, or it has an error of its own */
-function unshown(node, binding = null){
+/* what to say, in the panel, of a node whose numbers are not shown: that it needs the backend, why the backend gave
+   none, or (for one that is only too large) that it is; null where its numbers are shown, or it has an error of its own */
+function unshown(node, binding = null, slot = null){
   if (!node) return null;
   const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined); if (!wanted(r)) return null;
   if (backend.available() === false) return r.backend ? 'It needs the backend: its numbers are made there, and none is running (README: The backend)' : r.deferred ? tooLarge(r.type) : null;
   const why = backend.problem(g, node, binding); if (why) return 'The backend gave no numbers: ' + why;
-  return r.deferred && !backend.ask(g, node, binding, cellsDrawn(r.type)) ? (backend.available() ? 'Waiting for the backend' : r.backend ? null : tooLarge(r.type)) : null;
+  return r.deferred && !backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)) ? (backend.available() ? 'Waiting for the backend' : r.backend ? null : tooLarge(r.type)) : null;
 }
+/* a block's entries as they are drawn: the evaluator's, with the backend's laid over them. For drawing only. */
+function laidOf(b, plain = false){
+  if (isArrow(b)) return new Map();
+  if (typedOnly(b)) return own(b, plain);
+  return steadily(() => { const n = nodeFor(b, plain); return n && laidAt(n.id, n.binding, n.slot); }) || held(b, 0, plain);
+}
+/* what a piece of several blocks comes to, as it is drawn. For drawing only. */
+const pieceLaid = (bs, s = space) => steadily(() => { const g = graphNow(), p = findIn(g).pieces.get(bs.map(b => b.id).join(' ')); return !p || !p.node ? null : laidAt(p.node, bindingOf(bs, s), 'p ' + p.blocks.join(' ')); });
+/* a single entry's number as it is written on its block's face where the browser has none for it and the backend has (a decimal); null otherwise. For drawing only. */
+const faceLaid = b => { if (!single(b) || b.source || scalarOf(b) !== null) return null; const m = laidOf(b), v = m.get('1,1'); return v && typeof v === 'object' && typeof v.f === 'number' ? { text: valueText(v), stale: !!m.stale } : null; };
 /* Where a node is looked at from (evaluate.js: binding). A block of a tile, or one in the definition space of a block
    of a tile, is in a cell: the first, or the one being drawn (cellNow). The cell says where every block of the
    pattern lies, and every arrow's output there, so that each reads its own place however it is reached (a product
@@ -382,11 +411,12 @@ function givenTo(a){
 }
 /* a block's entries as the evaluator gives them: null where the block takes no part (it is commented out, or in a
    .config) or has no value there (its variable has an error: then it keeps what it holds, see held) */
-const evaluated = (b, plain) => steadily(() => evaluatedNow(b, plain));
-function evaluatedNow(b, plain){
+const evaluated = (b, plain) => steadily(() => { const n = nodeFor(b, plain); return n && answerOf(n.id, n.binding); });
+/* a block's node in the graph, where it is looked at from, and what it is on the screen (backend.js: slot); null where it has none */
+function nodeFor(b, plain){
   const g = graphNow(); let id = g.blocks[b.id]; if (!id) return null;
   const over = turned(b) && plain; if (over){ if (g.nodes[id].op !== 'transpose') return null; id = g.nodes[id].inputs[0]; }
-  return answerOf(id, bindingOf([b], spaceWith(b), over));
+  return { id, binding: bindingOf([b], spaceWith(b), over), slot: 'b ' + b.id + (over ? ' over' : '') };
 }
 /* why a block's variable has no value in the graph, as a sentence for the properties panel; null where it has one */
 const WHY = { loop: () => 'It depends on itself, so nothing is worked out from it', pieces: n => `Its definition space holds ${n}, which is not one matrix: it keeps the entries typed into it`,
@@ -397,13 +427,7 @@ function whyNot(b){
   const g = graphNow(); let n = g.nodes[g.blocks[b.id]]; if (n && n.op === 'transpose') n = g.nodes[n.inputs[0]];
   return n && n.error && WHY[n.error.code] ? WHY[n.error.code](n.error.note) : null;
 }
-/* what a piece of several blocks comes to */
-const pieceValues = (bs, s = space) => steadily(() => pieceValuesNow(bs, s));
-function pieceValuesNow(bs, s){
-  const g = graphNow(), p = findIn(g).pieces.get(bs.map(b => b.id).join(' ')); if (!p || !p.node) return null;
-  return answerOf(p.node, bindingOf(bs, s));
-}
-/* a block's entries: what the evaluator says its node comes to. plain: the variable's own way round, whatever this use is */
+/* a block's entries: what the evaluator says its node comes to, exactly (what is drawn of them is laidOf's). plain: the variable's own way round, whatever this use is */
 function valuesOf(b, depth = 0, plain = false){
   if (isArrow(b)) return new Map();            /* an arrow has no entries: its output has */
   if (typedOnly(b)) return own(b, plain);          /* numbers typed into it and nothing else: there is nothing to work out, and no graph is needed to say so */
@@ -961,7 +985,8 @@ function attributesOf(b){
   /* seen: how each capsule in a text is drawn just now, so that the panel is drawn again when a variable it names is renamed, recoloured or gone */
   const seen = text => ({ seen: refs(text).map(fields.look) });
   const fixed = [{ key: 'x', label: sideName(b, 'w') || 'x', text: len('w') }, { key: 'y', label: sideName(b, 'h') || 'y', text: len('h') }];
-  if (one){ const stored = measures(b) || rangedOf(b) ? undefined : b.values.get('1,1'), text = isFormula(stored) ? stored.expr : v === null ? symbolOf(b) : isError(v) ? '' : typedText(v);      /* a formula as it was typed; not yet given a value: its symbol */
+  const made = sourceKind(b.source) === 'noise' || sourceKind(b.source) === 'file';      /* its numbers are the backend's: it has no mass to type, and none the browser knows */
+  if (one && !made){ const stored = measures(b) || rangedOf(b) ? undefined : b.values.get('1,1'), text = isFormula(stored) ? stored.expr : v === null ? symbolOf(b) : isError(v) ? '' : typedText(v);      /* a formula as it was typed; not yet given a value: its symbol */
     fixed.push({ key: 'mass', label: massName(b) || 'mass', text, ...seen(text), ...told(text, isFormula(stored) || isError(v) ? v : null) }); }
   /* noise has a seed and a distribution, and nothing else */
   if (sourceKind(b.source) === 'noise') return [...fixed, { key: 'seed', label: 'seed', text: String(b.source.noise.seed) }, { key: 'dist', label: 'distribution', text: b.source.noise.dist }];
@@ -1010,7 +1035,7 @@ function paint(){
   hush(); follow(); if (arrangeAll()) memo?.clear(); configure();
   for (const b of space.blocks) if (measures(b)){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
-  for (const b of space.blocks){ const v = scalarOf(b); b.face(b.source ? faceOf(b.source) : v === null ? null : asText(v));      /* a source says what it is on its face: 0, 1 or I */
+  for (const b of space.blocks){ const v = scalarOf(b), f = v === null ? faceLaid(b) : null; b.face(b.source ? faceOf(b.source) : f ? f.text : v === null ? null : asText(v), f ? { decimal: true, stale: f.stale } : {});      /* a source says what it is on its face: 0, 1 or I; a number that is the backend's is marked as one */
     b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b)); b.sit(!!b.seat); b.given(!!b.in);      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
     if (isArrow(b)) b.el.classList.toggle('anon', !isNamed(b)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
@@ -1025,14 +1050,14 @@ function paint(){
         + (up !== undefined && !t.over ? `. It is inside ${space.groupNames.get(up) || 'a tile'}'s pattern, and is repeated with it` : ''),
       attributes: [{ key: 'cols', label: 'pattern x', text: String(r.cols) }, { key: 'rows', label: 'pattern y', text: String(r.rows) }, row('across'), row('down')],
       notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(t.over ? [cap(t.over) + '. It has no matrix while it lies so'] : read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : [])], matrix: null }); }
-  else if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), wrong = [...(o.values || [])].filter(([, v]) => isError(v));
+  else if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), laidOut = o.asDrawn, wrong = [...(laidOut || [])].filter(([, v]) => isError(v));
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: t?.cols || 1, rows: t?.rows || 1, scalar: false, plain: true, fixed: true,
       shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` : ''), attributes: arrowRows(one, fn),
       notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
-      matrix: t ? { letter: initials((seat || one).name), values: o.values || new Map(), colsName: t.colsName, rowsName: t.rowsName } : null }); }
+      matrix: t ? { letter: initials((seat || one).name), values: laidOut || new Map(), colsName: t.colsName, rowsName: t.rowsName } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
-    const values = valuesOf(one), scalar = cols === 1 && rows === 1 && !one.members, wrong = scalar ? [] : [...values].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
-    const kind = sourceKind(one.source), node = steadily(() => graphNow().blocks[one.id]), quiet = node ? steadily(() => unshown(node, bindingOf([one], spaceWith(one)))) : null;
+    const values = laidOf(one), scalar = cols === 1 && rows === 1 && !one.members, wrong = scalar ? [] : [...values].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
+    const kind = sourceKind(one.source), node = steadily(() => graphNow().blocks[one.id]), quiet = node ? steadily(() => unshown(node, bindingOf([one], spaceWith(one)), 'b ' + one.id)) : null;
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar, attributes: attributesOf(one), fixed: !!one.source,
       shape: one.source ? `${[...SOURCES, ...DATA].find(s => s.kind === kind).label.toLowerCase()}${kind === 'file' ? ' (' + (one.source.file || 'no file chosen') + ')' : ''}: ${cols} wide × ${rows} tall` : undefined,
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
@@ -1078,13 +1103,13 @@ function paint(){
      or an elementwise chain: each entry as its members' entries with the signs between them, a₁₁+b₁₁, each in its
      block's colour. Where the evaluator has an entry's number, the number is written in place of all that. */
   const lookOf = piece => { const bs = piece.members.map(m => active[m]), first = bs[0];
-    const values = bs.length > 1 ? pieceValues(bs) || new Map() : null;      /* what the piece comes to: the evaluator's */
+    const values = bs.length > 1 ? pieceLaid(bs) || new Map() : null;      /* what the piece comes to: the evaluator's, with the backend's numbers laid over it */
     if (piece.rule === 'sum' || piece.rule === 'elementwise') return { values, combined: {
       parts: bs.map(b => ({ letter: initials(b.name), color: b.shape.color, cols: Math.round(b.rect.w / u), rows: Math.round(b.rect.h / u), transposed: turned(b) })),
       signs: piece.members.slice(1).map((m, n) => piece.rule === 'sum' ? '+' : ts.some(t => t.kind === 'over' && t.a === piece.members[n] && t.b === m) ? '/' : '·') } };
     /* a shape in a .config is written in the ordinary text colour, since its own may be the canvas's, with the entries it leaves to the definitions above written faintly */
-    if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: valuesOf(first), inherited: inheritedBy(first, space), standing: standingLook(first) };
-    if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: valuesOf(first), standing: standingLook(first), transposed: turned(first) };
+    if (bs.length === 1 && inConfig(first, space)) return { letter: initials(first.name), values: laidOf(first), inherited: inheritedBy(first, space), standing: standingLook(first) };
+    if (bs.length === 1) return { letter: initials(first.name), color: first.shape.color, values: laidOf(first), standing: standingLook(first), transposed: turned(first) };
     /* scalars times at most one other shape: an entry not known is written as the scalars against its symbol: as the
        one number they come to where each has one, else by their letters */
     const one = b => b.rect.w === u && b.rect.h === u && !b.members, scalars = bs.filter(one), solid = bs.filter(b => !one(b));
@@ -1098,7 +1123,7 @@ function paint(){
   for (const b of space.blocks) b.inset(stacked.has(b) || standing.has(b));      /* in a sum there is no room above a block for its name (the next one up is there): names go on the blocks */
   if (space.definition && space.definition.wrote !== defKey(space.owner)) write();      /* shapes have gone into, or come out of, its block's matrix; or an arrow's output is another size */
   /* what the space comes to: its ends, the pieces (and outputs) nothing reads from. What is in a .config is no part of it. */
-  const mine = space.definition ? endsOf(space, { active, all }) : [], outLook = a => ({ letter: initials(a.name), values: outputOf(a).values || new Map() });      /* in the ordinary text colour: the function colour is for the triangle */
+  const mine = space.definition ? endsOf(space, { active, all }) : [], outLook = a => ({ letter: initials(a.name), values: outputOf(a).asDrawn || new Map() });      /* in the ordinary text colour: the function colour is for the triangle */
   space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? (mine[0].piece ? lookOf(mine[0].piece) : outLook(mine[0].arrow)) : {});
   /* a result stays by its piece: to the right; if something else is there (another block, or a result already placed),
      just below, to the left, or a little further below; and if every one of those is taken, to the right all the
@@ -1700,7 +1725,7 @@ function copiesOf(s, t){
     for (const b of T.members){ const r = unitsOf(b), at = { cx: ix, cy: iy, x: ox + r.x - T.rep.x, y: oy + r.y - T.rep.y, w: r.w, h: r.h, color: b.shape.color, name: isNamed(b) ? b.name : '' };
       if (!isArrow(b) && (at.x < 0 || at.y < 0 || at.x + at.w > top.cols || at.y + at.h > top.rows)) continue;
       if (isArrow(b)) out.push({ ...at, tri: cornersOf(b.arrow.side, r.w, r.h) });
-      else out.push({ ...at, values: readsIndex(b) ? texts(valuesOf(b)) : null }); }
+      else out.push({ ...at, values: readsIndex(b) ? texts(laidOf(b)) : null }); }
     for (const c of T.inner){ const C = tileInfo(s, c);
       for (const sy of C.lay.ys) for (const sx of C.lay.xs){ if (sx.dots || sy.dots) continue;
         cellNow.set(C.rep, { cx: sx.cell, cy: sy.cell }); put(C, ix, iy, ox + C.rep.x - T.rep.x + sx.at, oy + C.rep.y - T.rep.y + sy.at); }
@@ -1711,7 +1736,7 @@ function copiesOf(s, t){
   return out;
 }
 /* and what is written over the real blocks, in the first cell: the entries of one that reads the index (a single entry shows its own on its face) */
-const writtenOn = (t, list) => list.filter(b => !isArrow(b) && !single(b) && readsIndex(b)).map(b => { const r = unitsOf(b); return { x: r.x - t.rep.x, y: r.y - t.rep.y, w: r.w, h: r.h, values: texts(valuesOf(b)) }; });
+const writtenOn = (t, list) => list.filter(b => !isArrow(b) && !single(b) && readsIndex(b)).map(b => { const r = unitsOf(b); return { x: r.x - t.rep.x, y: r.y - t.rep.y, w: r.w, h: r.h, values: texts(laidOf(b)) }; });
 /* a frame's rectangle, for whatever is held over it: a tile's pattern, or the box round an ordinary frame's blocks */
 const frameBox = id => { const r = space.repeats.get(id), u = view.unit; return r ? { x: r.x * u, y: r.y * u, w: r.cols * u, h: r.rows * u } : boxOf(inGroup(id)); };
 /* whether an arrow in tile g is repeated there: its input is outside the tile */
@@ -1921,14 +1946,15 @@ function touching(s, blk){
   return [...seen].filter(i => i >= 0).map(i => live[i].id);
 }
 /* An arrow as it stands (arrows.js: standing): whether it warns, what it comes to and where its output is. Its
-   output's entries (values) are the evaluator's, asked for only when they are drawn: null where the graph gives the
-   arrow no value, and none (with note saying why) where it is too large to work out here. While the screen is being
+   output's entries as they are drawn (asDrawn: the evaluator's with the backend's numbers over them, for drawing only,
+   see "the backend") are asked for only when they are drawn: null where the graph gives the arrow no value, and
+   none (with note saying why) where it is too large to work out here. While the screen is being
    brought up to date each arrow of the space on screen is worked out once (memo); an arrow that reads itself,
    through whatever else, is "it depends on itself". */
 const busy = new Set(); let memo = null;
 function outputOf(a){
   if (firstCell() && memo?.has(a)) return memo.get(a);      /* what is kept is the first cell's: a block of a tile may differ in the others */
-  if (busy.has(a)) return { ...standing(full(a), null, [], null, null, { loops: true }), values: null, note: null, defined: false };      /* being worked out already: only reached where it reads itself */
+  if (busy.has(a)) return { ...standing(full(a), null, [], null, null, { loops: true }), asDrawn: null, note: null, defined: false };      /* being worked out already: only reached where it reads itself */
   busy.add(a);
   try {
     const loops = dependsOn(depsOf(a.id), a.id, depsOf);      /* it reads itself, through whatever else: arrows.js says what that comes to */
@@ -1942,8 +1968,8 @@ function outputOf(a){
     /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
     const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map, drawn: drawnOf(arrow, sized(input)) });
     const out = { ...st, defined: !!defined, mapWarn: map?.warn || null,
-      get values(){ return outputValues(a, s); },
-      get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id); return e?.node ? unshown(e.node, bindingOf(readBy(a, s), s, false, a)) : null; }); } };
+      get asDrawn(){ return outputLaid(a, s); },
+      get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id); return e?.node ? unshown(e.node, bindingOf(readBy(a, s), s, false, a), 'a ' + a.id) : null; }); } };
     if (firstCell()) memo?.set(a, out);
     return out;
   } finally { busy.delete(a); }
@@ -1955,14 +1981,14 @@ function readBy(a, s){
 }
 /* an arrow's output, entry by entry: what the graph's node for it comes to */
 const FORMULA_ERROR = /^(not the size of the output|missing variable|missing attribute|unknown name: |not a scalar|not an arrow|an arrow has no such measure|depends on itself|cannot read )/;
-const outputValues = (a, s = spaceWith(a)) => steadily(() => outputValuesNow(a, s));
-function outputValuesNow(a, s){
+const outputLaid = (a, s = spaceWith(a)) => steadily(() => outputLaidNow(a, s));
+function outputLaidNow(a, s){
   const e = findIn(graphNow()).arrows.get(a.id);
   /* a formula that stands for an error (it names a matrix of another size, or what is not there) has no node: every entry of the output is that error, and is written as one */
   if (e && !e.node && e.error && FORMULA_ERROR.test(e.error.note) && fnOf(a).formula){ const t = outputOf(a).type, out = new Map(); if (!t) return null;
     for (let r = 1; r <= t.rows; r++) for (let c = 1; c <= t.cols; c++) out.set(c + ',' + r, { err: e.error.note }); return out; }
   if (!e || !e.node) return null;
-  return answerOf(e.node, bindingOf(readBy(a, s), s, false, a));
+  return laidAt(e.node, bindingOf(readBy(a, s), s, false, a), 'a ' + a.id);
 }
 /* the rects an arrow's edge has to be free of: every block of the space that touches, but for its own input */
 const othersOf = (s, input, seat = null) => { const own = input.as === 'tile' ? new Set(inGroup(input.id, s)) : null;      /* a tile's own blocks are not against its edge: they are it */

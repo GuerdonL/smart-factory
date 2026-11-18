@@ -86,7 +86,7 @@
                    "data/….csv": the numbers of that file of the project, which only the backend reads
        noise       seed (a whole number), dist ("uniform" or "normal") and key (the id of the block the variable was
                    made as): numbers that follow from those, the entry's column and row and, in a tile, the cell.
-                   Only the backend makes them (backend/noise.py). It follows its cell without reading the index.
+                   Only the backend makes them (backend/arrays.py). It follows its cell without reading the index.
        measure     side "x", "y" or "m": one number read off its input, its columns, its rows or (a single entry's)
                    mass; of a single entry x and y are the root of its mass. side "a": an attribute, with its name
                    and its formula, whose inputs after the first are what the formula names
@@ -361,7 +361,7 @@ export const OPS = {
   noise: { inputs: [0, 0], id: n => `noise(${n.seed};${n.dist};${n.key};${n.type.cols}×${n.type.rows})`,
     fields: n => [...(Number.isSafeInteger(n.seed) ? [] : ['seed is not a whole number']), ...(DISTS.includes(n.dist) ? [] : [`dist is "${n.dist}"`]), ...(typeof n.key === 'string' && n.key ? [] : ['key is not a block id'])],
     type: n => okType(n.type) ? T(n.type.cols, n.type.rows) : 'it has no size of its own',
-    value: () => new Map() },      /* its numbers are the backend's (backend/noise.py has the generator) */
+    value: () => new Map() },      /* its numbers are the backend's (backend/arrays.py has the generator) */
   measure: { inputs: [1, Infinity], id: n => plain({ op: 'measure', inputs: n.inputs.slice(0, 1) }, ';' + (n.side === 'a' ? 'a:' + n.name : n.side)),
     fields(n){ if (!['x', 'y', 'm', 'a'].includes(n.side)) return [`side is "${n.side}"`];
       if (n.side !== 'a') return n.inputs.length !== 1 ? ['a side or a mass is read off one input'] : 'name' in n || 'formula' in n ? ['only an attribute has a name and a formula'] : [];

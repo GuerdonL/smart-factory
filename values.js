@@ -10,7 +10,9 @@
        boolean        true, false
        symbolic       { sym: "1+sqrt(2)" }           text the solver can read back: exact, never an approximation
        decimal        { f: 0.4375 }                  made only by the backend (backend/), noise included, never here:
-                                                     a 32-bit float, written to 9 significant digits. Never saved.
+                                                     a 32-bit float, written with 9 significant digits. Never saved.
+                                                     It is for showing only: the page hands no decimal to combine
+                                                     (see "the backend" in smart-factory.js), though combine takes one.
        error          { err: "divide by zero" }      worked out, never typed and never saved
        unknown        null                           an entry not given a value: it stays a symbol, and is not zero
 
@@ -54,8 +56,8 @@
    truth(v)          -> whether a value counts as true: false for false and 0, true for everything else that is known;
                         for a symbolic value that cannot be told from 0, the error saying so
    typedNumber(text) -> digits as typed, with at most one point, as a value: "1.25" is 5/4. Never a decimal.
-   digits(f)         -> a decimal's number as text, to 9 significant digits: "2.71828175", "0.5"
-   written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)", "0.4375"; "!" for an
+   digits(f)         -> a decimal's number as text, with exactly 9 significant digits: "2.71828175", "1.00000000"
+   written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)", "0.437500000"; "!" for an
                         error (why is v.err), and "" for unknown. The one function that turns a value into text.
    kind(v)           -> 'whole' | 'infinity' | 'exact' | 'boolean' | 'symbolic' | 'decimal' | 'error' | 'unknown'
    isWhole(v), isSurd(v), isError(v), isFormula(v)
@@ -369,9 +371,12 @@ function pretty(t){
   }
   return out.replace(/(?<![\w.])log\(/g, 'ln(').replace(/sqrt\(/g, '√(').replace(/√\((\d+)\)/g, '√$1').replace(/(\d)\*√/g, '$1√').replace(/\*/g, '·');
 }
-/* a decimal written out: to 9 significant digits, which is every digit a 32-bit float has (and no more: 0.1 as such a
-   float is 0.100000001, and is written so). No digits are added: 0.5 is "0.5". */
-export const digits = f => f === Infinity ? '∞' : f === -Infinity ? '-∞' : Number.isNaN(f) ? '!' : String(Number(f.toPrecision(9)));
+/* a decimal written out: always with exactly 9 significant digits, which is every digit a 32-bit float has, so that it
+   is never written like an exact number: 1 is "1.00000000", a million "1000000.00", 0.1 as such a float
+   "0.100000001". A number of ten digits or more before its point, or six noughts or more after it, is written with
+   its size apart: "2.90488498e13", "1.00000000e-7". One of exactly nine digits before its point ends in the point,
+   "123456792.", so that even that is not written as a whole number is. */
+export const digits = f => f === Infinity ? '∞' : f === -Infinity ? '-∞' : Number.isNaN(f) ? '!' : f.toPrecision(9).replace('e+', 'e').replace(/^-?\d+$/, '$&.');
 export function written(v){
   if (v === null || v === undefined) return '';
   if (typeof v === 'boolean') return v ? 'T' : 'F';

@@ -55,7 +55,7 @@ style('tile', `
 .tile-value { position: absolute; display: grid; place-items: center; color: var(--fg); font-family: var(--font-ui); font-weight: 600; font-variant-numeric: tabular-nums;
   font-size: calc(min(12, 26 / var(--len, 2)) * var(--px)); line-height: 1; text-shadow: 0 0 calc(2 * var(--px)) var(--bg), 0 0 calc(2 * var(--px)) var(--bg); }
 .tile-value.error { color: var(--warn); }
-.tile-square { display: block; width: calc(var(--tu) * .62); height: calc(var(--tu) * .62); box-sizing: border-box; border: 1px solid var(--muted); border-radius: 2px; background: color-mix(in srgb, #fff calc(var(--level) * 100%), #000); }
+.tile-square { display: block; width: calc(var(--tu) * .62); height: calc(var(--tu) * .62); box-sizing: border-box; border: 1px solid var(--muted, var(--square-edge)); border-radius: 2px; background: color-mix(in srgb, #fff calc(var(--level) * 100%), #000); }
 .tile-value.stale { opacity: .4; }
 /* the name, and after it the counts, stand a line clear of the frame: the names of the blocks in the top row are written there */
 .tile-label { position: absolute; left: calc(-1 * var(--out)); bottom: calc(100% + var(--out) + (22 + 12 * var(--levels)) * var(--px)); display: flex; align-items: baseline; gap: calc(7 * var(--px)); white-space: nowrap; }

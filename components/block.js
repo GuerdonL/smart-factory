@@ -18,7 +18,9 @@
      turn     says whether this block is the transpose of its variable (kept on the block as t): a small raised T is
               written after its name. The block itself is not resized; that is for whoever turns it.
      face     writes a value in the middle of the block's face (text), or takes it off (null): a single entry's
-              number, or what a source is (0, 1 or I)
+              number, or what a source is (0, 1 or I). face(text, { decimal, stale }): the number is a decimal, one of
+              the backend's (decimals.js), and is marked as one (≈ before it, in a lighter weight) so that it is
+              never taken for an exact number; stale: it is of an older state of the project, and is dimmed
      inset    writes the name on the block's face in place of above it (for a block in a sum, with another directly above or below), or puts it back
      stripes  bands the block's face, one band to each `unit` of world length, paler and deeper by turns in the
               block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or
@@ -94,6 +96,8 @@ style('block', `
 /* a single entry that holds a value shows it on its face, shrunk to fit where it is long */
 .block-value { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; font-family: var(--font-name);
   font-size: calc(min(13, 30 / var(--len, 2)) * var(--px)); line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); }
+.block-value.decimal { font-weight: 300; font-style: italic; } .block-value.decimal::before { content: "≈"; font-style: normal; margin-right: calc(1 * var(--px)); }      /* a decimal (the backend's): never written as an exact number is */
+.block-value.stale { opacity: .4; }
 .block.name-inside .block-value { display: none; }      /* the name is written there */
 /* a joined block: its parts' colours are drawn over the face, and the lips and rim are drawn again over those */
 .block-parts { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; overflow: hidden; pointer-events: none; }
@@ -137,9 +141,9 @@ export function createBlock(shape, rect, name = ''){
     warn(on){ el.classList.toggle('warned', !!on); },
     grips(on){ el.classList.toggle('no-grips', !on); },
     inset(on){ el.classList.toggle('name-inside', on); },
-    face(text){ if (text === null || text === undefined || text === ''){ valueEl?.remove(); valueEl = null; return; }      /* a single entry's value, written on the block itself */
+    face(text, { decimal = false, stale = false } = {}){ if (text === null || text === undefined || text === ''){ valueEl?.remove(); valueEl = null; return; }      /* a single entry's value, written on the block itself */
       if (!valueEl){ valueEl = html`<span class="block-value"></span>`; el.append(valueEl); }
-      valueEl.textContent = text; valueEl.style.setProperty('--len', Math.max(2, String(text).length)); },
+      valueEl.textContent = text; valueEl.style.setProperty('--len', Math.max(2, String(text).length + (decimal ? 1 : 0))); valueEl.classList.toggle('decimal', !!decimal); valueEl.classList.toggle('stale', !!stale); },
     sit(on){ el.classList.toggle('seated', !!on); },
     given(on){ el.classList.toggle('input', !!on); },
     turn(on){ block.t = !!on; el.classList.toggle('transposed', !!on); },

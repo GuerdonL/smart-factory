@@ -206,7 +206,7 @@ test('written writes every kind, and never a decimal for an exact value', () => 
   w(q(1, 2, 1), '√(1/2)'); w(q(30, 1, 2), '∜30'); w(q(32, 1, 2), '2∜2'); w(q(2, 1, 3), '2^(1/8)'); w(q(1, 2, 3), '(1/2)^(1/8)');
   w(true, 'T'); w(false, 'F'); w(sym('1+sqrt(2)'), '1+√2'); w(sym('1+e^2'), '1+exp(2)'); w(sym('e'), 'exp(1)'); w(sym('e^(-1/2)'), 'exp(-1/2)'); w(sym('sqrt(e)'), '√(exp(1))');
   w(sym('log(2)+log(3)'), 'ln(2)+ln(3)'); w(sym('3*2^(1/3)'), '3·2^(1/3)'); w(sym('2*sqrt(3)+erf(1)'), '2√3+erf(1)'); w(sym('tanh(2)'), 'tanh(2)');
-  w(E('divide by zero'), '!'); w(null, ''); w(undefined, ''); w({ f: 0.4375 }, '0.4375');
+  w(E('divide by zero'), '!'); w(null, ''); w(undefined, ''); w({ f: 0.4375 }, '0.437500000'); w({ f: 1 }, '1.00000000');      /* a decimal is never written as an exact number is */
   assert.equal(algebra.valueText, written);                /* one function turns a value into text, whatever it is asked for as */
 });
 

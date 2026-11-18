@@ -20,6 +20,7 @@
   --raise-light: rgba(255, 255, 255, .35);   /* the lit top edge of a raised block */
   --raise-dark: rgba(0, 0, 0, .22);          /* its shaded bottom edge */
   --edge: rgba(30, 14, 24, .5);
+  --square-edge: rgba(128, 128, 128, .9);     /* the outline of a decimal's square (matrix.js) where the project's .config gives no --muted: a middle grey, seen round black and round white, on a light canvas and on a dark */
   --stripe-light: rgba(255, 255, 255, .13);   /* the paler of a striped block's two bands, laid over its own colour */
   --stripe-deep: rgba(0, 0, 0, .07);          /* the deeper one */              /* the thin rim that separates touching blocks */
 }
