@@ -366,10 +366,16 @@ def variable_fields(n):
     return bad
 
 
+HELD_APART = 'a matrix its formula names holds inner data that is not its own'
+
+
 def variable_type(n, ins, g):
     if not ok_type(n.get('type')):
         return 'it has no size of its own'
     if n['defined'] == 'entries' or not ins:
+        for i in ins:      # what an entry's formula names: inner data only where it is the variable's own size, inner data and all
+            if inner_of(i['type']) and not same(i['type'], n['type']):
+                return HELD_APART
         return n['type']
     t = ins[0]['type']
     kinds = {'measure': ('measure',), 'standing': ('block', 'stack'), 'joined': ('block',), 'source': ('source', 'map', 'noise'), 'entry': ('entry',)}
@@ -480,6 +486,8 @@ def measure_type(n, ins, g):
         return 'only a single number has a mass'
     if n['side'][0] == 'd' and int(n['side'][1:]) > len(inner_of(ins[0]['type'])):
         return 'its input has no inner axis %s' % n['side'][1:]
+    if n['side'] == 'a' and any(inner_of(i['type']) for i in ins[1:]):      # an attribute is one number: its formula names no matrix that holds inner data
+        return HELD_APART
     return T(1, 1)
 
 

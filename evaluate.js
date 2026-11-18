@@ -33,6 +33,11 @@
    and every formula to expression.js. combine works whole numbers, fractions and single roots out directly, so a
    64 by 64 product never reaches the solver.
 
+   The limit counts what is worked out, not only what is held: a function run at each inner position of what it is
+   given is its body that many times, and the largest thing in that body which follows the function's input, times
+   the positions, is held to maxEntries too, before anything is run. What the body comes to at one position is not
+   kept once that position is done.
+
    What a node needs is its inputs, less those its rule says it does not read (a measure reads a length off its
    input's type, so a matrix's width never waits on the matrix), and, for a function applied, the function's body.
 
@@ -117,15 +122,18 @@ function needsOf(graph, st, id, open = new Set()){
   if (!n) return { most: 0, bad: { code: 'no-source', note: 'no such node', node: String(id) } };
   let most = numbers(n.type), bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
   let remote = n.op === 'noise' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
-  if (open.has(id)) return { most, bad: bad || { code: 'loop', note: '', node: id }, remote };
+  let bound = fnsOf(n).length ? most : 0;       /* the most numbers of anything it is worked out from that follows a function's input: that is worked out again for each thing the function is applied to */
+  if (open.has(id)) return { most, bound, bad: bad || { code: 'loop', note: '', node: id }, remote };
   open.add(id);
   const ins = n.inputs.map(i => nodeAt(graph, i)), rule = OPS[n.op];
   const read = ins.every(Boolean) ? (rule.needs ? rule.needs(n, ins) : n.inputs.map((_, k) => k)).map(k => n.inputs[k]) : n.inputs;
   const applies = (n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined, body = applies ? fnAt(graph, n.fn) : null;
-  for (const dep of body ? [...read, body.body] : read){ const d = needsOf(graph, st, dep, open); most = Math.max(most, d.most); bad = bad || d.bad; remote = remote || !!d.remote; }
+  for (const dep of body ? [...read, body.body] : read){ const d = needsOf(graph, st, dep, open); most = Math.max(most, d.most); bound = Math.max(bound, d.bound || 0); bad = bad || d.bad; remote = remote || !!d.remote;
+    /* a function run at each inner position of what it is given (its input block holds none) is its body worked out that many times: that is counted before it is run */
+    if (body && dep === body.body && ins[0] && hasInner(ins[0].type) && !hasInner((nodeAt(graph, body.input) || n).type)) most = Math.max(most, (d.bound || 0) * tailsCount(n.op === 'mapalong' ? { inner: ins[0].type.inner } : ins[0].type) * (n.op === 'mapalong' ? n.count || 1 : 1)); }
   if (applies && !body) bad = bad || { code: 'no-source', note: 'no such function', node: id };
   open.delete(id);
-  const out = { most, bad, remote }; st.needs.set(id, out); return out;
+  const out = { most, bound, bad, remote }; st.needs.set(id, out); return out;
 }
 /* The tiles each block's node is itself in, and which tiles each repeat is the matrix of, read off the graph's spaces.
    homes: node id -> Set of tile ids, for every node that stands for a block listed in a space (in a piece or in a
@@ -158,6 +166,7 @@ const inner = (cells, change) => cells.length ? [...cells.slice(0, -1), change(c
    variable, a slice, a stack, an entry and so on), and a function whose input block holds inner data is handed its
    input whole: those are run once. */
 const EMPTY = new Map(), splits = new WeakMap(), flats = new WeakMap();
+const tailsCount = type => (type.inner || []).reduce((n, a) => n * a.length, 1);      /* how many inner positions a type has */
 /* a value's entries sorted by inner position: tail (",k1,k2") -> a Map from "column,row". Kept with the value. */
 function split(values){
   if (!splits.has(values)){ const by = new Map();
@@ -169,9 +178,11 @@ function split(values){
 const flatType = t => { const { inner: _, ...rest } = t; return rest; };
 const flatNode = n => { if (!flats.has(n)) flats.set(n, hasInner(n.type) ? { ...n, type: flatType(n.type) } : n); return flats.get(n); };
 function repeated(rule, n, at, types){
-  const out = new Map(), lead = types.find(hasInner), flat = flatNode(n);
+  const out = new Map(), lead = types.find(hasInner), flat = flatNode(n), applies = n.fn !== undefined;
   for (const tail of tailsOf(lead)){
-    const here = { ...at, ks: tail.slice(1).split(',').map(Number),
+    /* a function's body at one position is of no use at the next: what it comes to there is kept only while that position is worked out */
+    const scratch = applies ? new Map() : null;
+    const here = { ...at, ks: tail.slice(1).split(',').map(Number), ...(applies ? { call: (fn, values, k) => at.call(fn, values, k, scratch) } : {}),
       type: k => hasInner(types[k]) ? flatType(types[k]) : types[k],
       get: (k, e) => hasInner(types[k]) ? split(at.get(k, e)).get(tail) || EMPTY : at.get(k, e),
       keyOf: k => at.keyOf(k) + (hasInner(types[k]) ? '#k' + tail : '') };
@@ -186,7 +197,7 @@ function run(graph, st, id, env){
   const last = env.cells[env.cells.length - 1];
   /* a part of the pattern met again below its tile (an arrow there reads it): it is at its own place, not the reader's */
   if (last && last.at && own(last.at, id)){ const p = last.at[id]; if (last.dx !== p.col || last.dy !== p.row || last.turned) env = { ...env, cells: inner(env.cells, c => ({ ...c, dx: p.col, dy: p.row, turned: false })) }; }
-  const mine = under(st.values, id), key = keyFor(graph, st, id, n, env);
+  const key = keyFor(graph, st, id, n, env), mine = under(env.scratch && key ? env.scratch : st.values, id);      /* (what follows a function's input, under a run that keeps nothing: in that run's own store) */
   if (mine.has(key)) return mine.get(key);
   const at = { id, graph, env, cells: env.cells,
     type: k => graph.nodes[n.inputs[k]].type,
@@ -195,9 +206,9 @@ function run(graph, st, id, env){
     turn: () => ({ ...env, cells: inner(env.cells, c => ({ ...c, turned: !c.turned })) }),
     shift: (dx, dy) => ({ ...env, cells: inner(env.cells, c => c.turned ? { ...c, dx: c.dx + dy, dy: c.dy + dx } : { ...c, dx: c.dx + dx, dy: c.dy + dy }) }),
     cell: c => ({ ...env, cells: [...env.cells, aCell({ ...c, of: homesOf(graph, st).repeats.get(id) || null })] }),
-    call(fn, values, k){ const f = fnAt(graph, fn); if (!f) return new Map();
+    call(fn, values, k, scratch = null){ const f = fnAt(graph, fn); if (!f) return new Map();
       if (env.active.includes(fn)) throw LOOP;      /* a function inside itself: validate refuses the graph, and this stops it */
-      return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn] }); },
+      return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn], scratch: scratch || env.scratch || null }); },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */
         const from = nodeAt(graph, of), all = from ? run(graph, st, of, { ...env, params: rest }) : new Map(), part = typeof spec === 'string' || !spec.range ? all : passed(all, spec.range);

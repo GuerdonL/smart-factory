@@ -145,6 +145,17 @@ class Validate(unittest.TestCase):
             self.assertEqual(formula_ok('x + ' + name, 0, arrow=True), good, name)
             self.assertEqual(formula_ok('1 + ' + name, 0), good, name)
 
+    def test_a_formula_names_inner_data_only_of_its_own_size(self):
+        # graph.js refuses these when the graph is built, so no formula here ever meets a matrix whose inner data is not its output's
+        named = lambda t, w, key: graph_of({'w': deep(w, lambda *at: 1), 'v': dict(deep(t, lambda *at: None), inputs=['w'], entries={key: {'expr': '$1 + 0'}})})
+        self.bad(named(T(2, 1, [2]), T(2, 1, [3]), '1,1,1'), 'inner 3 read by inner 2')
+        self.bad(named(T(2, 1), T(1, 1, [2]), '1,1'), 'a 1 by 1 of inner data named by a plain variable')
+        self.ok(named(T(2, 1, [2]), T(2, 1, [2]), '1,1,1'))
+        self.ok(named(T(2, 1, [2]), T(1, 1), '1,1,1'))
+        attr = lambda w: graph_of({'o': deep(T(3, 1), lambda *at: 1), 'w': deep(w, lambda *at: 1), 'a': N('measure', ['o', 'w'], T(1, 1), side='a', name='heads', formula='$1 * 2')})
+        self.bad(attr(T(1, 1, [2])), 'an attribute naming inner data')
+        self.ok(attr(T(1, 1)))
+
     def test_a_function_fits_its_input_s_inner_data_or_holds_none(self):
         def g(p, given, out, body=None):
             nodes = {'x': deep(given, lambda *at: None), 'p': N('param', [], p, within=['f:1']), 'y': N('apply', ['x'], out, fn='f:1')}

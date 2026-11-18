@@ -324,6 +324,7 @@ export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' &
    evaluate.js once for each inner position, on entries keyed "column,row". at is the evaluator's: at.get(k)
    the entries of input k, at.type(k) its type, at.cells the chain of cells, and the rest as evaluate.js sets out. */
 const list = xs => xs.join(',');
+const HELD_APART = 'a matrix its formula names holds inner data that is not its own';
 const SIDE = /^(x|y|m|a|d[1-6])$/;               /* what a measure reads: a drawn side, a mass, an attribute, or the length of an inner axis */
 const innerText = t => innerOf(t).length ? '·' + innerOf(t).map(a => a.length).join('×') : '';
 const unnamed = t => innerOf(t).map(a => ({ length: a.length, name: null }));
@@ -368,6 +369,8 @@ export const OPS = {
       return bad; },
     /* its type is its block's own; what defines it must be that size (and a definition must not call a side by another name) */
     type(n, ins){ if (!okType(n.type)) return 'it has no size of its own';
+      /* what an entry's formula names holds inner data only where it is the variable's own size, inner data and all: a size that is settled when the graph is built is checked then, not met as an error in every entry */
+      if (n.defined === 'entries' && ins.some(i => innerOf(i.type).length && !same(i.type, n.type))) return HELD_APART;
       if (n.defined === 'entries' || !ins.length) return n.type;
       const t = ins[0].type, kinds = { measure: ['measure'], standing: ['block', 'stack'], joined: ['block'], source: ['source', 'map', 'noise'], entry: ['entry'] };
       if (own(kinds, n.defined) && !kinds[n.defined].includes(ins[0].op)) return `defined "${n.defined}" over a ${ins[0].op}`;
@@ -451,7 +454,8 @@ export const OPS = {
     fields(n){ if (typeof n.side !== 'string' || !SIDE.test(n.side)) return [`side is "${n.side}"`];
       if (n.side !== 'a') return n.inputs.length !== 1 ? ['a side or a mass is read off one input'] : 'name' in n || 'formula' in n ? ['only an attribute has a name and a formula'] : [];
       return [...(typeof n.name === 'string' && n.name ? [] : ['an attribute has a name']), ...(formulaOk(n.formula, n.inputs.length - 1, { empty: true }) ? [] : ['its formula is one the graph cannot hold: it does not read, or names what is not an input'])]; },
-    type: (n, [a]) => n.side === 'm' && !one(a.type) ? 'only a single number has a mass' : n.side[0] === 'd' && +n.side.slice(1) > innerOf(a.type).length ? `its input has no inner axis ${n.side.slice(1)}` : T(1, 1),
+    type: (n, [a, ...named]) => n.side === 'm' && !one(a.type) ? 'only a single number has a mass' : n.side[0] === 'd' && +n.side.slice(1) > innerOf(a.type).length ? `its input has no inner axis ${n.side.slice(1)}`
+      : n.side === 'a' && named.some(i => innerOf(i.type).length) ? HELD_APART : T(1, 1),      /* an attribute is one number: its formula names no matrix that holds inner data */
     /* a length is read off the type, so the matrix itself is not needed; an attribute's first input only says whose it is */
     needs: (n, ins) => n.side === 'a' ? n.inputs.slice(1).map((_, k) => k + 1) : n.side === 'm' || one(ins[0].type) ? [0] : [],
     value(n, at){ const t = at.type(0), as = v => new Map(v === null || v === undefined ? [] : [['1,1', v]]);

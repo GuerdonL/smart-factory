@@ -560,3 +560,23 @@ test('mapalong carries inner data: an arrow repeated in a tile along an input th
   const w = made(snap([M, arrow('f', { id: 'M', as: 'block' }, { side: 's', span: 2 }, { x: 0, y: 1, name: 'second', inside: whole })], tile)), o3 = w.spaces.top.arrows[0];
   assert.equal(o3.error, null); assert.deepEqual(w.nodes[o3.node].type, t(4, 1)); assert.deepEqual(evaluate(w, o3.node).entries, { '1,1': 21, '2,1': 22, '3,1': 41, '4,1': 42 });
 });
+test('validate: what an entry\'s or an attribute\'s formula names holds inner data only where it is the variable\'s own size', () => {
+  const v = (type, w) => G({ w: V(w), v: { ...V(type), inputs: ['w'], entries: { ['1,1' + ',1'.repeat((type.inner || []).length)]: { expr: '$1 + 0' } } } });
+  assert.match(bad(v(t(2, 1, [2]), t(2, 1, [3])), 'inner 3 read by inner 2'), /holds inner data that is not its own/);
+  assert.match(bad(v(t(2, 1), t(1, 1, [2])), 'a 1 by 1 of inner data named by a plain variable'), /holds inner data that is not its own/);
+  bad(v(t(2, 1), t(2, 1, [2])), 'inner data named where the variable holds none');
+  const same = G({ w: V(t(2, 1, [2]), (c, r, k) => c * k), v: { ...V(t(2, 1, [2])), inputs: ['w'], entries: { '2,1,2': { expr: '$1 + 1' } } } }); ok(same);
+  assert.deepEqual(worked(same, 'v'), { '2,1,2': 5 });
+  ok(G({ w: V(t(1, 1), () => 3), v: { ...V(t(2, 1, [2])), inputs: ['w'], entries: { '2,1,2': { expr: '$1 + 1' } } } }));      /* a scalar, as ever */
+  const attr = w => G({ o: V(t(3, 1)), w: V(w), a: N('measure', ['o', 'w'], t(1, 1), { side: 'a', name: 'heads', formula: '$1 * 2' }) });
+  assert.match(bad(attr(t(1, 1, [2])), 'an attribute naming a 1 by 1 of inner data'), /holds inner data/); ok(attr(t(1, 1)));
+});
+test('evaluate: the limit counts a function run at each inner position as its body that many times, before it is run', () => {
+  const g = P => { const S = 16, at = t(1, 1, [P]);
+    return ok(G({ x: V(at, (c, r, k) => k), big: V(t(S, S), (c, r) => (c + r) % 3), 'param(f:1)': N('param', [], t(1, 1), { within: ['f:1'] }),
+      sc: N('scale', ['param(f:1)', 'big'], t(S, S), { within: ['f:1'] }), body: N('slice', ['sc'], t(1, 1), { range: { col: 0, row: 0, cols: 1, rows: 1 }, within: ['f:1'] }), y: N('apply', ['x'], at, { fn: 'f:1' }) }, { 'f:1': { input: 'param(f:1)', body: 'body' } })); };
+  assert.deepEqual(worked(g(16), 'y')['1,1,16'], 32);                                       /* 16 positions of a 256-number body: 4,096, worked out */
+  assert.deepEqual(evaluate(g(17), 'y'), { type: t(1, 1, [17]), deferred: true });           /* 17: past it, and not begun */
+  assert.ok(worked(g(17), 'x'));                                                             /* what it is given is small, and is still worked out */
+  assert.deepEqual(evaluate(g(17), 'y', { maxEntries: 17 * 256 }).entries['1,1,17'], 34);
+});
