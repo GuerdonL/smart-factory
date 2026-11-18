@@ -9,7 +9,8 @@
                                                      not itself a whole number
        boolean        true, false
        symbolic       { sym: "1+sqrt(2)" }           text the solver can read back: exact, never an approximation
-       decimal        { f: 0.4375 }                  made only by the backend and by noise (phase 7), never here
+       decimal        { f: 0.4375 }                  made only by the backend (backend/), noise included, never here:
+                                                     a 32-bit float, written to 9 significant digits. Never saved.
        error          { err: "divide by zero" }      worked out, never typed and never saved
        unknown        null                           an entry not given a value: it stays a symbol, and is not zero
 
@@ -53,7 +54,8 @@
    truth(v)          -> whether a value counts as true: false for false and 0, true for everything else that is known;
                         for a symbolic value that cannot be told from 0, the error saying so
    typedNumber(text) -> digits as typed, with at most one point, as a value: "1.25" is 5/4. Never a decimal.
-   written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)"; "!" for an
+   digits(f)         -> a decimal's number as text, to 9 significant digits: "2.71828175", "0.5"
+   written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)", "0.4375"; "!" for an
                         error (why is v.err), and "" for unknown. The one function that turns a value into text.
    kind(v)           -> 'whole' | 'infinity' | 'exact' | 'boolean' | 'symbolic' | 'decimal' | 'error' | 'unknown'
    isWhole(v), isSurd(v), isError(v), isFormula(v)
@@ -361,6 +363,9 @@ function pretty(t){
   }
   return out.replace(/(?<![\w.])log\(/g, 'ln(').replace(/sqrt\(/g, '√(').replace(/√\((\d+)\)/g, '√$1').replace(/(\d)\*√/g, '$1√').replace(/\*/g, '·');
 }
+/* a decimal written out: to 9 significant digits, which is every digit a 32-bit float has (and no more: 0.1 as such a
+   float is 0.100000001, and is written so). No digits are added: 0.5 is "0.5". */
+export const digits = f => f === Infinity ? '∞' : f === -Infinity ? '-∞' : Number.isNaN(f) ? '!' : String(Number(f.toPrecision(9)));
 export function written(v){
   if (v === null || v === undefined) return '';
   if (typeof v === 'boolean') return v ? 'T' : 'F';
@@ -369,7 +374,7 @@ export function written(v){
   if (isSym(v)){ const t = largeOf(v.sym); if (!t || !t[2]) return pretty(v.sym);      /* a root of a number too large for plain numbers: written as a root, with nothing brought out from under it */
     const mark = t[2] === 1 ? '√' : t[2] === 2 ? '∜' : null, under = t[1] === 1n ? String(big(t[0])) : `(${big(t[0])}/${t[1]})`;
     return (t[0] < 0n ? '-' : '') + (mark ? mark + under : `${under}^(1/${2 ** t[2]})`); }
-  if (isDec(v)) return String(v.f);
+  if (isDec(v)) return digits(v.f);
   if (!isSurd(v)) return '';
   const p = v.n, q = v.d || 1;
   if (!v.k) return q === 1 ? String(p) : p + '/' + q;
