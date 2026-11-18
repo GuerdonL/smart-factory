@@ -48,8 +48,8 @@ who can reach the port can read and overwrite the projects.
 
 - `smart-factory.html`, `.css`, `.js`: the page, its theme (every colour and typeface), and the wiring.
 - `components/`: one file per thing on screen, each carrying its own markup, styles and behaviour.
-- `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules), how a project is
-  written to files, and zip; no drawing.
+- `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules; what a cut leaves, and what
+  a part of a shape is), how a project is written to files, and zip; no drawing.
 - `bus.js`: the message bus. Everything the user does takes effect as a named message of plain data (blocks by id)
   sent through it; it keeps a log and can be tapped before and after each message, which is where history and undo
   will attach. What each message does is listed under "messages" in `smart-factory.js`.
@@ -118,10 +118,76 @@ The result of a sum, or of times and over, is written as its size and its entrie
 product's is; it is not worked out in numbers yet.
 
 Projects saved before this (format 2) took a stack to mean rows appended. Opening one, each such stack is fused into
-one joined shape, which still appends, so the project means what it did; the readout says how many were fused.
+one shape, as Difference would fuse it, which still appends, so the project means what it did; the readout says how many were fused.
 Two other arrangements meant nothing then and mean something now: shapes that meet at a corner, and a shape directly
 under one that is in a product. Those are left exactly where they are, and the readout says how many pieces read
 differently, so that you can look for them.
+
+## Difference, Intersect and Revert
+
+Three commands in the right-click menu work on the selected shapes by where they lie, not by touching.
+
+**Difference** is what exactly one of the selected shapes covers. It does one of two things:
+
+- *Fuse.* Two or more shapes that do not overlap and together fill one rectangle exactly become one shape, that
+  rectangle. It keeps the shapes it was fused from: each keeps its colour on the face, with a wavy seam where two
+  meet, and its entries are theirs. This is how rows or columns are appended.
+- *Cut.* Exactly two shapes laid one over the other. The part they share is taken out of both, and what is left of
+  each becomes new shapes. Neither is the cutter: the order does not matter.
+
+```
+band at an edge          band in the middle        partial overlap, same rows     refused
++------+----+            +----+----+----+          +------+---+------+            +----------+
+| left | I  |            |left| I  |left|          | left | I | left |            | a  +---+ |
++------+----+            +----+----+----+          +------+---+------+            |    | b | |
+ one shape                two shapes                two shapes                    +----+---+-+
+```
+
+What is left of a shape has to be one rectangle, or two either side of a band that crosses it; a shape that lies
+wholly inside the other leaves nothing. If what is left would turn a corner or go round a hole, the whole cut is
+refused, and so is a cut of two shapes that are the same rectangle. Three or more shapes of which some overlap are
+refused: a cut takes exactly two.
+
+**Intersect** takes exactly two overlapping shapes and makes one new shape of the part they share. Its entries are
+those of the lower shape (the one drawn first); the upper one is only a stencil. Lay a block over the columns you
+want of a matrix and Intersect: that is how one head is taken out. A small shape in the middle of a large one can be
+intersected, though it cannot be cut.
+
+**Revert** undoes any of these: a fused shape comes apart into the shapes it was fused from, and for a shape made by
+a cut or an intersection every shape that command made is removed and the two original shapes come back where they
+were: at the same place in the drawing order and in the same frames, so the project is as it was before the
+command. If one of the shapes to be removed has been named and is used elsewhere, the usual warning is shown first.
+
+A menu item that the selection does not allow is greyed. Choose it anyway and the readout says why.
+
+**What a cut or an intersection makes.** The two shapes are taken off the canvas and kept, whole. Each new shape is
+a part of one of them, its source, in whole columns and rows:
+
+- It has no entries of its own. Its entries are the source's in those columns and rows, whatever they are now. If
+  the source is one use of a variable, typing a number into the variable anywhere changes the part at once, and the
+  variable itself is untouched by the cut. Nothing can be typed into a part: the readout says to change the source.
+  A named source stays in the list at the right edge while it is kept, so a use of it can be dragged out and
+  changed even when the cut took its only one.
+- Columns 3 and 4 stay columns 3 and 4 however the source is resized. A part that reached the source's right or
+  bottom edge keeps reaching it as the source grows or shrinks. A part is always the size of its range, so it cannot
+  be resized by hand.
+- If the source becomes too small to have the part at all, the part is drawn in the warning colour and has `no value`
+  until the source is large enough again. A shape fused from such a part is drawn and valued the same way.
+- Deleting every shape a cut made deletes the two kept shapes too, and with them whatever refers to them (a
+  reference, a length taken from one), after the usual warning. Deleting the variable a kept shape is a use of
+  takes that cut's shapes with it, also after the warning, and puts the other kept shape back on the canvas.
+- New shapes are unnamed and take the tensor colour. Named, a part is a variable like any other.
+- A side that takes in the source's whole side keeps the name given to that side. A side that was shortened shows a
+  label made from what the two shapes called that side: `A-B` on what is left of a, `B-A` on what is left of b,
+  `A&B` on an intersection, with `.1` and `.2` where one cut left two shapes of one source (`embed-Head.x.1`). A
+  label is only a label, like a shape's automatic `Keys.x`: it makes no sides one length, lets no product pass by
+  name, and does not shorten the written matrix. Type a name on the side to give it a real one; a part cannot
+  change size, so every side of that name then stays that length, and the readout says why when you try.
+
+Shapes standing in a definition's matrix that together cover it still define the variable with no command; that is
+the other way to append.
+
+`projects/boolean-tool` shows a fused shape, a cut and an intersection.
 
 ## How results are written
 

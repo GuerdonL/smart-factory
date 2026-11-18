@@ -17,7 +17,7 @@ import { createCrumbs } from './components/crumbs.js';
 import { createVariables } from './components/variables.js';
 import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
-import { touches, joins, pieces, resultHollows, typeOf, initials, readEntry, readSide, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
+import { touches, joins, pieces, resultHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readEntry, readSide, rootOf as rootValue, isWhole, isSurd, valueText, exact, held } from './algebra.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -29,7 +29,7 @@ import { written, squares } from './components/matrix.js';
 /* everything the user does takes effect as a message on the bus (bus.js); what each message does is set out under
    "messages", near the end. Blocks are named in messages by their ids. */
 const bus = createBus(); globalThis.smartFactoryBus = bus;      /* on the page as smartFactoryBus, to look at its log */
-const everyKnown = () => { const out = [], add = b => { out.push(b); for (const m of b.members || []) add(m.block); }; for (const s of everySpace()) s.blocks.forEach(add); return out; };      /* every block, those joined into others included */
+const everyKnown = () => { const out = [], add = b => { out.push(b); for (const m of b.members || []) add(m.block); }; for (const s of everySpace()){ s.blocks.forEach(add); for (const o of s.ops) o.sources.forEach(add); } return out; };      /* every block: those fused into others, and those a cut or an intersection took off the canvas and keeps, included */
 const blockOf = id => space.blocks.find(b => b.id === id) || (space.owner?.id === id ? space.owner : everyKnown().find(b => b.id === id));
 const idsOf = list => [...list].map(b => b.id);
 const pick = (list, toggle = false) => bus.send('select', { ids: idsOf(list), toggle });
@@ -47,8 +47,9 @@ fetch('shapes/index.json').then(r => r.json())
    with the block as a variable in matrix notation on the right and what the shapes in the space come to on the left.
    What is put in the space must come to the block's promised size (w units across, h units down). The Menu has no
    promise, so it writes "=" and what each piece of touching shapes comes to beside that piece.
-   Only the current space's blocks are on the canvas. */
-const newSpace = (owner, parent) => ({ owner, parent, blocks: [], groupOf: new Map(), groupUp: new Map(), groupNames: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
+   Only the current space's blocks are on the canvas. A space also keeps its operations (ops): what Difference and
+   Intersect have cut in it, each with the two blocks it took off the canvas (see "the boolean tool"). */
+const newSpace = (owner, parent) => ({ owner, parent, blocks: [], ops: [], groupOf: new Map(), groupUp: new Map(), groupNames: new Map(), frames: new Map(), camera: { x: 0, y: 0, zoom: 1 }, definition: null });
 const top = newSpace(null, null);              /* the Menu */
 const spaceOf = new Map();                     /* block -> its definition space */
 let space = top;
@@ -150,7 +151,7 @@ function inReach(){
         (up === undefined ? (isHidden(name) ? hidden : main) : node(up).children).push(n); }
       return nodes.get(g); };
     for (const g of s.groupNames.keys()) node(g);
-    for (const b of s.blocks){
+    for (const b of withKept(s)){               /* a variable a cut keeps off the canvas is still in reach: a use of it can be pulled out, to look at it or change it */
       if (isNamed(b) && !isOff(b) && !seen.has(b) && !spaces.includes(spaceOf.get(b))){       /* not the one whose definition we are standing in */
         for (const k of kinOf(b)) seen.add(k);
         const up = named(s.groupOf.get(b)), item = { kind: 'shape', name: b.name, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit, block: b, depth,
@@ -209,7 +210,7 @@ const tileLook = b => (tilesOf(b) || []).map(t => ({ x: t.x, y: t.y, w: t.w, h: 
    sum, times or over: algebra.js) and the pieces they make, each with its one rule. */
 function algebraIn(s){
   const u = view.unit, active = s.owner && tilesOf(s.owner) ? [] : s.blocks.filter(b => !isOff(b));      /* shapes standing in the block's matrix are entries, not a product; commented-out blocks take no part */
-  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h }));
+  const rects = active.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, ...(lost(b) ? { none: true } : {}) }));      /* none: a part its source is too small to have has no value */
   return { active, rects, touches: touches(rects), all: pieces(rects) };
 }
 /* a block's entries: its own; or, once shapes standing in its matrix (in its definition space) cover all of it,
@@ -218,9 +219,12 @@ function algebraIn(s){
    every other use; a transpose reads them turned. (A joined shape is turned bodily, with what it was joined from, so
    its entries are already the way it stands.) */
 const turned = b => !!b.t && !b.members;
-const own = (b, plain = false) => turned(b) && !plain ? new Map([...b.values].map(([k, v]) => { const [c, r] = k.split(','); return [r + ',' + c, v]; })) : b.values;
+const flipped = values => new Map([...values].map(([k, v]) => { const [c, r] = k.split(','); return [r + ',' + c, v]; }));
+const own = (b, plain = false) => turned(b) && !plain ? flipped(b.values) : b.values;
 function valuesOf(b, depth = 0, plain = false){      /* plain: the variable's own way round, whatever this use is */
-  if (b.from){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
+  if (measures(b)){ const v = derived(b); return new Map(v === null ? [] : [['1,1', v]]); }      /* a side length of another shape: whatever that is now */
+  const part = rangedOf(b);                    /* a part of another shape: that shape's entries there, whatever they are now */
+  if (part) return depth < 8 ? rangeValues(part, depth, turned(b) && !plain) : new Map();
   const tiles = depth < 8 && tilesOf(b), u = view.unit;
   if (!tiles || tiles.reduce((sum, t) => sum + t.w * t.h, 0) !== Math.round(b.rect.w / u) * Math.round(b.rect.h / u)){
     return own(b, plain); }
@@ -236,6 +240,7 @@ function matrixAt(x, y){
 }
 function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix the pointer was, in entries from its top-left corner */
   const u = view.unit, home = a === space.owner ? space.parent : space, cols = Math.round(a.rect.w / u), rows = Math.round(a.rect.h / u), w = Math.round(v.rect.w / u), h = Math.round(v.rect.h / u);
+  if (rangedOf(a)) return hud.say(`${bare(a.name)} is part of ${partOf(a)}: change it there`);      /* its entries are its source's */
   if ([...kinOf(a)].includes(v)) return hud.say('A shape cannot go into its own matrix');
   if (w > cols || h > rows) return hud.say(`${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
@@ -254,6 +259,7 @@ function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix
   for (let X = 0; X <= cols - w; X++) for (let Y = 0; Y <= rows - h; Y++) if (!over(X, Y).length){ const d = Math.abs(X - wantX) + Math.abs(Y - wantY); if (!best || d < best[2]) best = [X, Y, d]; }
   const [X, Y] = best || [wantX, wantY];
   for (const t of over(X, Y)) out(t.block);
+  pruneOps();                                  /* what was cut in the definition went with it */
   const slot = slotOf(a), use = makeBlock({ ...v.shape }, { x: slot.x + X * u, y: slot.y + Y * u, w: v.rect.w, h: v.rect.h }, v.name);
   use.sides = { ...v.sides }; use.values = v.values; use.turn(v.t); use.tile = true; if (v.members) use.members = v.members; spaceOf.set(use, vdef);
   const set = new Set(family.filter(k => spaceOf.get(k) === vdef)); set.add(use); if (set.size > 1) for (const k of set) kin.set(k, set); use.ref = true;      /* the uses still there: v is not one of them if it was in the definition that has just been cleared */ use.attrs = attrsOf(v);
@@ -273,7 +279,7 @@ function reach(x, y){
   for (const b of within){
     if (!near.has(b)){ near.set(b, createMeasure(view.unit)); view.world.append(near.get(b).el); }
     const s = sides(view, b.rect), a = view.toScreen(b.rect.x, b.rect.y), z = view.toScreen(b.rect.x + b.rect.w, b.rect.y + b.rect.h);
-    near.get(b).set(b.rect, { ...s, wName: sideName(b, 'w'), hName: sideName(b, 'h'), ...rootOf(b) }); near.get(b).mark(null);
+    near.get(b).set(b.rect, { ...s, wName: shownSide(b, 'w'), hName: shownSide(b, 'h'), ...rootOf(b) }); near.get(b).mark(null);
     /* where the two lines are drawn on screen (measure.js: a 14px gap, then an 11px line) */
     const wy = s.top ? a.y - 2.4 * 14 - 5.5 : z.y + 14 + 5.5, hx = s.right ? z.x + 14 + 5.5 : a.x - 14 - 5.5;
     const dw = Math.hypot(Math.max(a.x - x, 0, x - z.x), y - wy), dh = Math.hypot(x - hx, Math.max(a.y - y, 0, y - z.y));
@@ -329,7 +335,10 @@ const massName = b => isNamed(b) && single(b) ? bare(b.name).trim().slice(0, 10)
 const unset = b => isNamed(b) && single(b) && scalarOf(b) === null;
 const symbolOf = b => initials(b.name) + '₁';
 const sideName = (b, dim) => dim === 'm' ? massName(b) : b.sides[dim] || autoSide(b, dim);
-const uses = (s, name) => s.blocks.some(b => sideName(b, 'w') === name || sideName(b, 'h') === name || massName(b) === name);
+/* a space's blocks with those a cut or an intersection took off its canvas and keeps: a kept block's named sides are
+   still that name's length, and follow it, so that the shapes made of the block do */
+const withKept = s => s.ops.length ? [...s.blocks, ...s.ops.flatMap(o => o.sources)] : s.blocks;
+const uses = (s, name) => withKept(s).some(b => sideName(b, 'w') === name || sideName(b, 'h') === name || massName(b) === name);
 /* s and every space above it: the spaces holding a block whose definition s is, and so on up */
 function above(s){
   const seen = new Set([s]), todo = [s];
@@ -344,7 +353,7 @@ function homeOf(name, s){
 /* every side that is the same length as a side called name in s: [block, 'w' or 'h', the block's space] */
 function sidesCalled(name, s){
   const home = homeOf(name, s), out = [];
-  for (const t of everySpace()) if (uses(t, name) && homeOf(name, t) === home) for (const b of t.blocks) for (const dim of ['w', 'h']) if (b.sides[dim] === name) out.push([b, dim, t]);
+  for (const t of everySpace()) if (uses(t, name) && homeOf(name, t) === home) for (const b of withKept(t)) for (const dim of ['w', 'h']) if (b.sides[dim] === name) out.push([b, dim, t]);
   /* and the shape the name is taken from, where it is a shape's own: one variable only, the nearest, so that
      shapes which merely share a name are not tied to one another */
   const order = [...above(s)].sort((a, b) => above(b).size - above(a).size), all = [...order, ...everySpace().filter(t => !order.includes(t))];
@@ -362,12 +371,15 @@ function lengthCalled(name, s, not = null){
    with one of its sides takes that side's length; then the same for whatever those changed, until nothing moves */
 function agree(b){
   const todo = [b], done = new Set();
+  /* a named side of a part that does not take in its source's whole side: it is as long as its range, whatever else carries the name */
+  const pinned = ([o, d]) => !!o.from?.range && d !== 'm' && !wholeSide(o.from.range, (d === 'w') !== turned(o) ? 'cols' : 'rows');
   while (todo.length){
     const c = todo.pop(); if (done.has(c)) continue; done.add(c);
     for (const k of kinOf(c)) if (k !== c){ const over = !!k.t !== !!c.t, w = over ? c.rect.h : c.rect.w, h = over ? c.rect.w : c.rect.h;      /* a transpose of it is the other way round */
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
-    const s = spaceWith(c); if (!s) continue;
-    for (const dim of ['w', 'h', 'm']) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o]) => rootSide(o) !== null);      /* a single entry's number settles the length: it is not resized to suit the others */
+    const s = everySpace().find(s => withKept(s).includes(c)); if (!s) continue;
+    for (const dim of ['w', 'h', 'm']) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o]) => rootSide(o) !== null) || group.find(pinned);      /* a single entry's number settles the length: it is not resized to suit the others. So does a part's shortened side */
+      if (boss && pinned(boss) && c !== boss[0] && c.rect[dim] !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and is part of ${partOf(boss[0])}, so its size cannot change`);
       const length = boss ? sideLength(boss[0], boss[1]) : c.rect[dim];
       if (!boss && dim === 'm') continue;
       if (length === null){      /* the entry's side is not a whole number now: no side can be that long, so the sides that carried its name let go of it and stay as they are */
@@ -395,12 +407,16 @@ function keepTouching(change, except = () => false){
    "context 8" both;  "-" takes the name off. */
 function typed(b, dim, text){ keepTouching(() => typedNow(b, dim, text)); }
 function typedNow(b, dim, text){
-  const { name, length: n } = readSide(text);      /* algebra.js: a number is a length only apart from the name, so "d2" is a name */
+  const read = readSide(text), name = read.name; let n = read.length;      /* algebra.js: a number is a length only apart from the name, so "d2" is a name */
   if (n === undefined){ hud.say(`${String(text).trim()}: only a whole number can be a side's length`); return; }      /* never rounded: nothing changes */
+  /* a part of another shape is the size of that part: a length typed on it is not taken, nor a name that is another length already */
+  if (rangedOf(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
+    if ((n !== null && n * view.unit !== b.rect[dim]) || (has !== undefined && has !== b.rect[dim])){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); if (has !== undefined && has !== b.rect[dim]) return; }
+    n = null; }
   /* a named scalar stays a scalar: a length given to its side is the root of its number, so the number becomes the
      length squared, and the block keeps its one square */
   const single = isNamed(b) && !b.members && b.rect.w === view.unit && b.rect.h === view.unit;
-  if (single && b.from){ hud.say(`${bare(b.name)} is a measure of another shape: change it there`); return; }
+  if (single && measures(b)){ hud.say(`${bare(b.name)} is a measure of another shape: change it there`); return; }
   const size = length => single ? b.values.set('1,1', (length / view.unit) ** 2) : b.set({ ...b.rect, [dim]: length });
   if (name === '-' || (name && name === autoSide(b, dim))){ b.sides[dim] = null; if (n >= 1) size(n * view.unit); if (name !== '-') agree(b); return; }      /* its own automatic name is no name given */
   if (name && sidesCalled(name, space).some(([o, d]) => o !== b && sideLength(o, d) === null)){ hud.say(`${name} is not a whole number: it cannot be a side's length`); return; }
@@ -695,10 +711,10 @@ const properties = createProperties({
     const n = wholeTyped(b, text, key); if (n === null || n < 1){ if (n !== null) hud.say(`${key} has to be at least 1`); return shown(); }
     bus.send('side.set', { id: b.id, dim: key === 'x' ? 'w' : 'h', text: String(n) }); } });
 function shown(){                              /* brings what is on screen in line with the selection and the blocks' positions */
-  hush(); configure();
-  for (const b of space.blocks) if (b.from){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
+  hush(); follow(); configure();
+  for (const b of space.blocks) if (measures(b)){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
-  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); }
+  for (const b of space.blocks){ const v = scalarOf(b); b.face(v === null ? null : asText(v)); b.warn(lost(b)); }      /* a part its source is now too small to have is drawn in the warning colour */
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
   for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
@@ -707,7 +723,7 @@ function shown(){                              /* brings what is on screen in li
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar: cols === 1 && rows === 1 && !one.members, attributes: attributesOf(one),
       matrix: { letter: initials(one.name), values: valuesOf(one), transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
   else properties.show(null);
-  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: sideName(one, 'w'), hName: sideName(one, 'h'), ...rootOf(one) }); }
+  if (one){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one) }); }
   else measure?.el.remove();
   /* every frame is drawn, named or not; the one that is the whole selection also carries the tools */
   const oneGroup = groupIs(list), live = new Set();
@@ -832,6 +848,9 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
     b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); def.blocks.push(b);
     if (spaceOf.has(b)) spaceOf.get(b).parent = def;                                                 /* its own definition now hangs under the new one */
   }
+  /* what was cut goes with the shapes it made, where all of them fold away: the blocks it keeps move as they did */
+  for (const o of [...space.ops]) if (o.results.every(id => inside.some(b => b.id === id))){ space.ops.splice(space.ops.indexOf(o), 1); def.ops.push(o);
+    for (const b of o.sources) b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); o.was = null; }      /* their old place in the order, and their frames, were this space's */
   tidy();                                      /* a group left with one thing in it is no group */
   space.blocks.push(made); view.world.append(made.el);
   select([made]);
@@ -843,7 +862,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: b.from ? [...valuesOf(b)] : [...b.values],      /* plain data throughout, so a paste can say what it pasted */
+const picture = (b, s) => ({ tile: !!b.tile, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, attrs: attrsOf(b).map(a => ({ ...a })), values: measures(b) ? [...valuesOf(b)] : rangedOf(b) ? [...valuesOf(b, 0, true)] : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
   groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null })),      /* the groups it is in, innermost first */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -910,19 +929,80 @@ function transpose(){
   if (space.owner && done.has(space.owner)) write();      /* the block whose space this is has turned too */
   shown();
 }
-/* ---- joined shapes ----
-   Shapes that fit together into a rectangle, with nothing missing and nothing doubled, can be joined into one shape:
-   that rectangle. Like a group, it keeps the shapes it was joined from, whole (their names, entries, definitions),
-   only out of sight; disjoin puts them back. On its face each keeps its colour, with a wavy line where two meet.
-   Its entries are theirs: each of its entries is the entry of the shape that covers that place, and a number typed
-   into it goes to that shape. A joined shape can be joined again, into a larger one.
-   block.members: [{ block, fx, fy, fw, fh }], each with the part of the joined shape it takes up, as fractions, so
-   they follow when it is resized. */
-function fitsTogether(list){
-  if (list.length < 2) return false;
-  const box = boxOf(list), area = list.reduce((sum, b) => sum + b.rect.w * b.rect.h, 0);
-  return Math.abs(area - box.w * box.h) < 1e-6 && !list.some((a, i) => list.some((b, j) => j > i && a.rect.x < b.rect.x + b.rect.w && b.rect.x < a.rect.x + a.rect.w && a.rect.y < b.rect.y + b.rect.h && b.rect.y < a.rect.y + a.rect.h));
+/* ---- the boolean tool: Difference, Intersect and Revert ----
+   Difference is what exactly one of the selected shapes covers. Shapes that fit together into a rectangle, with
+   nothing missing and nothing doubled, are fused into one shape: that rectangle. Two shapes laid one over the other
+   are cut: what is left of each, once the part they share is taken out, becomes new shapes. Intersect makes one new
+   shape of the part two shapes share. Revert undoes any of the three. Which of these a selection allows, and why not,
+   is algebra.js's to say (difference, intersection, cut); here the blocks are made and put away.
+
+   A fused shape keeps the shapes it was fused from, whole (their names, entries, definitions), only out of sight;
+   Revert puts them back. On its face each keeps its colour, with a wavy line where two meet. Its entries are theirs:
+   each of its entries is the entry of the shape that covers that place, and a number typed into it goes to that
+   shape. A fused shape can be fused again, into a larger one.
+   block.members: [{ block, fx, fy, fw, fh }], each with the part of the fused shape it takes up, as fractions, so
+   they follow when it is resized.
+
+   A cut or an intersection takes its two shapes off the canvas and keeps them, whole, in the space's list of
+   operations: space.ops, each { id, op: 'difference' | 'intersect', sources: [the two blocks], results: [block ids],
+   was: [where each source was: { order, frames }] or null }. Revert puts each source back at that place among the
+   blocks and in those frames, so a cut reverted leaves the project as it was before the cut.
+   A kept block is still a use of its variable and still has its id, so everything that names it finds it, and its
+   variable stays in the list at the right edge: a use of it can be pulled out, to see it or to change its entries.
+   A kept block goes for good in two ways, both through the cascade and its warning (doomed): its variable is
+   deleted, which takes the operation's shapes with it and puts the other kept block back; or every shape its
+   operation made is deleted, which takes both kept blocks and whatever refers to them.
+   Each shape made is a part of one of the two, its source: block.from = { id, range }, the range in whole columns
+   and rows of the source as that block stands (algebra.js: rangeOf, rangeIn). It has no entries of its own. Entry
+   c,r of the part is the source's entry in that column and row, whatever it is now, so a number given to the
+   source's variable anywhere shows in the part at once, and nothing can be typed into the part. A part is the size
+   of its range: where the range reached the source's edge it grows and shrinks with the source, and where the source
+   is now too small to have that part the shape is drawn in the warning colour and has no value, until it is large
+   enough again; so is a shape fused from such a part. A name typed on a part's shortened side is a real one, and
+   since the part cannot change size, neither can any other side of that name: the readout says so. A part that has been named is a variable like any other; its other uses read the same part.
+   The part made by an intersection is of the lower of the two shapes, the one earlier in the space's blocks; the
+   upper one is only a stencil. */
+const unitsOf = b => { const u = view.unit; return { x: Math.round(b.rect.x / u), y: Math.round(b.rect.y / u), w: Math.round(b.rect.w / u), h: Math.round(b.rect.h / u) }; };
+const inOrder = list => space.blocks.filter(b => list.includes(b));      /* back to front, as they are drawn */
+const measures = b => !!b.from && !b.from.range;      /* block.from is one of two things: a measure of a shape's side, or a part (a range) of a shape */
+/* the block whose range b shows: itself, or, for another use of a part that was named, that part */
+const rangedOf = b => b.from?.range ? b : kin.has(b) ? [...kin.get(b)].find(k => k.from?.range) || null : null;
+const partOf = b => { const src = sourceOf(rangedOf(b)); return src ? bare(src.name) : 'another shape'; };      /* what to call its source, in a sentence */
+/* a part's range as it lies in its source now, or null where the source cannot hold it (or is gone) */
+const rangeNow = o => { const src = sourceOf(o), u = view.unit; return src ? rangeIn(o.from.range, Math.round(src.rect.w / u), Math.round(src.rect.h / u)) : null; };
+/* a shape with no value just now: a part its source cannot hold, or a shape fused from one */
+const lost = b => { const o = rangedOf(b); return (!!o && !rangeNow(o)) || (b.members || []).some(m => lost(m.block)); };
+/* a part's entries: its source's, in its range (algebra.js: partEntries), the variable's own way round or turned */
+function rangeValues(o, depth, over = false){
+  const src = sourceOf(o), u = view.unit; if (!src) return new Map();
+  flow(src);                                   /* a fused source's entries are gathered from what it was fused from */
+  return partEntries(o.from.range, { cols: Math.round(src.rect.w / u), rows: Math.round(src.rect.h / u), entries: valuesOf(src, depth + 1, true), turned: turned(src) }, over);
 }
+/* every part takes the size its range now has in its source (a part of a part after the part it is of), and what
+   shares its variable or a side's name follows. Called whenever the screen is brought up to date. */
+function follow(){
+  const u = view.unit;
+  for (let pass = 0, moved = true; moved && pass < 8; pass++){ moved = false;
+    for (const o of everyKnown()){ const at = o.from?.range && rangeNow(o); if (!at) continue;
+      const w = (turned(o) ? at.rows : at.cols) * u, h = (turned(o) ? at.cols : at.rows) * u;
+      if (o.rect.w !== w || o.rect.h !== h){ o.set({ ...o.rect, w, h }); agree(o); moved = true; } } }
+}
+/* The sides of a part. A side that takes in the whole of its source's side keeps the name given to that side (a real
+   name: it is that length). Any other name it shows is a label, made by algebra.js (sideLabel) from what the two
+   shapes of the operation call that side, a given name or an automatic one (Keys.x): A-B on what is left of a,
+   B-A on what is left of b, A&B on an intersection, with .1 and .2 where one cut left two shapes of one source.
+   A label is written on the measurement as a shape's automatic name is, and binds nothing: it is not in block.sides,
+   so it makes no sides one length, lets no product pass by name, and does not elide the matrix. A name typed on the
+   side is a real one and is shown in its place; so is the automatic name the shape has once it is itself named. */
+const opOf = b => { for (const s of everySpace()) for (const o of s.ops) if (o.results.includes(b.id)) return { op: o, in: s }; return null; };
+function labelOf(b, dim){
+  if (isNamed(b) || !b.from?.range) return null;
+  const op = opOf(b)?.op, src = op?.sources.find(k => k.id === b.from.id), other = op?.sources.find(k => k !== src); if (!src || !other) return null;
+  const side = (dim === 'w') !== turned(b) ? 'cols' : 'rows', of = side === 'cols' ? 'w' : 'h';      /* the range is the variable's own way round */
+  const made = op.results.map(id => everyKnown().find(k => k.id === id)).filter(k => k?.from?.range && k.from.id === src.id).map(k => k.from.range);      /* what this operation made of the same source */
+  return sideLabel(b.from.range, side, sideName(src, of), sideName(other, of), op.op, nthOf(b.from.range, made));
+}
+const shownSide = (b, dim) => sideName(b, dim) || labelOf(b, dim);      /* what is written on its measurement */
 /* the coloured parts of a block's face, in units: one for a plain block, its members' for a joined one, all the way down */
 const partsOf = (b, x, y, w, h) => b.members ? b.members.flatMap(m => partsOf(m.block, x + m.fx * w, y + m.fy * h, m.fw * w, m.fh * h)) : [{ x, y, w, h, color: b.shape.color }];
 /* where a member sits in its joined shape as that now is: whole units, never less than one */
@@ -933,7 +1013,7 @@ function flow(b){
   if (!b.members) return;
   const u = view.unit, cols = Math.round(b.rect.w / u), rows = Math.round(b.rect.h / u); b.values.clear();
   for (const m of b.members){ flow(m.block); const at = placeOf(m, cols, rows);
-    for (const [k, v] of own(m.block)){ const [c, r] = k.split(',').map(Number); if (c <= at.w && r <= at.h) b.values.set((c + at.x) + ',' + (r + at.y), v); } }
+    for (const [k, v] of rangedOf(m.block) ? valuesOf(m.block) : own(m.block)){ const [c, r] = k.split(',').map(Number); if (c <= at.w && r <= at.h) b.values.set((c + at.x) + ',' + (r + at.y), v); } }
 }
 /* the shape an entry of b really belongs to, and the entry's place in it */
 function entryHome(b, c, r){
@@ -942,9 +1022,20 @@ function entryHome(b, c, r){
   for (const m of b.members){ const at = placeOf(m, cols, rows); if (c > at.x && c <= at.x + at.w && r > at.y && r <= at.y + at.h) return entryHome(m.block, c - at.x, r - at.y); }
   return [b, c + ',' + r];
 }
-function joinShapes(){
+/* Difference on the selection: fuse, cut, or a sentence saying why neither */
+function differenceOf(){
+  const list = inOrder([...selected]), d = difference(list.map(unitsOf));
+  if (d.refused) return hud.say(d.refused);
+  if (d.fuse) return fuse();
+  operate('difference', list, [...d.cut.a.map(r => [list[0], r]), ...d.cut.b.map(r => [list[1], r])]);
+}
+function intersectOf(){
+  const list = inOrder([...selected]), d = intersection(list.map(unitsOf));
+  if (d.refused) return hud.say(d.refused);
+  operate('intersect', list, [[list[d.from], d.overlap]]);      /* a part of the lower of the two, as algebra.js has it */
+}
+function fuse(){
   const list = [...selected].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
-  if (!fitsTogether(list)) return hud.say('To join, the shapes must fit together into one rectangle');
   const box = boxOf(list), held = chain(list[0]).find(g => list.every(b => chain(b).includes(g)));      /* the innermost group holding them all */
   select([]);
   for (const b of list){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b); }      /* out of sight, not forgotten */
@@ -953,16 +1044,70 @@ function joinShapes(){
   space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
   tidy(); select([made]);
 }
-/* puts back the shapes a joined shape was joined from, where they now fall in it and at the size they now are there */
-function disjoin(){
-  const u = view.unit, back = [], others = [...selected].filter(b => !b.members);
-  for (const j of [...selected].filter(b => b.members)){ const cols = Math.round(j.rect.w / u), rows = Math.round(j.rect.h / u), group = space.groupOf.get(j);
+/* puts the kept blocks of operations back among the blocks of s where each was: at its old place in the order (so
+   what was drawn over what still is) and in the frames it was in, a frame that has gone since being made again */
+function putBack(s, pairs){
+  for (const [o, b] of pairs.map(([o, b]) => [o, b, o.was?.[o.sources.indexOf(b)]?.order ?? Infinity]).sort((x, y) => x[2] - y[2])){
+    const was = o.was?.[o.sources.indexOf(b)] || {}, live = framesIn(s);
+    s.blocks.splice(Number.isInteger(was.order) ? Math.min(was.order, s.blocks.length) : s.blocks.length, 0, b);
+    (was.frames || []).forEach((f, i, all) => { if (i === 0) s.groupOf.set(b, f.id);
+      if (!live.has(f.id)){ if (f.name) s.groupNames.set(f.id, f.name); if (all[i + 1]) s.groupUp.set(f.id, all[i + 1].id); } }); }
+  if (s === space) view.world.append(...s.blocks.map(b => b.el));      /* on the canvas in the blocks' order, as when a project is opened */
+}
+/* a cut or an intersection: the two sources go off the canvas into a new operation, and a new shape is made for each
+   part, [its source, its rectangle in units], unnamed and in the tensor colour, in whatever frame held both sources */
+function operate(op, sources, parts){
+  const u = view.unit, held = chain(sources[0]).find(g => sources.every(b => chain(b).includes(g)));
+  /* where each source was, so that Revert can put it back exactly: its place among the blocks, and the frames it was in, innermost first */
+  const was = sources.map(b => ({ order: space.blocks.indexOf(b), frames: chain(b).map(g => ({ id: g, name: space.groupNames.get(g) ?? null })) }));
+  select([]);
+  for (const b of sources){ b.el.remove(); space.blocks.splice(space.blocks.indexOf(b), 1); space.groupOf.delete(b); }
+  const record = { id: ids.id('o'), op, sources: [...sources], results: [], was }, made = [];
+  for (const [src, r] of parts){
+    const b = makeBlock({ ...typeNamed('tensor') }, { x: r.x * u, y: r.y * u, w: r.w * u, h: r.h * u }, freeName());
+    b.from = { id: src.id, range: rangeOf(unitsOf(src), r) };
+    for (const [dim, side] of [['w', 'cols'], ['h', 'rows']]) if (wholeSide(b.from.range, side) && src.sides[dim]) b.sides[dim] = src.sides[dim];      /* a whole side keeps its name */
+    space.blocks.push(b); view.world.append(b.el); if (held !== undefined) space.groupOf.set(b, held);
+    made.push(b); record.results.push(b.id); }
+  space.ops.push(record); tidy(); select(made);
+}
+/* puts back the shapes these fused shapes were fused from, where they now fall in each and at the size they now are there; gives them */
+function unfuse(list){
+  const u = view.unit, back = [];
+  for (const j of list){ const cols = Math.round(j.rect.w / u), rows = Math.round(j.rect.h / u), group = space.groupOf.get(j);
     for (const m of j.members){ const at = placeOf(m, cols, rows), b = m.block;
       for (const k of kinOf(b)) if (k !== b) k.set({ ...k.rect, w: at.w * u, h: at.h * u });      /* every use of a variable is one size */
       b.set({ x: j.rect.x + at.x * u, y: j.rect.y + at.y * u, w: at.w * u, h: at.h * u });
       space.blocks.push(b); view.world.append(b.el); if (group !== undefined) space.groupOf.set(b, group); back.push(b); }
     j.el.remove(); space.blocks.splice(space.blocks.indexOf(j), 1); space.groupOf.delete(j); j.members = null; forget(j); }
-  tidy(); select([...others, ...back]);
+  return back;
+}
+/* What Revert would do with the selection: { fused, ops } to undo, or { refused: a sentence }. A fused shape is taken
+   apart. A shape made by a cut or an intersection takes every shape that operation made with it, and the two
+   sources come back; all of those shapes have to be here to be removed. */
+function revertible(list = [...selected]){
+  const fused = list.filter(b => b.members), made = list.filter(b => !b.members).map(opOf).filter(Boolean), ops = [...new Set(made.map(m => m.op))];
+  if (!fused.length && !ops.length) return { refused: 'Revert puts back what Difference or Intersect made: nothing selected was made by either' };
+  if (made.some(m => m.in !== space)) return { refused: 'The shapes this was cut from are in another space, where the cut was made: it cannot be reverted from here' };
+  if (ops.some(o => !o.results.every(id => space.blocks.some(b => b.id === id)))) return { refused: 'Another shape that cut made is inside something else now (fused, or cut again): revert that first' };
+  return { fused, ops };
+}
+/* also: what refers to the shapes that go, anywhere (see doomed) */
+function revert(also = []){
+  const list = [...selected], r = revertible(list);
+  if (r.refused) return hud.say(r.refused);
+  const gone = r.ops.flatMap(o => o.results.map(blockOf)), back = r.ops.flatMap(o => o.sources);
+  for (const o of r.ops) space.ops.splice(space.ops.indexOf(o), 1);
+  const apart = unfuse(r.fused);
+  putBack(space, r.ops.flatMap(o => o.sources.map(b => [o, b])));      /* first, so that nothing that names them finds them gone; what was made of them lies after them in the order, so each still falls where it was */
+  selected.clear(); discard([...gone, ...also]);
+  select([...list.filter(b => space.blocks.includes(b)), ...back, ...apart]);
+}
+/* an operation none of whose shapes is left anywhere is forgotten, with the two blocks it kept */
+function pruneOps(){
+  for (let again = true; again;){ again = false; const known = new Set(everyKnown().map(b => b.id));
+    for (const s of everySpace()) for (const o of [...s.ops]){ o.results = o.results.filter(id => known.has(id));
+      if (!o.results.length){ s.ops.splice(s.ops.indexOf(o), 1); for (const b of o.sources) forget(b); again = true; } } }
 }
 /* b has been taken out of its space: one use fewer of its variable. With it goes whatever can no longer be come to
    from the Menu: once the last use of a variable is gone, what was in its definition space, and in the definitions of
@@ -974,17 +1119,29 @@ function disjoin(){
 function forget(b, held = null){
   const drop = o => { spaceOf.delete(o); const set = kin.get(o); if (set){ set.delete(o); kin.delete(o); if (set.size < 2) for (const k of set) kin.delete(k); } };
   drop(b);
-  const kept = new Set(), walked = new Set(), walk = s => { if (!s || walked.has(s)) return; walked.add(s); s.blocks.forEach(keep); };
+  const kept = new Set(), walked = new Set(), walk = s => { if (!s || walked.has(s)) return; walked.add(s); s.blocks.forEach(keep); for (const o of s.ops || []) o.sources.forEach(keep); };      /* the two blocks a cut keeps off the canvas are still come to, by Revert */
   const keep = o => { if (kept.has(o)) return; kept.add(o); walk(spaceOf.get(o)); for (const m of o.members || []) keep(m.block); };
   walk(top); trail().forEach(walk); walk(held);      /* the spaces on the way to where the user stands are kept whatever has become of their blocks */
   for (const o of [...spaceOf.keys(), ...kin.keys()]) if (!kept.has(o)) drop(o);
 }
 function remove(also = []){                      /* also: blocks anywhere that go with the selection (see doomed) */
-  const gone = [...new Set([...selected, ...also])], lost = new Set(gone), touched = new Set([space]); select([]);
+  const gone = [...new Set([...selected, ...also])]; select([]); discard(gone); shown();
+}
+/* takes these blocks out of whatever spaces they are in, for good. A block a cut keeps off the canvas can be among
+   them (its variable went, or everything made of it did: see doomed): its operation goes with it, with every shape
+   the operation made, and the operation's other kept block, if that is not going too, is put back where it was. */
+function discard(blocks){
+  const going = new Set(blocks), touched = new Set([space]), spaces = everySpace(), ended = [];
+  for (const s of spaces) for (const o of s.ops) if (o.sources.some(b => going.has(b))){ ended.push([s, o]);
+    for (const id of o.results){ const made = everyKnown().find(k => k.id === id); if (made) going.add(made); } }
   /* a length taken from a shape that is going, while another use of that variable stays, is taken from that one instead */
-  for (const d of everyBlock()) if (d.from && !lost.has(d)){ const src = sourceOf(d), stay = src && lost.has(src) && [...kinOf(src)].find(k => !lost.has(k)); if (stay) d.from.id = stay.id; }
-  for (const b of gone){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
-  for (const s of touched) tidy(s); shown();
+  for (const d of everyBlock()) if (measures(d) && !going.has(d)){ const src = sourceOf(d), stay = src && going.has(src) && [...kinOf(src)].find(k => !going.has(k)); if (stay) d.from.id = stay.id; }
+  for (const b of going){ const s = spaceWith(b); if (!s) continue; touched.add(s); b.el.remove(); s.blocks.splice(s.blocks.indexOf(b), 1); forget(b); }
+  for (const [s, o] of ended){ s.ops.splice(s.ops.indexOf(o), 1); touched.add(s);
+    for (const b of o.sources) if (going.has(b)) forget(b);
+    putBack(s, o.sources.filter(b => !going.has(b)).map(b => [o, b])); }
+  for (const s of touched) tidy(s);
+  pruneOps();                                  /* a cut whose shapes have all gone is gone too */
 }
 /* ---- references ----
    What comes out of the list is never a copy. A shape from the list is a reference to its variable: the same entries,
@@ -997,27 +1154,48 @@ const originOf = b => [...kinOf(b)].find(k => !k.ref) || b;      /* the shape a 
 const sourceOf = b => b.from ? everyKnown().find(o => o.id === b.from.id) || null : null;
 const dimOf = (b, src) => b.from.side === 'm' ? 'm' : (b.from.side === 'x') !== turned(src) ? 'w' : 'h';      /* which of the source's sides, the way it now lies */
 const derived = b => { const src = sourceOf(b); if (!src || src === b) return null; const dim = dimOf(b, src), r = rootSide(src); if (dim === 'm') return scalarOf(src); if (unset(src)) return null; return r === null ? Math.round(src.rect[dim] / view.unit) : r; };
-function doomed(blocks){
-  const gone = new Set(blocks), all = everyBlock();
+function doomed(blocks, reverting = []){            /* reverting: operations being reverted, whose kept blocks come back and so do not go */
+  const gone = new Set(blocks), all = everyKnown(), byId = new Map(all.map(b => [b.id, b])), spaces = everySpace();
+  const holder = new Map(); for (const b of all) for (const m of b.members || []) holder.set(m.block, b);      /* a block fused into another goes when that one does */
+  const going = b => { for (let k = b; k; k = holder.get(k)) if (gone.has(k)) return true; return false; };
+  const add = b => { if (!gone.has(b)){ gone.add(b); return true; } return false; };
   for (let more = true; more;){ more = false;
     for (const set of new Set([...gone].map(b => kin.get(b)).filter(Boolean))){ const origins = [...set].filter(k => !k.ref);      /* every shape the variable was made as is going: its references go */
-      if (origins.length && origins.every(k => gone.has(k))) for (const k of set) if (!gone.has(k)){ gone.add(k); more = true; } }
-    for (const d of all) if (d.from && !gone.has(d)){ const src = sourceOf(d); if (src && gone.has(src) && ![...kinOf(src)].some(k => !gone.has(k))){ gone.add(d); more = true; } }
+      if (origins.length && origins.every(k => gone.has(k))) for (const k of set) if (add(k)) more = true; }
+    for (const d of all) if (d.from && !gone.has(d)){ const src = sourceOf(d); if (src && gone.has(src) && ![...kinOf(src)].some(k => !gone.has(k)) && add(d)) more = true; }
+    /* what a cut keeps off the canvas is part of this too. A kept block that goes (its variable went) takes every
+       shape its operation made. And when every shape an operation made goes, its two kept blocks go, with whatever
+       refers to them: they would be gone for good, and nothing may be left naming a block that is not there. */
+    for (const s of spaces) for (const o of s.ops){ if (reverting.includes(o)) continue;
+      const made = o.results.map(id => byId.get(id)).filter(Boolean);
+      if (o.sources.some(b => gone.has(b))){ for (const b of made) if (add(b)) more = true; }
+      else if (made.length && made.every(going)) for (const b of o.sources) if (add(b)) more = true; }
   }
   return [...gone].filter(b => !blocks.includes(b));
 }
 /* deleting or cutting the selection: if that would take other things with it, the user is shown them first, as a table
    of variables and how many instances of each would go, and can still say no */
 const warning = createWarning();
-function removing(type){
-  if (!selected.size) return;
-  const list = [...selected], also = doomed(list), send = () => bus.send(type, { ids: idsOf(list), also: idsOf(also) });
-  if (!also.length) return send();
+/* sends a message that takes `list` away, with whatever else would go; asks first where anything else would */
+function warned(list, doing, proceed, send, reverting = []){
+  const also = doomed(list, reverting);
+  if (!also.length) return send(also);
   const count = new Map(); for (const b of also) count.set(bare(b.name), (count.get(bare(b.name)) || 0) + 1);
   const sources = [...new Set(list.filter(b => also.some(o => [...kinOf(b)].includes(o) || o.from?.id === b.id)).map(b => bare(b.name)))];
-  warning.ask({ title: `${type === 'cut' ? 'Cutting' : 'Deleting'} ${sources.join(', ') || 'this'} also deletes what refers to it`,
+  warning.ask({ title: `${doing} ${sources.join(', ') || 'this'} also deletes what refers to it`,
     note: `${also.length} other ${also.length === 1 ? 'instance' : 'instances'} would be removed with it, here or in other spaces.`,
-    head: ['Variable', 'Instances'], rows: [...count].sort((a, b) => b[1] - a[1]), proceed: type === 'cut' ? 'Cut all' : 'Delete all', onProceed: send });
+    head: ['Variable', 'Instances'], rows: [...count].sort((a, b) => b[1] - a[1]), proceed, onProceed: () => send(also) });
+}
+function removing(type){
+  if (!selected.size) return;
+  const list = [...selected];
+  warned(list, type === 'cut' ? 'Cutting' : 'Deleting', type === 'cut' ? 'Cut all' : 'Delete all', also => bus.send(type, { ids: idsOf(list), also: idsOf(also) }));
+}
+/* Revert removes the shapes a cut or an intersection made: where one of them has been named and is used elsewhere, the same warning comes first */
+function reverting(){
+  const list = [...selected], r = revertible(list);
+  if (r.refused) return hud.say(r.refused);
+  warned(r.ops.flatMap(o => o.results.map(blockOf)), 'Reverting', 'Revert', also => bus.send('revert', { ids: idsOf(list), also: idsOf(also) }), r.ops);
 }
 
 /* ---- saving and opening a project ----
@@ -1026,6 +1204,8 @@ function removing(type){
    Anywhere else (the published artifact, say) there is no server to keep them, so Save hands over one zip of the
    same tree and Open takes one back. */
 const typeNamed = name => shapes.find(s => s.name === name) || { name, label: name, draw: 'rectangle', color: 'tensor' };
+const wasOf = was => was ? was.map(w => ({ order: w.order, frames: w.frames.map(f => ({ ...f })) })) : null;      /* where an operation's kept blocks were, as plain data of its own */
+const fromOf = f => !f ? null : f.range ? { id: f.id, range: { ...f.range, toEnd: { ...f.range.toEnd } } } : { ...f };      /* a block's from, as plain data of its own */
 /* the page's spaces as plain data, lengths in units */
 function gather(){
   const u = view.unit, sets = [...new Set(kin.values())], number = b => kin.has(b) ? sets.indexOf(kin.get(b)) + 1 : null;
@@ -1034,13 +1214,14 @@ function gather(){
   const written = new Set(), once = s => !written.has(s) && !!written.add(s);
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, entries: b.members ? {} : Object.fromEntries(b.values), inside: spaceOf.has(b) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: b.from ? { ...b.from } : null,
+    tile: !!b.tile, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   /* (written once, a space is never written inside itself either: no definition should hold itself (see loops), and
      if one ever does, the page goes on working) */
   const plain = s => ({
     shapes: s.blocks.map(one),
-    groups: tree(s, undefined) });
+    groups: tree(s, undefined),
+    operations: s.ops.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(one), results: [...o.results], was: wasOf(o.was) })) });      /* what was cut here, each with the two blocks it keeps, whole */
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()])].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g) }));
@@ -1050,7 +1231,7 @@ function gather(){
 function rebuild(data){
   go(top); select([]);
   for (const s of [top]){ for (const b of s.blocks) b.el.remove(); for (const f of s.frames.values()) f.el.remove();
-    s.blocks.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.frames.clear(); }
+    s.blocks.length = 0; s.ops.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.frames.clear(); }
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null;
   ids = createIds(); if (data.ids) ids.restore(data.ids);
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
@@ -1071,7 +1252,7 @@ function rebuild(data){
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = createBlock({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
-    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; if (d.reference) b.ref = true; if (d.from) b.from = { ...d.from }; b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.values = new Map(Object.entries(d.entries)); if (d.tile) b.tile = true; if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -1080,6 +1261,7 @@ function rebuild(data){
     return b; };
   const fill = (plain, s) => {
     for (const d of plain.shapes) s.blocks.push(build(d, s));
+    for (const o of plain.operations || []) s.ops.push({ id: o.id || ids.id('o'), op: o.op, sources: o.sources.map(d => build(d, s)), results: [...o.results], was: wasOf(o.was) });
     const regroup = (g, up) => { const id = g.id || newGroup(); if (up !== undefined) s.groupUp.set(id, up); if (g.name) s.groupNames.set(id, g.name);
       for (const i of g.members) s.groupOf.set(s.blocks[i], id); for (const inner of g.groups || []) regroup(inner, id); };
     for (const g of plain.groups) regroup(g, undefined);
@@ -1171,6 +1353,7 @@ function dragged(el, from, e){
     if (rects.length) bus.send('place', { rects }); else shown(); };
   const end = () => { cursor(''); settle(); };
   const grip = el.dataset.grip;
+  if (grip && rangedOf(b)){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); return { end(){}, move(){} }; }      /* it is as large as its range, and cannot be pulled larger or smaller */
   if (grip){                                    /* the opposite side or corner stays where it is; never smaller than one square */
     if (!selected.has(b) || selected.size > 1) pick([b]);
     const r = b.rect, right = r.x + r.w, bottom = r.y + r.h;
@@ -1289,7 +1472,8 @@ const draw = {
 };
 
 /* the right-click menu. A right click on a block that is not selected selects it first, so Cut, Copy and Delete mean that block.
-   Paste puts the copy where the click was. */
+   Paste puts the copy where the click was. Difference, Intersect and Revert (the boolean tool) are greyed where the
+   selection does not allow them, and chosen all the same say why in the readout. */
 /* ---- messages ----
    What each message does. Its payload is plain data; blocks are named by id. The ones marked `changes` can alter the
    project; the rest look at it, move about in it, or change what is selected. */
@@ -1348,13 +1532,16 @@ bus.on('place', ({ rects }) => { for (const r of rects) blockOf(r.id)?.set({ x: 
 const chosen = fn => ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(); };
 const going = fn => ({ ids: list, also = [] }) => { selected.clear(); for (const b of list.map(blockOf)) if (b && space.blocks.includes(b)) selected.add(b); return fn(also.map(blockOf).filter(Boolean)); };      /* also: what goes with them, in any space */
 bus.on('cut', going(cut), changes); bus.on('delete', going(remove), changes);
-bus.on('transpose', chosen(transpose), changes); bus.on('join', chosen(joinShapes), changes); bus.on('disjoin', chosen(disjoin), changes);
+bus.on('transpose', chosen(transpose), changes);
+/* the boolean tool: the new blocks' ids are made in the handler, from the project's own source, so the same message makes the same ids again */
+bus.on('difference', chosen(differenceOf), changes); bus.on('intersect', chosen(intersectOf), changes); bus.on('revert', going(revert), changes);
 bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return; b.call(name); renamed(b, color); }, changes);
 bus.on('entry.set', ({ id, key, text = null, value }) => { const o = blockOf(id), v = value !== undefined ? value : text === null ? null : readEntry(text);      /* value: a number already worked out (a fraction or a root, which cannot be typed as an entry) */      /* nothing typed puts the symbol back; anything that is not a number is not taken */
-  if (o?.from){ const src = sourceOf(o); hud.say(`${bare(o.name)} is a length of ${src ? bare(src.name) : 'another shape'}: change it there`); return shown(); }
+  if (o && measures(o)){ const src = sourceOf(o); hud.say(`${bare(o.name)} is a length of ${src ? bare(src.name) : 'another shape'}: change it there`); return shown(); }
+  if (o && rangedOf(o)){ hud.say(`${bare(o.name)} is part of ${partOf(o)}: change it there`); return shown(); }      /* a part has no entries of its own */
   if (o){ if (v === null) o.values.delete(key); else if (v !== undefined) o.values.set(key, v);
     keepTouching(() => { for (const k of kinOf(o)) agree(k); }); }      /* a single entry's number is its sides' length: whatever shares their names follows */
   write(); shown(); }, changes);
@@ -1422,13 +1609,15 @@ const menu = createMenu([
   { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy', { ids: idsOf(selected) }) },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', { at: menuAt, pasted: clipboard }) },
   { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: () => bus.send('transpose', { ids: idsOf(selected) }) },
-  { label: 'Join', disabled: () => !fitsTogether([...selected]), run: () => bus.send('join', { ids: idsOf(selected) }) },
-  { label: 'Disjoin', disabled: () => ![...selected].some(b => b.members), run: () => bus.send('disjoin', { ids: idsOf(selected) }) },
+  /* greyed where the selection does not allow it; chosen all the same, each says why in the readout */
+  { label: 'Difference', why: () => difference(inOrder([...selected]).map(unitsOf)).refused || null, run: () => bus.send('difference', { ids: idsOf(selected) }) },
+  { label: 'Intersect', why: () => intersection(inOrder([...selected]).map(unitsOf)).refused || null, run: () => bus.send('intersect', { ids: idsOf(selected) }) },
+  { label: 'Revert', why: () => revertible().refused || null, run: reverting },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => removing('delete') },
   { label: 'Save project', run: () => { const name = kept ? (window.prompt('Save this project as', current || 'untitled') || '').trim() : null;      /* asked here, so the message says what was answered */
     if (kept && !name) return hud.say('Not saved'); bus.send('save', { name }); } },
   { label: 'Open project', items: () => kept ? kept.map(name => ({ label: name, run: () => bus.send('project.open', { name }) })) : [{ label: 'From a zip', run: () => bus.send('project.pick') }] },
-]);
+], { onWhy: text => hud.say(text) });
 const hud = createHud({ onHome: () => bus.send('camera.home') });
 const crumbs = createCrumbs({ onGo: index => bus.send('space.go', { index }) });
 const view = createView({

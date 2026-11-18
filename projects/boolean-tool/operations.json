@@ -1,0 +1,165 @@
+{
+  "format": "smart-factory/operations",
+  "version": 3,
+  "operations": [
+    {
+      "id": "o5hg0hr",
+      "op": "difference",
+      "sources": [
+        {
+          "format": "smart-factory/shape",
+          "version": 3,
+          "id": "b4eu3g8",
+          "type": "tensor",
+          "name": "Keys",
+          "named": true,
+          "commented": false,
+          "color": "variable-3",
+          "position": {
+            "x": -26,
+            "y": -10
+          },
+          "size": {
+            "cols": 6,
+            "rows": 4
+          },
+          "sides": {
+            "cols": "embed",
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {
+              "1,1": 1,
+              "2,1": 2,
+              "3,1": 3,
+              "4,1": 4,
+              "5,1": 5,
+              "6,1": 6
+            }
+          },
+          "definition": "Keys (2)/",
+          "order": 0,
+          "variable": 1
+        },
+        {
+          "format": "smart-factory/shape",
+          "version": 3,
+          "id": "b1tkcvi",
+          "type": "tensor",
+          "name": "Head",
+          "named": true,
+          "commented": false,
+          "color": "variable-4",
+          "position": {
+            "x": -24,
+            "y": -10
+          },
+          "size": {
+            "cols": 2,
+            "rows": 4
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {}
+          },
+          "order": 0
+        }
+      ],
+      "results": [
+        "b80fi79",
+        "bxqquy7"
+      ],
+      "was": [
+        {
+          "order": 38,
+          "frames": []
+        },
+        {
+          "order": 40,
+          "frames": []
+        }
+      ]
+    },
+    {
+      "id": "ozpnfj5",
+      "op": "intersect",
+      "sources": [
+        {
+          "format": "smart-factory/shape",
+          "version": 3,
+          "id": "b3emmkr",
+          "type": "tensor",
+          "name": "Table",
+          "named": true,
+          "commented": false,
+          "color": "variable-5",
+          "position": {
+            "x": -14,
+            "y": -17
+          },
+          "size": {
+            "cols": 8,
+            "rows": 6
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {
+              "4,3": 7,
+              "5,4": 8
+            }
+          },
+          "order": 0
+        },
+        {
+          "format": "smart-factory/shape",
+          "version": 3,
+          "id": "b2d7zca",
+          "type": "tensor",
+          "name": "Window",
+          "named": true,
+          "commented": false,
+          "color": "variable-6",
+          "position": {
+            "x": -11,
+            "y": -15
+          },
+          "size": {
+            "cols": 2,
+            "rows": 2
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "variable",
+            "entries": {}
+          },
+          "order": 0
+        }
+      ],
+      "results": [
+        "b8kyrjs"
+      ],
+      "was": [
+        {
+          "order": 41,
+          "frames": []
+        },
+        {
+          "order": 42,
+          "frames": []
+        }
+      ]
+    }
+  ]
+}

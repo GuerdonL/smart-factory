@@ -61,6 +61,53 @@
        no larger than. With one copy asked for it is the first of hollows() that can be used, else the other.
        [] means: beside the piece, as any other result.
    stacks(rects) -> see below: what a stack was in projects saved before format 3. Not used to work anything out now.
+
+   A rect may also carry none: true, for a shape that has no value just now (a part of another shape that is too
+   small to have that part: see ranges, below). Its piece comes to { error: 'no value' }.
+
+   The boolean tool: what Difference and Intersect make of a selection. Nothing here touches; shapes overlap or fit.
+   cut(a, b) -> { overlap, a, b, refused }
+       two rects laid one over the other. overlap is the rectangle both cover, or null where their insides do not
+       overlap. a and b are what is left of each once the overlap is taken out, as rectangles: [] where the shape lies
+       wholly inside the other, one where the overlap is a band at one of its edges, two (left then right, or top
+       then bottom) where the band crosses its middle, and null where what is left is not rectangles at all (an L, or
+       a frame round a hole): the overlap has to cross the shape from one side to the other. refused is null where
+       both can be cut, and otherwise the reason, a sentence: they do not overlap, what is left of one is no
+       rectangle, or they are the same rectangle and nothing would be left. (overlap is given whether or not the cut
+       is refused: an intersection needs only that.) Neither shape is the cutter: cut(b, a) is the same with a and b
+       changed over.
+   fits(rects) -> whether the rects, two or more, fit together into one rectangle with nothing missing and nothing doubled
+   difference(rects) -> { fuse: true } | { cut: what cut gives } | { refused: a sentence }
+       what Difference does with a selection: shapes that fit together are fused; exactly two that overlap are cut;
+       anything else is refused, and the sentence says why (three or more of which some overlap: a cut takes exactly two).
+   intersection(rects) -> { overlap, from } | { refused: a sentence }
+       exactly two rects whose insides overlap, given back to front as they are drawn. The shape made is a part of
+       the lower one, the first given: from is its place in rects, 0. The upper one is only a stencil.
+       (For a cut the order says only which leftovers are whose: difference's cut.a is what is left of rects[0].)
+   A shape made by a cut or an intersection is a range of its source: whole columns and rows, counted from 0.
+   rangeOf(source, part) -> { col, row, cols, rows, toEnd: { cols, rows } }
+       the range of source (a rect) that part (a rect inside it) covers. toEnd.cols is true where the part reaches the
+       source's right edge, toEnd.rows its bottom edge: such a range goes on reaching that edge whatever size the
+       source becomes, and its cols or rows is then not looked at.
+   rangeIn(range, cols, rows) -> { col, row, cols, rows } | null
+       the range as it lies in a source that is now cols by rows: the same columns and rows as when it was made, or
+       from the same one to the end. null where the source is too small to hold all of it (a range to the end needs
+       at least one column or row left; any other needs every one it names).
+   partEntries(range, source, turned) -> a Map from "column,row" to a value: the entries of the part
+       source is { cols, rows, entries, turned }: the source's size as it stands, the entries of its variable (pairs
+       of "column,row", from 1, and a value: a Map will do) the variable's own way round, and whether the source
+       stands as the transpose of its variable. Entry c,r of the part is the entry in column range.col + c and row
+       range.row + r of the source as it stands, whatever that is now; an entry the source has not been given is not
+       in the Map. With turned, the part's entries are given turned, r,c for c,r (for a use of the part that is its
+       transpose). Empty where the source cannot hold the range.
+   wholeSide(range, dim) -> whether the range takes in the source's whole side: dim is 'cols' or 'rows'
+   sideLabel(range, dim, own, other, op, nth) -> what a side of such a shape is called, or null
+       own and other are what the source and the other shape of the operation call that side (null where they call it
+       nothing); op is 'difference' or 'intersect'. A whole side keeps the source's name for it. A shortened one is
+       own-other for a difference and own&other for an intersection, with .nth after it where nth is 1 or 2, and has
+       no name unless both shapes had one. These are labels: they bind nothing.
+   nthOf(range, ranges) -> 0 where range is the only one of ranges (the ranges one operation made of one source),
+       else its place among them, from 1, left to right or top to bottom
    typeOf(rects) -> null | { cols, rows, colsName, rowsName } | { error }
        what everything comes to: nothing is null, one piece is that piece's type, and several pieces are not one
        thing: { error: 'n pieces' }.
@@ -129,6 +176,7 @@ function piecesBy(rects, ts){
     const box = { x, y, w: Math.max(...members.map(i => rects[i].x + rects[i].w)) - x, h: Math.max(...members.map(i => rects[i].y + rects[i].h)) - y };
     const rules = new Set(inside.map(t => RULE[t.kind])), rule = !rules.size ? null : rules.size > 1 ? 'mixed' : [...rules][0];
     if (rule === 'mixed') return { rule, members, box, type: { error: 'mixed rules' } };
+    if (members.some(i => rects[i].none)){ const line = inOneLine(members, inside); return { rule, members: line || members, box, type: { error: 'no value' } }; }      /* a shape with no value: nothing it is part of has one */
     const line = inOneLine(members, inside);
     return { rule, members: line || members, box, type: !line || inside.some(t => !t.ok) ? { error: 'undefined' } : rule === 'product' || !rule ? rowType(rects, line) : chainType(rects, line, rule === 'elementwise') };
   });
@@ -179,6 +227,59 @@ export function stacks(rects, ps = piecesBy(rects, touches(rects).filter(t => t.
     out.push({ members: run.map(q => q.members[0]), stack: true, box: { x: first.x, y: first.y, w: first.w, h: rows }, type: { cols: first.w, rows, colsName: first.wName || null, rowsName: null } }); }
   return [...rest, ...out];
 }
+/* ---- the boolean tool ---- */
+const lap = (a, b) => { const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y), w = Math.min(a.x + a.w, b.x + b.w) - x, h = Math.min(a.y + a.h, b.y + b.h) - y; return w > 0 && h > 0 ? { x, y, w, h } : null; };
+export function cut(a, b){
+  const I = lap(a, b);
+  if (!I) return { overlap: null, a: null, b: null, refused: 'The shapes do not overlap' };
+  /* what is left of s: the overlap lies inside s, so it is a band across s exactly when it is as tall as s (what is
+     left is to its left and right) or as wide (above and below); otherwise what is left turns a corner */
+  const left = s => I.w === s.w && I.h === s.h ? []
+    : I.h === s.h ? [{ x: s.x, y: s.y, w: I.x - s.x, h: s.h }, { x: I.x + I.w, y: s.y, w: s.x + s.w - I.x - I.w, h: s.h }].filter(r => r.w > 0)
+    : I.w === s.w ? [{ x: s.x, y: s.y, w: s.w, h: I.y - s.y }, { x: s.x, y: I.y + I.h, w: s.w, h: s.y + s.h - I.y - I.h }].filter(r => r.h > 0)
+    : null;
+  const A = left(a), B = left(b);
+  return { overlap: I, a: A, b: B, refused: !A || !B ? 'What is left of a shape would not be a rectangle: the overlap has to cross it from one side to the other'
+    : !A.length && !B.length ? 'The two shapes are the same rectangle: nothing would be left' : null };
+}
+export function fits(rects){
+  if (rects.length < 2 || rects.some((a, i) => rects.some((b, j) => j > i && lap(a, b)))) return false;
+  const x = Math.min(...rects.map(r => r.x)), y = Math.min(...rects.map(r => r.y));
+  return rects.reduce((sum, r) => sum + r.w * r.h, 0) === (Math.max(...rects.map(r => r.x + r.w)) - x) * (Math.max(...rects.map(r => r.y + r.h)) - y);
+}
+export function difference(rects){
+  if (rects.length < 2) return { refused: 'Difference takes two or more shapes' };
+  if (!rects.some((a, i) => rects.some((b, j) => j > i && lap(a, b))))
+    return fits(rects) ? { fuse: true } : { refused: 'To be fused the shapes must fit together into one rectangle, and to be cut two must overlap' };
+  if (rects.length > 2) return { refused: 'A cut takes exactly two shapes' };
+  const c = cut(rects[0], rects[1]);
+  return c.refused ? { refused: c.refused } : { cut: c };
+}
+export function intersection(rects){
+  if (rects.length !== 2) return { refused: 'Intersect takes exactly two shapes' };
+  const overlap = lap(rects[0], rects[1]);
+  return overlap ? { overlap, from: 0 } : { refused: 'The shapes do not overlap' };
+}
+export const rangeOf = (source, part) => ({ col: part.x - source.x, row: part.y - source.y, cols: part.w, rows: part.h,
+  toEnd: { cols: part.x + part.w === source.x + source.w, rows: part.y + part.h === source.y + source.h } });
+export function rangeIn(range, cols, rows){
+  const w = range.toEnd.cols ? cols - range.col : range.cols, h = range.toEnd.rows ? rows - range.row : range.rows;
+  return w >= 1 && h >= 1 && range.col + w <= cols && range.row + h <= rows ? { col: range.col, row: range.row, cols: w, rows: h } : null;
+}
+export function partEntries(range, source, turned = false){
+  const at = rangeIn(range, source.cols, source.rows), out = new Map(); if (!at) return out;
+  for (const [key, v] of source.entries){ let [c, r] = key.split(',').map(Number); if (source.turned) [c, r] = [r, c];      /* where the entry stands in the source */
+    c -= at.col; r -= at.row;
+    if (c >= 1 && c <= at.cols && r >= 1 && r <= at.rows) out.set(turned ? r + ',' + c : c + ',' + r, v); }
+  return out;
+}
+export const wholeSide = (range, dim) => dim === 'cols' ? range.col === 0 && !!range.toEnd.cols : range.row === 0 && !!range.toEnd.rows;
+export function sideLabel(range, dim, own, other, op, nth = 0){
+  if (wholeSide(range, dim)) return own || null;
+  return own && other ? own + (op === 'intersect' ? '&' : '-') + other + (nth ? '.' + nth : '') : null;
+}
+export const nthOf = (range, ranges) => ranges.length < 2 ? 0 : 1 + ranges.filter(r => r.col < range.col || r.row < range.row).length;
+
 export function typeOf(rects){
   const ps = pieces(rects);
   return !ps.length ? null : ps.length === 1 ? ps[0].type : { error: ps.length + ' pieces' };
