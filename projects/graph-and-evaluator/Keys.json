@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "bbsphek",
+  "type": "tensor",
+  "name": "Keys",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -40,
+    "y": -20
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Keys/",
+  "order": 43
+}

@@ -119,6 +119,7 @@ const SAFE = B(Number.MAX_SAFE_INTEGER), safe = x => x <= SAFE && x >= -SAFE;
    (some 1,200 decimal digits) and stands under at most MAXK square roots (a 64th root); a root that is asked for has
    an index of at most MAXROOT. Past a bound the answer is the error "too large to work out", not a long wait. */
 const MAXBITS = 4096, MAXK = 6, MAXROOT = 1024;
+export const ROOTS = MAXK;                    /* the most square roots an exact value stands under: { n, d, k } has k from 0 to this */
 const bits = x => big(x).toString(2).length;
 /* such a number as a value: a whole number; an exact value; or, too large for plain numbers, symbolic text that is
    still exact and is read back by numberOf, so it is still worked out here and never by the solver */

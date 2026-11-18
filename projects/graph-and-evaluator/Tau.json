@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 3,
+  "id": "b26ddze",
+  "type": "tensor",
+  "name": "Tau",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -40,
+    "y": -10
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": {
+        "n": 3,
+        "d": 4,
+        "k": 0
+      }
+    }
+  },
+  "order": 50
+}

@@ -29,6 +29,8 @@
                   value but unknown (values.js). Those are written as the value, upright, in place of the symbol:
                   7, 3/4, √2, 1+√2, T or F for a boolean, and infinity as ∞ or -∞. An error is written as ! in the
                   warning colour, with why as the entry's title. An entry not in the Map is unknown, and is its symbol.
+                  With product or combined, an entry that has a value is written as the value (in the ordinary text
+                  colour: it is no one block's), and only one that has none as what it is made from.
      width, height  the size of what was made, in world units (for placing it)
 
    One row or one column is a vector, written k₁ … kₙ. Otherwise it is a matrix, each entry carrying its column then
@@ -97,7 +99,9 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     /* one part of a combined entry: its own entry at this place. A part smaller than the matrix is broadcast, and is numbered only along the side it has */
     const part = p => { const one = p.cols === 1 && p.rows === 1 && !(cols === 1 && rows === 1), row = p.rows === 1 && rows > 1, col = p.cols === 1 && cols > 1;
       return half(p, one ? '' : row ? cn : col ? rn : vector ? (cols === 1 ? rn : cn) : p.transposed ? rn + comma + cn : cn + comma + rn); };
-    if (combined) combined.parts.forEach((p, n) => { if (n){ const sign = html`<b></b>`; sign.textContent = combined.signs[n - 1]; entry.append(sign); } entry.append(part(p)); });
+    const worked = (combined || product) && values.has(key);      /* a product, a sum or a chain whose entry here has come to a value: the value, in place of what it is made from */
+    if (worked){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; fit(entry, v); }
+    else if (combined) combined.parts.forEach((p, n) => { if (n){ const sign = html`<b></b>`; sign.textContent = combined.signs[n - 1]; entry.append(sign); } entry.append(part(p)); });
     else if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
       if (values.has(key)){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; fit(entry, v); }
