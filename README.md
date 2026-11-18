@@ -453,8 +453,9 @@ One `max(x, 0)` arrow under column 1 of a matrix, in a tile with `across` 4, is 
 
 ## The graph and the evaluator
 
-The page does no arithmetic. After every change the whole project is built into a graph (`graph.js`), and every
-number that is drawn is asked of the evaluator (`evaluate.js`). The graph is plain JSON, and is the one description
+The page does no arithmetic. The whole project is built into a graph (`graph.js`), once for each state of the
+project, and every number that is drawn is asked of the evaluator (`evaluate.js`). Looking about (the camera, the
+selection) builds nothing, and after a change only what the change reaches is worked out again. The graph is plain JSON, and is the one description
 of the model that anything else is to read: a backend, an export.
 
     import { build, validate } from './graph.js';
@@ -465,14 +466,19 @@ of the model that anything else is to read: a backend, an export.
 
 - A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
   `slice`, `source`, `measure`, `map`, `apply`, `param`, `repeat` and `mapalong`; its `inputs` are the nodes it is
-  worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`.
+  worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`, holds no
+  other name but `index.x`, `index.y` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
 - A node's id says what it is, never where it sits: `matmul(v:b1,v:b2)`. The same product in two places is one
   node, and moving a block without changing what it touches leaves the graph exactly as it was.
-- `spaces` says what each canvas comes to (each piece and each arrow, with its node or its error), and `blocks`
-  which node each block stands for.
+- `spaces` says what each canvas comes to (each piece, each arrow and each tile, with its node or its error), and
+  `blocks` which node each block stands for.
+- A node in a function's body or a tile's pattern has `within`: every function and tile it belongs to, outermost
+  first. A tile wholly inside another's pattern is one part of it (a `repeat` in a `repeat`); the page does not
+  draw one yet.
 - What is wrong is written in the graph, never thrown: a piece whose touches do not agree, a variable whose
   definition is another size, an arrow whose span runs past its input. An error is `{ code, note }`, on a piece, a
-  variable or an arrow. A variable with an error keeps its size, so everything round it is still checked.
+  variable, an arrow or a tile. A variable with an error keeps its size and its entries, so everything round it is
+  still checked. A formula that does not read, or names what is not there, is the error value in its entry.
 
 What changes on the canvas with this:
 
