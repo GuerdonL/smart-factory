@@ -38,7 +38,8 @@
                                  evaluator has it, but a functional one, which is the backend's decimal carrying
                                  the exact form it stands for: { f, exact: "exp(1)" }. stale: the result is of an
                                  older state of the project (it is drawn dimmed until the new one comes); the Map
-                                 then has stale: true.
+                                 then has stale: true, and its decimals carry no exact form: the number is the
+                                 older state's, and the entry may stand for another value now.
    noted(note)                -> an empty Map that carries a note in place of values ("needs the backend", or why the
                                  backend gave none): matrix.js writes the note where the numbers would be. The same
                                  Map for the same note.
@@ -86,7 +87,7 @@ export function merged(answer, exact, result, stale = false){
   for (const cell of cells){ if (!Array.isArray(cell)) continue; const key = cell[0] + ',' + cell[1], v = fromBackend(cell[2]), was = out.get(key);
     if (v === null) continue;
     if (answer.deferred) out.set(key, v);
-    else if (functional(was)) out.set(key, 'f' in v ? { f: v.f, exact: written(was) } : v); }
+    else if (functional(was)) out.set(key, 'f' in v && !stale ? { f: v.f, exact: written(was) } : v); }      /* (an older state's number is not said to be this value's) */
   if (stale) out.stale = true;
   return out;
 }

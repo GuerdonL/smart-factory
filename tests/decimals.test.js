@@ -74,6 +74,7 @@ test('what is laid over an answer for drawing: the backend\'s numbers, or why th
   const f = { type: t, entries: { '1,1': 1, '2,1': { sym: 'e' } } };
   for (const state of [{}, { there: null }, { there: false }, { there: true }, { there: true, why: 'the run took longer than 30 seconds and was stopped' }]) assert.equal(laid(f, fn, state), fn);
   assert.deepEqual([...laid(f, fn, { there: true, got })], [['1,1', 1], ['2,1', { f: 0.75, exact: 'exp(1)' }]]); assert.equal(laid(f, fn, { there: true, got: { ...got, stale: true } }).stale, true);
+  assert.deepEqual(laid(f, fn, { there: true, got: { ...got, stale: true } }).get('2,1'), { f: 0.75 });      /* an older state's number is not said to be this entry's value: the entry may have been exp(2) then */
   /* not worked out here, made of noise or of a file: it needs the backend, and says so */
   const n = { type: t, deferred: true, backend: true };
   assert.equal(laid(n, none, { there: false }).note, NEEDS); assert.equal(laid(n, none, { there: true }).note, ASKING); assert.equal(laid(n, none, { there: null }), none);
