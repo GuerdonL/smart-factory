@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate, written, entered, typed, refs, parts, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard } from '../expression.js';
+import { evaluate, written, entered, typed, refs, parts, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard, namesIn } from '../expression.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), sym = text => ({ sym: text }), E = why => ({ err: why });
 const is = (text, expected, lookup, options) => assert.deepEqual(evaluate(text, lookup, options), { value: expected }, text);
@@ -266,4 +266,14 @@ test('$ and a number is a name: the graph\'s formulas name their inputs $1, $2',
   const lookup = token => token === '$1' ? 4 : token === '$2' ? { n: 1, d: 2, k: 0 } : undefined;
   assert.equal(evaluate('1/√($1)', lookup).value.n, 1); assert.deepEqual(evaluate('2$1 + $2 * 2', lookup).value, 9);
   assert.deepEqual(evaluate('$3 + 1', lookup), { value: { err: 'unknown name: $3' }, unread: true });      /* and on the page, where nothing knows one, it is an unknown name */
+});
+test('a name that an object would have of its own accord is a name like any other', () => {
+  for (const name of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf']){
+    assert.deepEqual(evaluate(name), { value: { err: 'unknown name: ' + name }, unread: true }, name);
+    assert.deepEqual(evaluate(name + '(2)', () => 3).value, 6, name);      /* no function of that name: the name against a bracket */
+    assert.equal(evaluate(name + ' + 1', n => n === name ? 4 : undefined).value, 5); }
+});
+test('what a text names is said without working it out', () => {
+  assert.deepEqual(namesIn('max(x, $1) * inf + Keys.x + @[b1:m] + true'), { names: ['x', '$1', 'Keys.x'], capsules: [{ id: 'b1', measure: 'm', name: null }] });
+  assert.equal(typeof namesIn('(((').why, 'string'); assert.deepEqual(namesIn('constructor'), { names: ['constructor'], capsules: [] });
 });

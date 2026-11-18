@@ -48,6 +48,9 @@
        undefined for a name it does not know, which is the error "unknown name: w". For a capsule, undefined is the
        error "missing variable".
    written(value)  -> a value as text (values.js): the one function that does that
+   namesIn(text)   -> { why } where the text cannot be read, else { names, capsules }: the names in it that are not
+                      words of the language, and its capsules. For whoever must know what a formula depends on
+                      without working it out (graph.js).
 
    An entry holds a literal value or a formula, { expr: "…" }, never a formula with its result.
    entered(text, lookup, { settle, matrices }) -> what typing text into an entry stores:
@@ -137,7 +140,7 @@ function parse(text){
     if (t.t === '√' || t.t === '∜'){ const root = { fn: 'sqrt', args: [under()] }; return t.t === '∜' ? { fn: 'sqrt', args: [root] } : root; }
     if (t.t !== 'name') throw new Wrong(UNREAD);
     const fn = t.v.toLowerCase();
-    if (!(fn in ARITY) || ts[i]?.t !== '(') return { name: t.v };
+    if (!Object.hasOwn(ARITY, fn) || ts[i]?.t !== '(') return { name: t.v };      /* (its own names only: constructor and __proto__ are names like any other) */
     i++; const args = [];
     if (!take(')')){ do args.push(or()); while (take(',')); if (!take(')')) throw new Wrong('a bracket is not closed'); }
     if (args.length !== ARITY[fn]) throw new Wrong(`${fn} takes ${['no', 'one', 'two', 'three'][ARITY[fn]]} value${ARITY[fn] === 1 ? '' : 's'}`);
@@ -165,6 +168,13 @@ function read(text){
 }
 const leaves = (n, out = []) => { if (n.name !== undefined || n.ref) out.push(n); else { if (n.op){ leaves(n.a, out); leaves(n.b, out); } for (const a of n.args || []) leaves(a, out); } return out; };
 
+/* what a text names, without working it out: { why } where it cannot be read, else { names, capsules }: every name in
+   it that is not one of the words of the language (a function, inf, true, false), and every capsule */
+export function namesIn(text){
+  const { tree, why } = read(String(text)); if (!tree) return { why };
+  const all = leaves(tree);
+  return { names: all.filter(l => !l.ref && !Object.hasOwn(CONSTANT, l.name.toLowerCase())).map(l => l.name), capsules: all.filter(l => l.ref).map(l => l.ref) };
+}
 export function evaluate(text, lookup = () => undefined, { matrices = false } = {}){
   text = String(text); if (!text.trim()) return { empty: true };
   const { tree, why } = read(text), unread = why => ({ value: { err: why }, unread: true });
@@ -174,7 +184,7 @@ export function evaluate(text, lookup = () => undefined, { matrices = false } = 
   for (const leaf of leaves(tree)){
     if (leaf.ref){ if (!leaf.ref.measure && !matrices) return unread('choose one of its measures');
       const v = lookup(leaf.ref); known.set(leaf, v === undefined ? { err: 'missing variable' } : v); continue; }
-    const fixed = leaf.name.toLowerCase(), v = fixed in CONSTANT ? CONSTANT[fixed] : lookup(leaf.name);
+    const fixed = leaf.name.toLowerCase(), v = Object.hasOwn(CONSTANT, fixed) ? CONSTANT[fixed] : lookup(leaf.name);
     if (v === undefined) return unread('unknown name: ' + leaf.name);
     known.set(leaf, v);
   }
