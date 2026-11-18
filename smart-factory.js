@@ -31,7 +31,9 @@ import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
-import { SOURCES, kept as sourceKept, faceOf, values as sourceValues, typable, holds } from './sources.js';
+import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds } from './sources.js';
+import { wanted, merged, noted, drawn as cellsDrawn, NEEDS } from './decimals.js';
+import { createBackend } from './backend.js';
 import { squares } from './components/matrix.js';
 
 /* everything the user does takes effect as a message on the bus (bus.js); what each message does is set out under
@@ -296,13 +298,38 @@ function findIn(g){
 /* what the evaluator says of a node: its entries as a Map (infinities as numbers); an empty Map where it is too
    large to be worked out here (its size is all that is shown); null where it has no value (an error in the graph) */
 const asMaps = new WeakMap();
+/* ---- the backend ----
+   What the evaluator does not work out (a result too large for the browser, anything made of noise or of a data
+   file) and what it leaves symbolic (exp(1)) is asked of the backend, a separate process reached through the server
+   (backend.js has when it is asked and which answers are kept; decimals.js what is drawn of them). Asking never
+   waits: answerOf gives what is known now, and when an answer comes the screen is drawn again. With no backend
+   nothing is asked, and what is made of noise or of a data file says "needs the backend" where its numbers would
+   be; everything else is as it is without one. A decimal is never kept: it is no entry of any block. */
+const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
+  changed: () => { if (!holding) shown(); }, project: () => (kept ? current : null) });
+const laid = new WeakMap();                    /* an evaluator's answer -> the backend's laid over it: { result, stale, map } */
 function answerOf(node, binding = null){
   if (!node) return null;
-  const r = workOut(graphNow(), node, binding ? { binding } : undefined);
-  if (r.deferred) return new Map(); if (!r.entries) return null;
-  if (!asMaps.has(r)) asMaps.set(r, toMap(r.entries)); return asMaps.get(r);
+  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined);
+  if (!r.deferred && !r.entries) return null;
+  if (r.entries && !asMaps.has(r)) asMaps.set(r, toMap(r.entries));
+  const exact = r.entries ? asMaps.get(r) : new Map();
+  if (!wanted(r)) return exact;
+  if (backend.available() === false) return r.backend ? noted(NEEDS) : exact;
+  const got = backend.ask(g, node, binding, cellsDrawn(r.type)); if (!got) return exact;      /* only the entries that are drawn are asked for */
+  const was = laid.get(r); if (was && was.result === got.result && was.stale === got.stale) return was.map;
+  const map = merged(r, exact, got.result, got.stale); laid.set(r, { result: got.result, stale: got.stale, map }); return map;
 }
 const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), node, binding ? { binding } : undefined).deferred;
+/* what to say of a node whose numbers are not shown: that it needs the backend, why the backend gave none, or (for
+   one that is only too large) that it is; null where its numbers are shown, or it has an error of its own */
+function unshown(node, binding = null){
+  if (!node) return null;
+  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined); if (!wanted(r)) return null;
+  if (backend.available() === false) return r.backend ? 'It needs the backend: its numbers are made there, and none is running (README: The backend)' : r.deferred ? tooLarge(r.type) : null;
+  const why = backend.problem(g, node, binding); if (why) return 'The backend gave no numbers: ' + why;
+  return r.deferred && !backend.ask(g, node, binding, cellsDrawn(r.type)) ? (backend.available() ? 'Waiting for the backend' : r.backend ? null : tooLarge(r.type)) : null;
+}
 /* Where a node is looked at from (evaluate.js: binding). A block of a tile, or one in the definition space of a block
    of a tile, is in a cell: the first, or the one being drawn (cellNow). The cell says where every block of the
    pattern lies, and every arrow's output there, so that each reads its own place however it is reached (a product
@@ -317,7 +344,7 @@ function cellIn(s, t, r = null, over = false){      /* r: where in the pattern w
   for (const k of mine) if (!isArrow(k) && g.blocks[k.id]){ const r = unitsOf(k); at[g.blocks[k.id]] = { col: r.x - rep.x, row: r.y - rep.y }; }
   for (const [c, cr] of s.repeats) if (tileUp(s, c) === t){ const id = findIn(g).tiles.get('t:' + c)?.node; if (id && !(id in at)) at[id] = { col: cr.x - rep.x, row: cr.y - rep.y }; }      /* a tile in the pattern is one part of it */
   for (const k of mine) if (isArrow(k)){ const id = findIn(g).arrows.get(k.id)?.node, r = id && !(id in at) ? outputOf(k).place : null; if (r) at[id] = { col: r.x - rep.x, row: r.y - rep.y }; }      /* an output lies where it is written */
-  return { x: (now.cx - 1) * rep.cols, y: (now.cy - 1) * rep.rows, dx: r ? r.x - rep.x : 0, dy: r ? r.y - rep.y : 0, turned: over, of: ['t:' + t], at };      /* of: which tile's cell it is, so that a block read from a tile inside its own is still worked out in its own tile's cell alone (evaluate.js) */
+  return { x: (now.cx - 1) * rep.cols, y: (now.cy - 1) * rep.rows, dx: r ? r.x - rep.x : 0, dy: r ? r.y - rep.y : 0, cx: now.cx, cy: now.cy, turned: over, of: ['t:' + t], at };      /* of: which tile's cell it is, so that a block read from a tile inside its own is still worked out in its own tile's cell alone (evaluate.js) */
 }
 /* the chain of cells something in tile t is in: a cell of every tile t is inside, outermost first, and last t's own */
 function cellsOf(s, t, r = null, over = false){
@@ -923,11 +950,15 @@ function attributesOf(b){
   const fixed = [{ key: 'x', label: sideName(b, 'w') || 'x', text: len('w') }, { key: 'y', label: sideName(b, 'h') || 'y', text: len('h') }];
   if (one){ const stored = measures(b) || rangedOf(b) ? undefined : b.values.get('1,1'), text = isFormula(stored) ? stored.expr : v === null ? symbolOf(b) : isError(v) ? '' : typedText(v);      /* a formula as it was typed; not yet given a value: its symbol */
     fixed.push({ key: 'mass', label: massName(b) || 'mass', text, ...seen(text), ...told(text, isFormula(stored) || isError(v) ? v : null) }); }
+  /* noise has a seed and a distribution, and nothing else */
+  if (sourceKind(b.source) === 'noise') return [...fixed, { key: 'seed', label: 'seed', text: String(b.source.noise.seed) }, { key: 'dist', label: 'distribution', text: b.source.noise.dist }];
+  if (sourceKind(b.source) === 'file') return fixed;
   return [...fixed, ...attrsOf(b).map((a, i) => ({ key: 'a' + i, custom: true, label: a.name, text: a.text, ...seen(a.text), ...told(a.text, attrValue(b, a)) }))];
 }
 /* the block an entry of the selected shape's matrix really belongs to, and its key there */
 const entryOfSelected = key => { const b = [...selected][0], [c, r] = key.split(',').map(Number); return b ? entryHome(b, c, r) : null; };
 const properties = createProperties({ ...fields,
+  onAction: key => { const b = [...selected][0]; if (key === 'file' && b) chooseFile(b); },
   onName: text => { if (pickedTile) return bus.send('name', { frame: pickedTile, ids: [], name: text, color: null });
     const b = [...selected][0]; if (b) bus.send('rename', { id: b.id, name: text, color: isNamed(b) ? null : someColour() }); },
   onAdd: () => { const b = [...selected][0]; if (!b) return; properties.focus('a' + attrsOf(b).length + '.label'); bus.send('attr.add', { id: b.id }); },
@@ -938,6 +969,9 @@ const properties = createProperties({ ...fields,
   onValue: (key, text) => { if (pickedTile) return tileTyped(pickedTile, key, text);
     const b = [...selected][0]; if (!b) return;
     if (isArrow(b)) return arrowTyped(b, key, text);
+    if (key === 'seed'){ const got = readTyped(b, text), seed = got.refused ? got : seedOf(got.value);      /* a whole number, or a formula that comes to one now */
+      if (seed.refused){ hud.say(seed.refused === got.refused ? `seed: ${seed.refused}` : seed.refused); return shown(); } return bus.send('source.set', { id: b.id, seed: seed.seed }); }
+    if (key === 'dist'){ const dist = text.trim().toLowerCase(); if (!DISTS.includes(dist)){ hud.say(`A distribution is ${DISTS.join(' or ')}`); return shown(); } return bus.send('source.set', { id: b.id, dist }); }
     if (key[0] === 'a') return bus.send('attr.set', { id: b.id, index: +key.slice(1), text });
     /* a scalar's mass and sides take a value of any kind, or a formula. Its side is the root of its mass, so a side
        typed is a mass of that squared: a side of 3 is a mass of 9, of √2 a mass of 2. It stays one square whatever is typed. */
@@ -985,9 +1019,11 @@ function paint(){
       matrix: t ? { letter: initials((seat || one).name), values: o.values || new Map(), colsName: t.colsName, rowsName: t.rowsName } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit);
     const values = valuesOf(one), scalar = cols === 1 && rows === 1 && !one.members, wrong = scalar ? [] : [...values].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
+    const kind = sourceKind(one.source), node = steadily(() => graphNow().blocks[one.id]), quiet = node ? steadily(() => unshown(node, bindingOf([one], spaceWith(one)))) : null;
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols, rows, scalar, attributes: attributesOf(one), fixed: !!one.source,
-      shape: one.source ? `${SOURCES.find(s => s.kind === one.source).label.toLowerCase()}: ${cols} wide × ${rows} tall` : undefined,
-      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      shape: one.source ? `${[...SOURCES, ...DATA].find(s => s.kind === kind).label.toLowerCase()}${kind === 'file' ? ' (' + (one.source.file || 'no file chosen') + ')' : ''}: ${cols} wide × ${rows} tall` : undefined,
+      ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(quiet ? [quiet] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values, transposed: turned(one), colsName: one.sides.w, rowsName: one.sides.h } }); }
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one) }); }
@@ -1883,7 +1919,7 @@ function outputOf(a){
     const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map, drawn: drawnOf(arrow, sized(input)) });
     const out = { ...st, defined: !!defined, mapWarn: map?.warn || null,
       get values(){ return outputValues(a, s); },
-      get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id); return e?.node && deferredAt(e.node, bindingOf(readBy(a, s), s, false, a)) ? tooLarge(graphNow().nodes[e.node].type) : null; }); } };
+      get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id); return e?.node ? unshown(e.node, bindingOf(readBy(a, s), s, false, a)) : null; }); } };
     if (firstCell()) memo?.set(a, out);
     return out;
   } finally { busy.delete(a); }
@@ -2164,8 +2200,37 @@ function gather(light = false){      /* light: each block's entries as their sta
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...framesIn(s)].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g), ...(s.repeats.has(g) ? { repeat: repeatCopy(s.repeats.get(g)) } : {}) }));      /* a tile: its repeat, and never what it comes to */
-  return { top: plain(top), saved: new Date().toISOString(), ids: ids.state() };
+  const out = { top: plain(top), saved: new Date().toISOString(), ids: ids.state() };
+  if (light) return out;
+  /* the data files some block reads, as they are: saved with the project, and no others */
+  const data = {}; for (const b of everyKnown()) if (sourceKind(b.source) === 'file' && b.source.file && dataFiles.has(b.source.file)) data[b.source.file] = dataFiles.get(b.source.file);
+  return { ...out, data: Object.fromEntries(Object.keys(data).sort().map(k => [k, data[k]])) };
 }
+/* ---- data files ----
+   A file source reads a numeric CSV kept with the project under data/. Its text is held here from when it is chosen
+   or opened until it is saved; a file is never changed once it is here (another file of the same name is given a
+   name of its own), so undoing and redoing need only say which file a block reads. Choosing one sends it to the
+   backend, which checks that it is a table of numbers, keeps it in the project's directory and says its size; the
+   block then takes that size. */
+const dataFiles = new Map();                   /* "data/weights.csv" -> its text */
+const filePicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.csv,text/csv', hidden: true });
+document.body.append(filePicker);
+let choosingFor = null;
+function chooseFile(b){
+  if (backend.available() !== true) return hud.say('Choosing a file needs the backend, which reads it: none is running (README: The backend)');
+  if (!kept || !current) return hud.say('Save the project under a name first: a data file is kept in the project\'s directory');
+  choosingFor = b.id; filePicker.click();
+}
+filePicker.addEventListener('change', async () => { const file = filePicker.files[0], id = choosingFor; filePicker.value = ''; choosingFor = null; if (!file || !id) return;
+  try {
+    if (file.size > 50 * 1024 * 1024) throw new Error('it is larger than 50 MB');
+    const text = await file.text(), same = [...dataFiles].find(([, t]) => t === text), path = same ? same[0] : dataName(file.name, dataFiles);
+    const r = await fetch(`api/backend/data?project=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: text });
+    const said = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(said.error || 'the server answered ' + r.status);
+    dataFiles.set(path, text);
+    bus.send('source.set', { id, file: path, cols: said.cols, rows: said.rows });
+  } catch (e) { hud.say(`Could not take ${file.name}: ${e.message || e}`); } });
 /* the reverse: everything on the page is replaced by what the data describes */
 function rebuild(data){
   go(top); select([]);
@@ -2173,6 +2238,7 @@ function rebuild(data){
     for (const t of s.tiles.values()){ t.el.remove(); t.overEl.remove(); }
     s.blocks.length = 0; s.ops.length = 0; s.groupOf.clear(); s.groupUp.clear(); s.groupNames.clear(); s.repeats.clear(); s.tiles.clear(); s.frames.clear(); }
   spaceOf.clear(); kin.clear(); deeper.length = 0; clipboard = null; pickedTile = null;
+  for (const [path, text] of Object.entries(data.data || {})) if (dataPath(path) && typeof text === 'string') dataFiles.set(path, text);      /* (a file already here under that name is the same file) */
   ids = createIds(); if (data.ids) ids.restore(data.ids);
   const uses = new Map();                        /* a variable's number -> the blocks that are uses of it */
   const u = view.unit;
@@ -2209,7 +2275,9 @@ let kept = null, current = null;               /* kept: the names of the server'
 const ask = () => fetch('api/projects').then(r => r.ok ? r.json() : null).then(list => { kept = Array.isArray(list) ? list : null; }).catch(() => { kept = null; });
 /* at the start, the Menu is opened from the server: the project called "menu" if one has been saved, otherwise the
    one that comes with the repository. Saving then offers "menu", so the first save makes it your own. */
-ask().then(() => { const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
+/* is there a backend? Asked once, as the page loads, of the server that keeps projects (with no such server there is no one to ask); the page is drawn again when it is known */
+ask().then(() => { if (kept) backend.health(); else backend.absent();
+  const first = kept && ['menu', 'default-menu'].find(name => kept.includes(name));
   if (first) bus.send('project.open', { name: first }).then(() => { current = 'menu'; });
   else if (!kept) fetch('projects/default-menu/files.json').then(r => r.ok ? r.json() : Promise.reject()).then(list => Promise.all(list.map(path => fetch('projects/default-menu/' + path.split('/').map(encodeURIComponent).join('/')).then(r => r.ok ? r.text() : Promise.reject()).then(text => ({ path, text }), e => path.startsWith('.') ? null : Promise.reject(e)))))
     .then(files => bus.send('project.load', { files: files.filter(Boolean), name: 'menu' })).catch(() => {}); });   /* no server: the default Menu's files, if they sit beside the page */
@@ -2231,7 +2299,7 @@ async function save(name){
 }
 
 /* opening replaces everything on the page */
-function openFrom(files, name = null){ const data = project.read(files); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
+function openFrom(files, name = null){ const data = project.read(files); dataFiles.clear(); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
   hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
@@ -2507,6 +2575,14 @@ bus.on('save', ({ name = null }) => save(name));      /* name: what was typed wh
 bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () => zipPicker.click());
 /* changing the project */
 bus.on('project.load', ({ files, name = null }) => openFrom(files, name), changes);
+/* a source's settings. Noise: its seed, its distribution. A file: which file of the project it reads, and the size that file has, which the block takes. Every use of the variable is the one source. */
+bus.on('source.set', ({ id, seed, dist, file, cols, rows }) => { const b = blockOf(id), kind = b && sourceKind(b.source); if (!b || (kind !== 'noise' && kind !== 'file')) return;
+  const next = kind === 'noise' ? noiseOf(seed === undefined ? b.source.noise.seed : seed, dist === undefined ? b.source.noise.dist : dist) : sourceKept({ file });
+  if (kind === 'file' && !next.file) return hud.say('That is not a file a project may hold: a data file is data/ and one name ending .csv');
+  for (const k of kinOf(b)) k.source = next;
+  if (kind === 'file' && Number.isInteger(cols) && Number.isInteger(rows) && cols >= 1 && rows >= 1){ const u = view.unit, o = originOf(b), over = turned(o);
+    o.set({ ...o.rect, w: (over ? rows : cols) * u, h: (over ? cols : rows) * u }); agree(o); hud.say(`${bare(b.name)} reads ${next.file}: ${cols} wide × ${rows} tall`); }
+  shown(); }, changes);
 bus.on('add', ({ type, rect, name, source = null }) => { const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 bus.on('place', ({ rects }) => { for (const r of rects) blockOf(r.id)?.set({ x: r.x, y: r.y, w: r.w, h: r.h }); shown(); }, changes);      /* where blocks go, and how big: the end of a move or a resize */
 /* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
@@ -2665,7 +2741,9 @@ const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
   /* New: a kind of block to draw. Tensor is drawn by clicking it, as before; resting on it opens the sources (sources.js), each drawn the same way */
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }),
-    ...(shape.name === 'tensor' ? { items: SOURCES.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind }) })) } : {}) }))
+    ...(shape.name === 'tensor' ? { items: SOURCES.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind }) })) } : {}),
+    /* Data in: the two sources whose numbers the backend has. Clicking it draws noise; resting on it offers a file too */
+    ...(shape.name === 'data-in' ? { run: () => bus.send('new', { type: shape.name, source: noiseOf() }), items: DATA.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind === 'noise' ? noiseOf() : { file: null } }) })) } : {}) }))
     .concat([{ label: 'Tile', run: () => bus.send('new', { type: 'tile' }) }]) },      /* a tile is no kind of block: it is drawn round them */
   { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
   { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },

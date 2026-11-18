@@ -1,7 +1,7 @@
 /* The page's side of the backend: when it is asked, for what, and which answers are kept. No drawing here; the
    network and the clock are handed in, so this is tested without either.
 
-   createBackend({ fetch, later, cancel, delay = 500, changed, project }) -> { health(), available(), ask(graph, node, binding, cells), problem(graph, node, binding), pending() }
+   createBackend({ fetch, later, cancel, delay = 500, changed, project }) -> { health(), absent(), available(), ask(graph, node, binding, cells), problem(graph, node, binding), pending() }
      fetch      (path, options) -> a promise of a Response, as the browser's: asked for 'api/backend/health' and 'api/backend/run'
      later, cancel   setTimeout and clearTimeout
      delay      how long after the last change the backend is asked: half a second
@@ -9,6 +9,7 @@
      project    () -> the name of the project that is open, or null: sent with a run, for its data files
 
      health()   asks whether there is a backend: a promise of true or false. Asked once, when the page loads.
+     absent()   says there is none without asking (the page is not served by a server that could pass anything on)
      available() true, false, or null while that is not known yet
      ask(graph, node, binding, cells)
                 says that a node's numbers are wanted for this graph (graph.js: build; the same object for as long as
@@ -55,6 +56,7 @@ export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout
   }
   return {
     health(){ return Promise.resolve().then(() => fetch('api/backend/health')).then(r => r.ok ? r.json() : null).then(j => !!(j && j.ok === true), () => false).then(ok => { const was = there; there = ok; if (ok && now) soon(); if (was !== ok) changed(); return ok; }); },
+    absent(){ const was = there; there = false; if (was !== false) changed(); },
     available: () => there,
     ask(graph, node, binding, cells){
       if (there === false) return null;

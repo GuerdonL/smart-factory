@@ -31,6 +31,13 @@
                   warning colour, with why as the entry's title. An entry not in the Map is unknown, and is its symbol.
                   With product or combined, an entry that has a value is written as the value (in the ordinary text
                   colour: it is no one block's), and only one that has none as what it is made from.
+                  A decimal ({ f }: a number from the backend, see decimals.js) is never written like an exact
+                  number. With decimal: 'square' it is a filled square, black at 0 or below, white at 1 or above
+                  and grey between, with its number as its title; otherwise it is written out to 9 significant
+                  digits. Where the Map is marked stale (the numbers are of an older state of the project, and
+                  new ones are on their way) its decimals are drawn dimmed. Where it carries a note ("needs the
+                  backend") no entry is written, and the note is, across the middle.
+     decimal      'square' for a matrix written on the canvas; left out, decimals are written as numbers
      width, height  the size of what was made, in world units (for placing it)
 
    One row or one column is a vector, written k₁ … kₙ. Otherwise it is a matrix, each entry carrying its column then
@@ -43,6 +50,9 @@ export const written = v => typeof v === 'number' && Number.isFinite(v) ? String
 import { html, style } from './dom.js';
 import { likeness } from './block.js';
 import { isError, valueText } from '../algebra.js';
+import { along, level, keyOf } from '../decimals.js';
+export const valuesKey = keyOf;                /* what tells one values Map from another, for whoever redraws only on a change */
+const isDecimal = v => !!v && typeof v === 'object' && typeof v.f === 'number';
 
 style('matrix', `
 .matrix { position: absolute; display: grid; color: var(--fg); font-family: var(--font-math); font-style: italic; line-height: 1; }
@@ -57,6 +67,13 @@ style('matrix', `
 .matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves, or the sign between two parts */
 .matrix > span.dots { font-style: normal; color: var(--muted); }
 .matrix > span.ghost { opacity: .5; }      /* an entry a variable side would have were it longer */
+.matrix > span.set.decimal { font-size: 0; line-height: 0; display: grid; place-items: center; }
+/* a decimal's square. Its two ends are the specification's own black and white, whatever the theme: they say a number, not a taste */
+.matrix .square { display: block; width: calc(var(--cell) * .62); height: calc(var(--cell) * .62); box-sizing: border-box; border: 1px solid var(--muted); border-radius: 2px;
+  background: color-mix(in srgb, #fff calc(var(--level) * 100%), #000); }
+.matrix > span.set.stale { opacity: .4; }      /* numbers of an older state of the project, while the new ones are waited for */
+.matrix > span.blank { visibility: hidden; }
+.matrix > .matrix-note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 0 .4em; white-space: nowrap; font: 11px/1.5 var(--font-ui); font-style: normal; color: var(--muted); background: var(--bg); border-radius: 3px; }
 .matrix sub { font-style: normal; font-size: .68em; vertical-align: -0.35em; line-height: 0; margin-left: .04em; }
 /* the brackets: a tall stroke each side with short feet turned inwards */
 .matrix::before, .matrix::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: 5px; border: 1.2px solid var(--fg); }
@@ -67,13 +84,12 @@ style('matrix', `
    is the elided middle). A side whose length is a variable (it has a name) is always written that way, as if it were
    long, since it may be: 1, 2, 3, dots, and the last, which carries the name's initials for its number. Where the
    side is shorter than that just now, the entries that are not there yet are written as symbols only (ghost). */
-const shown = (n, name = null) => name ? [...[1, 2, 3].map(i => ({ i, ghost: i >= n })), null, { i: n, last: true }]
-  : (n <= 8 ? Array.from({ length: n }, (_, i) => i + 1) : [1, 2, 3, null, n]).map(i => i === null ? null : { i });
+const shown = along;                           /* (the rule is decimals.js's, so that what is asked of the backend is what is drawn) */
 const short = name => (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toLowerCase()).join('').slice(0, 3) || 'n';
 /* how many squares a side of n takes once written (the elided middle is one) */
 export const squares = (n, name = null) => shown(n, name).length;
 
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, standing = [], transposed = false, colsName = null, rowsName = null }){
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, standing = [], transposed = false, colsName = null, rowsName = null, decimal = 'number' }){
   const cs = shown(cols, colsName), rs = shown(rows, rowsName), vector = (cols === 1 && !colsName) || (rows === 1 && !rowsName);
   const num = (e, name) => e.last && name ? short(name) : e.i;      /* an entry's number along a side: the last of a variable side is that side's name */
   const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
@@ -86,7 +102,13 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
   /* a value written at length (1+exp(2), a long fraction) does not make the whole matrix small: past LONG it is
      written smaller on its own, to fit its square, and carries what it says in full as its title */
   const LONG = 2.9, wide = v => written(v).length * .72;
-  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].map(wide).filter(w => w <= LONG));
+  const square = v => decimal === 'square' && isDecimal(v);
+  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].filter(v => !square(v)).map(wide).filter(w => w <= LONG));
+  /* a value in its entry: an error as the mark, a decimal as its square or its digits, anything else as it is written */
+  const put = (entry, v) => { entry.className = isError(v) ? 'set error' : 'set'; if (isError(v)) entry.title = v.err;
+    if (isDecimal(v) && values.stale) entry.classList.add('stale');
+    if (square(v)){ entry.classList.add('decimal'); entry.title = written(v); const s = html`<i class="square"></i>`; s.style.setProperty('--level', String(level(v.f))); entry.replaceChildren(s); return; }
+    entry.textContent = written(v); fit(entry, v); };
   const size = Math.min(cell * .6, cell * .8 / widest);
   const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cell * .92 / (written(v).length * .56) / size) + 'em'; if (!entry.title) entry.title = written(v); } };
   el.style.fontSize = size + 'px';
@@ -100,11 +122,12 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     const part = p => { const one = p.cols === 1 && p.rows === 1 && !(cols === 1 && rows === 1), row = p.rows === 1 && rows > 1, col = p.cols === 1 && cols > 1;
       return half(p, one ? '' : row ? cn : col ? rn : vector ? (cols === 1 ? rn : cn) : p.transposed ? rn + comma + cn : cn + comma + rn); };
     const worked = (combined || product) && values.has(key);      /* a product, a sum or a chain whose entry here has come to a value: the value, in place of what it is made from */
-    if (worked){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; fit(entry, v); }
+    if (values.note && !ghost){ entry.classList.add('blank'); entry.textContent = '·'; }      /* nothing can be said of it here: the note says why */
+    else if (worked) put(entry, values.get(key));
     else if (combined) combined.parts.forEach((p, n) => { if (n){ const sign = html`<b></b>`; sign.textContent = combined.signs[n - 1]; entry.append(sign); } entry.append(part(p)); });
     else if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
-      if (values.has(key)){ const v = values.get(key); entry.className = isError(v) ? 'set error' : 'set'; entry.textContent = written(v); if (isError(v)) entry.title = v.err; fit(entry, v); }
+      if (values.has(key)) put(entry, values.get(key));
       else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); fit(entry, inherited.get(key)); }      /* not given here: what a definition higher up gives */
       else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? rn : cn) : transposed ? rn + comma + cn : cn + comma + rn; } }
     if (!elided && standing.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */
@@ -113,5 +136,6 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
   if (!elided) for (const t of standing){ const b = likeness({ cols: t.w, rows: t.h, unit: cell, color: t.color, name: t.name }); b.el.title = t.name;
     if (t.id){ b.el.dataset.standing = t.id; b.el.style.pointerEvents = 'auto'; b.el.style.cursor = 'pointer'; }      /* it can be pressed: the page hears of it by this id */
     Object.assign(b.el.style, { left: t.x * cell + 'px', top: t.y * cell + 'px' }); el.append(b.el); }
+  if (values.note){ const n = html`<span class="matrix-note"></span>`; n.textContent = values.note; el.append(n); }
   return { el, width: cs.length * cell, height: rs.length * cell };
 }

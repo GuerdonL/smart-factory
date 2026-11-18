@@ -12,7 +12,7 @@ What it does:
     A project's files are its .json files, its .config files and, under data/ at its top, the .csv files its file
     sources read (data/weights.csv): no other path is kept, and none that climbs out of the project.
   - passes three addresses on to the backend (backend/, a separate process that works a model out in floating point):
-        GET  /api/backend/health      -> the backend's /health, or 503 where there is none
+        GET  /api/backend/health      -> the backend's /health, or { "ok": false, "error": why } where there is none
         POST /api/backend/run         -> its /run
         POST /api/backend/data?project=<name>&path=data/<file>.csv     -> its /data
     The backend's address is the SMART_FACTORY_BACKEND environment variable (default http://127.0.0.1:8001). These
@@ -313,7 +313,9 @@ class Handler(SimpleHTTPRequestHandler):
             finally:
                 c.close()
         except (OSError, http.client.HTTPException) as e:
-            self.reply(503, {'error': 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or type(e).__name__)})
+            why = 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or type(e).__name__)
+            # asked whether there is one, "no" is an answer and not a failure: the page asks on every load, and is to log nothing
+            self.reply(200 if to == '/health' else 503, {'ok': False, 'error': why})
             return True
         if 300 <= status < 400:                                    # it is never followed: the request goes to the backend and nowhere else
             self.reply(502, {'error': 'the backend answered by sending the request elsewhere, which is not followed'})

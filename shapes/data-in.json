@@ -1,4 +1,5 @@
 {
   "label": "Data in",
+  "draw": "rectangle",
   "color": "data-in"
 }

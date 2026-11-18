@@ -122,9 +122,10 @@ class PassedOn(BackendCase):
     def test_with_no_backend_the_page_is_told_so(self):
         gone = StandIn(); port = gone.server_address[1]; gone.shutdown(); gone.server_close()
         server.BACKEND = ('127.0.0.1', port)
-        for method, path in [('GET', '/api/backend/health'), ('POST', '/api/backend/run')]:
+        for method, path, want in [('GET', '/api/backend/health', 200), ('POST', '/api/backend/run', 503)]:      # "is there one?" is answered no; a run is a failure
             status, _, text = self.request(method, path, b'{}' if method == 'POST' else None)
-            self.assertEqual(status, 503)
+            self.assertEqual(status, want)
+            self.assertEqual(json.loads(text)['ok'], False)
             self.assertIn('the backend is not answering', json.loads(text)['error'])
         self.assertEqual(self.request('GET', '/api/projects')[0], 200)      # and everything else goes on as it did
 
