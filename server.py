@@ -9,6 +9,17 @@ What it does:
         GET  /api/projects            -> ["attention", "example"]
         GET  /api/projects/<name>     -> [{"path": "Keys.json", "text": "..."}, ...]
         PUT  /api/projects/<name>     <- the same list; the project's directory becomes exactly these files
+    A project's files are its .json files, its .config files and, under data/ at its top, the .csv files its file
+    sources read (data/weights.csv): no other path is kept, and none that climbs out of the project.
+  - passes three addresses on to the backend (backend/, a separate process that works a model out in floating point):
+        GET  /api/backend/health      -> the backend's /health, or 503 where there is none
+        POST /api/backend/run         -> its /run
+        POST /api/backend/data?project=<name>&path=data/<file>.csv     -> its /data
+    The backend's address is the SMART_FACTORY_BACKEND environment variable (default http://127.0.0.1:8001). These
+    go through the PIN like everything else, so the backend, which listens on this machine only and has no password
+    of its own, is never reached without it. Only those three are passed on, to that one address; an answer that
+    sends the request elsewhere is not followed; and no more is read of a request (5 MB for a run, 50 MB for a
+    file) or of an answer (8 MB) than is said here.
   - every 30 seconds asks GitHub whether the branch it is on has moved, and if so pulls it. Pages are read from
     disk on each request, so the next reload shows the new version; if this file itself changed, it restarts.
 
@@ -20,13 +31,18 @@ on the way: it keeps out whoever finds the port, not whoever can listen to the n
 With no PIN set there is no password: anyone who can reach the port can read and overwrite projects. That is only when
 there is no .pin at all: one that is there and cannot be read, or has nothing in it, stops the server from starting.
 """
-import base64, hashlib, hmac, json, os, re, shutil, subprocess, sys, tempfile, threading, time
+import base64, hashlib, hmac, http.client, json, os, re, shutil, subprocess, sys, tempfile, threading, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import unquote
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$')          # a project's name: one plain directory name
+DATA = re.compile(r'data/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')    # a data file: data/ and one .csv name (sources.js: dataPath)
+# what is passed on to the backend: how much of a request's body is read for each address, in bytes (the backend's own
+# limits: backend/limits.py), how much of its answer, and how many seconds it is waited on
+PASSED = {'/health': 0, '/run': 5 * 1024 * 1024, '/data': 50 * 1024 * 1024}
+ANSWER, WAIT = 8 * 1024 * 1024, 90
 TRIES, LOCKED_FOR = 5, 600                                         # different wrong PINs allowed from one address within LOCKED_FOR seconds, and the seconds it is then turned away
 SWALLOWED, SWALLOW_FOR = 64 << 20, 10                              # how much of a refused request's body is read and dropped, in bytes, and for how many seconds at most
 clock = time.monotonic                                             # the clock the counting goes by: its own name, so a test can set it and nothing else's
@@ -54,7 +70,23 @@ def read_pin():
     return pin
 
 
+def read_backend():
+    """Where the backend is, as (host, port): SMART_FACTORY_BACKEND, or http://127.0.0.1:8001. It is an http address
+    with a host and nothing after it; anything else stops the server, since to go on would be to pass requests on to
+    somewhere that was not meant."""
+    given = os.environ.get('SMART_FACTORY_BACKEND', '').strip() or 'http://127.0.0.1:8001'
+    try:
+        url = urlsplit(given)
+        host, port = url.hostname, url.port or 80
+    except ValueError:
+        url = host = port = None
+    if not host or url.scheme != 'http' or url.path not in ('', '/') or url.query or url.fragment or url.username or url.password:
+        raise SystemExit('SMART_FACTORY_BACKEND is %r, which is not an address like http://127.0.0.1:8001. Not starting.' % given)
+    return host, port
+
+
 PIN = read_pin()
+BACKEND = read_backend()
 PAGE = ('<!doctype html><html><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
         '<style>:root{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>'
         '</head><body>{page}</body></html>')
@@ -65,9 +97,17 @@ def project_files(name):
     base, out = os.path.join(PROJECTS, name), []
     for folder, _, files in os.walk(base):
         for f in sorted(files):
+            full = os.path.join(folder, f)
+            path = os.path.relpath(full, base).replace(os.sep, '/')
             if f.endswith('.json') or f == '.config':
-                full = os.path.join(folder, f)
-                out.append({'path': os.path.relpath(full, base).replace(os.sep, '/'), 'text': open(full, encoding='utf8').read()})
+                with open(full, encoding='utf8') as text:
+                    out.append({'path': path, 'text': text.read()})
+            elif DATA.fullmatch(path) and not os.path.islink(full):     # a data file, at the top of the project
+                try:
+                    with open(full, encoding='utf8', newline='') as data:
+                        out.append({'path': path, 'text': data.read()})
+                except ValueError:                                 # not text: it is no table of numbers, and the page could not hold it
+                    pass
     return out
 
 
@@ -78,11 +118,12 @@ def write_project(name, files):
     try:
         for f in files:
             parts = str(f['path']).split('/')
-            if not (f['path'].endswith('.json') or parts[-1] == '.config') or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts):
+            csv = str(f['path']).endswith('.csv')
+            if not (f['path'].endswith('.json') or parts[-1] == '.config' or csv) or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts) or (csv and not DATA.fullmatch(str(f['path']))):
                 raise ValueError('not a path a project may contain: %r' % f['path'])
             full = os.path.join(fresh, *parts)
             os.makedirs(os.path.dirname(full), exist_ok=True)
-            with open(full, 'w', encoding='utf8') as out:
+            with open(full, 'w', encoding='utf8', newline='') as out:
                 out.write(str(f['text']))
         if not os.path.isfile(os.path.join(fresh, 'project.json')):
             raise ValueError('no project.json among the files')
@@ -215,6 +256,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = self.address()
         if self.page():
             return
+        if self.backend():
+            return
         if path == '/api/projects':
             names = sorted(n for n in os.listdir(PROJECTS) if os.path.isfile(os.path.join(PROJECTS, n, 'project.json'))) if os.path.isdir(PROJECTS) else []
             return self.reply(200, names)
@@ -228,6 +271,61 @@ class Handler(SimpleHTTPRequestHandler):
         if path.startswith('/api/') or self.hidden():              # nothing else under /api, and no dot-files (.git)
             return self.reply(404, {'error': 'not found'})
         super().do_GET()
+
+    def backend(self):
+        """Passes the request on to the backend if its address is one of the three that are, and answers with what the
+        backend answered. Gives whether the address was under /api/backend/ at all. Nothing of the request goes on
+        but its body and, for a file, the project and the path it names: no header of the browser's, no other
+        address, and nothing to any host but the one this server was started with."""
+        path = self.address()
+        if not path.startswith('/api/backend/') and path != '/api/backend':
+            return False
+        to = path[len('/api/backend'):]
+        if to not in PASSED or (self.command == 'GET') != (to == '/health'):
+            self.reply(404, {'error': 'not found'})
+            return True
+        body = b''
+        if self.command == 'POST':
+            try:
+                length = int(self.headers.get('Content-Length') or '')
+            except ValueError:
+                length = -1
+            if length < 0 or self.headers.get('Transfer-Encoding'):
+                self.refuse(411, 'the request has to say how long it is', {})
+                return True
+            if length > PASSED[to]:
+                self.refuse(413, 'that is larger than the %d MB the backend takes' % (PASSED[to] >> 20), {})
+                return True
+            body = self.rfile.read(length)
+            if len(body) != length:
+                self.close_connection = True
+                return True
+        if to == '/data':                                          # the two things a file's address says, written out again: nothing else of it goes on
+            asked = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            to += '?project=%s&path=%s' % (quote((asked.get('project') or [''])[-1], safe=''), quote((asked.get('path') or [''])[-1], safe=''))
+        try:
+            c = http.client.HTTPConnection(BACKEND[0], BACKEND[1], timeout=WAIT)
+            try:
+                c.request(self.command, to, body=body if self.command == 'POST' else None,
+                          headers={'Content-Type': 'application/octet-stream' if to.startswith('/data') else 'application/json'})
+                r = c.getresponse()
+                status, answer = r.status, r.read(ANSWER + 1)
+            finally:
+                c.close()
+        except (OSError, http.client.HTTPException) as e:
+            self.reply(503, {'error': 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or type(e).__name__)})
+            return True
+        if 300 <= status < 400:                                    # it is never followed: the request goes to the backend and nowhere else
+            self.reply(502, {'error': 'the backend answered by sending the request elsewhere, which is not followed'})
+        elif len(answer) > ANSWER:
+            self.reply(502, {'error': 'the backend answered with more than %d MB' % (ANSWER >> 20)})
+        else:
+            self.reply(status, answer)
+        return True
+
+    def do_POST(self):
+        if not self.backend():
+            self.reply(404, {'error': 'not found'})
 
     def do_HEAD(self):
         if self.hidden() or self.address().startswith('/api/'):
