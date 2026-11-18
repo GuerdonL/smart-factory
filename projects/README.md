@@ -10,6 +10,8 @@ A saved project is a directory in here. Shapes and files are the same tree:
 - a space where Difference or Intersect has cut something has one more file, `operations.json`, holding each cut
   with the two shapes it took off the canvas, whole, and where each was (its place in the order and its frames).
 
+- the files its file sources read are in `data/` at the top: `data/weights.csv`. Numeric CSV, kept as it was chosen.
+
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
@@ -34,7 +36,9 @@ which was `"tile": true` and is still read under that word; on a frame that is a
 (`{ x, y, cols, rows, across, down }`: where the pattern is and how large, in units, and how many times it repeats
 each way, a whole number or `{ "expr": "@[id:y]" }`, a formula of widths, heights and settled masses); `"as": "tile"` in an arrow's `input`, whose `id` is then the
 tile's frame; and `"from": { id, index: "x" }` on an index matrix in the definition space of a block that is in a
-tile. The copies a tile draws, and what a count comes to, are never in a file. What else changed is what a stack means. Shapes of one width set one
+tile. The copies a tile draws, and what a count comes to, are never in a file. For the backend it adds two more sources, `"source": { "noise": { "seed": 0, "dist": "uniform" } }`
+(`dist` is `"uniform"` or `"normal"`) and `"source": { "file": "data/weights.csv" }` (`null` before a file is chosen), and
+the `data/` directory. Their numbers are the backend's, and no decimal is ever in a file. What else changed is what a stack means. Shapes of one width set one
 directly on the next were rows appended in format 2 and are a sum in format 3. A format 2 project still opens: each
 of its stacks is fused into one joined shape on the way in, so it comes to what it did, and the readout says how many
 were fused. Shapes that met at a corner, or stood directly under a shape in a product, did not touch in format 2 and
@@ -201,3 +205,21 @@ In the third row, `Scale` holds two formulas, `1/√(X.x + 1)` and `Tau.mass × 
 `7/2`: give `Tau` another number, or make `X` wider, and it follows. `Loop` holds `Loop.mass + 1`: it depends on
 itself, so it has no value, its panel says so, and `After`, which reads it, has none either. Everything else on the
 canvas is worked out as if they were not there.
+
+## noise-and-data/
+
+What the backend adds, beside a copy of the default Menu's `.config` (see "The backend" in the main README for how to
+run one). `Noise` is a 4 by 4 noise block: uniform, seed 0. With the backend its result is sixteen grey squares, the
+same sixteen on any machine, and its panel has its seed and its distribution: change the seed and every square
+changes; move the block and none does. With no backend it says "needs the backend".
+
+Below it, `Draw` is noise from the normal distribution (seed 7), set against `Weights`, which reads the four rows of
+two numbers in `data/weights.csv`: a product only the backend can work out, written as squares (black for 0 and
+below). Select `Weights` and its panel names its file and offers another.
+
+At the bottom, `V` holds 0 and 1, and the arrow under it has the formula `exp(x)`. Without the backend its output
+reads `1` and `exp(1)`, exactly. With it, the 1 stays the whole number it is and `exp(1)` is a white square; select
+the arrow, and its panel writes it out: `2.71828175`.
+
+In a file, a noise block has `"source": { "noise": { "seed": 0, "dist": "uniform" } }`, a file block
+`"source": { "file": "data/weights.csv" }`, and neither has entries: nothing the backend worked out is ever saved.

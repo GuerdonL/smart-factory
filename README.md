@@ -8,6 +8,8 @@ entry by entry, name, and open to define.
     python3 server.py            # then open http://localhost:8000/
 
 No build step and nothing to install: the page is plain files, and the server is the Python standard library.
+(The backend, which works a model out in floating point and makes noise, is a second process with one dependency;
+the page works without it. See "The backend".)
 The server also keeps saved projects in `projects/` (see `projects/README.md`) and, when run from a git checkout,
 pulls its branch from GitHub every 30 seconds, so a push shows up on the next reload.
 
@@ -45,7 +47,8 @@ who can reach the port can read and overwrite the projects.
 - `components/`: one file per thing on screen, each carrying its own markup, styles and behaviour.
 - `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules; what a cut leaves, and what
   a part of a shape is), how a project is written to files, and zip; no drawing.
-- `sources.js`, `tiles.js`: what a source is (zeros, ones, identity: an entry from its place alone), and what a tile
+- `sources.js`, `tiles.js`: what a source is (zeros, ones, identity: an entry from its place alone; noise and a data
+  file, whose numbers the backend has), and what a tile
   means (its counts, which cells are drawn, the index, its matrix, how an arrow is repeated in it, when one tile
   is inside another and which tiles overlap); no drawing.
 - `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
@@ -53,7 +56,11 @@ who can reach the port can read and overwrite the projects.
 - `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
   and worked out. No drawing. `algebra.js` gives `combine` and the value helpers from `values.js` too.
 - `graph.js`, `evaluate.js`: a whole project as one graph of matrix operations, plain JSON, and that graph worked
-  out exactly. No drawing. Every number the page shows comes from these two: see "The graph and the evaluator".
+  out exactly. No drawing. Every exact number the page shows comes from these two: see "The graph and the evaluator".
+- `decimals.js`, `backend.js`: the backend's numbers on the page (which entries are asked for, what is drawn of an
+  answer, how a decimal is shown) and when the backend is asked (half a second after the last change; an answer for
+  an older state is dropped). No drawing, and the network is handed in.
+- `backend/`: the backend itself, a separate Python process: see "The backend".
 - `bus.js`: the message bus. Everything the user does takes effect as a named message of plain data (blocks by id)
   sent through it; it keeps a log and can be tapped before and after each message, which is where history and undo
   will attach. What each message does is listed under "messages" in `smart-factory.js`.
@@ -69,11 +76,15 @@ who can reach the port can read and overwrite the projects.
 ## Tests
 
     node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, graph, evaluate, project, bus, history, ids, zip
-    python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, and the PIN
+    python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, the PIN, and what it passes on to the backend
+    backend/.venv/bin/python -B -m unittest discover -s backend/tests -t .      # the backend, with NumPy (see "The backend" for the environment)
 
 Nothing to install: the tests use Node's own test runner (Node 20 or later) and Python's unittest. `tests/solver.js`
 loads the maths solver the way the page does. The server's tests run a server of their own over an empty directory,
-so they never touch `projects/`.
+so they never touch `projects/`. What the server passes on to the backend is tested against a stand-in backend made
+from the standard library. The second line also runs the backend's own tests as far as they go without NumPy (its
+formula parser, its `validate` against `graph.js`'s, its data files, its limits) and skips the rest, saying so; the
+third runs them all. `tests/fixtures.test.js` holds the backend's fixtures to what `graph.js` and `evaluate.js` make now.
 
 ## Touching
 
@@ -381,6 +392,17 @@ New, then rest on Tensor: Zeros, Ones and Identity. (A click on Tensor itself dr
 | Ones | 1 | `1` |
 | Identity | 1 where i equals j, else 0. It need not be square | `I` |
 
+New, then Data in, draws a noise block; resting on Data in offers Noise and File. Their numbers are the backend's
+(see "The backend"): with none running, such a block says "needs the backend" where its numbers would be.
+
+| Kind | Its entries | On its face | In its panel |
+| --- | --- | --- | --- |
+| Noise | Numbers drawn from its distribution. They follow from its seed, the id of the block the variable was made as, and each entry's column and row, and from nothing else: moving it or resizing it changes no entry that still exists, every reference shows the same numbers, and the same project shows the same numbers on any machine. In a tile every cell holds other numbers, and the first cell holds what the block would hold outside the tile | `~` | seed (a whole number, 0 at first) and distribution (`uniform`, from 0 up to 1, at first; or `normal`, mean 0 and deviation 1) |
+| File | The numbers of a CSV file: numbers with commas between them, every row as many, with or without a first row of names. The file is sent to the backend, which checks it, and the block takes its size. It is kept in the project's directory under `data/` and saved with the project | `csv` | Choose a CSV file… |
+
+A file is chosen once the project has been saved under a name, since that is where it is kept. A file that is not
+a table of numbers is refused with the line that is wrong, and an empty cell is never taken as zero.
+
 A source is drawn, moved, resized, named, referenced, fused and touched like any block, and its matrix shows its
 values. It stores no entries: resizing it, or tying a side to a named length, changes how many it has and never
 what they are. Typing an entry into one, standing a shape in its matrix (snap to matrix) and seating it on an
@@ -508,16 +530,17 @@ One `max(x, 0)` arrow under column 1 of a matrix, in a tile with `across` 4, is 
 The page does no arithmetic. The whole project is built into a graph (`graph.js`), once for each state of the
 project, and every number that is drawn is asked of the evaluator (`evaluate.js`). Looking about (the camera, the
 selection) builds nothing, and after a change only what the change reaches is worked out again. The graph is plain JSON, and is the one description
-of the model that anything else is to read: a backend, an export.
+of the model that anything else is to read: the backend (see "The backend"), an export.
 
     import { build, validate } from './graph.js';
     import { evaluate } from './evaluate.js';
     const graph = build(snapshot);             // snapshot: what project.js read() gives
     validate(graph);                           // [] when well formed, else what is wrong
     evaluate(graph, graph.blocks['b0x7m2c']);  // { type, entries } | { type, deferred: true } | { error: { code, note, node } }
+                                               // (deferred with backend: true: made of noise or a data file, which only the backend has)
 
 - A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
-  `slice`, `source`, `measure`, `map`, `apply`, `param`, `repeat` and `mapalong`; its `inputs` are the nodes it is
+  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat` and `mapalong`; its `inputs` are the nodes it is
   worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`, holds no
   other name but `index.x`, `index.y` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
 - A node's id says what it is, never where it sits: `matmul(v:b1,v:b2)`. The same product in two places is one
@@ -548,6 +571,79 @@ What changes on the canvas with this:
   is still a number: `@Big.x` does not wait on `Big`.)
 
 `projects/graph-and-evaluator` shows each of these.
+
+## The backend
+
+A second process, in `backend/`, reads the same graph and works it out in floating point: at any size, including
+the functions the browser leaves symbolic (`exp`, `ln`, `tanh`, `erf`), and it makes noise and reads data files. The
+page works without it, and everything above is as it is without it.
+
+    uv venv backend/.venv && uv pip install --python backend/.venv/bin/python -r backend/requirements.txt
+    backend/.venv/bin/python -m backend 8001        # from the repository's root; then start server.py as ever
+
+(any way of making a Python environment with `backend/requirements.txt` installed will do; it is NumPy and nothing
+else). It listens on this machine only, `127.0.0.1`, and has no password of its own. The page never talks to it:
+`server.py` passes `/api/backend/health`, `/api/backend/run` and `/api/backend/data` on to the address in the
+`SMART_FACTORY_BACKEND` environment variable (`http://127.0.0.1:8001` where it is not set), so the PIN covers it.
+Its projects directory is `projects/` beside `backend/`, or `SMART_FACTORY_PROJECTS`.
+
+To keep it running beside the server, a unit of its own, with the two paths and the user changed as for
+`smart-factory.service` (the server's own unit is not changed):
+
+    [Unit]
+    Description=Smart Factory backend
+    After=network-online.target
+    [Service]
+    User=root
+    WorkingDirectory=/root/smart-factory
+    ExecStart=/root/smart-factory/backend/.venv/bin/python -m backend 8001
+    Restart=always
+    RestartSec=2
+    [Install]
+    WantedBy=multi-user.target
+
+**On the page.** The page asks once, as it loads, whether there is a backend. With one, whatever the browser does
+not work out (a result of more than 4,096 entries, anything made of noise or of a data file) and whatever it leaves
+symbolic (`exp(1)`, `1+√2`) is asked of it, half a second after the last change, and only at the entries that are
+drawn: the first three and the last of a long side, never a whole large matrix. An entry the browser has exactly
+stays exact. What comes back is a decimal, and is never mixed up with an exact number:
+
+- in a matrix written on the canvas (a result beside a piece, an arrow's output, a tile's copies) it is a filled
+  square: black at 0 or below, white at 1 or above, grey between, with its number as its title;
+- in the properties panel and in a definition space's equation it is written out, to 9 significant digits
+  (`2.71828175`);
+- while a newer answer is waited for, the previous one is drawn dimmed; an answer that arrives for an older state
+  of the project is dropped;
+- it is never saved, and is no entry of any block: results are asked for again when the project is opened.
+
+With no backend, a block made of noise or of a data file says "needs the backend" where its numbers would be, and
+in its panel; nothing else changes. Where the backend gives no numbers, the panel says why.
+
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 1 }`. `POST /run` takes
+`{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
+`{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`;
+`POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`.
+`backend/run.py` has each in full.
+
+**Its rules.**
+
+- It never guesses a value. A node worked out from a variable with an entry that was never given is an error
+  naming it, `unknown entries in Keys`, never zeros.
+- It runs data, not code. The graph is JSON; a formula is read by a parser written for the formula language
+  (`backend/formula.py`), and nothing in a request reaches `eval`, `exec`, a shell or an import. A file's path is
+  resolved inside the named project's `data/` directory and nowhere else, and no link is followed.
+- It checks everything it is sent with the same checks as `validate` in `graph.js`, written again in Python
+  (`backend/check.py`) and held to the JavaScript on the same graphs.
+- Numbers are 32-bit floats. For every graph the browser works out exactly, its numbers equal the exact ones within
+  1e-5 of the value's size or 1e-6, whichever is larger: `backend/fixtures/` holds graphs and their exact results,
+  generated by `node backend/fixtures/generate.mjs` from `evaluate.js`.
+- Noise is the generator written out at the top of `backend/arrays.py`, the same on any machine.
+- All array code is in `backend/arrays.py`, the one module that imports NumPy, so another library can take its place.
+- It refuses what is outsized, with the reason: a request of more than 5 MB; a graph of more than 20,000 nodes; any
+  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; an uploaded file
+  of more than 50 MB. The five numbers are together at the top of `backend/limits.py`.
+
+`projects/noise-and-data` shows a noise block, a block that reads a data file, and `exp` of a block holding 0 and 1.
 
 ## How results are written
 

@@ -2525,7 +2525,10 @@ const draw = {
    selection does not allow them, and chosen all the same say why in the readout. */
 /* ---- messages ----
    What each message does. Its payload is plain data; blocks are named by id. The ones marked `changes` can alter the
-   project; the rest look at it, move about in it, or change what is selected. */
+   project; the rest look at it, move about in it, or change what is selected.
+   (Phase 7 adds one: source.set { id, seed, dist } for a noise block, or { id, file, cols, rows } for a file block,
+   whose file's text is already held under that path: see "data files". Asking the backend is no message: it changes
+   nothing in the project.) */
 const changes = { changes: true };
 /* ---- undo and redo ----
    History is a tap on the bus (history.js). What it keeps is the whole project as it is saved, with where the user
