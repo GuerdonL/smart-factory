@@ -222,7 +222,8 @@ canvas is worked out as if they were not there.
 What the backend adds, beside a copy of the default Menu's `.config` (see "The backend" in the main README for how to
 run one). `Noise` is a 4 by 4 noise block: uniform, seed 0. With the backend its result is sixteen grey squares, the
 same sixteen on any machine, and its panel has its seed and its distribution: change the seed and every square
-changes; move the block and none does. With no backend it says "needs the backend".
+changes (the old ones are dimmed until the new arrive); move the block and none does. With no backend it says
+"needs the backend".
 
 Below it, `Draw` is noise from the normal distribution (seed 7), set against `Weights`, which reads the four rows of
 two numbers in `data/weights.csv`: a product only the backend can work out, written as squares (black for 0 and
@@ -230,7 +231,7 @@ below). Select `Weights` and its panel names its file and offers another.
 
 At the bottom, `V` holds 0 and 1, and the arrow under it has the formula `exp(x)`. Without the backend its output
 reads `1` and `exp(1)`, exactly. With it, the 1 stays the whole number it is and `exp(1)` is a white square; select
-the arrow, and its panel writes it out: `2.71828175`.
+the arrow, and its panel writes it out, `≈2.71828175`, with `exp(1)`, the exact value it stands for, under it.
 
 In a file, a noise block has `"source": { "noise": { "seed": 0, "dist": "uniform" } }`, a file block
 `"source": { "file": "data/weights.csv" }`, and neither has entries: nothing the backend worked out is ever saved.

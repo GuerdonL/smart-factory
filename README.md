@@ -63,8 +63,9 @@ who can reach the port can read and overwrite the projects.
 - `graph.js`, `evaluate.js`: a whole project as one graph of matrix operations, plain JSON, and that graph worked
   out exactly. No drawing. Every exact number the page shows comes from these two: see "The graph and the evaluator".
 - `decimals.js`, `backend.js`: the backend's numbers on the page (which entries are asked for, what is drawn of an
-  answer, how a decimal is shown) and when the backend is asked (half a second after the last change; an answer for
-  an older state is dropped). No drawing, and the network is handed in.
+  answer or said in its place, how a decimal is shown) and when the backend is asked (half a second after the last
+  change; an answer for an older state is dropped; whether there is a backend is asked again every quarter of a
+  minute). No drawing, and the network and the clock are handed in.
 - `backend/`: the backend itself, a separate Python process: see "The backend".
 - `bus.js`: the message bus. Everything the user does takes effect as a named message of plain data (blocks by id)
   sent through it; it keeps a log and can be tapped before and after each message, which is where history and undo
@@ -405,8 +406,12 @@ New, then Data in, draws a noise block; resting on Data in offers Noise and File
 | Noise | Numbers drawn from its distribution. They follow from its seed, the id of the block the variable was made as, and each entry's column and row, and from nothing else: moving it or resizing it changes no entry that still exists, every reference shows the same numbers, and the same project shows the same numbers on any machine. In a tile every cell holds other numbers, and the first cell holds what the block would hold outside the tile | `~` | seed (a whole number, 0 at first) and distribution (`uniform`, from 0 up to 1, at first; or `normal`, mean 0 and deviation 1) |
 | File | The numbers of a CSV file: numbers with commas between them, every row as many, with or without a first row of names. The file is sent to the backend, which checks it, and the block takes its size. It is kept in the project's directory under `data/` and saved with the project | `csv` | Choose a CSV file… |
 
-A file is chosen once the project has been saved under a name, since that is where it is kept. A file that is not
-a table of numbers is refused with the line that is wrong, and an empty cell is never taken as zero.
+A file is chosen once the project has been saved under a name, since that is where it is kept: until the project
+is on the server under the name it has, choosing is refused, and nothing is written. A file that is not a table of
+numbers is refused with the line that is wrong, and an empty cell is never taken as zero. A file is never written
+over: a second file of the same name is kept under a name of its own (`weights-2.csv`). A save keeps the files
+some block reads and those an undo or a redo can still come back to, so a step back never finds its file gone;
+a file nothing can come back to any more is let go at the next save after the project is opened again.
 
 A source is drawn, moved, resized, named, referenced, fused and touched like any block, and its matrix shows its
 values. It stores no entries: resizing it, or tying a side to a named length, changes how many it has and never
@@ -587,42 +592,89 @@ page works without it, and everything above is as it is without it.
     backend/.venv/bin/python -m backend 8001        # from the repository's root; then start server.py as ever
 
 (any way of making a Python environment with `backend/requirements.txt` installed will do; it is NumPy and nothing
-else). It listens on this machine only, `127.0.0.1`, and has no password of its own. The page never talks to it:
+else, held to one exact version). It listens on this machine only, `127.0.0.1`. The page never talks to it:
 `server.py` passes `/api/backend/health`, `/api/backend/run` and `/api/backend/data` on to the address in the
 `SMART_FACTORY_BACKEND` environment variable (`http://127.0.0.1:8001` where it is not set), so the PIN covers it.
 Its projects directory is `projects/` beside `backend/`, or `SMART_FACTORY_PROJECTS`.
 
-To keep it running beside the server, a unit of its own, with the two paths and the user changed as for
-`smart-factory.service` (the server's own unit is not changed):
+Nothing but `server.py` can ask it anything. Each time it starts, the backend makes a token, 32 random bytes, and
+writes it to a file only its owner can read: `backend/.token` (never in git), or the path in the
+`SMART_FACTORY_BACKEND_TOKEN` environment variable. `server.py` reads that file and sends the token with whatever
+it passes on; a request without it is answered with a refusal and nothing else. So the two have to be able to read
+the one file: run them as the same user, and give both the variable where it is set.
+
+Each of its two workers may hold a quarter of the machine's physical memory in arrays, and a run that would need
+more is refused before any of it is made. `SMART_FACTORY_BACKEND_MEMORY` sets that figure, in megabytes for each
+worker (`SMART_FACTORY_BACKEND_MEMORY=512`): set it on a machine that has other work to do.
+
+To keep it running beside the server, a unit of its own, `/etc/systemd/system/smart-factory-backend.service`. It
+runs as a user with no privileges, here one called `smart-factory`, which can gain none, is held to a share of the
+machine's memory whatever a run does, and can write in two places only: its own directory under `/run`, where the
+token goes, and `projects/`. Change the user and the path (`/srv/smart-factory` here) to your own:
 
     [Unit]
     Description=Smart Factory backend
     After=network-online.target
     [Service]
-    User=root
-    WorkingDirectory=/root/smart-factory
-    ExecStart=/root/smart-factory/backend/.venv/bin/python -m backend 8001
+    User=smart-factory
+    Group=smart-factory
+    WorkingDirectory=/srv/smart-factory
+    RuntimeDirectory=smart-factory-backend
+    RuntimeDirectoryMode=0700
+    Environment=SMART_FACTORY_BACKEND_TOKEN=/run/smart-factory-backend/token
+    ExecStart=/srv/smart-factory/backend/.venv/bin/python -B -m backend 8001
+    NoNewPrivileges=true
+    MemoryMax=60%
+    ProtectSystem=strict
+    PrivateTmp=true
+    ReadWritePaths=/srv/smart-factory/projects
     Restart=always
     RestartSec=2
     [Install]
     WantedBy=multi-user.target
 
-**On the page.** The page asks once, as it loads, whether there is a backend. With one, whatever the browser does
-not work out (a result of more than 4,096 entries, anything made of noise or of a data file) and whatever it leaves
-symbolic (`exp(1)`, `1+√2`) is asked of it, half a second after the last change, and only at the entries that are
-drawn: the first three and the last of a long side, never a whole large matrix. An entry the browser has exactly
-stays exact. What comes back is a decimal, and is never mixed up with an exact number:
+- `MemoryMax` is a little above the half of the machine's memory the two workers may take between them, with room
+  for Python itself; where `SMART_FACTORY_BACKEND_MEMORY` is set (an `Environment=` line), set it to a little
+  over twice that many megabytes. Past it the kernel stops the backend, and systemd starts it again.
+- `ProtectSystem=strict` leaves the whole machine read-only to it but for `ReadWritePaths` and its directory under
+  `/run`. What it writes there is a data file a user chose, into `projects/<name>/data/` and nowhere else
+  (`backend/data.py`). A unit cannot name `projects/*/data` for projects not yet made, so the unit holds it to
+  `projects/` and the backend's own rule to `data/` within it.
+- The backend makes `data/` inside a project's directory, so that directory has to be its user's to write in, and
+  `server.py` has to read the token. Both are so where `server.py` runs as the same user: `User=smart-factory` in
+  the server's unit as well, `projects/` owned by that user, and the same `Environment=` line for the token
+  (`systemctl edit smart-factory` adds both without changing the file). A server left running as root reads the
+  token but makes project directories the backend cannot put a file in: choosing a file is then refused ("could
+  not be kept"), and nothing else is affected.
+
+**On the page.** The page asks, as it loads, whether there is a backend, and asks again every quarter of a minute
+and at once after a run that could not be asked for, so one started or stopped later is noticed without loading
+the page again. With one, whatever the browser does not work out (a result of more than 4,096 entries, anything
+made of noise or of a data file) and every entry it leaves as one of `exp`, `ln`, `tanh` and `erf` (`exp(1)`,
+`1+exp(2)`) is asked of it, half a second after the last change, and only at the entries that are drawn: the first
+three and the last of a long side, never a whole large matrix. What the browser has exactly stays exact, and stays
+as it is written: a whole number, a fraction, a root, `1+√2`. What comes back is a decimal. A decimal is for
+showing and for nothing else, and is never mixed up with an exact number:
 
 - in a matrix written on the canvas (a result beside a piece, an arrow's output, a tile's copies) it is a filled
   square: black at 0 or below, white at 1 or above, grey between, with its number as its title;
-- in the properties panel and in a definition space's equation it is written out, to 9 significant digits
-  (`2.71828175`);
-- while a newer answer is waited for, the previous one is drawn dimmed; an answer that arrives for an older state
-  of the project is dropped;
+- in the properties panel and in a definition space's equation it is written out with exactly 9 significant digits
+  (`2.71828175`, `1.00000000`, `1000000.00`, `2.90488498e13`), slanted and with `≈` before it, so that even one
+  with a whole value is never written as an exact number is. Where it stands for a value the browser holds exactly
+  (`exp(1)`), that is written under it;
+- a single entry whose number is the backend's shows it on its face marked the same way;
+- nothing the page works out reads one. An attribute, a side, a mass, a comparison, a formula that names such an
+  entry all read the exact value (`@S.mass*2` with `S` holding `exp(2)` is `2·exp(2)`, with a backend and without
+  one), and where the browser has no exact value (noise, a file, a result too large) they have none;
+- while a newer answer is waited for, the previous numbers in that place are drawn dimmed (a noise block given a
+  new seed shows its old numbers dimmed until the new arrive); an answer that arrives for an older state of the
+  project is dropped;
 - it is never saved, and is no entry of any block: results are asked for again when the project is opened.
 
-With no backend, a block made of noise or of a data file says "needs the backend" where its numbers would be, and
-in its panel; nothing else changes. Where the backend gives no numbers, the panel says why.
+With no backend, whatever is made of noise or of a data file says "needs the backend" where its numbers would be,
+on the canvas and in its panel, whether it is one block, a piece of several or an arrow's output; nothing else
+changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
+Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
 **What it answers.** `GET /health` gives `{ "ok": true, "version": 1 }`. `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
@@ -646,7 +698,13 @@ in its panel; nothing else changes. Where the backend gives no numbers, the pane
 - All array code is in `backend/arrays.py`, the one module that imports NumPy, so another library can take its place.
 - It refuses what is outsized, with the reason: a request of more than 5 MB; a graph of more than 20,000 nodes; any
   node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; an uploaded file
-  of more than 50 MB. The five numbers are together at the top of `backend/limits.py`.
+  of more than 50 MB. The five numbers are together at the top of `backend/limits.py`, with its smaller bounds
+  beneath them: a run that would hold more in arrays than a worker may (see above), more than 65,536 entries asked
+  for in one run, more than 64 files or 200 MB under one project's `data/`.
+- A file goes only into a project that has been saved (it has a `project.json`), and never over another file. Its
+  first line is a row of names only where none of its cells is a number; a number that 32 bits cannot hold is
+  refused, naming the line.
+- Told to stop, it ends its workers; a worker whose backend has gone ends itself.
 
 `projects/noise-and-data` shows a noise block, a block that reads a data file, and `exp` of a block holding 0 and 1.
 
