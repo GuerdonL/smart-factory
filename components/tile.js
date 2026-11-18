@@ -10,8 +10,12 @@
               name       its name, written above its top-left corner; with none, "tile" is written faintly
               counts     what is written after the name: how many times it repeats ("3 × 2")
               selected   drawn in the selection colour
-              warn       drawn in the warning colour: a count that cannot be worked out, or an arrow repeated in it
-                         that runs past its input
+              warn       drawn in the warning colour: a count that cannot be worked out, an arrow repeated in it
+                         that runs past its input, or a tile it overlaps without one lying wholly inside the
+                         other's pattern
+              levels     how many levels of tiles lie inside its pattern (0: none). A tile that holds tiles has
+                         its frame standing further off, round theirs, and its name a line higher for each level,
+                         clear of theirs
               copies     what is drawn in the cells that are not the first: [{ cx, cy, x, y, w, h, color, name,
                          values, tri }], one for each block in each drawn cell. cx, cy are the places of the slots
                          it is in (indexes into xs and ys); x, y its corner in units from the cell's corner; w, h its
@@ -32,7 +36,7 @@ import { html, style } from './dom.js';
 import { likeness } from './block.js';
 
 style('tile', `
-.tile { position: absolute; pointer-events: none; --px: 1px; --ink: var(--muted); --out: calc(7 * var(--px)); }
+.tile { position: absolute; pointer-events: none; --px: 1px; --ink: var(--muted); --levels: 0; --out: calc((7 + 5 * var(--levels)) * var(--px)); }
 .tile.selected { --ink: var(--select); } .tile.warned { --ink: var(--warn); }
 /* the frame round all that is drawn, standing a little off it so that it is clear of the blocks' own edges */
 .tile-frame { position: absolute; inset: calc(-1 * var(--out)); border: calc(1.5 * var(--px)) dashed var(--ink); border-radius: calc(8 * var(--px)); }
@@ -51,7 +55,7 @@ style('tile', `
   font-size: calc(min(12, 26 / var(--len, 2)) * var(--px)); line-height: 1; text-shadow: 0 0 calc(2 * var(--px)) var(--bg), 0 0 calc(2 * var(--px)) var(--bg); }
 .tile-value.error { color: var(--warn); }
 /* the name, and after it the counts, stand a line clear of the frame: the names of the blocks in the top row are written there */
-.tile-label { position: absolute; left: calc(-1 * var(--out)); bottom: calc(100% + var(--out) + 22 * var(--px)); display: flex; align-items: baseline; gap: calc(7 * var(--px)); white-space: nowrap; }
+.tile-label { position: absolute; left: calc(-1 * var(--out)); bottom: calc(100% + var(--out) + (22 + 12 * var(--levels)) * var(--px)); display: flex; align-items: baseline; gap: calc(7 * var(--px)); white-space: nowrap; }
 .tile-name { pointer-events: auto; cursor: default; padding: 0 calc(3 * var(--px)); font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; color: var(--ink); }
 .tile-name:empty::before { content: "tile"; opacity: .7; }
 .tile-counts { font-family: var(--font-ui); font-size: calc(11 * var(--px)); line-height: 1.5; color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -78,10 +82,10 @@ export function createTile(){
     v.textContent = text; if (text === '!') v.classList.add('error'); v.style.setProperty('--len', Math.max(2, String(text).length));
     Object.assign(v.style, { left: `calc(${c - 1} * var(--tu))`, top: `calc(${r - 1} * var(--tu))`, width: 'var(--tu)', height: 'var(--tu)' }); into.append(v); } };
   return { el, overEl, nameEl,
-    set({ x, y, unit, xs, ys, w, h, name = '', counts = '', selected = false, warn = false, copies = [], written = [] }){
+    set({ x, y, unit, xs, ys, w, h, name = '', counts = '', levels = 0, selected = false, warn = false, copies = [], written = [] }){
       Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w * unit + 'px', height: h * unit + 'px' }); el.style.setProperty('--tu', unit + 'px');
       Object.assign(overEl.style, { left: x + 'px', top: y + 'px' }); overEl.style.setProperty('--tu', unit + 'px');
-      el.classList.toggle('selected', selected); el.classList.toggle('warned', !!warn);
+      el.classList.toggle('selected', selected); el.classList.toggle('warned', !!warn); el.style.setProperty('--levels', levels);
       if (!nameEl.isContentEditable) nameEl.textContent = name;      /* a name being typed is left alone */
       countsEl.textContent = counts;
       const key = JSON.stringify([unit, xs, ys, copies.map(c => ({ ...c, values: c.values ? [...c.values] : null })), written.map(c => ({ ...c, values: [...c.values] }))]);

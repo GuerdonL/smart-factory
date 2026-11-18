@@ -38,9 +38,18 @@
    together with the whole chain of bindings it sits under, never under its id alone. A tile in a tile's pattern
    adds its cell to the chain, so a node there has a value for each (outer cell, inner cell).
 
+   Whose cells a node sits in. A block is in the tiles it is itself in, whoever reads it: read from a tile inside
+   its own (a formula there names it, an arrow there is set against it), a block of the outer tile is still in the
+   outer tile's cell and no other, and a block in no tile is in no cell, so that an index it reads is the error it
+   is outside a tile. So before a node that stands for a block (or is the map of an arrow's formula) is worked
+   out, the chain is cut down to the cells of the tiles that block is in. Which those are is read off the graph's
+   spaces (homes, below): each space's tiles list their blocks and arrows, and what is in a block's definition
+   space is in the cells that block is in. A cell says which tile it is of (of: tile ids); one that does not is
+   kept. A node that stands for no block is worked out under whatever chain reaches it.
+
    binding says where a node is being looked at from, for a caller that draws what is inside a function or a tile:
        { params: { "<function id>": "<node id>" | { of: "<node id>", range: { col, row, cols, rows } } },
-         cells:  [ { x, y, dx, dy, turned, at: { "<node id>": { col, row } } } ] }
+         cells:  [ { x, y, dx, dy, turned, of: ["t:<frame id>"], at: { "<node id>": { col, row } } } ] }
    params gives a function's input its value (a node, or a part of one), so that the nodes of its body can be asked
    for; cells is the chain of tile cells the node sits in, outermost first: x and y are the columns and rows of
    the filled tile that lie before the cell, dx and dy those of the pattern that lie before the node asked for
@@ -85,7 +94,7 @@ const under = (map, id) => { if (!map.has(id)) map.set(id, new Map()); return ma
 const fnsOf = n => (Array.isArray(n.within) ? n.within : []).filter(w => typeof w === 'string' && w[0] === 'f');
 const cellKey = c => `${c.x},${c.y},${c.dx},${c.dy}${c.turned ? 't' : ''}@${c.atKey}`;
 const cellsKey = cells => cells.map(cellKey).join(';');
-const aCell = c => ({ x: Number(c.x) || 0, y: Number(c.y) || 0, dx: Number(c.dx) || 0, dy: Number(c.dy) || 0, turned: !!c.turned, at: c.at && typeof c.at === 'object' ? c.at : null, atKey: c.at && typeof c.at === 'object' ? (c.atKey ?? JSON.stringify(c.at)) : '' });
+const aCell = c => ({ x: Number(c.x) || 0, y: Number(c.y) || 0, dx: Number(c.dx) || 0, dy: Number(c.dy) || 0, turned: !!c.turned, of: Array.isArray(c.of) && c.of.length && c.of.every(t => typeof t === 'string') ? c.of : null, at: c.at && typeof c.at === 'object' ? c.at : null, atKey: c.at && typeof c.at === 'object' ? (c.atKey ?? JSON.stringify(c.at)) : '' });
 /* what a node's value is remembered under, beside its id: every binding it sits under */
 function keyFor(graph, st, id, n, env){
   const inCells = env.cells.length > 0 && follows(graph, st, id), fns = fnsOf(n);
@@ -107,10 +116,34 @@ function needsOf(graph, st, id, open = new Set()){
   open.delete(id);
   const out = { most, bad }; st.needs.set(id, out); return out;
 }
+/* The tiles each block's node is itself in, and which tiles each repeat is the matrix of, read off the graph's spaces.
+   homes: node id -> Set of tile ids, for every node that stands for a block listed in a space (in a piece or in a
+   tile), the variable under a transposed use, and the map of an arrow's formula; a block in no tile has the empty
+   set. A block in the definition space of a block has that block's tiles as well as its own. A node not there
+   stands for no block that is placed (a standing shape, what is in a function's space): it is not in the Map. */
+function homesOf(graph, st){
+  if (st.homes) return st;
+  const homes = new Map(), repeats = new Map(), spaces = graph.spaces && typeof graph.spaces === 'object' ? graph.spaces : {}, list = v => Array.isArray(v) ? v : [];
+  const add = (id, set) => { if (typeof id !== 'string' || !nodeAt(graph, id)) return false; if (!homes.has(id)){ homes.set(id, new Set(set)); return true; }
+    const had = homes.get(id); let grew = false; for (const t of set) if (!had.has(t)){ had.add(t); grew = true; } return grew; };
+  for (let pass = 0, again = true; again && pass < 64; pass++){ again = false;
+    for (const key of Object.keys(spaces)){ const s = spaces[key]; if (!s || typeof s !== 'object') continue;
+      const context = key === 'top' ? new Set() : typeof s.owner === 'string' && homes.has(s.owner) ? homes.get(s.owner) : null; if (!context) continue;
+      const tiles = list(s.tiles).filter(t => t && typeof t === 'object' && typeof t.tile === 'string'), inTiles = (k, id) => new Set([...context, ...tiles.filter(t => list(t[k]).includes(id)).map(t => t.tile)]);
+      for (const b of new Set([...list(s.pieces).flatMap(p => list(p && p.blocks)), ...tiles.flatMap(t => list(t.blocks))])){ if (!own(graph.blocks, b)) continue;
+        const id = graph.blocks[b], n = nodeAt(graph, id), set = inTiles('blocks', b);
+        if (add(id, set)) again = true; if (n && n.op === 'transpose' && add(n.inputs[0], set)) again = true; }
+      for (const a of list(s.arrows)){ const n = a && typeof a.node === 'string' ? nodeAt(graph, a.node) : null; if (n && n.op === 'map' && add(a.node, inTiles('arrows', a.arrow))) again = true; }
+      for (const t of tiles) if (typeof t.node === 'string'){ if (!repeats.has(t.node)) repeats.set(t.node, []); if (!repeats.get(t.node).includes(t.tile)) repeats.get(t.node).push(t.tile); } } }
+  st.homes = homes; st.repeats = repeats; return st;
+}
 const inner = (cells, change) => cells.length ? [...cells.slice(0, -1), change(cells[cells.length - 1])] : cells;
 
 function run(graph, st, id, env){
-  const n = graph.nodes[id], last = env.cells[env.cells.length - 1];
+  const n = graph.nodes[id], home = env.cells.length ? homesOf(graph, st).homes.get(id) : undefined;
+  /* a block is in the cells of the tiles it is itself in, and no others, whoever reads it */
+  if (home && env.cells.some(c => c.of && !c.of.some(t => home.has(t)))) env = { ...env, cells: env.cells.filter(c => !c.of || c.of.some(t => home.has(t))) };
+  const last = env.cells[env.cells.length - 1];
   /* a part of the pattern met again below its tile (an arrow there reads it): it is at its own place, not the reader's */
   if (last && last.at && own(last.at, id)){ const p = last.at[id]; if (last.dx !== p.col || last.dy !== p.row || last.turned) env = { ...env, cells: inner(env.cells, c => ({ ...c, dx: p.col, dy: p.row, turned: false })) }; }
   const mine = under(st.values, id), key = keyFor(graph, st, id, n, env);
@@ -121,7 +154,7 @@ function run(graph, st, id, env){
     keyOf: k => n.inputs[k] + keyFor(graph, st, n.inputs[k], graph.nodes[n.inputs[k]], env),
     turn: () => ({ ...env, cells: inner(env.cells, c => ({ ...c, turned: !c.turned })) }),
     shift: (dx, dy) => ({ ...env, cells: inner(env.cells, c => c.turned ? { ...c, dx: c.dx + dy, dy: c.dy + dx } : { ...c, dx: c.dx + dx, dy: c.dy + dy }) }),
-    cell: c => ({ ...env, cells: [...env.cells, aCell(c)] }),
+    cell: c => ({ ...env, cells: [...env.cells, aCell({ ...c, of: homesOf(graph, st).repeats.get(id) || null })] }),
     call(fn, values, k){ const f = fnAt(graph, fn); if (!f) return new Map();
       if (env.active.includes(fn)) throw LOOP;      /* a function inside itself: validate refuses the graph, and this stops it */
       return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn] }); },

@@ -18,6 +18,7 @@
                                     count a whole number of at least 1 or { expr: text }. null for what is no repeat
                                     (a frame without one is an ordinary frame)
    LIMIT                         -> 64: the most cells that are drawn
+   DEPTH                         -> 8: how many tiles deep a tile may lie, one inside the next
    (How large a matrix is worked out in the browser is the evaluator's to say: evaluate.js, MOST. A tile's counts are
    free to be a billion; nothing here loops over cells but entries, which the evaluator asks only for what is small.)
 
@@ -25,9 +26,14 @@
    circular(tile, reads, next)   -> whether a count depends on its own tile's size: whether tile (an id) is reached
                                     from any of reads (the ids the count's formula names), going on through
                                     next(id), the ids whose size that one's size follows. A tile's size follows
-                                    what its counts read; an arrow's output its input (a tile it reads, a tile it
-                                    is repeated in); a seated block its arrow; a reference its variable; a side
-                                    the sides that share its name. The page gathers next; this walks it, once.
+                                    what its counts read, and nothing else: not the tile it is in, nor the tiles
+                                    in its pattern, whose sizes are their own. So only a real cycle is refused:
+                                    an inner tile's count may read the block seated on the arrow of the tile it
+                                    is in, or of a tile beside it, and an outer tile's count what comes of a tile
+                                    in its pattern, so long as that does not come back round. An arrow's output
+                                    follows its input (a tile it reads, a tile it is repeated in); a seated block
+                                    its arrow; a reference its variable; a side the sides that share its name.
+                                    The page and graph.js gather next; this walks it, once.
    count(stored, lookup, { loops, entryOf }) -> { count, formula } | { refused: a sentence }: what a stored count comes to.
                                     loops: the formula depends on the tile's own size (circular): it is refused
                                     with "it depends on itself", whatever it would come to.
@@ -66,15 +72,64 @@
                                     cell would be
 
    What is drawn
-   slots(across, down, formula)  -> { xs, ys }: which cells are drawn in each direction, in order: { cell: k } or
+   slots(across, down, formula, limit) -> { xs, ys }: which cells are drawn in each direction, in order: { cell: k } or
                                     { dots: true }. A direction whose count is a formula is one pattern and an
                                     ellipsis on the side it repeats toward. Otherwise every cell is drawn while
-                                    there are no more than LIMIT of them; beyond that each direction longer than
-                                    four is its first three cells, an ellipsis and its last.
-   layout(repeat, across, down, formula) -> { xs, ys, w, h }: the same, each slot with at (its offset from the tile's
+                                    there are no more than limit of them (LIMIT, unless the tile is inside
+                                    another: see laid); beyond that each direction longer than four is its first
+                                    three cells, an ellipsis and its last, or, where the limit is under 16 and
+                                    that would still be too many, its first cell and an ellipsis.
+   layout(repeat, across, down, formula, limit) -> { xs, ys, w, h }: the same, each slot with at (its offset from the tile's
                                     corner, in units) and size (a pattern's length, or 1 for an ellipsis); w and h
                                     are the size of all that is drawn, the tile's footprint on the canvas
-   footprint(repeat, across, down, formula) -> the rect all that is drawn covers
+   footprint(repeat, across, down, formula, limit) -> the rect all that is drawn covers
+
+   Tiles inside tiles, and tiles that overlap
+   A tile may lie wholly inside another tile's pattern (the first cell, where the real blocks are). It is then part
+   of that pattern and is repeated with it, and stays a tile in its own right: its own counts, arrows and name.
+   Which tile a tile is in is said by the frames, as it is for a block (the tile's frame is inside the other's);
+   that it lies wholly inside is said by the rectangles: its filled size (its pattern times its counts, what its
+   matrix would be, whatever is drawn of it) has to lie inside the other's pattern. Tiles nest as deep as DEPTH.
+   Two tiles that overlap in any other way are both warned of, and neither has a matrix.
+   The tiles of a space are given as a list: [{ id, in, repeat, across, down, formula, name }], in: the id of the tile
+   it is in (the nearest, by the frames) or null; across and down as numbers (counts); formula as counts gives it.
+   laid(list)                    -> a Map from id: { in, depth, limit, lay, cells, rect, filled, pattern } for every
+                                    tile. depth: how many tiles it is inside. limit: the most cells of it that are
+                                    drawn: LIMIT for a tile in no other, else its outer tile's limit divided by
+                                    the cells drawn of that tile (at least 1), so that no tile is drawn more than
+                                    LIMIT times, counting the copies of it in the cells of the tiles it is in.
+                                    lay: its layout under that limit; cells: how many cells that draws; rect: its
+                                    footprint; filled: the rect of its filled size; pattern: the rect of its
+                                    first cell. An `in` that names no tile, or comes back round, is none.
+   overlaps(list)                -> [{ a, b, why }]: the pairs that overlap without one lying wholly inside the
+                                    other's pattern. why 'past': b is in a (at any depth) and its filled size
+                                    does not lie inside a's pattern. why 'over': neither is in the other, and
+                                    the two overlap (edge to edge is not over), so a tile lying on another's
+                                    pattern without being in it is over it too. A tile that is in another tile
+                                    is taken at its filled size, since that is what is set in the outer matrix,
+                                    whatever is drawn of it (an ellipsis takes no room there); a tile in no other
+                                    at what is drawn of it, which is what it takes up on the canvas.
+   overlapping(list)             -> a Map from id to why that tile is warned of and has no matrix: it is one of
+                                    such a pair, or lies more than DEPTH deep. Tiles that are well are absent.
+                                    The other tile of the pair is called by its name where the list gives one
+                                    (name, on an item).
+   allowed(before, after)        -> { ok: true } | { refused }: whether the tiles may come to stand as `after`,
+                                    having stood as `before`: not where a pair overlaps that did not before, or a
+                                    tile comes to lie deeper than DEPTH. (So a tile already warned of can still be
+                                    changed, to mend it.) This is what is asked when a tile is drawn, moved,
+                                    pulled or typed into.
+   reframed(before, after)       -> { ok: true } | { refused }: whether a framing gesture may leave the tiles as
+                                    `after` (the same tiles in the same places, some now in other tiles or in
+                                    none, because frames were made, entered or left): not where a tile that has
+                                    changed hands would be parted from the pattern it lies in, or put in a tile
+                                    whose pattern it does not lie in (allowed). Framing blocks never moves a
+                                    tile's pattern, so a tile is taken from one tile to another only by its frame.
+   home(list, id)                -> the id of the tile that tile lies wholly inside the pattern of, as the list
+                                    stands: the innermost such that is not itself inside it; null for none. Where
+                                    a tile is let go, this is the tile it is then in.
+   moved(list, id, dx, dy)       -> { ok: true, in, list } | { refused }: the tiles after that one is moved, with
+                                    every tile inside it: it is then in whatever tile it lies wholly inside the
+                                    pattern of (home), and the move is refused where allowed refuses it.
 
    What is in it
    within(repeat, rect)          -> whether rect lies wholly inside the pattern (the first cell)
@@ -85,15 +140,19 @@
                                     drag was cut short.
    members(rect, rects)          -> the indexes of the rects that lie wholly inside rect: what a tile drawn as rect
                                     takes in
-   makable(rect, others, held)   -> { ok: true } | { refused }: whether a tile can be drawn as rect: at least 1 by 1,
-                                    on whole units, not over another tile's footprint (others; edge to edge is
-                                    not over), and taking in no block that is in a tile already (held: how many
-                                    of the blocks inside rect are)
-   enterable(host, held)         -> { ok: true } | { refused }: whether blocks let go on a frame go into it. Not
-                                    where the frame is a tile, or is in one (host), and the blocks are all of
-                                    another tile's (held), which would go in whole: a tile does not go inside a tile
+   makable(rect, list, held)     -> { ok: true, in, holds } | { refused }: whether a tile can be drawn as rect: at
+                                    least 1 by 1, on whole units, and overlapping the tiles there are (list) only
+                                    by lying wholly inside one's pattern or by taking others in whole (allowed).
+                                    in: the tile it is then in (home), or null; holds: the tiles that are then in
+                                    it. held: how many blocks inside rect belong to a tile that is neither: such a
+                                    block cannot be taken from its tile by drawing round it.
+   enterable(host, held, fits)   -> { ok: true } | { refused }: whether blocks let go on a frame go into it. Where
+                                    the frame is a tile, or is in one (host), and the blocks are all of another
+                                    tile's (held), that tile goes in whole: only where it lies wholly inside the
+                                    host tile's pattern (fits)
+   within(repeat, rect)          -> also whether a tile's filled rect lies wholly inside the pattern
    A tile touches nothing, and nothing outside it touches a block inside it: that is algebra.js's to say (a rect's
-   zone), and the page gives every block of a tile that tile's id for its zone.
+   zone, and zoneOf: the innermost tile a block is in), and the page gives every block its zone from there.
 
    The index
    index(repeat, offset, c, r, cx, cy) -> { x, y }: the index of entry c, r (column and row from 1) of a block whose
@@ -116,6 +175,12 @@
                                     its pattern is covered exactly by blocks (rects, in units on the canvas), with
                                     no gap and no overlap: every cell's blocks set in their places, the filled size.
                                     error says what is wrong: a block outside the pattern, two that overlap, a gap.
+                                    A tile in the pattern is one of the rects, marked tile: true: its matrix set
+                                    in its place (its corner, and its matrix's size), or { error } where it has
+                                    no matrix, and then this tile has none (lostWithin: the reason is the
+                                    innermost tile's, said once however deep it lies). What overlaps is named
+                                    for what it is: two blocks, a tile and a block, two tiles. (A tile that
+                                    overlapping names has no matrix: whoever asks says so before asking this.)
    entries(repeat, across, down, rects, valuesIn) -> a Map from "column,row": that matrix's entries, every cell's.
                                     valuesIn(n, cx, cy) gives the entries (a Map) of the n-th rect's block as it is
                                     in cell (cx, cy): a block differs from cell to cell only through the index.
@@ -137,14 +202,24 @@
                                     the arrow's span. In cell k the arrow's start is its own plus (k − 1) spans
                                     (startIn); where the last cell runs past the input (n rows or columns along
                                     the edge) that is a warning, and the tile is drawn in the warning colour.
-                                    tile: the input is another tile. An arrow that reads a tile reads all of it
-                                    (whole), so it cannot be repeated along it: that is refused, once, with what
-                                    to do instead.
+                                    tile: the input is another tile, outside this one (a tile in this one's
+                                    pattern is not outside it, and an arrow that reads one is not repeated). An
+                                    arrow that reads a tile reads all of it (whole), so it cannot be repeated
+                                    along it: that is refused, once, with what to do instead.
+                                    outer: [{ repeat, across, down }], the tiles its tile is in that its input is
+                                    outside of too, innermost first. The arrow is repeated along its input through
+                                    each of them by the same rules: in the next cell of such a tile it goes on
+                                    where the cell before ended. So each must repeat only along the arrow's edge,
+                                    and its pattern must be as long that way as what is covered inside it (the
+                                    span times the counts inside); one that does not repeat at all changes
+                                    nothing. through: how many times each of them repeats it, in order (as far
+                                    as they could be told); count is still the innermost tile's. The last cell
+                                    of all running past the input is the warning.
    startIn(arrow, k)             -> the arrow's start in cell k, from 1 */
 import { evaluate, entered, refs } from './expression.js';
 import { isWhole, isError, valueText } from './algebra.js';
 
-export const LIMIT = 64;
+export const LIMIT = 64, DEPTH = 8;
 export const NO_INDEX = { err: 'not in a tile: there is no index' };
 const whole1 = v => Number.isInteger(v) && v >= 1;
 const along = side => side === 'e' || side === 'w' ? 'rows' : 'cols';
@@ -208,17 +283,17 @@ export function settable(repeat, patch){
 export const movable = mapped => mapped ? { refused: 'An arrow is repeated in this tile, so the tile lies along that arrow\'s input: move the input, and the tile goes with it' } : { ok: true };
 export const dragged = (count, size, moved) => Math.max(1, count + Math.round(moved / size));
 
-export function slots(across, down, formula = {}){
-  const fa = !!formula.across, fd = !!formula.down, many = (fa ? 1 : across) * (fd ? 1 : down) > LIMIT;
-  const one = (n, isFormula) => isFormula ? [{ cell: 1 }, { dots: true }] : many && n > 4 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }, { cell: n }] : Array.from({ length: n }, (_, i) => ({ cell: i + 1 }));
+export function slots(across, down, formula = {}, limit = LIMIT){
+  const fa = !!formula.across, fd = !!formula.down, many = (fa ? 1 : across) * (fd ? 1 : down) > limit;
+  const one = (n, isFormula) => isFormula || (many && limit < 16 && n > 1) ? [{ cell: 1 }, { dots: true }] : many && n > 4 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }, { cell: n }] : Array.from({ length: n }, (_, i) => ({ cell: i + 1 }));
   return { xs: one(across, fa), ys: one(down, fd) };
 }
-export function layout(repeat, across, down, formula = {}){
-  const s = slots(across, down, formula), set = (list, size) => { let at = 0; return [list.map(o => { const one = { ...o, at, size: o.dots ? 1 : size }; at += one.size; return one; }), at]; };
+export function layout(repeat, across, down, formula = {}, limit = LIMIT){
+  const s = slots(across, down, formula, limit), set = (list, size) => { let at = 0; return [list.map(o => { const one = { ...o, at, size: o.dots ? 1 : size }; at += one.size; return one; }), at]; };
   const [xs, w] = set(s.xs, repeat.cols), [ys, h] = set(s.ys, repeat.rows);
   return { xs, ys, w, h };
 }
-export const footprint = (repeat, across, down, formula = {}) => { const l = layout(repeat, across, down, formula); return { x: repeat.x, y: repeat.y, w: l.w, h: l.h }; };
+export const footprint = (repeat, across, down, formula = {}, limit = LIMIT) => { const l = layout(repeat, across, down, formula, limit); return { x: repeat.x, y: repeat.y, w: l.w, h: l.h }; };
 
 const inside = (outer, r) => r.x >= outer.x && r.y >= outer.y && r.x + r.w <= outer.x + outer.w && r.y + r.h <= outer.y + outer.h;
 const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -230,14 +305,77 @@ export function held(repeat, rect, dx, dy){
   return { dx: x - rect.x, dy: y - rect.y, stopped: x !== rect.x + dx || y !== rect.y + dy };
 }
 export const members = (rect, rects) => rects.map((r, i) => inside(rect, r) ? i : -1).filter(i => i >= 0);
-export function makable(rect, others = [], held = 0){
-  if (![rect.x, rect.y, rect.w, rect.h].every(Number.isInteger) || rect.w < 1 || rect.h < 1) return { refused: 'A tile\'s pattern is a rectangle on whole units, at least 1 by 1' };
-  if (others.some(o => over(o, rect))) return { refused: 'A tile cannot lie over another tile: each repeats on its own' };
-  if (held > 0) return { refused: 'A block of another tile lies there: a tile does not go inside a tile' };
+/* ---- tiles inside tiles, and tiles that overlap ---- */
+export function laid(list){
+  const by = new Map(list.map(t => [t.id, t])), out = new Map();
+  const one = (t, open) => { if (out.has(t.id)) return out.get(t.id);
+    const up = t.in !== null && t.in !== undefined && by.has(t.in) && t.in !== t.id && !open.has(t.in) ? by.get(t.in) : null;
+    open.add(t.id); const above = up ? one(up, open) : null; open.delete(t.id);
+    const limit = above ? Math.max(1, Math.floor(above.limit / above.cells)) : LIMIT, lay = layout(t.repeat, t.across, t.down, t.formula || {}, limit), f = filled(t.repeat, t.across, t.down);
+    const got = { in: up ? up.id : null, depth: above ? above.depth + 1 : 0, limit, lay, cells: lay.xs.filter(o => !o.dots).length * lay.ys.filter(o => !o.dots).length,
+      rect: { x: t.repeat.x, y: t.repeat.y, w: lay.w, h: lay.h }, filled: { x: t.repeat.x, y: t.repeat.y, w: f.cols, h: f.rows }, pattern: pattern(t.repeat) };
+    out.set(t.id, got); return got; };
+  for (const t of list) one(t, new Set());
+  return out;
+}
+const upsOf = (L, id) => { const out = []; for (let p = L.get(id).in; p !== null && !out.includes(p); p = L.get(p).in) out.push(p); return out; };      /* the tiles it is in, innermost first */
+/* what a tile takes up among tiles it is not inside: in another tile's pattern, its filled size, which is what is set in that tile's matrix; on the bare canvas, what is drawn of it */
+const extent = t => t.in !== null ? t.filled : t.rect;
+export function overlaps(list){
+  const L = laid(list), ids = [...L.keys()], ups = new Map(ids.map(id => [id, upsOf(L, id)])), out = [];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++){ const a = ids[i], b = ids[j];
+    const outer = ups.get(b).includes(a) ? a : ups.get(a).includes(b) ? b : null, inner = outer === a ? b : a;
+    if (outer !== null){ if (!inside(L.get(outer).pattern, L.get(inner).filled)) out.push({ a: outer, b: inner, why: 'past' }); }
+    else if (over(extent(L.get(a)), extent(L.get(b)))) out.push({ a, b, why: 'over' }); }
+  return out;
+}
+const PAST = 'a tile inside a tile lies wholly inside that tile\'s pattern', OVER = 'two tiles overlap only where one lies wholly inside the other\'s pattern, as part of it', DEEP = `tiles lie one inside the next at most ${DEPTH} deep`;
+export function overlapping(list){
+  const out = new Map(), say = (id, why) => { if (!out.has(id)) out.set(id, why); }, names = new Map(list.map(t => [t.id, typeof t.name === 'string' && t.name.trim() ? t.name.trim() : null]));
+  const called = (id, unnamed) => names.get(id) ? 'the tile ' + names.get(id) : unnamed;
+  for (const p of overlaps(list)){
+    if (p.why === 'past'){ say(p.a, `${called(p.b, 'a tile')} in its pattern runs past the pattern: ` + PAST); say(p.b, `it runs past the pattern of ${called(p.a, 'the tile it is in')}: ` + PAST); }
+    else { say(p.a, `it lies over ${called(p.b, 'another tile')}: ` + OVER); say(p.b, `it lies over ${called(p.a, 'another tile')}: ` + OVER); } }
+  for (const [id, t] of laid(list)) if (t.depth >= DEPTH) say(id, 'it lies too deep: ' + DEEP);
+  return out;
+}
+export function allowed(before, after){
+  const key = p => [p.a, p.b].map(String).sort().join('\n'), had = new Set(overlaps(before).map(key)), fresh = overlaps(after).find(p => !had.has(key(p)));
+  if (fresh) return { refused: fresh.why === 'past' ? 'That would leave a tile running past the pattern of the tile it is in: ' + PAST : 'A tile cannot lie over another tile: ' + OVER };
+  const was = laid(before); for (const [id, t] of laid(after)) if (t.depth >= DEPTH && !(was.has(id) && was.get(id).depth >= DEPTH)) return { refused: 'That is too deep: ' + DEEP };
   return { ok: true };
 }
+export function reframed(before, after){
+  const was = new Map(before.map(t => [t.id, t.in ?? null]));
+  if (!after.some(t => was.has(t.id) && was.get(t.id) !== (t.in ?? null))) return { ok: true };
+  return allowed(before, after).refused ? { refused: 'That would part a tile from the pattern it lies in: a tile belongs to the tile whose pattern it lies inside. Move the tile by its frame, and what is in it goes with it' } : { ok: true };
+}
+export function home(list, id){
+  const L = laid(list), me = L.get(id); if (!me) return null;
+  let best = null;
+  for (const [k, t] of L){ if (k === id || upsOf(L, k).includes(id) || !inside(t.pattern, me.filled)) continue;
+    if (best === null || t.depth > L.get(best).depth || (t.depth === L.get(best).depth && t.pattern.w * t.pattern.h < L.get(best).pattern.w * L.get(best).pattern.h)) best = k; }
+  return best;
+}
+export function moved(list, id, dx, dy){
+  const L = laid(list), goes = t => t.id === id || upsOf(L, t.id).includes(id);
+  let after = list.map(t => goes(t) ? { ...t, repeat: { ...t.repeat, x: t.repeat.x + dx, y: t.repeat.y + dy } } : t);
+  const to = home(after, id); after = after.map(t => t.id === id ? { ...t, in: to } : t);
+  const can = allowed(list, after);
+  return can.refused ? can : { ok: true, in: to, list: after };
+}
+const NEW = '\u0000 the tile being drawn';
+export function makable(rect, list = [], held = 0){
+  if (![rect.x, rect.y, rect.w, rect.h].every(Number.isInteger) || rect.w < 1 || rect.h < 1) return { refused: 'A tile\'s pattern is a rectangle on whole units, at least 1 by 1' };
+  const made = { id: NEW, in: null, repeat: { x: rect.x, y: rect.y, cols: rect.w, rows: rect.h, across: 1, down: 1 }, across: 1, down: 1, formula: {} };
+  made.in = home([...list, made], NEW);
+  const holds = list.filter(t => (t.in ?? null) === made.in && home([...list, made], t.id) === NEW).map(t => t.id);
+  const can = allowed(list, [...list.map(t => holds.includes(t.id) ? { ...t, in: NEW } : t), made]); if (can.refused) return can;
+  if (held > 0) return { refused: 'A block of another tile lies there: draw the tile round all of that tile, or wholly inside its pattern' };
+  return { ok: true, in: made.in, holds };
+}
 
-export const enterable = (host, held) => host && held ? { refused: 'A tile does not go inside another tile: each repeats on its own' } : { ok: true };
+export const enterable = (host, held, fits = false) => host && held && !fits ? { refused: 'A tile goes inside another only where it lies wholly inside that tile\'s pattern: move it there by its frame' } : { ok: true };
 
 export const index = (repeat, offset, c, r, cx = 1, cy = 1) => ({ x: (cx - 1) * repeat.cols + offset.x + c, y: (cy - 1) * repeat.rows + offset.y + r });
 export const axisOf = name => { const m = typeof name === 'string' && name.trim().toLowerCase().match(/^index\.(x|y)$/); return m ? m[1] : null; };
@@ -249,11 +387,15 @@ export function indexValues(repeat, offset, cols, rows, axis, cx = 1, cy = 1){
   return out;
 }
 
+const WITHIN = 'a tile in its pattern has no matrix: ';
+export const lostWithin = why => String(why).startsWith(WITHIN) ? String(why) : WITHIN + why;      /* said once, with the innermost tile's reason, however deep that tile lies */
 export function matrix(repeat, across, down, rects){
   const p = pattern(repeat);
   if (!rects.length) return { error: 'its pattern is empty' };
-  if (rects.some(r => !inside(p, r))) return { error: 'a block of it lies outside its pattern' };
-  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) if (over(rects[i], rects[j])) return { error: 'two blocks in its pattern overlap' };
+  const lost = rects.find(r => r.error); if (lost) return { error: lostWithin(lost.error) };
+  const out = rects.find(r => !inside(p, r)); if (out) return { error: out.tile ? 'a tile in it lies outside its pattern' : 'a block of it lies outside its pattern' };
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) if (over(rects[i], rects[j]))
+    return { error: rects[i].tile && rects[j].tile ? 'two tiles in its pattern overlap' : rects[i].tile || rects[j].tile ? 'a tile and a block in its pattern overlap' : 'two blocks in its pattern overlap' };
   if (rects.reduce((sum, r) => sum + r.w * r.h, 0) !== p.w * p.h) return { error: 'its pattern has a gap' };
   return filled(repeat, across, down);
 }
@@ -271,12 +413,19 @@ export const spanned = (arrow, patch) => ('start' in patch && patch.start !== ar
   ? { refused: 'An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that' } : { ok: true };
 
 export const startIn = (arrow, k) => arrow.start + (k - 1) * arrow.span;
-export function mapped(arrow, repeat, across, down, n, { tile = false } = {}){
-  if (tile) return { count: 1, warn: 'it is in a tile and reads another tile, all of it, so it cannot be repeated along it: seat a block on that tile\'s output outside this one, and repeat an arrow along the block' };
+export function mapped(arrow, repeat, across, down, n, { tile = false, outer = [] } = {}){
+  if (tile) return { count: 1, through: [], warn: 'it is in a tile and reads another tile, all of it, so it cannot be repeated along it: seat a block on that tile\'s output outside this one, and repeat an arrow along the block' };
   const rows = along(arrow.side) === 'rows', times = rows ? down : across, other = rows ? across : down, size = rows ? repeat.rows : repeat.cols;
   const way = rows ? 'down' : 'across', edge = rows ? 'rows' : 'columns';
-  if (other !== 1) return { count: 1, warn: `its tile repeats ${rows ? 'across' : 'down'}, and an arrow against ${edge} is repeated ${way} only` };
-  if (size !== arrow.span) return { count: 1, warn: `its tile's pattern is ${size} ${rows ? 'tall' : 'wide'} and the arrow's span is ${arrow.span}: to repeat along its input they must be the same` };
-  if (startIn(arrow, times) + arrow.span - 1 > n) return { count: times, warn: `its last cell runs past its input, which has ${n} ${edge}` };
-  return { count: times, warn: null };
+  if (other !== 1) return { count: 1, through: [], warn: `its tile repeats ${rows ? 'across' : 'down'}, and an arrow against ${edge} is repeated ${way} only` };
+  if (size !== arrow.span) return { count: 1, through: [], warn: `its tile's pattern is ${size} ${rows ? 'tall' : 'wide'} and the arrow's span is ${arrow.span}: to repeat along its input they must be the same` };
+  /* through each tile its tile is in, with the same rules: that tile repeats only along the arrow's edge, and its pattern is as long that way as what is covered inside it */
+  let covers = arrow.span * times; const through = [];
+  for (const o of outer){ const k = rows ? o.down : o.across, oth = rows ? o.across : o.down, len = rows ? o.repeat.rows : o.repeat.cols;
+    if (k === 1 && oth === 1){ through.push(1); continue; }      /* a tile that does not repeat changes nothing */
+    if (oth !== 1) return { count: times, through, warn: `a tile its tile is in repeats ${rows ? 'across' : 'down'}, and an arrow against ${edge} is repeated ${way} only` };
+    if (len !== covers) return { count: times, through, warn: `a tile its tile is in has a pattern ${len} ${rows ? 'tall' : 'wide'}, and the arrow covers ${covers} ${edge} of its input in each of that tile's cells: to go on along its input from cell to cell they must be the same` };
+    through.push(k); covers *= k; }
+  if (arrow.start + covers - 1 > n) return { count: times, through, warn: `its last cell runs past its input, which has ${n} ${edge}` };
+  return { count: times, through, warn: null };
 }

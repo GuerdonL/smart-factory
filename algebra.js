@@ -25,6 +25,11 @@
    A rect may carry a zone: the tile it is in (tiles.js), by any value that tells one tile from another; left out or
    null for a shape in none. Shapes of different zones never touch, however they lie: a tile touches nothing, and a
    touch across a tile's boundary is ignored. Shapes of one zone touch as any do.
+   zoneOf(tiles)                 -> the zone of a shape that is in those tiles (their ids, innermost first; none:
+                                    null): the innermost. So where a tile lies inside another tile's pattern, a
+                                    block of the inner tile touches only blocks of the inner tile, and a block of
+                                    the outer tile touches neither them nor anything outside: the inner tile is
+                                    inside the outer tile's boundary, and has a boundary of its own.
 
    A piece is the shapes joined to one another by any of the four touches, and a piece uses one rule: 'product', 'sum'
    or 'elementwise' (times and over together are one rule, read left to right and grouped from the left:
@@ -150,6 +155,7 @@ function together(A, B, broadcast){
   const cols = Math.max(A.cols, B.cols), rows = Math.max(A.rows, B.rows);
   return { ok, note: '', type: { cols, rows, colsName: (A.cols === cols && A.colsName) || (B.cols === cols && B.colsName) || null, rowsName: (A.rows === rows && A.rowsName) || (B.rows === rows && B.rowsName) || null } };
 }
+export const zoneOf = tiles => Array.isArray(tiles) && tiles.length ? tiles[0] : null;
 export function touches(rects){
   const out = [];
   rects.forEach((a, i) => rects.forEach((b, j) => {

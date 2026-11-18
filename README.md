@@ -51,7 +51,8 @@ who can reach the port can read and overwrite the projects.
 - `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules; what a cut leaves, and what
   a part of a shape is), how a project is written to files, and zip; no drawing.
 - `sources.js`, `tiles.js`: what a source is (zeros, ones, identity: an entry from its place alone), and what a tile
-  means (its counts, which cells are drawn, the index, its matrix, how an arrow is repeated in it); no drawing.
+  means (its counts, which cells are drawn, the index, its matrix, how an arrow is repeated in it, when one tile
+  is inside another and which tiles overlap); no drawing.
 - `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
 - `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
@@ -404,7 +405,9 @@ arrow's output are each refused, with the reason in the readout.
   holds a number or a formula of those. A count that is not a whole number of at least 1, that reads anything else
   (an attribute, a gap, a mass that is worked out), or that depends on the tile's own size (the width of the block
   seated on the tile's own arrow, say) is refused; one found in a project that is opened counts as 1, and the tile
-  is drawn in the warning colour.
+  is drawn in the warning colour. Where tiles lie one inside another (below), each tile's size is its own: an
+  inner tile's count may read the block seated on the outer tile's arrow, or on the arrow of a tile beside it, and
+  an outer tile's count what comes of a tile in its pattern. Only a real cycle is refused.
 - **What is real.** Only the blocks of the first cell, the top-left one, exist. The others are drawn copies that
   cannot be selected. At most 64 cells are drawn; beyond that, the first three and the last each way, with an
   ellipsis between.
@@ -414,6 +417,49 @@ arrow's output are each refused, with the reason in the readout.
   on its own: it moves when that arrow's input moves.
 - **A tile is not a matrix and touches nothing.** Blocks inside it touch one another as usual; nothing outside
   touches a block inside, however they lie.
+
+### Tiles inside tiles
+
+A tile may lie wholly inside another tile's pattern (its first cell, where the real blocks are). It is then part of
+that pattern and is repeated with it, and it stays a tile in its own right, with its own counts, name, arrows and
+panel.
+
+- **Make one.** Draw a tile inside another tile's pattern, or draw a tile round all of another tile; or drag a tile
+  by its frame and let it go wholly inside a pattern. The readout says which tile it is now in. Tiles lie one inside
+  the next at most 8 deep.
+- **It has to fit.** The inner tile's filled size (its pattern times its counts) lies inside the outer pattern,
+  and clear of the filled size of any other tile in that pattern: inside a pattern it is the filled size that
+  counts, whatever is drawn (an ellipsis takes no room in the matrix).
+  Pulling its edge, typing a count, or making the outer pattern smaller is refused where it would run past. A count
+  that follows a size can still grow past it afterwards: both tiles are then drawn in the warning colour, their
+  panels say why, neither has a matrix, and the outer tile's copies show only what fits their cell.
+- **Moving.** Dragged by its frame, an inner tile stays inside the outer pattern; hold Shift to drag it out, and it
+  repeats on its own again. Moving the outer tile takes everything in it. Taking the outer tile off leaves the
+  inner one a tile; taking the inner one off leaves its blocks in the outer tile.
+- **What is in which.** A block belongs to the innermost tile it was put in: drag it onto the inner pattern to put
+  it there, and Shift-drag it out onto the outer pattern or right away. A block of the inner tile touches only
+  blocks of the inner tile; a block of the outer tile beside it does not touch it.
+- **Its matrix.** The outer tile's matrix has the inner tile's matrix set in its place, in every cell. It exists
+  when the inner tile has a matrix and the outer pattern is covered exactly by its own blocks and its inner tiles'
+  filled sizes. An arrow on the inner tile reads the inner tile's matrix alone; where the two tiles share an edge,
+  a click there means the inner tile, and the outer tile has the rest of that edge.
+- **The index** a block reads is that of the innermost tile the block itself is in, whoever reads it: `index.x`
+  in a block of the inner tile counts across the inner tile, and is the same in every cell of the outer tile; a
+  block of the outer tile named in a formula of the inner tile, or read by an arrow there, still reads the outer
+  tile's index; and a block in no tile has no index, though an arrow in a tile reads it.
+- **What is drawn.** The outer tile's copies show the inner tile's cells too. No tile is drawn more than 64 times in
+  all, counting the copies of it in the cells of the tiles it is in: an inner tile draws as many cells as that
+  leaves it (its first three and its last each way, or just its first, with an ellipsis).
+
+### Tiles that overlap
+
+Two tiles may overlap only in that way. Drawing, moving or pulling a tile so that it would lie partly over another
+is refused, with the reason in the readout. Tiles can still come to overlap: pasted over one another, opened from a
+project file, grown by a count that follows a size, or carried along by an arrow repeated in them. Both tiles of
+such a pair are then drawn in the warning colour, each one's panel says why, neither has a matrix, and an arrow on
+either says so, naming the other tile where it has a name. Move one clear by its frame (or wholly inside the
+other's pattern) and both are well again. Framing blocks (F, or dragging them onto a frame) never moves a tile's
+pattern, so a framing gesture that would take a tile's frame out of the tile it lies in is refused.
 
 ### The index
 
@@ -451,10 +497,16 @@ as the arrow's span. In cell k the arrow starts `(k - 1)` spans further on. Ever
 side by side, seated and used like any other. If the last cell runs past the input, the tile and the arrow are
 drawn in the warning colour. The tile follows the arrow when the input moves. An arrow in one tile cannot be
 repeated along another tile (it reads all of that tile): it warns, and says to seat the other tile's output first.
+An arrow in a tile that reads a tile in that tile's own pattern is not repeated: its input is inside. An arrow in a
+tile in a tile, whose input is outside both, is repeated along its input through both: in the next cell of the outer
+tile it goes on where the cell before ended, so with the inner tile 4 across and the outer tile twice across it
+covers eight columns. The same rules hold at each level (the outer tile repeats only along the arrow's edge, and its
+pattern is as long that way as what the inner tile covers); where one fails, the arrow and both tiles warn. Its
+output is one cell's; a block seated on it, in the outer pattern, holds each cell's numbers in that cell.
 
 One `max(x, 0)` arrow under column 1 of a matrix, in a tile with `across` 4, is that function on every column.
 
-`projects/sources-and-tiles` shows each of these.
+`projects/sources-and-tiles` shows each of these, and `projects/tiles-inside-tiles` a tile in a tile.
 
 ## The graph and the evaluator
 
@@ -478,8 +530,8 @@ of the model that anything else is to read: a backend, an export.
 - `spaces` says what each canvas comes to (each piece, each arrow and each tile, with its node or its error), and
   `blocks` which node each block stands for.
 - A node in a function's body or a tile's pattern has `within`: every function and tile it belongs to, outermost
-  first. A tile wholly inside another's pattern is one part of it (a `repeat` in a `repeat`); the page does not
-  draw one yet.
+  first. A tile wholly inside another's pattern is one part of it (a `repeat` in a `repeat`). Tiles that overlap
+  in any other way have no matrix: the tile and the arrow on it carry `no-source`, with why.
 - What is wrong is written in the graph, never thrown: a piece whose touches do not agree, a variable whose
   definition is another size, an arrow whose span runs past its input. An error is `{ code, note }`, on a piece, a
   variable, an arrow or a tile. A variable with an error keeps its size and its entries, so everything round it is

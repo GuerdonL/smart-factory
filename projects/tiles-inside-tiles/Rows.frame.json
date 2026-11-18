@@ -1,0 +1,64 @@
+{
+  "format": "smart-factory/frame",
+  "version": 3,
+  "id": "grpxkit",
+  "name": "Rows",
+  "named": true,
+  "shapes": [],
+  "groups": [
+    {
+      "id": "gvqunb5",
+      "name": "Twice",
+      "named": true,
+      "shapes": [
+        {
+          "format": "smart-factory/shape",
+          "version": 3,
+          "id": "bcsjs26",
+          "type": "tensor",
+          "name": "Pair",
+          "named": true,
+          "commented": false,
+          "color": "tensor",
+          "position": {
+            "x": -40,
+            "y": -30
+          },
+          "size": {
+            "cols": 2,
+            "rows": 1
+          },
+          "sides": {
+            "cols": null,
+            "rows": null
+          },
+          "value": {
+            "as": "resolved",
+            "entries": {
+              "1,1": 1,
+              "2,1": 2
+            }
+          },
+          "order": 37
+        }
+      ],
+      "groups": [],
+      "repeat": {
+        "x": -40,
+        "y": -30,
+        "cols": 2,
+        "rows": 1,
+        "across": 2,
+        "down": 1
+      }
+    }
+  ],
+  "repeat": {
+    "x": -40,
+    "y": -30,
+    "cols": 4,
+    "rows": 1,
+    "across": 1,
+    "down": 3
+  }
+}
