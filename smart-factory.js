@@ -245,13 +245,13 @@ function matrixAt(x, y){
 }
 function slotIn(a, v, cx, cy){                    /* cx, cy: where in the matrix the pointer was, in entries from its top-left corner */
   const u = view.unit, home = a === space.owner ? space.parent : space, cols = Math.round(a.rect.w / u), rows = Math.round(a.rect.h / u), w = Math.round(v.rect.w / u), h = Math.round(v.rect.h / u);
-  if (kinOf(a).includes(v)) return hud.say('A shape cannot go into its own matrix');
+  if ([...kinOf(a)].includes(v)) return hud.say('A shape cannot go into its own matrix');
   if (w > cols || h > rows) return hud.say(`${bare(v.name)} does not fit in ${bare(a.name)}`);
   if (!spaceOf.has(a)){ const def = newSpace(a, home); for (const k of kinOf(a)) spaceOf.set(k, def); }
   if (!spaceOf.has(v)){ const def = newSpace(v, space); for (const k of kinOf(v)) spaceOf.set(k, def); }
   const def = spaceOf.get(a);
   if (def === spaceOf.get(v)) return hud.say('A shape cannot go into its own matrix');
-  if (loops(v, def)) return hud.say(`${bare(a.name)} is inside ${bare(v.name)}'s definition: ${bare(v.name)} cannot go into its matrix`);
+  if (loops(v, def)) return hud.say(`${bare(a.name)} is inside ${bare(v.name)}'s definition: ${bare(v.name)} cannot go into ${bare(a.name)}'s matrix`);
   const out = b => { b.el.remove(); def.blocks.splice(def.blocks.indexOf(b), 1); def.groupOf.delete(b); forget(b); };
   let tiles = tilesOf(a);
   if (!tiles){ for (const b of [...def.blocks]) out(b); tiles = [];      /* the first shape in: whatever was in its definition goes */
