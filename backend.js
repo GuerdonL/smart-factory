@@ -22,12 +22,13 @@
      ask(graph, node, binding, cells, slot)
                 says that a node's numbers are wanted for this graph (graph.js: build; the same object for as long as
                 the project stands as it does), looked at from binding (evaluate.js; null for none), at those entries
-                ([[column, row], …]). slot says what on the screen they are drawn as (a block, a piece, an arrow's
+                ([[column, row], …], or [[column, row, k1, …], …] for a node whose entries hold inner data:
+                decimals.js, drawn). slot says what on the screen they are drawn as (a block, a piece, an arrow's
                 output: any text; left out, the node and binding themselves): a node's id changes with what it is
                 made of (a noise block's with its seed), and what is drawn in its place is still the same thing.
                 Gives what is known now:
                     null                           nothing yet (or there is no backend)
-                    { result, stale: false }       the backend's answer for this graph: { cols, rows, cells, min, max, mean }
+                    { result, stale: false }       the backend's answer for this graph: { cols, rows, cells, min, max, mean } (and inner, the inner lengths, where it has inner data)
                     { result, stale: true }        its answer for what was in that slot in an older graph, while
                                                    the new one is waited for
                 Asking is what makes the request: half a second after the last thing was asked for a new graph, or

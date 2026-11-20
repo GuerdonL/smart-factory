@@ -3,7 +3,7 @@
 The five the specification sets, together:"""
 MAX_BODY = 5 * 1024 * 1024          # bytes in the body of a request to /run
 MAX_NODES = 20_000                  # nodes in a graph
-MAX_ENTRIES = 16_000_000            # entries in any one node
+MAX_ENTRIES = 16_000_000            # numbers in any one node: its columns times its rows times every inner length
 MAX_SECONDS = 30                    # seconds a run may take: it is stopped then
 MAX_UPLOAD = 50 * 1024 * 1024       # bytes in a file sent to /data
 

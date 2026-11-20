@@ -42,6 +42,11 @@
                   ("needs the backend", or why the backend gave no numbers) no entry is written, and the note is,
                   on one line; a matrix too narrow for its note is made as wide as the note, so that it lies
                   inside the brackets and over nothing else.
+     inner        the axes of what each entry holds, [{ length, name }] (inner.js), where the entries hold inner
+                  data; left out or empty where each is one number. values is then keyed "column,row,k1,…", and
+                  an entry is not written as a number: one in which any number has been given is a small bracket
+                  with its size, [2×4], and one with nothing set in it is its symbol, as ever. Such an entry
+                  carries data-nested beside data-c and data-r, for whoever opens it on a click.
      decimal      'square' for a matrix written on the canvas; left out, decimals are written as numbers
      noteMax      the most a note may make the matrix wide, in world units (the panel has only so much room); a
                   longer note is cut short with dots, and is the matrix's title in full. Left out, no limit.
@@ -58,6 +63,7 @@ import { html, style } from './dom.js';
 import { likeness } from './block.js';
 import { isError, valueText } from '../algebra.js';
 import { along, level, keyOf } from '../decimals.js';
+import { given, bracket } from '../inner.js';
 export const valuesKey = keyOf;                /* what tells one values Map from another, for whoever redraws only on a change */
 const isDecimal = v => !!v && typeof v === 'object' && typeof v.f === 'number';
 
@@ -69,6 +75,8 @@ style('matrix', `
 .matrix > .likeness .block-name { left: 0; right: 0; bottom: auto; top: 50%; transform: translateY(-50%); margin: 0; padding: 0; text-align: center;
   font-size: 10px; font-style: normal; color: var(--on-block); text-shadow: 0 0 2px var(--shadow), 0 0 1px var(--shadow); overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .matrix > span.set.inherited { opacity: .45; font-weight: 400; }
+/* an entry that holds inner data: a small bracket with its size, never a number */
+.matrix > span.set.nested { font-weight: 500; letter-spacing: -.03em; opacity: .85; }
 .matrix > span.set.error { color: var(--warn) !important; }      /* an entry that came to an error: over the block's own colour */
 .matrix i { font-style: inherit; }           /* half of a product's entry, or one part of a combined one */
 .matrix b { font-style: normal; font-weight: normal; color: var(--muted); margin: 0 .06em; }      /* the dot between the halves, or the sign between two parts */
@@ -102,7 +110,9 @@ const short = name => (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toL
 export const squares = (n, name = null) => shown(n, name).length;
 
 const NOTE_CHAR = 6.4, NOTE_PAD = 14;          /* a note's letters are 11px of the interface's typeface: about this wide each, and this much air round them all */
-export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, standing = [], transposed = false, colsName = null, rowsName = null, decimal = 'number', noteMax = Infinity }){
+export function createMatrix({ cols, rows, cell, letter = 'x', color = null, values = new Map(), inherited = new Map(), product = null, combined = null, standing = [], transposed = false, colsName = null, rowsName = null, decimal = 'number', noteMax = Infinity, inner = null }){
+  const nested = inner && inner.length ? given(values) : null, size = nested ? bracket(inner) : '';      /* entries that hold inner data: which of them have been given any number, and what each is written as */
+  const has = key => nested ? nested.has(key) : values.has(key);
   const cs = shown(cols, colsName), rs = shown(rows, rowsName), vector = (cols === 1 && !colsName) || (rows === 1 && !rowsName);
   const num = (e, name) => e.last && name ? short(name) : e.i;      /* an entry's number along a side: the last of a variable side is that side's name */
   const el = html`<div class="matrix"></div>`, elided = cs.includes(null) || rs.includes(null);
@@ -115,37 +125,41 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
   /* a value written at length (1+exp(2), a long fraction) does not make the whole matrix small: past LONG it is
      written smaller on its own, to fit its square, and carries what it says in full as its title */
   /* decimals written as numbers are nine digits each: a matrix that holds any is written with columns three squares wide, so that they can be read */
-  const roomy = decimal !== 'square' && !values.note && [...values.values()].some(isDecimal), cw = roomy ? cell * 3 : cell;
+  /* and in the panel a bracket has two squares' width to be read in: on the canvas a matrix keeps to its squares, and the bracket is written small */
+  const roomy = !nested && decimal !== 'square' && !values.note && [...values.values()].some(isDecimal), cw = roomy ? cell * 3 : nested && nested.size && decimal !== 'square' ? cell * 2 : cell;
   const LONG = 2.9 * cw / cell, wide = v => (written(v).length + (isDecimal(v) ? 1 : 0)) * .72;      /* (a decimal written out has its mark before it) */
   const square = v => decimal === 'square' && isDecimal(v);
-  const widest = Math.max(symbol, ...[...values.values(), ...inherited.values()].filter(v => !square(v)).map(wide).filter(w => w <= LONG));
+  const widest = nested ? symbol : Math.max(symbol, ...[...values.values(), ...inherited.values()].filter(v => !square(v)).map(wide).filter(w => w <= LONG));
   /* a value in its entry: an error as the mark, a decimal as its square or its digits, anything else as it is written */
-  const put = (entry, v) => { entry.className = isError(v) ? 'set error' : 'set'; if (isError(v)) entry.title = v.err;
+  const put = (entry, v) => { if (nested){ entry.className = 'set nested'; entry.textContent = size; entry.title = 'holds ' + inner.map(a => a.length + (a.name ? ' ' + a.name : '')).join(' × ');
+      entry.style.fontSize = Math.min(.92, cw * .94 / (size.length * .56) / type) + 'em'; return; }      /* its own size of type, to fit its square */
+    entry.className = isError(v) ? 'set error' : 'set'; if (isError(v)) entry.title = v.err;
     if (isDecimal(v) && values.stale) entry.classList.add('stale');
     if (square(v)){ entry.classList.add('decimal'); entry.title = (typeof v.exact === 'string' && v.exact ? v.exact + ' ≈ ' : '') + written(v); const s = html`<i class="square"></i>`; s.style.setProperty('--level', String(level(v.f))); entry.replaceChildren(s); return; }
     if (isDecimal(v)){ entry.classList.add('approx'); const d = html`<span class="digits"></span>`; d.textContent = written(v); entry.replaceChildren(d); entry.title = written(v);      /* written out: in its own style, with the exact form it stands for */
       if (typeof v.exact === 'string' && v.exact){ const x = html`<span class="exact"></span>`; x.textContent = v.exact; entry.append(x); entry.title = v.exact + ' ≈ ' + written(v); }
       fit(entry, v); return; }
     entry.textContent = written(v); fit(entry, v); };
-  const size = Math.min(cell * .6, cw * .8 / widest);
-  const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cw * .92 / (written(v).length * .56) / size) + 'em'; if (!entry.title) entry.title = written(v); } };
-  el.style.fontSize = size + 'px';
+  const type = Math.min(cell * .6, cw * .8 / widest);
+  const fit = (entry, v) => { if (wide(v) > LONG){ entry.style.fontSize = Math.min(1, cw * .92 / (written(v).length * .56) / type) + 'em'; if (!entry.title) entry.title = written(v); } };
+  el.style.fontSize = type + 'px';
   el.style.gridTemplateColumns = `repeat(${cs.length}, ${cw}px)`; el.style.gridAutoRows = cell + 'px'; el.style.setProperty('--cell', cell + 'px');
   for (const re of rs) for (const ce of cs){
     if (re === null || ce === null){ el.append(html`<span class="dots">${re === null && ce === null ? '⋱' : re === null ? '⋮' : '⋯'}</span>`); continue; }
     const c = ce.i, r = re.i, ghost = ce.ghost || re.ghost, cn = num(ce, colsName), rn = num(re, rowsName);
     const entry = ghost ? html`<span class="ghost"></span>` : html`<span data-c="${c}" data-r="${r}"></span>`, key = ghost ? '' : c + ',' + r;
+    if (nested && !ghost) entry.dataset.nested = '1';
     const half = (from, n) => { const h = html`<i><sub></sub></i>`; h.prepend(from.letter); h.lastChild.textContent = n; if (from.color) h.style.color = `var(--${from.color})`; return h; };
     /* one part of a combined entry: its own entry at this place. A part smaller than the matrix is broadcast, and is numbered only along the side it has */
     const part = p => { const one = p.cols === 1 && p.rows === 1 && !(cols === 1 && rows === 1), row = p.rows === 1 && rows > 1, col = p.cols === 1 && cols > 1;
       return half(p, one ? '' : row ? cn : col ? rn : vector ? (cols === 1 ? rn : cn) : p.transposed ? rn + comma + cn : cn + comma + rn); };
-    const worked = (combined || product) && values.has(key);      /* a product, a sum or a chain whose entry here has come to a value: the value, in place of what it is made from */
+    const worked = (combined || product) && has(key);      /* a product, a sum or a chain whose entry here has come to a value: the value, in place of what it is made from */
     if (values.note && !ghost){ entry.classList.add('blank'); entry.textContent = '·'; }      /* nothing can be said of it here: the note says why */
     else if (worked) put(entry, values.get(key));
     else if (combined) combined.parts.forEach((p, n) => { if (n){ const sign = html`<b></b>`; sign.textContent = combined.signs[n - 1]; entry.append(sign); } entry.append(part(p)); });
     else if (product) entry.append(half(product.rows, rn), html`<b>·</b>`, half(product.cols, cn));
     else { if (color) entry.style.color = `var(--${color})`;              /* symbols and typed numbers alike */
-      if (values.has(key)) put(entry, values.get(key));
+      if (has(key)) put(entry, values.get(key));
       else if (inherited.has(key)){ entry.className = 'set inherited'; entry.textContent = written(inherited.get(key)); fit(entry, inherited.get(key)); }      /* not given here: what a definition higher up gives */
       else { entry.append(letter, html`<sub></sub>`); entry.lastChild.textContent = vector ? (cols === 1 ? rn : cn) : transposed ? rn + comma + cn : cn + comma + rn; } }
     if (!elided && standing.some(t => c > t.x && c <= t.x + t.w && r > t.y && r <= t.y + t.h)) entry.replaceChildren();      /* a shape stands here */

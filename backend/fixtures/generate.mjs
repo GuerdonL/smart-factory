@@ -4,24 +4,33 @@
        node backend/fixtures/generate.mjs --check    writes nothing; says whether the files are what it would write
 
    graphs.json     [{ name, graph, nodes: { "<node id>": answer }, bound: [{ node, binding, answer }] }]
-                   Graphs built by graph.js (every project in projects/, and the canvases set out below, which between
-                   them hold every operation), each with what evaluate.js makes of every node. An answer is
+                   Graphs built by graph.js (every project in projects/, and the canvases set out below), and graphs
+                   written by hand for what no canvas makes yet (HAND, below: stack, entry, a transpose with an
+                   order, a function given inner data); between them they hold every operation. Each comes with
+                   what evaluate.js makes of every node. An answer is
                        { rows: [[value, …], …] }    worked out: each entry as a number near what it is exactly (a
                                                     64-bit float), "inf", "-inf", "err" for an entry that is an
                                                     error, or null for one that is unknown
+                     | { inner: [2, 4], rows: … }   worked out, of a node whose entries hold inner data: inner is
+                                                    the lengths of its inner axes, and rows is nested once more
+                                                    for each of them, outermost first, so the entry at
+                                                    "column,row,k1,k2" is rows[k1 - 1][k2 - 1][row - 1][column - 1]
+                                                    (the backend holds its arrays the same way round)
                      | { error: "<code>" }          it is worked out from a variable that has an error
                      | { deferred: true }           not worked out in the browser (too large, noise, a data file)
                    bound: nodes asked for under a binding, as the page asks for what is inside a tile or a function.
    mutations.json  [{ graph: <index into graphs.json>, path: [keys], set: <value> } | { …, drop: true }, valid]
                    as { graph, path, set | drop, valid }: a graph changed in one place, and whether validate
                    (graph.js) still accepts it. The Python validate (backend/check.py) has to say the same of each.
+                   Most are changed at random (the same every time); TYPES, below, adds changes to what a type and
+                   an entry's key may be, for every node that holds inner data.
 
    tests/fixtures.test.js runs this with --check, so the files cannot fall behind the code they were made from. */
 import '../../tests/solver.js';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, validate } from '../../graph.js';
+import { build, validate, tailsOf, VERSION } from '../../graph.js';
 import { evaluate } from '../../evaluate.js';
 import { read } from '../../project.js';
 
@@ -35,6 +44,13 @@ const arrow = (id, input, more = {}, shapeMore = {}) => B(id, 0, 0, 1, 1, { type
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
 const tile = (id, members, repeat, groups = []) => ({ id, name: null, members, groups, repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 1, down: 1, ...repeat } });
 const half = { n: 1, d: 2, k: 0 }, root2 = { n: 2, k: 1 }, f = expr => ({ expr });
+/* inner data: axes as a snapshot gives them, and every number of a shape that holds them, from fill(c, r, k1, …) (null: not given) */
+const ax = (length, name = null) => ({ length, name });
+const filled = (cols, rows, inner, fill) => { const out = {};
+  for (const tail of tailsOf({ inner })) for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++){ const v = fill(c, r, ...tail.split(',').slice(1).map(Number)); if (v !== null) out[c + ',' + r + tail] = v; }
+  return out; };
+const I = (id, x, y, cols, rows, inner, fill, more = {}) => B(id, x, y, cols, rows, { inner, entries: fill ? filled(cols, rows, inner, fill) : {}, ...more });
+const whole = { cols: false, rows: false };
 
 /* the canvases: between them, every operation, every kind of value, the infinities and the entries that are errors */
 const CASES = {
@@ -99,6 +115,60 @@ const CASES = {
     B('Nt', 0, 20, 2, 1, { source: { noise: { seed: 1, dist: 'uniform' } } }), arrow('out', { id: 't1', as: 'tile' })], [tile('t1', [3], { y: 20, cols: 2, rows: 1, across: 2, down: 2 })]),
   'a loop': snap([B('K', 0, 0, 1, 1, { variable: 1, inside: space([B('k2', 0, 0, 1, 1, { name: 'K', variable: 1, reference: true }), B('two', 1, 0, 1, 1, { entries: { '1,1': 2 } })]) }),
     B('A', 9, 0, 1, 2, { entries: rowsOf([[1], [2]]) }), B('C', 9, 2, 1, 2, { entries: rowsOf([[10], [20]]) }), B('uses', 20, 0, 1, 1, { entries: { '1,1': f('@[K:m] + 1') } })]),
+  /* ---- inner data (phase 8): every rule repeated at each inner position ---- */
+  'inner data: products and scales': snap([B('X', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [3, half]]) }), I('W', 2, 0, 2, 2, [ax(3, 'head')], (c, r, h) => c === r ? h : c - r),      /* one has none: X is used at every head */
+    I('P', 10, 0, 2, 1, [ax(2)], (c, r, k) => c * k), I('Q', 12, 0, 1, 2, [ax(2)], (c, r, k) => k === 2 && r === 2 ? root2 : r + k),      /* both hold it: position by position */
+    B('s', 20, 0, 1, 1, { entries: { '1,1': { n: 3, d: 4, k: 0 } } }), I('M', 21, 0, 2, 2, [ax(2), ax(2)], (c, r, k1, k2) => c + 10 * r + 100 * k1 + 1000 * k2),      /* a scalar scales all of it */
+    I('One', 30, 0, 1, 1, [ax(2)], (c, r, k) => k + 1), I('Row', 31, 0, 3, 1, [ax(2)], (c, r, k) => c * k),      /* a 1 by 1 that holds inner data is a matrix: 1 column against 1 row */
+    I('Wt', 40, 0, 2, 2, [ax(3, 'head')], null, { name: 'W', variable: 1, reference: true, transposed: true })].map((d, i) => i === 1 ? { ...d, variable: 1 } : d)),
+  'inner data: sums and entry by entry': snap([I('C', 0, 0, 2, 1, [ax(2)], (c, r, k) => c + 10 * k), I('D', 0, 1, 2, 1, [ax(2)], (c, r, k) => k === 1 ? half : 100 * c),
+    I('E', 20, 2, 2, 2, [ax(2)], (c, r, k) => c + 2 * r + 4 * k), B('F', 22, 1, 2, 1, { entries: rowsOf([[2, half]]) }),                            /* times a row that holds none */
+    I('G', 40, 0, 2, 2, [ax(2)], (c, r, k) => c * r * k), I('H', 42, 2, 1, 2, [ax(2)], (c, r, k) => r === 2 && k === 2 ? 0 : r + k),              /* over a column, both holding it: a division by zero at one position */
+    I('K', 60, 0, 2, 2, [ax(3)], (c, r, k) => 12 * k * c / r), B('J', 62, 2, 1, 1, { entries: { '1,1': 4 } }),                                       /* over a scalar */
+    I('L', 80, 2, 2, 1, [ax(2)], (c, r, k) => c + k), I('N', 82, 1, 2, 1, [ax(2)], (c, r, k) => c * k),                                             /* times, both */
+    I('Bad', 100, 0, 2, 1, [ax(2)], (c, r, k) => 1), B('Flat', 100, 1, 2, 1, { entries: rowsOf([[1, 1]]) })]),                                      /* a sum against no inner data: refused */
+  'inner data: parts, sources and measures': snap([I('W', 0, 0, 3, 2, [ax(2, 'key')], (c, r, k) => c + 10 * r + 100 * k),
+    I('part', 10, 0, 2, 1, [ax(2, 'key')], null, { name: 'Shape 5', from: { id: 'W', range: { col: 1, row: 1, cols: 2, rows: 1, toEnd: whole } } }),
+    I('cell', 15, 0, 1, 1, [ax(2, 'key')], null, { name: 'Shape 6', from: { id: 'W', range: { col: 2, row: 0, cols: 1, rows: 1, toEnd: whole } } }),      /* cut down to one entry: 1 by 1, and no scalar */
+    I('J', 20, 0, 2, 2, [ax(2)], null, { name: 'Shape 3', joined: [{ fx: 0, fy: 0, fw: .5, fh: 1, shape: I('Lj', 20, 0, 1, 2, [ax(2)], (c, r, k) => r * k) }, { fx: .5, fy: 0, fw: .5, fh: 1, shape: I('Rj', 21, 0, 1, 2, [ax(2)], (c, r, k) => -r - k) }] }),
+    I('Zs', 30, 0, 2, 2, [ax(2)], null, { source: 'zeros' }), I('Os', 40, 0, 2, 1, [ax(2), ax(3)], null, { source: 'ones' }), I('Is', 50, 0, 2, 3, [ax(2)], null, { source: 'identity' }),
+    I('M2', 60, 0, 2, 2, [ax(2)], (c, r, k) => c + 2 * r + 4 * k), I('I2', 62, 0, 2, 2, [ax(2)], null, { source: 'identity' }),
+    B('n', 70, 0, 3, 1, { entries: rowsOf([[f('@[W:d1] + 1'), f('@[W:x] * @[W:y]'), f('@[Os:d2] / @[Os:d1]')]]) }),      /* the length of an inner axis, read off the type */
+    I('Fk', 80, 0, 2, 1, [ax(3)], (c, r, k) => k === 2 ? f('k1 * 10 + ' + c) : k === 3 ? f('@[W:d1] ^ k1') : c),      /* a formula in an entry reads its inner position */
+    I('Half', 90, 0, 2, 1, [ax(2)], (c, r, k) => k === 2 && c === 2 ? null : c + k), I('Hw', 92, 0, 1, 2, [ax(2)], (c, r, k) => 1),      /* a number never given, at depth */
+    I('Nz', 100, 0, 2, 2, [ax(2)], null, { source: { noise: { seed: 3, dist: 'uniform' } } })]),
+  'inner data: arrows and a tile': snap([I('X', 0, 0, 3, 2, [ax(2)], (c, r, k) => (c - 2) * r * k), arrow('pass', { id: 'X', as: 'block' }, { start: 2, span: 1 }),
+    arrow('relu', { id: 'X', as: 'block' }, { side: 's', span: 3, formula: 'max(x, 0) + k1 / 4' }), arrow('mix', { id: 'X', as: 'block' }, { side: 'n', span: 3, formula: 'x * @[s:m] + @[O] * i + @[Xi] / (j + k1)' }),
+    B('s', 30, 30, 1, 1, { entries: { '1,1': half } }), B('O', 40, 40, 3, 2, { source: 'ones' }), I('Xi', 44, 44, 3, 2, [ax(2)], (c, r, k) => c + r + k),      /* a matrix the formula names that holds no inner data is read at every position */
+    I('Y', 0, 60, 2, 2, [ax(3)], (c, r, k) => c + r * k), arrow('lin', { id: 'Y', as: 'block' }, { span: 2 }, { x: 50, name: 'linear', inside: space([B('in2', -9, 0, 2, 2, { in: true }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [half]]) })]) }),      /* its input block holds none: run at each position */
+    I('Z', 0, 80, 2, 2, [ax(3)], (c, r, k) => c * r - k), arrow('all', { id: 'Z', as: 'block' }, { span: 2 }, { x: 50, y: 80, name: 'whole', inside: space([I('in3', -9, 0, 2, 2, [ax(3)], null, { in: true }), I('Wg', -7, 0, 1, 2, [ax(3)], (c, r, k) => r + k)]) }),      /* it holds the same: applied once */
+    I('T', 0, 100, 1, 1, [ax(2)], (c, r, k) => k === 1 ? f('index.x * 10 + k1') : f('index.y - k1')), arrow('out', { id: 't1', as: 'tile' })],
+    [tile('t1', [11], { y: 100, cols: 1, rows: 1, across: 3, down: 2 })]),
+};
+
+/* ---- graphs written by hand: what a backend may be sent that no canvas makes yet ---- */
+const ty = (cols, rows, inner = null, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName, ...(inner ? { inner } : {}) });
+const N = (op, inputs, type, more = {}) => ({ op, inputs, type, ...more });
+const V = (type, fill, more = {}) => ({ op: 'variable', inputs: [], type, name: 'v', named: true, defined: 'entries', entries: filled(type.cols, type.rows, type.inner || [], fill), ...more });
+const G = (nodes, functions = {}) => ({ version: VERSION, nodes, functions, spaces: {}, blocks: {} });
+const QKV = ty(3, 1, [ax(2, 'key'), ax(4, 'embed')]), Wm = k => V(ty(2, 4, null, 'key', 'embed'), (c, r) => k * 100 + c * 10 + r), fn = (body, input = 'param(f:1)') => ({ 'f:1': { input, body } });
+const HAND = {
+  'by hand: stack, and an entry taken out again': G({ wq: Wm(1), wk: Wm(2), wv: Wm(3), q: N('stack', ['wq', 'wk', 'wv'], QKV, { at: [{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 2, row: 0 }] }),
+    qkv: { ...V(QKV, () => null), inputs: ['q'], defined: 'standing', name: 'QKV' }, k: N('entry', ['qkv'], ty(2, 4, null, 'key', 'embed'), { at: { col: 1, row: 0 } }), wk2: { ...V(ty(2, 4, null, 'key', 'embed'), () => null), inputs: ['k'], defined: 'entry' },
+    x: V(ty(4, 2), (c, r) => (c === r ? 1 : half)), xk: N('matmul', ['x', 'wk2'], ty(2, 2, null, 'key')),
+    deep: N('stack', ['q', 'q'], ty(1, 2, [ax(3), ax(1), ax(2, 'key'), ax(4, 'embed')]), { at: [{ col: 0, row: 0 }, { col: 0, row: 1 }] }),      /* parts that hold inner data of their own */
+    e1: N('entry', ['deep'], ty(3, 1, [ax(2, 'key'), ax(4, 'embed')]), { at: { col: 0, row: 1 } }),
+    a1: V(ty(2, 1, [ax(3)]), (c, r, k) => c * 10 + k), e2: N('entry', ['a1'], ty(3, 1), { at: { col: 1, row: 0 } }) }),      /* one inner axis: a single row */
+  'by hand: a transpose with an order': G({ a: V(QKV, (c, r, k1, k2) => c * 100 + k1 * 10 + k2), drawn: N('transpose', ['a'], ty(2, 4, [ax(3), ax(1)], 'key', 'embed'), { order: [2, 3, 0, 1] }),
+    back: N('transpose', ['drawn'], QKV, { order: [2, 3, 0, 1] }), swap: N('transpose', ['a'], ty(3, 1, [ax(4, 'embed'), ax(2, 'key')]), { order: [0, 1, 3, 2] }),
+    turn: N('transpose', ['a'], ty(4, 3, [ax(2, 'key'), ax(1)], 'embed'), { order: [3, 0, 2, 1] }), plain: N('transpose', ['a'], ty(1, 3, [ax(2, 'key'), ax(4, 'embed')])) }),
+  'by hand: a function whose input block holds no inner data, given some': G({ x: V(ty(2, 1, [ax(3)]), (c, r, k) => c * k), w: V(ty(1, 2), (c, r) => (r === 1 ? 1 : half)),
+    'param(f:1)': N('param', [], ty(2, 1), { within: ['f:1'] }), body: N('matmul', ['param(f:1)', 'w'], ty(1, 1), { within: ['f:1'] }), y: N('apply', ['x'], ty(1, 1, [ax(3)]), { fn: 'f:1' }),
+    x0: V(ty(2, 1), c => c + 5), y0: N('apply', ['x0'], ty(1, 1), { fn: 'f:1' }),      /* and the same function given none */
+    wide: V(ty(2, 2, [ax(2)]), (c, r, k) => c + 2 * r + 4 * k), runs: N('mapalong', ['wide'], ty(1, 2, [ax(2)]), { fn: 'f:1', axis: 'rows', start: 1, span: 1, count: 2 }) }, fn('body')),
+  'by hand: a function whose input block holds inner data': G({ q: V(QKV, (c, r, k1, k2) => c * 100 + k1 * 10 + k2), 'param(f:1)': N('param', [], QKV, { within: ['f:1'] }),
+    body: N('entry', ['param(f:1)'], ty(2, 4, null, 'key', 'embed'), { at: { col: 1, row: 0 }, within: ['f:1'] }), y: N('apply', ['q'], ty(2, 4, null, 'key', 'embed'), { fn: 'f:1' }),
+    d: N('measure', ['q'], ty(1, 1), { side: 'd2' }), m: N('map', ['q', 'd'], QKV, { formula: 'x + k1 * k2 + $1' }) }, fn('body')),
 };
 
 const files = (dir, at = '') => readdirSync(join(dir, at)).sort().flatMap(n => statSync(join(dir, at, n)).isDirectory() ? files(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
@@ -107,8 +177,9 @@ const near = v => v === null || v === undefined ? null : v === 'inf' || v === '-
 function answer(r){
   if (r.error) return { error: r.error.code };
   if (r.deferred) return { deferred: true };
-  const rows = []; for (let y = 1; y <= r.type.rows; y++){ const row = []; for (let x = 1; x <= r.type.cols; x++) row.push(near(r.entries[x + ',' + y])); rows.push(row); }
-  return { rows };
+  const matrix = tail => { const rows = []; for (let y = 1; y <= r.type.rows; y++){ const row = []; for (let x = 1; x <= r.type.cols; x++) row.push(near(r.entries[x + ',' + y + tail])); rows.push(row); } return rows; };
+  const inner = (r.type.inner || []).map(a => a.length), nest = (tail, at) => at === inner.length ? matrix(tail) : Array.from({ length: inner[at] }, (_, k) => nest(tail + ',' + (k + 1), at + 1));
+  return inner.length ? { inner, rows: nest('', 0) } : { rows: matrix('') };
 }
 /* what is inside a tile, asked for as the page asks: each part of each tile's pattern, in its first cell and in another */
 function bindings(g){
@@ -121,7 +192,8 @@ function bindings(g){
   for (const s of Object.values(g.spaces)) for (const t of s.tiles) for (const id of t.arrows){ const a = s.arrows.find(a => a.arrow === id); if (!a || !a.node) continue;
     for (const x of [0, 2]) out.push({ node: a.node, binding: { cells: [{ x, y: 0, dx: 0, dy: 0, cx: 1 + x / 2, cy: 1, of: [t.tile] }] } }); }
   /* and what is inside a function, given what one arrow gives it */
-  for (const [id, n] of Object.entries(g.nodes)) if (n.op === 'apply'){ const f = g.functions[n.fn]; out.push({ node: f.body, binding: { params: { [n.fn]: n.inputs[0] } } }); out.push({ node: f.input, binding: { params: { [n.fn]: n.inputs[0] } } }); }
+  /* (a function run at each inner position of what it is given has no one input to be looked at from: the page asks for none, and neither is asked here) */
+  for (const [id, n] of Object.entries(g.nodes)) if (n.op === 'apply' && (g.nodes[n.inputs[0]].type.inner || []).length === (g.nodes[g.functions[n.fn].input].type.inner || []).length){ const f = g.functions[n.fn]; out.push({ node: f.body, binding: { params: { [n.fn]: n.inputs[0] } } }); out.push({ node: f.input, binding: { params: { [n.fn]: n.inputs[0] } } }); }
   return out;
 }
 
@@ -131,10 +203,12 @@ export function fixtures(){
     graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(evaluate(g, id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(evaluate(g, b.node, { binding: b.binding })) })) }); };
   for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$/.test(f.path)), ...given(name)])));
   for (const [name, s] of Object.entries(CASES)) add(name, build(s));
+  for (const [name, g] of Object.entries(HAND)) add(name, g);
   return { graphs: JSON.parse(JSON.stringify(graphs)), mutations: mutations(graphs.map(x => JSON.parse(JSON.stringify(x.graph)))) };
 }
 
 /* ---- graphs changed in one place ---- */
+const TYPES = inner => [[], 0, 'x', [2], [{ length: 2 }], [{ length: 0, name: null }], [{ length: 1.5, name: null }], [...inner, ...Array.from({ length: 7 - inner.length }, () => ({ length: 1, name: null }))], inner.map(a => ({ ...a, name: null })), [...inner].reverse(), [...inner, { length: 1, name: null }]];
 function mutations(graphs){
   let seed = 20261118; const rnd = n => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed % n; };      /* the same every time */
   const out = [];
@@ -150,7 +224,15 @@ function mutations(graphs){
       else if (kind === 1 && typeof was === 'number') push({ path, set: was + [1, -1, .5, 1000][rnd(4)] });
       else if (kind === 2 && typeof was === 'string' && ids.length > 1) push({ path, set: ids[rnd(ids.length)] });
       else if (kind === 3 && typeof was === 'string') push({ path, set: was + ['x', ' ', '(', '+1', '.y'][rnd(5)] });
-      else push({ path, set: OTHER[rnd(OTHER.length)] }); } });
+      else push({ path, set: OTHER[rnd(OTHER.length)] }); }
+    /* what a type and an entry's key may be, for the first few nodes that hold inner data: each a change in one place */
+    for (const id of ids.filter(id => g.nodes[id].type.inner).slice(0, 4)){ const n = g.nodes[id], at = ['nodes', id, 'type'], inner = n.type.inner;
+      for (const set of TYPES(inner)) push({ path: [...at, 'inner'], set });
+      push({ path: [...at, 'inner'], drop: true }); push({ path: [...at, 'inner', '0', 'name'], drop: true }); push({ path: [...at, 'inner', '0', 'length'], set: inner[0].length + 1 }); push({ path: [...at, 'inner', '0', 'more'], set: 1 });
+      push({ path: [...at, 'axes'], set: 2 }); push({ path: [...at, 'depth'], set: null }); push({ path: [...at, 'inner', '0', 'name'], set: 'named' }); push({ path: [...at, 'inner', '0', 'name'], set: '' });
+      if (n.op === 'variable'){ const tail = inner.map(() => ',1').join('');
+        for (const key of ['1,1', '1,1' + tail + ',1', '1,1' + tail.slice(2), '1,1' + inner.map(a => ',' + (a.length + 1)).join(''), '1,1' + tail.replace(/1$/, '0'), '1,1' + tail.replace(/1$/, '01'), '1,1' + tail]) push({ path: ['nodes', id, 'entries', key], set: 7 }); } }
+    if (g.version !== undefined) for (const v of [1, 2, 3, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }
 

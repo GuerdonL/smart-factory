@@ -1,0 +1,42 @@
+{
+  "format": "smart-factory/shape",
+  "version": 4,
+  "id": "byulu8q",
+  "type": "tensor",
+  "name": "X",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -26,
+    "y": 5
+  },
+  "size": {
+    "cols": 4,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 1,
+      "2,1": 0,
+      "3,1": 2,
+      "4,1": 0,
+      "1,2": 0,
+      "2,2": 1,
+      "3,2": 0,
+      "4,2": 1,
+      "1,3": 1,
+      "2,3": 1,
+      "3,3": 0,
+      "4,3": 0
+    }
+  },
+  "order": 4,
+  "variable": 1,
+  "reference": true
+}

@@ -8,7 +8,7 @@ import { write, read, isNamed, FORMAT } from '../project.js';
 import { pieces } from '../algebra.js';
 
 /* a shape as read() gives one: every field present */
-const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null,
+const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null, inner: null,
   entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
 const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
@@ -193,7 +193,7 @@ test('what is not a project is refused, with the reason', () => {
   assert.throws(() => read([]), /no project\.json/);
   assert.throws(() => read([file('A.json', config('A'))]), /no project\.json/);
   assert.throws(() => read([file('project.json', { format: 'other' })]), /not a smart-factory project/);
-  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 4\)/);
+  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 5\)/);
   assert.throws(() => read([head(), { path: 'Bad.json', text: '{ not json' }]), /Bad\.json is not valid JSON/);
 });
 
@@ -219,7 +219,7 @@ test('format 1: the settings become the Menu, and the old top level one block be
 const at = (name, x, y, cols, rows, more = {}) => config(name, { position: { x, y }, size: { cols, rows }, ...more });
 const rectsOf = shapes => shapes.map(d => ({ x: d.x, y: d.y, w: d.cols, h: d.rows, wName: d.colsName, hName: d.rowsName }));
 
-test('the format is 3', () => { assert.equal(FORMAT, 3); });
+test('the format is 4', () => { assert.equal(FORMAT, 4); });
 
 test('format 2: a stack is fused into one shape, which holds its shapes top to bottom', () => {
   const p = read([head(2), file('Top.json', at('Top', 4, 0, 3, 2, { id: 'btop', order: 1, value: { entries: { '1,1': 5 } } })), file('Under.json', at('Under', 4, 2, 3, 1, { id: 'bunder', order: 0 })),
@@ -243,11 +243,11 @@ test('format 3: a stack is left alone, and is a sum', () => {
   assert.equal(read([head(2), ...files.slice(1)]).converted, 1);      /* the very same files, marked format 2, are a stack */
 });
 
-test('a converted project, saved, is format 3 and is not converted again', () => {
+test('a converted project, saved, is the format of today and is not converted again', () => {
   const old = read([head(2), file('Top.json', at('Top', 0, 0, 3, 2, { order: 0 })), file('Under.json', at('Under', 0, 2, 3, 2, { order: 1 })), file('Last.json', at('Last', 0, 4, 3, 1, { order: 2 }))]);
   assert.equal(old.converted, 1); assert.equal(old.top.shapes.length, 1); assert.equal(old.top.shapes[0].joined.length, 3);
   const files = write(old);
-  assert.equal(json(files, 'project.json').version, 3);
+  assert.equal(json(files, 'project.json').version, FORMAT);
   const again = read(files);
   assert.equal(again.converted, 0); assert.deepEqual(again.top, old.top);
 });
@@ -685,4 +685,88 @@ test('projects/noise-and-data holds a noise block, a file source with its file u
   for (const f of files) assert.ok(!/"f":|"err":/.test(f.text), f.path);      /* no decimal and no error in any file */
   const again = write(p).map(f => f.path).sort(); assert.deepEqual(again, files.map(f => f.path).sort());
   assert.deepEqual(read(write(p)).data, p.data);
+});
+
+/* ---- phase 8: inner data (format 4) ---- */
+test('format 4: a shape\'s inner axes are written in its size and its sides, and its long entry keys as they are', () => {
+  const inner = [{ length: 2, name: 'key' }, { length: 4, name: null }];
+  const p = project(space([shape('QKV', { id: 'b0000q1', cols: 3, rows: 1, inner, entries: { '2,1,1,3': 7, '2,1,2,3': { expr: '1/√(@[b0000q1:d1])' }, '3,1,2,4': Infinity } }), shape('Plain')]));
+  const files = write(p), q = json(files, 'QKV.json');
+  assert.deepEqual(q.size, { cols: 3, rows: 1, inner: [2, 4] }); assert.deepEqual(q.sides, { cols: null, rows: null, inner: ['key', null] });
+  assert.deepEqual(q.value.entries, { '2,1,1,3': 7, '2,1,2,3': { expr: '1/√(@[b0000q1:d1])' }, '3,1,2,4': 'inf' });
+  assert.deepEqual(json(files, 'Plain.json').size, { cols: 2, rows: 3 }); assert.deepEqual(json(files, 'Plain.json').sides, { cols: null, rows: null });      /* no inner data: not a word of it */
+  assert.deepEqual(read(files), p);
+  assert.deepEqual(write(read(files)), files);
+});
+test('format 4: value.as is "resolved" only when every number at every inner position has been given', () => {
+  const all = {}; for (const c of [1, 2]) for (const k of [1, 2, 3]) all[`${c},1,${k}`] = c * k;
+  const as = entries => json(write(project(space([shape('S', { cols: 2, rows: 1, inner: [{ length: 3, name: null }], entries })]))), 'S.json').value.as;
+  assert.equal(as(all), 'resolved');
+  const { '2,1,3': _, ...most } = all; assert.equal(as(most), 'variable');
+  assert.equal(as({ '1,1': 1, '2,1': 2 }), 'variable');      /* the short keys are not its entries */
+});
+test('format 4: an entry taken out keeps the shape and the entry it is, from 1', () => {
+  const p = project(space([shape('QKV', { id: 'b0000q1', cols: 3, rows: 1, inner: [{ length: 2, name: null }, { length: 4, name: null }] }), shape('W_K', { cols: 2, rows: 4, from: { id: 'b0000q1', entry: { col: 2, row: 1 } } })]));
+  const files = write(p);
+  assert.deepEqual(json(files, 'W_K.json').from, { id: 'b0000q1', entry: { col: 2, row: 1 } });
+  assert.deepEqual(read(files), p);
+  const odd = read([head(), file('E.json', config('E', { named: true, from: { id: 'b1', entry: { col: 0, row: 'x' } } }))]).top.shapes[0].from;
+  assert.deepEqual(odd, { id: 'b1', entry: { col: 1, row: 1 } });
+});
+test('format 4: inner with things missing or wrong is read with safe values, and an arrow has none', () => {
+  const got = (size, sides, more = {}) => read([head(), file('S.json', config('S', { named: true, size, sides, ...more }))]).top.shapes[0].inner;
+  assert.deepEqual(got({ cols: 3, rows: 1, inner: [2, 4] }, { cols: null, rows: null, inner: ['key', 'embed'] }), [{ length: 2, name: 'key' }, { length: 4, name: 'embed' }]);
+  assert.deepEqual(got({ cols: 3, rows: 1, inner: [2, 4] }, { cols: null, rows: null }), [{ length: 2, name: null }, { length: 4, name: null }]);
+  assert.deepEqual(got({ cols: 3, rows: 1, inner: [2.4, 0, 'x'] }, { inner: ['', 7] }), [{ length: 2, name: null }, { length: 1, name: null }, { length: 1, name: null }]);
+  assert.equal(got({ cols: 3, rows: 1, inner: [1, 2, 3, 4, 5, 6, 7, 8] }, {}).length, 6);
+  assert.equal(got({ cols: 3, rows: 1, inner: [] }, {}), null); assert.equal(got({ cols: 3, rows: 1, inner: 'x' }, {}), null); assert.equal(got({ cols: 3, rows: 1 }, { inner: ['key'] }), null);
+  assert.equal(got({ cols: 3, rows: 1, inner: [2] }, {}, { type: 'arrow', arrow: {} }), null);
+});
+test('format 3 is read exactly as it is, and saved again differs only in the format number', () => {
+  const v3 = v => [file('project.json', { format: 'smart-factory/project', version: v, saved: null }),
+    file('A.json', { format: 'smart-factory/shape', version: v, id: 'b000001', type: 'tensor', name: 'A', named: true, commented: false, color: 'variable-1', position: { x: 0, y: 0 }, size: { cols: 2, rows: 2 }, sides: { cols: 'k', rows: null },
+      value: { as: 'variable', entries: { '1,1': 3, '2,2': { expr: '2^3' } } }, order: 0 })].map(f => ({ path: f.path, text: JSON.stringify(JSON.parse(f.text), null, 2) + '\n' }));
+  const old = read(v3(3));
+  assert.equal(old.converted, 0); assert.equal(old.changed, 0); assert.equal(old.top.shapes[0].inner, null);
+  assert.deepEqual(old.top.shapes[0].entries, { '1,1': 3, '2,2': { expr: '2^3' } });
+  assert.deepEqual(write(old), v3(FORMAT));
+});
+test('projects/inner-data holds a shape of matrices with a matrix standing in each entry, a function that takes it whole, and its entries taken out', () => {
+  const files = shipped('inner-data'), p = read(files), by = name => p.top.shapes.find(d => d.name === name);
+  assert.equal(p.converted, 0); assert.equal(p.changed, 0);
+  assert.deepEqual(by('QKV').inner, [{ length: 2, name: 'key' }, { length: 4, name: 'embed' }]); assert.equal(by('QKV').cols, 3); assert.equal(by('QKV').rows, 1);
+  assert.deepEqual(by('QKV').inside.shapes.map(d => [d.name, d.standing, d.cols, d.rows, d.x, d.y]), [['W_Q', true, 2, 4, -7, -2], ['W_K', true, 2, 4, -5, -2], ['W_V', true, 2, 4, -3, -2]]);      /* each at its entry's place, entry for entry */
+  assert.deepEqual(by('Heads').inner, [{ length: 3, name: 'head' }]); assert.equal(Object.keys(by('Heads').entries).length, 24); assert.ok(Object.keys(by('Heads').entries).every(k => /^[12],[1-4],[123]$/.test(k)));
+  const attend = by('attend'), inside = attend.inside.shapes, input = inside.find(d => d.in);
+  assert.equal(attend.arrow.input.id, by('QKV').id); assert.deepEqual(input.inner, by('QKV').inner);
+  assert.deepEqual(inside.filter(d => d.from).map(d => [d.name, d.from.id === input.id, d.from.entry, d.transposed]), [['Q', true, { col: 1, row: 1 }, false], ['K', true, { col: 2, row: 1 }, true], ['V', true, { col: 3, row: 1 }, false]]);
+  for (const f of files.filter(f => f.path.endsWith('.json'))) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path);
+  const again = write(read(write(p))); assert.deepEqual(again, write(p));      /* written, read and written again: the same files */
+  const byPath = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
+  assert.deepEqual(byPath(write(p)), byPath(files));      /* and they are the files that are shipped */
+});
+test('format 4: a turned use keeps its axis order, beside its own size as it is drawn; what is no order of its variable is dropped', () => {
+  const inner = [{ length: 3, name: 'head' }], W = shape('W', { id: 'b00000w', cols: 2, rows: 1, inner, variable: 1 });
+  const use = more => shape('W', { id: 'b0000w2', cols: 3, rows: 1, colsName: 'head', inner: [{ length: 2, name: null }], variable: 1, reference: true, axes: [2, 1, 0], ...more });
+  const p = project(space([W, use()])), files = write(p);
+  assert.deepEqual(json(files, 'W (2).json').axes, [2, 1, 0]); assert.equal('axes' in json(files, 'W.json'), false); assert.equal('transposed' in json(files, 'W (2).json'), false);
+  assert.deepEqual(read(files), p); assert.deepEqual(write(read(files)), files);
+  const kept = d => { const f = write(project(space([W, d]))); return json(f, 'W (2).json').axes ?? null; };
+  assert.deepEqual(kept(use({ axes: [0, 2, 1] })), [0, 2, 1]);
+  for (const axes of [[0, 1, 2], [1, 0, 2], [2, 1], [2, 1, 0, 3], [2, 2, 0], [2, 1, '0'], 'x', null]) assert.equal(kept(use({ axes })), null, JSON.stringify(axes));      /* nothing moved, a plain transpose, not every axis once */
+  assert.equal(kept(use({ reference: false })), null);                                   /* only a reference is turned */
+  assert.equal(kept(use({ inner: null, axes: [1, 0] })), null);                           /* no inner data: nothing to turn */
+  const back = c => read([head(), file('S.json', config('S', { named: true, size: { cols: 3, rows: 1, inner: [2] }, sides: {}, ...c }))]).top.shapes[0];
+  assert.deepEqual(back({ reference: true, axes: [2, 1, 0] }).axes, [2, 1, 0]); assert.equal('axes' in back({ axes: [2, 1, 0] }), false); assert.equal('axes' in back({ reference: true, axes: [5, 1, 0] }), false);
+});
+test('after review: writing a shape costs what its entries cost, never its size; an inner length past 16,000,000 is not read', () => {
+  const huge = shape('H', { cols: 3000, rows: 3000, inner: [{ length: 16000000, name: null }, { length: 16000000, name: null }], entries: { '1,1,1,1': 5 } });
+  const t0 = Date.now(), files = write(project(space([huge]))); assert.ok(Date.now() - t0 < 500, 'written at once');
+  assert.equal(json(files, 'H.json').value.as, 'variable'); assert.deepEqual(json(files, 'H.json').size.inner, [16000000, 16000000]);
+  assert.deepEqual(json(write(project(space([shape('H', { inner: [{ length: 1e12, name: null }] })]))), 'H.json').size.inner, [16000000]);      /* held to the most on the way out */
+  for (const length of ['16000001', '1e12', '1e999']) assert.throws(() => read([head(), { path: 'S.json', text: `{"format":"smart-factory/shape","version":4,"name":"S","named":true,"size":{"cols":2,"rows":1,"inner":[${length}]}}` }]), /S has an inner axis .* long: the most is 16000000/);
+  assert.deepEqual(read([head(), file('S.json', config('S', { named: true, size: { cols: 2, rows: 1, inner: [16000000] } }))]).top.shapes[0].inner, [{ length: 16000000, name: null }]);
+  /* full is counted over the keys that are its own */
+  const as = entries => json(write(project(space([shape('S', { cols: 2, rows: 1, inner: [{ length: 2, name: null }], entries })]))), 'S.json').value.as;
+  assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '2,1,2': 1 }), 'resolved'); assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '3,1,2': 1 }), 'variable'); assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '2,1,2': 1, '9,9': 1 }), 'resolved');
 });

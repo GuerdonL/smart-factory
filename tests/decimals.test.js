@@ -210,3 +210,15 @@ test('on the page, only what draws reads the backend\'s numbers', () => {
   const body = name => { const at = lines.findIndex(l => new RegExp('^(?:function|const) ' + name + '\\b').test(l)); assert.ok(at >= 0, name); let end = at + 1; while (end < lines.length && !/^(?:async )?function \w+|^(?:const|let) \w+|^\/\*/.test(lines[end])) end++; return lines.slice(at, end).join('\n'); };
   for (const exact of ['answerOf', 'valuesOf', 'evaluated', 'held', 'scalarOf', 'rootSide', 'sideLength', 'measured', 'lookupFor', 'attrValue', 'cells', 'gather', 'derived', 'rangeValues']) assert.doesNotMatch(body(exact), /laid|backend\./i, exact);
 });
+
+/* ---- phase 8: inner data ---- */
+test('inner data: the drawn entries are asked for at every inner position, and an answer is keyed by all but its value', async () => {
+  const { drawn, merged, MOST_ASKED } = await import('../decimals.js');
+  assert.deepEqual(drawn({ cols: 2, rows: 1, inner: [{ length: 2, name: null }] }), [[1, 1, 1], [2, 1, 1], [1, 1, 2], [2, 1, 2]]);
+  assert.deepEqual(drawn({ cols: 2, rows: 1 }), [[1, 1], [2, 1]]);      /* no inner data: as it was */
+  assert.equal(drawn({ cols: 3, rows: 1, inner: [{ length: 2, name: 'key' }, { length: 4, name: null }] }).length, 24);
+  const big = drawn({ cols: 8, rows: 8, inner: [{ length: 100, name: null }, { length: 100, name: null }] });
+  assert.equal(big.length, MOST_ASKED); assert.deepEqual(big[0], [1, 1, 1, 1]); assert.deepEqual(big[64], [1, 1, 1, 2]);
+  const answer = { type: { cols: 2, rows: 1, inner: [{ length: 2, name: null }] }, deferred: true, backend: true };
+  assert.deepEqual([...merged(answer, new Map(), { cells: [[1, 1, 1, 0.5], [2, 1, 2, 'inf'], [1, 1], 'x'] })], [['1,1,1', { f: 0.5 }], ['2,1,2', { f: Infinity }]]);
+});

@@ -5,6 +5,7 @@ Run them all from the repository's root with the backend's environment (README: 
 Under a Python with no NumPy the tests that need it are skipped, each saying so, and the rest run: the formula
 parser, validate, the data files and the limits need only the standard library."""
 import copy
+import itertools
 import json
 import math
 import os
@@ -49,11 +50,16 @@ def changed(graph, m):
     return g
 
 
-T = lambda cols, rows: {'cols': cols, 'rows': rows, 'colsName': None, 'rowsName': None}
+def T(cols, rows, inner=None, cols_name=None, rows_name=None):
+    """A type. inner: the axes of what each entry holds, each a length or a (length, name)."""
+    t = {'cols': cols, 'rows': rows, 'colsName': cols_name, 'rowsName': rows_name}
+    if inner:
+        t['inner'] = [{'length': a, 'name': None} if isinstance(a, int) else {'length': a[0], 'name': a[1]} for a in inner]
+    return t
 
 
-def graph_of(nodes, functions=None, spaces=None, blocks=None):
-    return {'version': 1, 'nodes': nodes, 'functions': functions or {}, 'spaces': spaces or {}, 'blocks': blocks or {}}
+def graph_of(nodes, functions=None, spaces=None, blocks=None, version=2):
+    return {'version': version, 'nodes': nodes, 'functions': functions or {}, 'spaces': spaces or {}, 'blocks': blocks or {}}
 
 
 def variable(cols, rows, values, name='V', **more):
@@ -62,8 +68,30 @@ def variable(cols, rows, values, name='V', **more):
     return dict({'op': 'variable', 'inputs': [], 'type': T(cols, rows), 'name': name, 'named': True, 'defined': 'entries', 'entries': entries}, **more)
 
 
+def inner_lengths(t):
+    return [a['length'] for a in t.get('inner', [])]
+
+
+def positions(t):
+    """Every inner position of a type, from 1, the first axis slowest: [()] for a type that holds no inner data."""
+    return list(itertools.product(*(range(1, n + 1) for n in inner_lengths(t))))
+
+
+def deep(type_, fill, name='V', **more):
+    """A variable whose entries hold inner data, every number given by fill(c, r, k1, …) (None: never given)."""
+    entries = {}
+    for ks in positions(type_):
+        for r in range(1, type_['rows'] + 1):
+            for c in range(1, type_['cols'] + 1):
+                v = fill(c, r, *ks)
+                if v is not None:
+                    entries[','.join(str(x) for x in (c, r) + ks)] = v
+    return dict({'op': 'variable', 'inputs': [], 'type': type_, 'name': name, 'named': True, 'defined': 'entries', 'entries': entries}, **more)
+
+
 def all_cells(t):
-    return [[c, r] for r in range(1, t['rows'] + 1) for c in range(1, t['cols'] + 1)]
+    """Every entry of a type as it is asked for: [c, r], and the inner position after where it holds inner data."""
+    return [[c, r] + list(ks) for ks in positions(t) for r in range(1, t['rows'] + 1) for c in range(1, t['cols'] + 1)]
 
 
 class Plain:

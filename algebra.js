@@ -22,6 +22,20 @@
    Shapes that share a horizontal edge without the same x and width do not touch, and shapes that do not touch have
    nothing to do with each other here, however close they are.
 
+   A rect may carry inner: the axes of the data each of its entries holds, [{ length, name }], in order; left out or
+   empty for a shape whose entries are single numbers. Every rule acts on the two drawn sides and is repeated at each
+   inner position, and inner data that differs is refused, never broadcast: two shapes' inner axes agree when there
+   are as many, of the same lengths, and no axis is called by two different names. A sum needs them to agree
+   exactly (a sum never broadcasts, so a shape with inner data and one with none do not add). In a product and
+   entry by entry a shape with no inner data may meet one that has some: it is used at every inner position. A
+   one by one shape that holds inner data is no scalar: it does not scale, and is not passed over in a row.
+   nested(a, b, strict)          -> { ok, note, inner }: two lists of inner axes that are to be one. note is what
+                                    does not agree: "head ≠ layer" (two names), "inner 3 ≠ 2" (two lengths),
+                                    "inner 2×4 ≠ 3" or "inner 2×4 ≠ none" (not as many axes). inner is what they
+                                    come to, each axis named by the first that names it. strict: one with none
+                                    against one with some does not agree (a sum, the parts of one matrix).
+   numbers(type)                 -> how many numbers a type holds: its columns times its rows times every inner length
+
    A rect may carry a zone: the tile it is in (tiles.js), by any value that tells one tile from another; left out or
    null for a shape in none. Shapes of different zones never touch, however they lie: a tile touches nothing, and a
    touch across a tile's boundary is ignored. Shapes of one zone touch as any do.
@@ -51,7 +65,7 @@
        the shapes sorted into pieces. rule is 'product', 'sum' or 'elementwise'; 'mixed' where the touches are of more
        than one rule; null for a shape on its own. members are indexes into rects in reading order (left to right;
        top to bottom for a sum) where there is one. box is the rectangle round the piece. type is what the piece
-       comes to: { cols, rows, colsName, rowsName }, or { error: 'mixed rules' }, or { error: 'undefined' } when a
+       comes to: { cols, rows, colsName, rowsName } (and inner, where it holds inner data), or { error: 'mixed rules' }, or { error: 'undefined' } when a
        touch in it is not defined or its shapes do not form a single line (one shape touching two on the same side
        has no one reading). A sum or an elementwise chain is the size of its largest operand; each side has the name
        of the first member that names a side of that length (a scalar's side does not name the side of a matrix it
@@ -112,7 +126,8 @@
        of "column,row", from 1, and a value: a Map will do) the variable's own way round, and whether the source
        stands as the transpose of its variable. Entry c,r of the part is the entry in column range.col + c and row
        range.row + r of the source as it stands, whatever that is now; an entry the source has not been given is not
-       in the Map. With turned, the part's entries are given turned, r,c for c,r (for a use of the part that is its
+       in the Map. A key may go on past its column and row ("column,row,k1,k2": an inner position); what follows
+       goes with the entry untouched. With turned, the part's entries are given turned, r,c for c,r (for a use of the part that is its
        transpose). Empty where the source cannot hold the range.
    wholeSide(range, dim) -> whether the range takes in the source's whole side: dim is 'cols' or 'rows'
    sideLabel(range, dim, own, other, op, nth) -> what a side of such a shape is called, or null
@@ -135,8 +150,21 @@
        symbolic, decimal, error, unknown) and the rules for combining them. Every one of them takes every kind.
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
 
-export const isScalar = r => r.w === 1 && r.h === 1;
-const sized = r => ({ cols: r.w, rows: r.h, colsName: r.wName || null, rowsName: r.hName || null });
+const innerIn = v => Array.isArray(v) ? v : [];
+const withInner = (type, inner) => inner && inner.length ? { ...type, inner } : type;
+export const isScalar = r => r.w === 1 && r.h === 1 && !innerIn(r.inner).length;
+const sized = r => withInner({ cols: r.w, rows: r.h, colsName: r.wName || null, rowsName: r.hName || null }, innerIn(r.inner));
+export function nested(a, b, strict = false){
+  a = innerIn(a); b = innerIn(b);
+  if (!a.length && !b.length) return { ok: true, note: '', inner: [] };
+  if (!strict && (!a.length || !b.length)) return { ok: true, note: '', inner: a.length ? a : b };
+  const size = x => x.length ? x.map(i => i.length).join('×') : 'none';
+  if (a.length !== b.length) return { ok: false, note: `inner ${size(a)} ≠ ${size(b)}`, inner: null };
+  for (let i = 0; i < a.length; i++) if (a[i].name && b[i].name && a[i].name !== b[i].name) return { ok: false, note: `${a[i].name} ≠ ${b[i].name}`, inner: null };
+  for (let i = 0; i < a.length; i++) if (a[i].length !== b[i].length) return { ok: false, note: `inner ${a[i].length} ≠ ${b[i].length}`, inner: null };
+  return { ok: true, note: '', inner: a.map((x, i) => ({ length: x.length, name: x.name || b[i].name || null })) };
+}
+export const numbers = t => innerIn(t.inner).reduce((n, a) => n * a.length, t.cols * t.rows);
 /* two sides that have to be one side: '' where they are (the same length, and not two different names), else what
    differs. Two names that differ are said first, since a name is what the user gave the side. */
 const differ = (la, na, lb, nb) => na && nb && na !== nb ? `${na} ≠ ${nb}` : la !== lb ? `${la} ≠ ${lb}` : '';
@@ -144,8 +172,10 @@ const differ = (la, na, lb, nb) => na && nb && na !== nb ? `${na} ≠ ${nb}` : l
    cases above as well. type is the larger, each side named by the first of the two that names a side of that length. */
 function together(A, B, broadcast){
   const c = differ(A.cols, A.colsName, B.cols, B.colsName), r = differ(A.rows, A.rowsName, B.rows, B.rowsName);
-  const one = t => t.cols === 1 && t.rows === 1;
-  const ok = (!c && !r) || (broadcast && (one(A) || one(B) || (!c && (A.rows === 1 || B.rows === 1)) || (!r && (A.cols === 1 || B.cols === 1))));
+  const one = t => t.cols === 1 && t.rows === 1 && !innerIn(t.inner).length;      /* a scalar: a one by one shape that holds inner data is not one */
+  const drawn = (!c && !r) || (broadcast && (one(A) || one(B) || (!c && (A.rows === 1 || B.rows === 1)) || (!r && (A.cols === 1 || B.cols === 1))));
+  const n = nested(A.inner, B.inner, !broadcast), ok = drawn && n.ok;
+  if (drawn && !n.ok) return { ok, note: n.note };
   if (!ok){
     /* what to say: the side that fails. One of the two being a single column, the columns were free to differ and it is
        the rows that do not agree; a single row likewise leaves the columns to blame. Otherwise whichever side differs,
@@ -153,7 +183,7 @@ function together(A, B, broadcast){
     const column = broadcast && (A.cols === 1 || B.cols === 1), row = broadcast && (A.rows === 1 || B.rows === 1);
     return { ok, note: column && !row ? r : row && !column ? c : c && r && A.cols !== B.cols && A.rows !== B.rows ? `${A.cols}×${A.rows} ≠ ${B.cols}×${B.rows}` : c || r }; }
   const cols = Math.max(A.cols, B.cols), rows = Math.max(A.rows, B.rows);
-  return { ok, note: '', type: { cols, rows, colsName: (A.cols === cols && A.colsName) || (B.cols === cols && B.colsName) || null, rowsName: (A.rows === rows && A.rowsName) || (B.rows === rows && B.rowsName) || null } };
+  return { ok, note: '', type: withInner({ cols, rows, colsName: (A.cols === cols && A.colsName) || (B.cols === cols && B.colsName) || null, rowsName: (A.rows === rows && A.rowsName) || (B.rows === rows && B.rowsName) || null }, n.inner) };
 }
 export const zoneOf = tiles => Array.isArray(tiles) && tiles.length ? tiles[0] : null;
 export function touches(rects){
@@ -164,8 +194,9 @@ export function touches(rects){
     if (a.x + a.w === b.x){
       const top = Math.max(a.y, b.y), bottom = Math.min(a.y + a.h, b.y + b.h);
       if (bottom > top){                            /* along an edge: a product */
-        const byName = a.wName && b.hName, ok = isScalar(a) || isScalar(b) || (byName ? a.wName === b.hName : a.w === b.h);      /* a single entry multiplies anything, from either side */
-        touch('product', b.x, (top + bottom) / 2, ok, byName ? `${a.wName} ≠ ${b.hName}` : `${a.w} ≠ ${b.h}`); }
+        const byName = a.wName && b.hName, sides = isScalar(a) || isScalar(b) || (byName ? a.wName === b.hName : a.w === b.h);      /* a single entry multiplies anything, from either side */
+        const n = nested(a.inner, b.inner);      /* one product at each inner position; a shape with no inner data is used at every one */
+        touch('product', b.x, (top + bottom) / 2, sides && n.ok, !sides ? (byName ? `${a.wName} ≠ ${b.hName}` : `${a.w} ≠ ${b.h}`) : n.note); }
       else if (b.y + b.h === a.y || b.y === a.y + a.h){      /* at a corner: b above is times, b below is over */
         const t = together(sized(a), sized(b), true); touch(b.y === a.y + a.h ? 'over' : 'times', b.x, b.y === a.y + a.h ? b.y : a.y, t.ok, t.note); }
     } else if (a.x === b.x && a.w === b.w && a.y + a.h === b.y){      /* one directly on the other: a sum */
@@ -199,7 +230,9 @@ function piecesBy(rects, ts){
 function rowType(rects, row){
   const solid = row.filter(i => !isScalar(rects[i])), ends = solid.length ? solid : row, first = rects[ends[0]], last = rects[ends[ends.length - 1]];
   const fits = solid.every((i, n) => { if (!n) return true; const a = rects[solid[n - 1]], b = rects[i]; return a.wName && b.hName ? a.wName === b.hName : a.w === b.h; });
-  return fits ? { cols: last.w, rows: first.h, colsName: last.wName || null, rowsName: first.hName || null } : { error: 'undefined' };
+  let inner = [];      /* the inner data of the shapes that are not scalars has to agree all along the row, whichever of them touch */
+  for (const i of solid){ const n = nested(inner, rects[i].inner); if (!n.ok) return { error: 'undefined' }; inner = n.inner; }
+  return fits ? withInner({ cols: last.w, rows: first.h, colsName: last.wName || null, rowsName: first.hName || null }, inner) : { error: 'undefined' };
 }
 /* what a sum or an elementwise chain comes to, taken from the first member on: each step must be defined against
    what the steps before it came to (A ∘ s ∘ B has both its touches defined whatever A and B are, and is still
@@ -289,9 +322,9 @@ export function rangeIn(range, cols, rows){
 }
 export function partEntries(range, source, turned = false){
   const at = rangeIn(range, source.cols, source.rows), out = new Map(); if (!at) return out;
-  for (const [key, v] of source.entries){ let [c, r] = key.split(',').map(Number); if (source.turned) [c, r] = [r, c];      /* where the entry stands in the source */
-    c -= at.col; r -= at.row;
-    if (c >= 1 && c <= at.cols && r >= 1 && r <= at.rows) out.set(turned ? r + ',' + c : c + ',' + r, v); }
+  for (const [key, v] of source.entries){ let [c, r, ...ks] = key.split(',').map(Number); if (source.turned) [c, r] = [r, c];      /* where the entry stands in the source */
+    c -= at.col; r -= at.row; const tail = ks.length ? ',' + ks.join(',') : '';      /* an inner position goes with its entry, untouched */
+    if (c >= 1 && c <= at.cols && r >= 1 && r <= at.rows) out.set((turned ? r + ',' + c : c + ',' + r) + tail, v); }
   return out;
 }
 export const wholeSide = (range, dim) => dim === 'cols' ? range.col === 0 && !!range.toEnd.cols : range.row === 0 && !!range.toEnd.rows;

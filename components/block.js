@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, set(rect), select(on), dim(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
+   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, inner, set(rect), select(on), nest(n), dim(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
      id       a name for this block that nothing else has: how messages say which block they mean. null until whoever
               made the block gives it one.
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
@@ -12,6 +12,8 @@
      values   a Map from "column,row" to what that entry of this variable holds, for the entries given anything: a
               literal value or a formula, { expr } (expression.js).
               Kept here for the same reason.
+     inner    the axes of what each entry holds, [{ length, name }] (inner.js): empty where each is one number. A
+              key in values then goes on past its column and row, "column,row,k1,…". Kept here likewise.
      set      moves and resizes it
      select   shows or hides the selection halo, and brings the block in front of the others
      grips    turns the resize grips on or off
@@ -25,6 +27,9 @@
      stripes  bands the block's face, one band to each `unit` of world length, paler and deeper by turns in the
               block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or
               null for a plain face
+     nest     nest(n): draws it as a shape whose entries hold inner data, with n inner axes: one offset outline
+              behind its face for each, down and to the right, at most three drawn (0: none). Its name stays
+              where every block's is.
      dim      fades the block and its name most of the way to the theme's --fade-to, or brings them back
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
@@ -56,7 +61,7 @@ style('block', `
   background: var(--bands, none) var(--face); transition: background-color .15s;
   /* a thin dark rim all round, so two blocks that touch still show where one ends and the next begins */
   box-shadow: var(--halo, 0 0), inset 0 0 0 var(--px) var(--rim),
-    inset 0 calc(2.5 * var(--px)) 0 var(--lit), inset 0 calc(-4 * var(--px)) 0 var(--shade); }
+    inset 0 calc(2.5 * var(--px)) 0 var(--lit), inset 0 calc(-4 * var(--px)) 0 var(--shade), var(--sheets, 0 0); }
 /* the shadow underneath is drawn on a layer below every block (z-index -1), so it falls on the canvas and never on another block */
 .block::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
   box-shadow: 0 calc(2 * var(--px)) calc(3 * var(--px)) var(--cast), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--cast); }
@@ -83,6 +88,22 @@ style('block', `
 /* a function's input: pale, with a dashed edge in the function colour */
 .block.input { --face: color-mix(in srgb, var(--function) 20%, var(--bg)); --rim: transparent; --lit: transparent; --shade: transparent; --cast: transparent; --ink: var(--function); }
 .block.input:not(.selected) { outline: calc(1.5 * var(--px)) dashed var(--function); outline-offset: calc(-1.5 * var(--px)); }
+/* a shape whose entries hold inner data: behind its face, one outline for each inner axis (at most three), each a step
+   further down and to the right and a little paler, like sheets under the top one (down, not up: above a block is its
+   name, and above that a frame's or a tile's own label, which a sheet or a raised name would lie over). They lie on the layer below every
+   block, as its cast shadow does, so that a block set against this one is not drawn over. A selected block is a
+   layer of its own, where such a sheet would lie over its own face: there the sheets are shadows of its box with no
+   blur, which are drawn only outside the box (and over what is beside it, as its halo is). */
+.block.nested { --step: calc(4 * var(--px)); --sheet-1: color-mix(in srgb, var(--face) 64%, var(--fade-to)); --sheet-2: color-mix(in srgb, var(--face) 46%, var(--fade-to)); --sheet-3: color-mix(in srgb, var(--face) 32%, var(--fade-to));
+  --at-1: var(--step) var(--step) 0; --at-2: calc(2 * var(--step)) calc(2 * var(--step)) 0; --at-3: calc(3 * var(--step)) calc(3 * var(--step)) 0; }
+.block-depth { position: absolute; inset: 0; z-index: -1; pointer-events: none; box-sizing: border-box; border-radius: inherit; box-shadow: inset 0 0 0 var(--px) var(--rim); }
+.block-depth[data-n="1"] { transform: translate(var(--step), var(--step)); background: var(--sheet-1); }
+.block-depth[data-n="2"] { transform: translate(calc(2 * var(--step)), calc(2 * var(--step))); background: var(--sheet-2); }
+.block-depth[data-n="3"] { transform: translate(calc(3 * var(--step)), calc(3 * var(--step))); background: var(--sheet-3); }
+.block.selected > .block-depth { display: none; }
+.block.selected.nest-1 { --sheets: var(--at-1) 0 var(--sheet-1), var(--at-1) var(--px) var(--rim); }
+.block.selected.nest-2 { --sheets: var(--at-1) 0 var(--sheet-1), var(--at-1) var(--px) var(--rim), var(--at-2) 0 var(--sheet-2), var(--at-2) var(--px) var(--rim); }
+.block.selected.nest-3 { --sheets: var(--at-1) 0 var(--sheet-1), var(--at-1) var(--px) var(--rim), var(--at-2) 0 var(--sheet-2), var(--at-2) var(--px) var(--rim), var(--at-3) 0 var(--sheet-3), var(--at-3) var(--px) var(--rim); }
 /* a block makes no layer of its own, so its name (z-index 2) sits above every block on the canvas, not just this one */
 .block-name { position: absolute; z-index: 2; left: 0; bottom: calc(100% + 9 * var(--px)); padding: 0 calc(3 * var(--px)); margin-left: calc(-3 * var(--px));
   font-family: var(--font-name); font-size: calc(14 * var(--px)); line-height: 1.2; letter-spacing: -0.02em; white-space: nowrap; color: var(--ink); transition: color .15s; border-radius: calc(3 * var(--px)); cursor: default; }
@@ -133,10 +154,14 @@ export function createBlock(shape, rect, name = ''){
   for (const g of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) el.append(html`<i class="block-grip" data-grip="${g}"></i>`);      /* corners last, so they sit over the sides */
   nameEl.textContent = name;
   el.style.setProperty('--block', `var(--${shape.color})`);
-  let joinedAs = '', valueEl = null;
-  const block = { id: null, el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(), t: false,
+  let joinedAs = '', valueEl = null, nested = 0;
+  const block = { id: null, el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(), inner: [], t: false,
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
+    nest(n){ const depth = Math.max(0, Math.min(3, Math.round(+n || 0))); if (depth === nested) return; nested = depth;
+      for (const d of el.querySelectorAll(':scope > .block-depth')) d.remove();
+      el.classList.toggle('nested', depth > 0); for (const k of [1, 2, 3]) el.classList.toggle('nest-' + k, depth === k); el.style.setProperty('--depth', String(depth));
+      for (let k = 1; k <= depth; k++) el.prepend(html`<i class="block-depth" data-n="${k}"></i>`); },      /* the furthest ends up first, so that each nearer one lies over it */
     off(on){ el.classList.toggle('off', on); },
     warn(on){ el.classList.toggle('warned', !!on); },
     grips(on){ el.classList.toggle('no-grips', !on); },

@@ -16,7 +16,9 @@
          output: { cols, rows } the function promises, or null for no promise
          formula:   an entry formula, or null }
 
-   A rect is { x, y, w, h } in units, y downward, as in algebra.js. A type is { cols, rows, colsName, rowsName }.
+   A rect is { x, y, w, h } in units, y downward, as in algebra.js. A type is { cols, rows, colsName, rowsName },
+   with inner (the axes of what each entry holds, algebra.js) where it holds inner data. An arrow's span, and all
+   else here, is in drawn rows and columns: inner data is carried along with its entry, untouched.
 
    Where things are (never stored: worked out from the input's rectangle each time)
    along(side)                  -> 'rows' | 'cols': what the base runs along
@@ -50,9 +52,14 @@
    What the function is: nothing (the covered part passes through unchanged), an entry formula (worked out once for
    every entry of the output, which is the size of the covered part), or a definition space (the page says what the
    one piece in it comes to).
-   came(arrow, part, defined)   -> what the function comes to: a type, or { error }. part is coveredType; defined is
+   came(arrow, part, defined, takes) -> what the function comes to: a type, or { error }. part is coveredType; defined is
                                    what its definition space comes to (a type, { error }, or null where it has none
-                                   or holds only its input). A formula comes first.
+                                   or holds only its input). A formula comes first. takes: the function's own
+                                   input block as a type (left out: the part itself). Where the part holds inner
+                                   data and the input block holds none, the function is run at each inner
+                                   position and its result takes the part's inner axes, so it may not come to
+                                   inner data of its own; where the input block holds inner data, it is applied
+                                   once, to all of it.
    check(promise, came)         -> { ok, note }: whether what the function comes to is what was promised. promise is
                                    { cols, rows, colsName, rowsName } or null (nothing promised: nothing checked).
                                    Where both name a side the names must be the same.
@@ -117,19 +124,24 @@
                                    Otherwise the first hollow written in, else the matrix beside the piece.
 
    What a space comes to, where it holds arrows: its ends, the things in it that nothing reads from.
-   ends(pieces, arrows)         -> [{ type, piece } | { type, arrow }]. pieces: [{ ids: the ids of its blocks, type,
+   ends(pieces, arrows, taken)  -> [{ type, piece } | { type, arrow }]. pieces: [{ ids: the ids of its blocks, type,
                                    config: true for what is in a .config, which is no part of what a space comes
                                    to }]; arrows: [{ id, reads: the id its input names, seated: whether a block is
                                    seated on its output, type: what its output is, or { error } }]. A piece is an
                                    end unless an arrow reads one of its blocks (or the piece's result); an arrow's
                                    output is one unless another arrow reads it or a block is seated on it, in which
                                    case that block's piece is what goes on. With no arrows, the ends are the pieces.
+                                   taken: the ids of the blocks an entry has been taken out of, on that canvas
+                                   (a shape that holds inner data, with one of its entries set down as a block of
+                                   its own): such a block is read from as an arrow's input is, and its piece is
+                                   no end.
    defined(ends, isInput)       -> what an arrow's definition space comes to: null where it has no end, or its one
                                    end is the input block alone (isInput(id) says which block that is), which is to
                                    pass through; the one end's type; or { error: 'n pieces' } for several
 
    Values, entry by entry
-   passed(values, part)         -> a Map: the covered part of the input's entries (a Map from "column,row")
+   passed(values, part)         -> a Map: the covered part of the input's entries (a Map from "column,row"; an
+                                   inner position after those, "column,row,k1,k2", goes with its entry)
    worked(formula, { cols, rows, x, lookup, matrix }) -> a Map from "column,row" to a value
                                    an entry formula worked out for every entry of the output (expression.js, with
                                    whole matrices taken). In it x is the input's entry at this place (x: a Map), i
@@ -144,7 +156,8 @@
    Named arrows. A named arrow is a variable; another use of it is the same function on a new input, which must fit
    the function's own input block, `in`:
    fits(inner, part)            -> { ok: true } | { refused: a sentence }: each named side of inner must meet a side of
-                                   the same name, each unnamed side one of the same length
+                                   the same name, each unnamed side one of the same length; and where inner holds
+                                   inner data, part has to hold the same (algebra.js: nested)
    fitting(inner, side, type, at) -> { start, span } | { refused }: where such an arrow goes when set against side of
                                    an input of that type at row or column `at`: a span the length of inner's side
                                    along the base (the whole side where inner names it), slid to take in `at`.
@@ -165,6 +178,7 @@
                                    went straight out along its row or its column, at least one unit clear: the
                                    pass-through arrow that carries the hollow's result to it */
 import { evaluate } from './expression.js';
+import { nested } from './algebra.js';
 
 export const SIDES = ['n', 'e', 's', 'w'];
 export const along = side => side === 'e' || side === 'w' ? 'rows' : 'cols';
@@ -177,7 +191,8 @@ export function covered(arrow, size){
 }
 export function coveredType(arrow, type){
   const part = covered(arrow, type); if (!part) return null;
-  return { cols: part.cols, rows: part.rows, colsName: part.cols === type.cols ? type.colsName || null : null, rowsName: part.rows === type.rows ? type.rowsName || null : null };
+  return { cols: part.cols, rows: part.rows, colsName: part.cols === type.cols ? type.colsName || null : null, rowsName: part.rows === type.rows ? type.rowsName || null : null,
+    ...(Array.isArray(type.inner) && type.inner.length ? { inner: type.inner } : {}) };      /* rows and columns are covered whole: what each entry holds goes with it */
 }
 export function base(arrow, r){
   const s = arrow.start - 1;
@@ -235,7 +250,9 @@ export function sided(arrow, side, was, now){
   const start = Math.min(arrow.start, now); return { side, start, span: Math.min(arrow.span, now - start + 1) };
 }
 
-export const came = (arrow, part, defined) => arrow.formula ? part : defined || part;
+export const came = (arrow, part, defined, takes = part) => arrow.formula || !defined || defined.error ? (arrow.formula ? part : defined || part)
+  : !(part.inner && part.inner.length) || (takes && takes.inner && takes.inner.length) ? defined      /* nothing to repeat over, or the function takes the inner data whole */
+  : defined.inner && defined.inner.length ? { error: 'it is run at each inner position of its input, and comes to inner data of its own' } : { ...defined, inner: part.inner };
 export function check(promise, came){
   if (!promise) return { ok: true, note: '' };
   if (!came) return { ok: false, note: 'nothing to check' };
@@ -264,7 +281,7 @@ export function standing(arrow, input, others = [], names = null, defined = null
   const part = coveredType(arrow, input);
   if (!part) return { warn: 'its span runs past its input', part: null, came: null, type: promise, place: null, blocked: false };
   const times = map ? map.count : 1, n = along(arrow.side) === 'rows' ? input.rows : input.cols, under = drawn || { ...arrow, span: Math.min(arrow.span * times, n - arrow.start + 1) };      /* every cell's base; or the base as it is drawn */
-  const to = spread(came(arrow, part, defined), times, arrow.side), ok = check(promise, to), type = promise || (to.error ? null : to);
+  const to = spread(came(arrow, part, defined, inner || part), times, arrow.side), ok = check(promise, to), type = promise || (to.error ? null : to);
   const at = type ? place(drawn || arrow, input.rect, type) : null, blocked = !!names && !!at && others.some(o => over(o, at)), fit = inner ? fits(inner, part) : { ok: true };
   const warn = !free(under, input.rect, others) ? 'the edge under it is not free' : map?.warn ? map.warn : to.error ? `what defines it has no size: ${to.error}`
     : !ok.ok ? `it promises ${promise.cols}×${promise.rows} and comes to ${to.cols}×${to.rows}` + (ok.note.includes('×') ? '' : `: ${ok.note}`)
@@ -272,8 +289,8 @@ export function standing(arrow, input, others = [], names = null, defined = null
   return { warn, part, came: to, type, place: at, blocked };
 }
 
-export function ends(pieces, arrows){
-  const read = new Set(arrows.map(a => a.reads));
+export function ends(pieces, arrows, taken = []){
+  const read = new Set([...arrows.map(a => a.reads), ...taken]);
   return [...pieces.filter(p => !p.config && !p.ids.some(id => read.has(id))).map(p => ({ type: p.type, piece: p })), ...arrows.filter(a => !a.seated && !read.has(a.id)).map(a => ({ type: a.type, arrow: a }))];
 }
 export const defined = (ends, isInput) => !ends.length || (ends.length === 1 && !!ends[0].piece && ends[0].piece.ids.length === 1 && isInput(ends[0].piece.ids[0])) ? null
@@ -298,7 +315,7 @@ export function readAt(written, hollow, copies){
 
 export function passed(values, part){
   const out = new Map();
-  for (const [key, v] of values){ const [c, r] = key.split(',').map(Number), C = c - part.col, R = r - part.row; if (C >= 1 && C <= part.cols && R >= 1 && R <= part.rows) out.set(C + ',' + R, v); }
+  for (const [key, v] of values){ const [c, r, ...ks] = key.split(',').map(Number), C = c - part.col, R = r - part.row; if (C >= 1 && C <= part.cols && R >= 1 && R <= part.rows) out.set(C + ',' + R + (ks.length ? ',' + ks.join(',') : ''), v); }
   return out;
 }
 export const names = (lookup = () => undefined) => token => typeof token === 'string' && ['x', 'i', 'j'].includes(token.toLowerCase()) ? null : lookup(token);
@@ -317,6 +334,8 @@ export function fits(inner, part){
   for (const [len, name, what] of [['cols', 'colsName', 'columns'], ['rows', 'rowsName', 'rows']]){
     if (inner[name]){ if (part[name] !== inner[name]) return { refused: `Its input's ${what} are ${inner[name]}: it must be set against ${what} of that name` }; }
     else if (part[len] !== inner[len]) return { refused: `Its input has ${inner[len]} ${what}, and this would give it ${part[len]}` }; }
+  /* an input block that holds inner data takes that inner data and no other; one that holds none is applied at every inner position of what it is given */
+  if (Array.isArray(inner.inner) && inner.inner.length){ const n = nested(inner.inner, part.inner, true); if (!n.ok) return { refused: `Its input holds inner data, and this would give it other: ${n.note}` }; }
   return { ok: true };
 }
 export function fitting(inner, side, type, at){

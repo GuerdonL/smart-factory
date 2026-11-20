@@ -91,7 +91,7 @@ test('14: a node with more entries than maxEntries is deferred, at once', () => 
   const edge = G({ at: { ...V([[1]]), type: t(64, 64) }, over: { ...V([[1]]), type: t(4097, 1) } });      /* exactly the limit is worked out */
   assert.ok(evaluate(edge, 'at').entries); assert.equal(evaluate(edge, 'over').deferred, true);
   assert.ok(evaluate(edge, 'over', { maxEntries: 4097 }).entries); assert.equal(evaluate(edge, 'at', { maxEntries: 10 }).deferred, true);
-  assert.match(tooLarge(t(4097, 1)), /^it has 4097 × 1 entries, more than the 4096 that are worked out here: its size is shown/);
+  assert.match(tooLarge(t(4097, 1)), /^it holds 4097 × 1 numbers, more than the 4096 that are worked out here: its size is shown/);
   assert.match(tooLarge(t(2, 2)), /worked out from more than the 4096/);
 });
 test('14b: the limit covers everything a result is worked out from', () => {

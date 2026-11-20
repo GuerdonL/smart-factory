@@ -1,0 +1,65 @@
+{
+  "format": "smart-factory/shape",
+  "version": 4,
+  "id": "bwrszpj",
+  "type": "tensor",
+  "name": "Heads",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -22,
+    "y": 2
+  },
+  "size": {
+    "cols": 3,
+    "rows": 4,
+    "inner": [
+      2
+    ]
+  },
+  "sides": {
+    "cols": "head",
+    "rows": null,
+    "inner": [
+      null
+    ]
+  },
+  "value": {
+    "as": "variable",
+    "entries": {
+      "1,1,1": 1,
+      "2,1,1": 0,
+      "1,2,1": 0,
+      "2,2,1": 1,
+      "1,3,1": 1,
+      "2,3,1": 0,
+      "1,4,1": 0,
+      "2,4,1": 1,
+      "1,1,2": 2,
+      "2,1,2": 0,
+      "1,2,2": 0,
+      "2,2,2": 2,
+      "1,3,2": 2,
+      "2,3,2": 0,
+      "1,4,2": 0,
+      "2,4,2": 2,
+      "1,1,3": 3,
+      "2,1,3": 0,
+      "1,2,3": 0,
+      "2,2,3": 3,
+      "1,3,3": 3,
+      "2,3,3": 0,
+      "1,4,3": 0,
+      "2,4,3": 3
+    }
+  },
+  "order": 45,
+  "variable": 5,
+  "axes": [
+    2,
+    1,
+    0
+  ],
+  "reference": true
+}

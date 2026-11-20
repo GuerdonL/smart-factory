@@ -3,17 +3,22 @@
     run(body, root=None)                  -> what POST /run answers, for the bytes it was sent:
                                              { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean } },
                                                "errors":  { key: "why" } }
+                                             A node whose entries hold inner data answers with inner too, the
+                                             lengths of its inner axes ({ cols, rows, inner: [2, 4], cells, … }),
+                                             and its cells are [[c, r, k1, k2, value], …]: one more number, from
+                                             1, for each inner axis. A node that holds none answers as it always did.
                                              It never raises: whatever is wrong is said in errors. What is wrong
                                              with the request as a whole is under the key "*".
     upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" }; raises
                                              data.Refused(why)
-    health()                              -> { "ok": true, "version": 1 }
+    health()                              -> { "ok": true, "version": 2 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
                                           is worked out, and refused whole if it is not well formed
       "want": [ { "node": "<id>",         a node to work out
-                  "cells": [[c, r], …],   the entries wanted of it, column then row, from 1
+                  "cells": [[c, r], …],   the entries wanted of it, column then row, from 1; of a node whose entries
+                                          hold inner data, [[c, r, k1, k2, …], …], with the inner position after
                   "binding": { … },       where it is looked at from, inside a function or a tile (evaluate.js); may be left out
                   "as": "<key>" } ],      what to call the answer in results and errors; left out, the node's id
       "tick": 0,                          which draw of the noise: a whole number, 0 where left out
@@ -28,7 +33,7 @@ import math
 import sys
 
 from . import arrays as A
-from .check import VERSION, is_int, is_obj, validate
+from .check import VERSION, is_int, is_obj, lengths, validate
 from .data import NAME, Refused, inspect, keep, read_text
 from .evaluate import Run, Trouble
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
@@ -40,7 +45,7 @@ WHOLE = '*'
 
 
 def health():
-    return {'ok': True, 'version': VERSION}
+    return {'ok': True, 'version': VERSION}      # the version of graph it writes and reads (check.py: VERSIONS has every one it accepts)
 
 
 def refuse(why):
@@ -139,16 +144,21 @@ def one(work, graph, w):
     if not isinstance(node, str) or node not in graph['nodes']:
         raise Trouble('no such node')
     t = graph['nodes'][node]['type']
-    cols, rows = int(t['cols']), int(t['rows'])
+    cols, rows, inner = int(t['cols']), int(t['rows']), lengths(t)
+    most = (cols, rows) + inner
+    said = ' × '.join(str(x) for x in most)
     if not isinstance(cells, list) or len(cells) > MAX_CELLS:
         raise Trouble('cells is a list of at most %s' % plural(MAX_CELLS, 'entry').replace('entrys', 'entries'))
     for c in cells:
-        if not (isinstance(c, list) and len(c) == 2 and is_int(c[0]) and is_int(c[1]) and 1 <= c[0] <= cols and 1 <= c[1] <= rows):
-            raise Trouble('it has no entry %s: it is %d × %d' % (json.dumps(c)[:40], cols, rows))
+        if isinstance(c, list) and len(c) != len(most) and len(c) >= 2 and all(is_int(x) for x in c):      # a column and a row, and one more for each inner axis
+            raise Trouble('%s names %s, and an entry of it is named by %d: it is %s' % (json.dumps(c)[:40], plural(len(c), 'number'), len(most), said))
+        if not (isinstance(c, list) and len(c) == len(most) and all(is_int(x) and 1 <= x <= m for x, m in zip(c, most))):
+            raise Trouble('it has no entry %s: it is %s' % (json.dumps(c)[:40], said))
     need = work.needs(node)
     if need['most'] > MAX_ENTRIES:
         at = graph['nodes'][need['where']]['type']
-        raise Trouble('%s × %s entries%s, more than the %s that are worked out' % (format(at['cols'], ','), format(at['rows'], ','), '' if need['where'] == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
+        raise Trouble('%s %s%s, more than the %s that are worked out' % (' × '.join(format(int(x), ',') for x in (at['cols'], at['rows']) + lengths(at)), 'numbers',
+                                                                         '' if need['where'] == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
     if need['bad']:
         raise Trouble(need['bad'])
     # refused before anything is made: what it is worked out from, all held at once, and room to work on the largest of it
@@ -157,8 +167,12 @@ def one(work, graph, w):
         raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(work.weight(node), ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
     value = work.value(node, w.get('binding'))
     least, most, mean = A.summary(value)
-    return {'cols': cols, 'rows': rows, 'cells': [[int(c), int(r), written(A.item(value, int(r) - 1, int(c) - 1))] for c, r in cells],
-            'min': written(least), 'max': written(most), 'mean': written(mean)}
+    read = lambda c: [int(x) for x in c] + [written(A.item(value, int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:])))]
+    out = {'cols': cols, 'rows': rows}
+    if inner:
+        out['inner'] = list(inner)      # only where it holds inner data: a node that holds none answers as it always did
+    out.update({'cells': [read(c) for c in cells], 'min': written(least), 'max': written(most), 'mean': written(mean)})
+    return out
 
 
 def upload(project, path, body, root=None):

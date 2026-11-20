@@ -21,6 +21,10 @@
      standing     the shapes that stand in for some of the right-hand matrix's entries (see matrix.js)
      editable     whether the right-hand matrix's entries can be pressed, to type a value or a formula over them
      colsName, rowsName   the names of the block's sides, where it has them
+     inner        the axes of what each of the block's entries holds, where they hold inner data (matrix.js)
+     cell         { cols, rows }, for a block in whose entries shapes can stand: the size of what one entry holds.
+                  The dashed outline on the left is then laid out entry for entry, each that large, since a shape
+                  that stands for an entry is the entry's size, and says so: "3 × 1 of 2 × 4".
      unit         world units to one "u"
      check        takes what the space's contents come to: null for nothing yet; { cols, rows, colsName, rowsName }
                   for a size (where both a promised side and the contents' side are named, the names must agree
@@ -42,16 +46,17 @@ style('definition', `
 .definition.wrong .definition-sign { color: var(--warn); }
 `);
 
-export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, inherited, editable = false, colsName = null, rowsName = null, standing = [] }){
+export function createDefinition({ cols, rows, unit, name = '', letter = 'x', color = null, values, inherited, editable = false, colsName = null, rowsName = null, standing = [], inner = null, cell = null }){
   const on = v => Math.round(v / unit) * unit;                   /* everything sits on the dots */
   const el = html`<div class="definition"><div class="definition-slot"></div><div class="definition-sign">=</div></div>`;
   el.classList.toggle('editable', editable);
-  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, colsName, rowsName, cell: unit, letter, color, values, inherited, standing });
+  const [slot, sign] = el.children, matrix = createMatrix({ cols, rows, colsName, rowsName, cell: unit, letter, color, values, inherited, standing, inner });
   matrix.el.classList.add('promised');
   /* the sign is at the origin, with one unit of air each side; both sides are level with it */
-  const top = on(-rows * unit / 2), level = top + rows * unit / 2;
-  Object.assign(slot.style, { left: -unit - cols * unit + 'px', top: top + 'px', width: cols * unit + 'px', height: rows * unit + 'px' });
-  slot.textContent = `${cols} × ${rows}`;
+  const top = on(-rows * unit / 2), level = top + rows * unit / 2, sx = cell ? cell.cols : 1, sy = cell ? cell.rows : 1;
+  Object.assign(slot.style, { left: -unit - cols * sx * unit + 'px', top: on(-rows * sy * unit / 2) + 'px', width: cols * sx * unit + 'px', height: rows * sy * unit + 'px' });
+  slot.textContent = cell ? `${cols} × ${rows} of ${cell.cols} × ${cell.rows}` : `${cols} × ${rows}`;
+  if (cell) slot.style.backgroundImage = `repeating-linear-gradient(to right, transparent 0 ${sx * unit - 1}px, var(--muted) ${sx * unit - 1}px ${sx * unit}px), repeating-linear-gradient(to bottom, transparent 0 ${sy * unit - 1}px, var(--muted) ${sy * unit - 1}px ${sy * unit}px)`;      /* where one entry ends and the next begins */
   Object.assign(sign.style, { left: '0px', top: level + 'px' });
   Object.assign(matrix.el.style, { left: unit + 'px', top: on(top + (rows * unit - matrix.height) / 2) + 'px' });
   el.append(matrix.el);
@@ -61,7 +66,7 @@ export function createDefinition({ cols, rows, unit, name = '', letter = 'x', co
   let left = null, showing = '';
   return { el, check(type, look = {}){
     const named = (a, b) => !a || !b || a === b;
-    const wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows || !named(type.colsName, colsName) || !named(type.rowsName, rowsName));
+    const held = t => JSON.stringify((t || []).map(a => a.length)), wrong = !!type && (!!type.error || type.cols !== cols || type.rows !== rows || !named(type.colsName, colsName) || !named(type.rowsName, rowsName) || held(type.inner) !== held(inner));      /* and what the entries hold has to be the same size too */
     el.classList.toggle('wrong', wrong); sign.textContent = wrong ? '≠' : '='; slot.hidden = !!type;
     /* the left side, rewritten only when it would read differently; it ends one unit before the sign */
     const key = !type ? '' : type.error ? 'error ' + type.error : type.cols + 'x' + type.rows + (type.colsName || '') + '/' + (type.rowsName || '') + JSON.stringify({ ...look, values: valuesKey(look.values) });

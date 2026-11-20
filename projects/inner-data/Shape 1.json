@@ -1,0 +1,41 @@
+{
+  "format": "smart-factory/shape",
+  "version": 4,
+  "id": "buoyk1o",
+  "type": "arrow",
+  "name": "Shape 1",
+  "named": false,
+  "commented": false,
+  "color": null,
+  "position": {
+    "x": -21,
+    "y": 6
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Shape 1/",
+  "order": 46,
+  "arrow": {
+    "input": {
+      "id": "bwrszpj",
+      "as": "block"
+    },
+    "side": "s",
+    "start": 2,
+    "span": 2,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}
