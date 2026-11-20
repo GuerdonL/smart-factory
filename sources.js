@@ -51,6 +51,10 @@
                                     identity 1 where column equals row at every inner position
    typable(source, name)         -> { ok: true } | { refused: a sentence }: whether entries can be typed into a block.
                                     Not into a source: its entries are what it is
+   sizable(source, name)         -> { ok: true } | { refused: a sentence }: whether such a block's size can be changed.
+                                    Not that of a block that reads a file: its size is the file's, which it took
+                                    when the file was chosen, and another file is how it comes to another size. One
+                                    that has no file chosen yet, and every other source, can be any size.
    holds(source, name)           -> { ok: true } | { refused }: whether shapes can stand in its matrix (snap to
                                     matrix). Not in a source's: nothing but its kind defines it */
 export const SOURCES = [{ kind: 'zeros', label: 'Zeros', face: '0' }, { kind: 'ones', label: 'Ones', face: '1' }, { kind: 'identity', label: 'Identity', face: 'I' }];
@@ -94,3 +98,4 @@ export function values(kind, cols, rows, inner = []){
 const called = (source, name) => `${name || 'It'} is ${labelOf(source)}: a source`;
 export const typable = (source, name) => kept(source) ? { refused: `${called(source, name)} stores no entries, so none can be typed. Resize it for more of them` } : { ok: true };
 export const holds = (source, name) => kept(source) ? { refused: `${called(source, name)} is defined by its kind alone: nothing stands in its matrix` } : { ok: true };
+export const sizable = (source, name) => { const k = kept(source); return kindOf(k) === 'file' && k.file ? { refused: `${name || 'It'} reads ${k.file}: its size is the file's. Choose another CSV file to change it` } : { ok: true }; };

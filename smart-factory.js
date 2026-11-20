@@ -31,7 +31,7 @@ import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
-import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds } from './sources.js';
+import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
 import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
 import { createBackend } from './backend.js';
 import { squares } from './components/matrix.js';
@@ -600,6 +600,9 @@ const autoSide = (b, dim) => { if (!isNamed(b) || isArrow(b)) return null; const
   return name + ((dim === 'w') !== turned(b) ? '.x' : '.y'); };
 /* a named scalar has a third measure beside its two sides: its mass, the number it holds, called
    by the shape's name with .mass. ('m' stands for it wherever 'w' and 'h' stand for the sides.) */
+/* a block that reads a data file is the file's size (sources.js: sizable): why its size cannot be changed, or null
+   where it can. A shape fused from such a block is held by it too: pulled, it would pull the block. */
+const fileHeld = b => { const can = sourceSizable(b.source, bare(b.name)); return can.refused || (b.members || []).map(m => fileHeld(m.block)).find(Boolean) || null; };
 const single = b => !b.members && !isArrow(b) && b.rect.w === view.unit && b.rect.h === view.unit && !dataOf(b).length;      /* a scalar: one number and nothing else. A one by one block that holds inner data (a part cut down to one entry) is no scalar */
 /* ---- inner data ----
    Each entry of a shape may itself be an array (inner.js): the shape then has inner axes, block.inner, a list of
@@ -696,7 +699,7 @@ function lengthCalled(name, s, not = null){
 function agree(b){
   const todo = [b], done = new Set();
   /* a named side of a part that does not take in its source's whole side: it is as long as its range, whatever else carries the name */
-  const pinned = ([o, d]) => !!o.from?.range && d !== 'm' && d[0] !== 'k' && !wholeSide(o.from.range, (d === 'w') !== turned(o) ? 'cols' : 'rows');
+  const pinned = ([o, d]) => d !== 'm' && d[0] !== 'k' && (!!fileHeld(o) || (!!o.from?.range && !wholeSide(o.from.range, (d === 'w') !== turned(o) ? 'cols' : 'rows')));      /* and a side of a block that reads a file: it is as long as the file makes it */
   while (todo.length){
     const c = todo.pop(); if (done.has(c)) continue; done.add(c);
     if (isArrow(c)) continue;                  /* an arrow's rectangle is the gap it is drawn in: no size any other shape shares */
@@ -707,7 +710,7 @@ function agree(b){
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = everySpace().find(s => withKept(s).includes(c)); if (!s) continue;
     for (const dim of ['w', 'h', 'm', ...axesOf(c).map((_, i) => 'k' + i)]) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o, d]) => d[0] !== 'k' && rootSide(o) !== null) || group.find(pinned);      /* a single entry's number settles the length: it is not resized to suit the others. So does a part's shortened side */
-      if (boss && pinned(boss) && c !== boss[0] && lenOf(c, dim) !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and is part of ${partOf(boss[0])}, so its size cannot change`);
+      if (boss && pinned(boss) && c !== boss[0] && lenOf(c, dim) !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and ${fileHeld(boss[0]) ? 'reads a data file, so its size is the file\'s' : `is part of ${partOf(boss[0])}, so its size cannot change`}`);
       const length = boss ? sideLength(boss[0], boss[1]) : lenOf(c, dim);
       if (!boss && dim === 'm') continue;
       if (length === null){      /* the entry's side is not a whole number now: no side can be that long, so the sides that carried its name let go of it and stay as they are */
@@ -715,6 +718,7 @@ function agree(b){
           else if (rootSide(o) === null && o.sides[d]){ hud.say(`${o.sides[d]} is not a whole number now: ${bare(o.name)} no longer follows it`); o.sides[d] = null; }
         continue; }
       for (const [o, d] of group) if ((d[0] === 'k' || (rootSide(o) === null && !unset(o))) && lenOf(o, d) !== length){
+        if (d[0] !== 'k' && fileHeld(o)){ hud.say(`${o.sides[d]} is ${Math.round(length / view.unit)}u, and ${bare(o.name)} is the size of its file: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* another length than its file's: it lets go of the name, and stays */
         if (d[0] !== 'k' && madeOne(o, d === 'w' ? length : o.rect.w, d === 'h' ? length : o.rect.h)){ hud.say(`${o.sides[d]} is 1 now, and ${bare(o.name)} holds inner data, so it cannot be one by one: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* a named length that comes to 1 */
         setLen(o, d, length); done.delete(o); todo.push(o); } }
   }
@@ -748,6 +752,10 @@ function typedNow(b, dim, text){
   /* a part of another shape is the size of that part: a length typed on it is not taken, nor a name that is another length already */
   if (rangedOf(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
     if ((n !== null && n * view.unit !== b.rect[dim]) || (has !== undefined && has !== b.rect[dim])){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); if (has !== undefined && has !== b.rect[dim]) return; }
+    n = null; }
+  /* a block that reads a file is the file's size: a length typed on it is not taken, nor a name that is another length already */
+  if (fileHeld(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
+    if ((n !== null && n * view.unit !== b.rect[dim]) || (has !== undefined && has !== b.rect[dim])){ hud.say(fileHeld(b)); return; }
     n = null; }
   /* a named scalar stays a scalar: a length given to its side is the root of its number, so the number becomes the
      length squared, and the block keeps its one square */
@@ -2616,6 +2624,7 @@ function dragged(el, from, e){
   const end = () => { cursor(''); settle(); };
   const grip = el.dataset.grip;
   if (grip && rangedOf(b)){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); return { end(){}, move(){} }; }      /* it is as large as its range, and cannot be pulled larger or smaller */
+  if (grip && fileHeld(b)){ hud.say(fileHeld(b)); return { end(){}, move(){} }; }      /* it is as large as its file */
   if (grip && orderOf(b)){ hud.say(`${bare(b.name)} is turned here: its sides are its variable's axes. Change them on the shape it was made as`); return { end(){}, move(){} }; }
   if (grip){                                    /* the opposite side or corner stays where it is; never smaller than one square */
     if (!selected.has(b) || selected.size > 1) pick([b]);
@@ -2859,6 +2868,7 @@ bus.on('place', ({ rects, axes = [] }) => { const u = view.unit;
   for (const a of axes){ const b = blockOf(a.id), axis = b && (b.inner || [])[a.index]; if (axis && nesting.lengthOk(a.length).ok) axis.length = a.length; }
   for (const r of rects){ const b = blockOf(r.id); if (!b) continue;
     if (madeOne(b, r.w, r.h)){ hud.say(nesting.sizable(1, 1, 1).refused); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }
+    if ((r.w !== b.rect.w || r.h !== b.rect.h) && fileHeld(b)){ hud.say(fileHeld(b)); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }      /* a block that reads a file goes where it is put, at the file's size */
     b.set({ x: r.x, y: r.y, w: r.w, h: r.h }); }
   shown(); }, changes);
 /* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
