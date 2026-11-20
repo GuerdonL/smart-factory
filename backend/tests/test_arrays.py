@@ -200,9 +200,9 @@ def noise_entry(seed, key, c, r, dist, tick=0, cells=()):
     """The generator as the specification writes it, one entry at a time in plain Python integers: a second telling,
     with nothing shared with arrays.py."""
     k = int.from_bytes(hashlib.sha256(('%d:%s' % (seed, key)).encode()).digest()[:8], 'big')
-    for cx, cy in cells:
+    for depth, (cx, cy) in enumerate(cells):
         if (cx, cy) != (1, 1):
-            k = mix(mix(k ^ cx) ^ cy)
+            k = mix(mix(k ^ cx ^ (depth << 32)) ^ cy)
     h = lambda n: mix(mix(mix(mix(k ^ c) ^ r) ^ tick) ^ n)
     u = lambda n: (h(n) >> 11) / 2 ** 53
     return u(0) if dist == 'uniform' else math.sqrt(-2 * math.log(1 - u(0))) * math.cos(2 * math.pi * u(1))
@@ -234,6 +234,28 @@ class Noise(unittest.TestCase):
             self.assertFalse((other == base).any())      # a new seed, block, tick or cell changes every one of them
         self.assertTrue((A.noise(3, 'b1', 4, 4, 'uniform', 0, ((1, 1),)) == base).all())      # the first cell holds what the block holds outside a tile
         self.assertTrue((A.noise(3, 'b1', 4, 4, 'uniform', 0, ((1, 1), (1, 1))) == base).all())
+
+    def test_numbers_outside_a_tile_and_in_one_tile_are_the_ones_they_were(self):
+        """Written down before the depth joined the key: a block in no tile, or in one, keeps every number."""
+        for args, was in [((3, 'b1', 2, 3, 'uniform'), '2988593eede63e3d3c1f2b3df84a1f3f5cc0553fe285c63e'),
+                          ((3, 'b1', 2, 3, 'normal', 4), '47951dbf4765cbbff7c4ad3f98298f3f666022bf501c6cbf'),
+                          ((3, 'b1', 2, 3, 'uniform', 0, ((2, 1),)), '1dc73c3f213e713fecaae83e4ebd373f7a08213f5a6b0e3f'),
+                          ((3, 'b1', 2, 3, 'normal', 0, ((4, 7),)), '87748e3f585208c0099dd23e80d3f3bea420383f7b3e4a3d'),
+                          ((3, 'b1', 2, 3, 'uniform', 0, ((1, 1), (1, 1))), '2988593eede63e3d3c1f2b3df84a1f3f5cc0553fe285c63e')]:
+            self.assertEqual(A.noise(*args).tobytes().hex(), was, args)
+
+    def test_a_cell_of_a_tile_inside_a_tile_is_no_cell_of_the_outer_one(self):
+        """Outer cell (2, 1) with inner cell (1, 1) had the key of outer (1, 1) with inner (2, 1): the depth parts them."""
+        for dist in ('uniform', 'normal'):
+            seen = {}
+            for outer in ((1, 1), (2, 1), (1, 2), (2, 2), (3, 1)):
+                for inner in ((1, 1), (2, 1), (1, 2), (2, 2), (3, 1)):
+                    seen.setdefault(A.noise(3, 'b1', 2, 2, dist, 0, (outer, inner)).tobytes(), []).append((outer, inner))
+            self.assertEqual([v for v in seen.values() if len(v) > 1], [])
+            self.assertFalse((A.noise(3, 'b1', 2, 2, dist, 0, ((2, 1), (1, 1))) == A.noise(3, 'b1', 2, 2, dist, 0, ((1, 1), (2, 1)))).any())
+            three = {A.noise(3, 'b1', 2, 2, dist, 0, cells).tobytes() for cells in (((2, 1), (1, 1), (1, 1)), ((1, 1), (2, 1), (1, 1)), ((1, 1), (1, 1), (2, 1)))}
+            self.assertEqual(len(three), 3)
+            self.assertEqual(A.noise(3, 'b1', 2, 2, dist, 0, ((2, 1), (1, 1))).tobytes(), A.noise(3, 'b1', 2, 2, dist, 0, ((2, 1),)).tobytes())      # the first cell still leaves the key alone
 
     def test_uniform_is_from_0_up_to_1_and_normal_has_mean_0_and_deviation_1(self):
         u = A.noise(11, 'b9', 400, 400, 'uniform')

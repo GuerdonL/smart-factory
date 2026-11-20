@@ -237,7 +237,7 @@ class Arrays(unittest.TestCase):
                     self.assertEqual(len(seen), int(np.prod(inner)), 'every inner position has numbers of its own')
 
     def test_the_key_at_an_inner_position_is_one_mix_for_each_axis(self):
-        """k' = mix(mix(k xor k1) xor k2), and k itself at the first position: written out again here in plain Python."""
+        """k' = mix(mix(k xor k1 xor 2^63) xor k2), and k itself at the first position: written out again here in plain Python."""
         import hashlib
         M = (1 << 64) - 1
 
@@ -250,8 +250,8 @@ class Arrays(unittest.TestCase):
         def number(seed, key, c, r, ks, tick=0):
             k = int.from_bytes(hashlib.sha256(('%d:%s' % (seed, key)).encode()).digest()[:8], 'big')
             if any(x != 1 for x in ks):
-                for x in ks:
-                    k = mix(k ^ x)
+                for axis, x in enumerate(ks):
+                    k = mix(k ^ x ^ ((1 << 63) if axis == 0 else 0))
             h = mix(mix(mix(mix(k ^ c) ^ r) ^ tick) ^ 0)
             return np.float32(min((h >> 11) / 2 ** 53, float(np.nextafter(np.float32(1), np.float32(0)))))
         made = A.noise(9, 'b7', 2, 3, 'uniform', 0, (), (2, 3))
@@ -260,6 +260,21 @@ class Arrays(unittest.TestCase):
                 for r in (1, 2):
                     for c in (1, 2, 3):
                         self.assertEqual(float(made[k1 - 1, k2 - 1, r - 1, c - 1]), float(number(9, 'b7', c, r, (k1, k2))), (c, r, k1, k2))
+
+    def test_an_inner_position_is_no_cell_of_a_tile(self):
+        """Cell (2, 1) at inner position (1, 1) had the key of cell (1, 1) at inner position (2, 1): 2^63 parts them."""
+        for dist in ('uniform', 'normal'):
+            for inner in ((3, 3), (3,), (3, 1), (2, 2, 2)):
+                seen = {}
+                for cell in ((1, 1), (2, 1), (1, 2), (2, 2), (3, 1), (3, 2)):
+                    made = A.noise(3, 'b1', 2, 2, dist, 0, (cell,), inner)
+                    for where in np.ndindex(*inner):
+                        seen.setdefault(made[where].tobytes(), []).append((cell, where))
+                self.assertEqual([v for v in seen.values() if len(v) > 1], [], (dist, inner))
+            there = A.noise(3, 'b1', 2, 2, dist, 0, ((2, 1),), (2, 2))[0, 0]
+            here = A.noise(3, 'b1', 2, 2, dist, 0, ((1, 1),), (2, 2))[1, 0]
+            self.assertFalse((there == here).any())
+            self.assertEqual(there.tobytes(), A.noise(3, 'b1', 2, 2, dist, 0, ((2, 1),)).tobytes())      # the first position is still the block's own numbers
 
     def test_noise_of_many_inner_positions_is_made_some_at_a_time(self):
         made = A.noise(1, 'b', 2, 2, 'normal', 0, (), (300, 300))      # more positions than are keyed at once

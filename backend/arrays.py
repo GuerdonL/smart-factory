@@ -71,10 +71,15 @@ Noise. The generator is the specification's, written out so that any implementat
     uniform:  u(0)
     normal:   sqrt(-2 * ln(1 - u(0))) * cos(2 * pi * u(1))
 In a tile the cell joins the key: for each cell (cx, cy) the block is in, outermost first, k becomes
-mix(mix(k xor cx) xor cy), except for cell (1, 1), which leaves k as it is. Inner data joins the key in the same
-way, after the cells: at inner position (k1, k2, …), all from 1, k becomes mix(… mix(mix(k xor k1) xor k2) …), one
-mix for each inner axis in order, except at the first position (every one of them 1), which leaves k as it is: so
-giving a noise block inner data changes none of the numbers it already had. It is worked out for the whole matrix at
+mix(mix(k xor cx xor d * 2^32) xor cy), d the tile's depth (0 for the outermost, 1 for the tile inside it, …),
+except for cell (1, 1), which leaves k as it is: so the outermost tile's step is mix(mix(k xor cx) xor cy). Inner
+data joins the key after the cells: at inner position (k1, k2, …), all from 1, k becomes
+mix(… mix(mix(k xor k1 xor 2^63) xor k2) …), one mix for each inner axis in order, except at the first position
+(every one of them 1), which leaves k as it is: so giving a noise block inner data changes none of the numbers it
+already had. The depth and 2^63 are there so that a step at one depth is never the step at another, and a step
+along the inner axes never a cell's: without them cell (2, 1) of an outer tile with cell (1, 1) of an inner one had
+the key of cell (1, 1) with cell (2, 1), and cell (2, 1) at inner position (1, 1) that of cell (1, 1) at (2, 1).
+(A cell's number is below 2^32 and an axis is at most 16,000,000 long, so neither reaches those bits.) It is worked out for the whole matrix at
 once in 64-bit numbers and made 32-bit at the end; a uniform number that would round up to 1 is the largest 32-bit
 number below 1, so it is always less than 1."""
 import hashlib
@@ -87,6 +92,7 @@ F = np.float32
 D = np.float64
 NAN = F('nan')
 M64 = (1 << 64) - 1
+INNER = 1 << 63      # joins the key with the first inner axis, so that a step along the inner axes is never a tile cell's
 BELOW_ONE = np.nextafter(F(1), F(0))
 def quiet():
     return np.errstate(all='ignore')
@@ -357,9 +363,9 @@ def noise(seed, key, rows, cols, dist, tick=0, cells=(), inner=()):
     k = int.from_bytes(hashlib.sha256(('%d:%s' % (seed, key)).encode('utf8')).digest()[:8], 'big')
     inner = tuple(inner)
     with quiet():
-        for cx, cy in cells:
+        for depth, (cx, cy) in enumerate(cells):
             if (cx, cy) != (1, 1):
-                k = _mix1(_mix1(k ^ (cx & M64)) ^ (cy & M64))
+                k = _mix1(_mix1(k ^ (cx & M64) ^ ((depth << 32) & M64)) ^ (cy & M64))
         out = np.empty(inner + (rows, cols), dtype=F)
         c = np.arange(1, cols + 1, dtype=np.uint64)[None, :]
         flat = out.reshape((-1, rows, cols))      # one matrix for each inner position, the first axis slowest
@@ -368,8 +374,8 @@ def noise(seed, key, rows, cols, dist, tick=0, cells=(), inner=()):
             # each position's key: one mix for each inner axis in order, but the first position, which keeps k itself
             where = np.unravel_index(np.arange(p, min(flat.shape[0], p + at_once)), inner) if inner else ()
             keys = np.full(min(flat.shape[0], p + at_once) - p, k, dtype=np.uint64)
-            for w in where:
-                keys = _mix(keys ^ (w.astype(np.uint64) + np.uint64(1)))
+            for axis, w in enumerate(where):
+                keys = _mix(keys ^ (w.astype(np.uint64) + np.uint64(1)) ^ np.uint64(INNER if axis == 0 else 0))
             if inner and p == 0:
                 keys[0] = np.uint64(k)
             keys = keys[:, None, None]
