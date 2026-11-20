@@ -221,6 +221,7 @@ class DataFiles(unittest.TestCase):
             with open(os.path.join(self.root, name, 'project.json'), 'w') as f:
                 f.write('{}')
         self.assertEqual(R.upload('mine', 'data/w.csv', b'a,b,c\n1,2,3\n4,5.5,-6\n', self.root), {'path': 'data/w.csv', 'cols': 3, 'rows': 2})
+        self.assertEqual(R.upload('mine', 'data/tiny.csv', b'1e-60,2\n', self.root), {'path': 'data/tiny.csv', 'cols': 2, 'rows': 1, 'small': 1})      # one number too small for 32 bits: read as 0, and said
         self.assertEqual(whole(self.g, 'f', root=None), 'data/w.csv: the project has to be saved under a name before its data files can be read')
         out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 't', 'cells': all_cells(T(2, 3))}], 'project': 'mine'}).encode(), self.root, ROOM)
         self.assertEqual([v for _, _, v in out['results']['t']['cells']], [1, 4, 2, 5.5, 3, -6])

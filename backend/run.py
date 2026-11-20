@@ -9,7 +9,7 @@
                                              1, for each inner axis. A node that holds none answers as it always did.
                                              It never raises: whatever is wrong is said in errors. What is wrong
                                              with the request as a whole is under the key "*".
-    upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" }; raises
+    upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" } (and "small" where it has numbers too small for 32 bits); raises
                                              data.Refused(why)
     health()                              -> { "ok": true, "version": 2 }: the graph version (check.py: VERSION)
 
@@ -34,7 +34,7 @@ import sys
 
 from . import arrays as A
 from .check import VERSION, is_int, is_obj, lengths, validate
-from .data import NAME, Refused, inspect, keep, read_text
+from .data import NAME, Refused, inspect, read_text, take
 from .evaluate import Run, Trouble
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
@@ -176,5 +176,5 @@ def one(work, graph, w):
 
 
 def upload(project, path, body, root=None):
-    cols, rows = keep(project, path, body, root)
-    return {'path': path, 'cols': cols, 'rows': rows}
+    cols, rows, small = take(project, path, body, root)
+    return {'path': path, 'cols': cols, 'rows': rows, **({'small': small} if small else {})}      # small: how many of its numbers are too small for 32 bits and are read as 0 (only where some are)

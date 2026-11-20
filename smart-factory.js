@@ -31,7 +31,7 @@ import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
-import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds } from './sources.js';
+import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds } from './sources.js';
 import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
 import { createBackend } from './backend.js';
 import { squares } from './components/matrix.js';
@@ -1202,7 +1202,7 @@ function paint(){
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
-      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(quiet ? [quiet] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values, transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
@@ -2426,6 +2426,8 @@ function gather(light = false){      /* light: each block's entries as their sta
    A save writes the files some block reads and those a step of undo or redo can still come back to (save), so
    that a step back never leaves a block reading a file that is no longer there. */
 const dataFiles = new Map();                   /* "data/weights.csv" -> its text */
+const dataSmall = new Map();                   /* such a path -> how many of its numbers are too small for 32 bits and read as 0: as the backend said when the file was chosen, else counted here */
+const smallIn = path => { if (!dataSmall.has(path) && dataFiles.has(path)) dataSmall.set(path, tooSmall(dataFiles.get(path))); return dataSmall.get(path) || 0; };
 const filePicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.csv,text/csv', hidden: true });
 document.body.append(filePicker);
 let choosingFor = null;
@@ -2442,7 +2444,7 @@ filePicker.addEventListener('change', async () => { const file = filePicker.file
     const r = await fetch(`api/backend/data?project=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: text });
     const said = await r.json().catch(() => ({}));
     if (!r.ok || said.error || !(said.cols >= 1)) throw new Error(said.error || 'the server answered ' + r.status);
-    dataFiles.set(path, text);
+    dataFiles.set(path, text); if (Number.isSafeInteger(said.small)) dataSmall.set(path, said.small);
     bus.send('source.set', { id, file: path, cols: said.cols, rows: said.rows });
   } catch (e) { hud.say(`Could not take ${file.name}: ${e.message || e}`); } });
 /* the reverse: everything on the page is replaced by what the data describes */
@@ -2542,7 +2544,7 @@ async function sendSaved(name, files, what){
 
 /* opening replaces everything on the page */
 function openFrom(files, name = null){ let data; try { data = project.read(files); } catch (e){ hud.say('Could not open: ' + (e && e.message ? e.message : e)); return shown(); }      /* what is no project this program reads is said, and nothing is replaced */
-   dataFiles.clear(); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
+   dataFiles.clear(); dataSmall.clear(); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
   hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */

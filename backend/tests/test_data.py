@@ -31,6 +31,11 @@ class Files(unittest.TestCase):
         self.assertEqual(data.read_text('mine', 'data/w.csv', self.root), 'a,b\n1,2\n3,4\n5,6\n')
         self.assertEqual(sorted(os.listdir(os.path.join(self.root, 'mine', 'data'))), ['w.csv'])      # and nothing is left beside it
 
+    def test_a_kept_file_says_how_many_of_its_numbers_are_too_small_for_32_bits(self):
+        self.assertEqual(data.take('mine', 'data/tiny.csv', b'1e-60,2\n3,1E-99\n', self.root), (2, 2, 2))
+        self.assertEqual(data.take('mine', 'data/tiny.csv', b'1e-60,2\n3,1E-99\n', self.root), (2, 2, 2))      # and the same file again says the same
+        self.assertEqual(data.take('mine', 'data/w.csv', b'1,2\n', self.root), (2, 1, 0))
+
     def test_only_into_a_project_that_has_been_saved(self):
         os.makedirs(os.path.join(self.root, 'half made'))      # a directory, and no project.json in it
         for project in ['new project', 'half made', 'menu']:
@@ -109,6 +114,10 @@ class Tables(unittest.TestCase):
         self.assertEqual(data.inspect('﻿a\n1\n'.lstrip('﻿')), (1, 1, 1))
         self.assertEqual(data.decode(b'\xef\xbb\xbf1,2\n'), '1,2\n')      # an editor's mark at the start is no part of it
         self.assertEqual(data.inspect('3.4e38,-3.4e38\n1e-60,' + '9' * 38 + '\n'), (0, 2, 2))      # the largest a 32-bit float holds is read; one too small for it is read, as 0
+        # what is written as other than nought and is nought in 32 bits is counted; a nought however written, and the smallest number 32 bits hold, are not
+        self.assertEqual(data.survey('3.4e38,-3.4e38\n1e-60,' + '9' * 38 + '\n'), (0, 2, 2, 1))
+        self.assertEqual(data.survey('a,b,c\n1e-46, "-7e-46" ,1e-400\n0e-99,0.0,1.5e-45\n0.' + '0' * 50 + '1,-0,7.1e-46\n'), (1, 3, 3, 4))
+        self.assertEqual(data.survey('1,2\n3,4\n')[3], 0)
 
     def test_what_is_not_a_table_of_numbers_is_refused_with_why(self):
         for text, why in [('', 'empty'), ('\n\n', 'empty'), ('a,b\n', 'a header and no numbers'), ('1,2\n3\n', 'line 2 has 1 numbers and the first row has 2'), ('1,2\n3,x\n', 'line 2 is not numbers'),
