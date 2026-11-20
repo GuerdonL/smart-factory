@@ -157,7 +157,7 @@ def one(work, graph, w):
     need = work.needs(node)
     if need['most'] > MAX_ENTRIES:
         at = graph['nodes'][need['where']]['type']
-        raise Trouble('%s %s%s, more than the %s that are worked out' % (' × '.join(format(int(x), ',') for x in (at['cols'], at['rows']) + lengths(at)), 'numbers' if lengths(at) else 'entries',
+        raise Trouble('%s %s%s, more than the %s that are worked out' % (' × '.join(format(int(x), ',') for x in (at['cols'], at['rows']) + lengths(at)), 'numbers',
                                                                          '' if need['where'] == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
     if need['bad']:
         raise Trouble(need['bad'])

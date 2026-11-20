@@ -356,7 +356,7 @@ class WorkedOut(unittest.TestCase):
                         'd': N('measure', ['big'], T(1, 1), side='d2'), 'cut': N('slice', ['big'], T(1, 1, [100, 101]), range={'col': 0, 'row': 0, 'cols': 1, 'rows': 1})})
         self.assertEqual(numbers(big['nodes']['ok']['type']), limits.MAX_ENTRIES)
         out = ask(big, [{'node': k, 'cells': []} for k in ('big', 'flat', 'cut')] + [{'node': 'd', 'cells': [[1, 1]]}])
-        self.assertEqual(out['errors'], {'big': '40 × 40 × 100 × 101 numbers, more than the 16,000,000 that are worked out', 'flat': '4,000 × 4,001 entries, more than the 16,000,000 that are worked out',
+        self.assertEqual(out['errors'], {'big': '40 × 40 × 100 × 101 numbers, more than the 16,000,000 that are worked out', 'flat': '4,000 × 4,001 numbers, more than the 16,000,000 that are worked out',
                                          'cut': '40 × 40 × 100 × 101 numbers in what it is worked out from, more than the 16,000,000 that are worked out'})
         self.assertEqual(out['results']['d']['cells'], [[1, 1, 101.0]])      # a length is read off the type
         small = R.run(json.dumps({'graph': big, 'want': [{'node': 'ok', 'cells': [[40, 40, 100, 100]]}]}).encode(), None, 64 * 1024 * 1024)      # at the limit it is not refused for its size: only for the room this run has

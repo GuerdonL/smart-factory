@@ -272,8 +272,8 @@ class Refused(unittest.TestCase):
         began = time.monotonic()
         out = ask(big, [{'node': n, 'cells': [[1, 1]]} for n in big['nodes']])
         self.assertLess(time.monotonic() - began, 5)
-        self.assertEqual(out['errors'], {'big': '4,000 × 4,001 entries, more than the 16,000,000 that are worked out', 'huge': '100,000 × 10,000 entries, more than the 16,000,000 that are worked out',
-                                         'small': '100,000 × 10,000 entries in what it is worked out from, more than the 16,000,000 that are worked out'})
+        self.assertEqual(out['errors'], {'big': '4,000 × 4,001 numbers, more than the 16,000,000 that are worked out', 'huge': '100,000 × 10,000 numbers, more than the 16,000,000 that are worked out',
+                                         'small': '100,000 × 10,000 numbers in what it is worked out from, more than the 16,000,000 that are worked out'})
         self.assertEqual(out['results']['wide']['cells'], [[1, 1, 100000.0]])      # a size is read off the type: nothing that large is made
         self.assertEqual(out['results']['ok']['cells'], [[1, 1, 0.0]])      # the boundary: 16,000,000 entries are worked out
 
