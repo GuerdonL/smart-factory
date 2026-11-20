@@ -1371,13 +1371,22 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
+const picture = (b, s, goes = null) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
   seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, inner: dataOf(b).map(a => ({ ...a })), attrs: attrsOf(b).map(a => ({ ...a })), values: orderOf(b) ? [...reordered(b.values, orderOf(b))] : measures(b) || indexedOf(b) || takenOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
-  groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
+  groups: chain(b, s).filter(g => !goes || goes(g)).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
   members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
-function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
+/* which tiles go with a copied block is tiles.js's to say (copied): in a tile inside a tile, only a tile that is copied
+   whole, and none with a block copied alone. A tile that is itself selected (tile) is copied whole, with what is in
+   it and without the frames and tiles it is in. */
+function copy(tile = null){
+  const list = tile ? inGroup(tile) : [...selected]; if (!list.length) return false;
+  const whole = g => inGroup(g).every(b => list.includes(b));
+  clipboard = list.map(b => { const all = chain(b), upto = tile ? all.slice(0, all.indexOf(tile) + 1) : all, kept = tile ? upto : tiles.copied(tilesOf(b), whole, list.length === 1);
+    return picture(b, space, g => upto.includes(g) && (!space.repeats.has(g) || kept.includes(g))); });
+  return true;
+}
 function cut(also){ if (selected.size){ copy(); remove(also); } }
 /* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
 function develop(pictures, s, dx, dy){
@@ -2560,7 +2569,7 @@ addEventListener('keydown', e => {
      measurement these keys never reach here, so text is copied and pasted as usual.) */
   /* Ctrl or Cmd with z undoes; with shift and z, or with y, redoes */
   if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')){ e.preventDefault(); return bus.send(e.shiftKey || e.key === 'y' || e.key === 'Y' ? 'redo' : 'undo'); }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy', { ids: idsOf(selected) }); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy', { ids: idsOf(selected) }); } else if (pickedTile){ e.preventDefault(); bus.send('copy', { ids: [], tile: pickedTile }); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); removing('cut'); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); bus.send('paste', { at: { x: view.camera().x, y: view.camera().y }, pasted: clipboard }); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -2825,7 +2834,9 @@ bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); if (b && !s
 bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size && !openField) select([]); if (kind === 'length' && !openField?.over(x, y)) reach(x, y); });      /* while a formula is being typed the selection stays, and with it the panel the formula is in */
 bus.on('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); });
 bus.on('new', ({ type, source = null }) => { if (type === 'tile') return draw.tile(); const shape = typeNamed(type); return draw[shape.draw]?.(shape, sourceKept(source)); });      /* begins drawing; 'add' is the block. source: the kind of source to draw (sources.js), for a tensor */
-bus.on('copy', ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
+bus.on('copy', ({ ids: list = [], tile = null }) => {
+  if (tile){ if (space.repeats.has(tile) && !copy(tile)) hud.say('That tile holds nothing: there is nothing to copy'); return shown(); }      /* a tile selected by its edge or its name */
+  selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
 bus.on('save', ({ name = null }) => save(name));      /* name: what was typed when asked what to save it as */
 bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () => zipPicker.click());
 /* changing the project */
@@ -3058,7 +3069,7 @@ const menu = createMenu([
   { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
   { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },
   { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => removing('cut') },
-  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy', { ids: idsOf(selected) }) },
+  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size && !pickedTile, run: () => bus.send('copy', selected.size ? { ids: idsOf(selected) } : { ids: [], tile: pickedTile }) },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', { at: menuAt, pasted: clipboard }) },
   { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: () => bus.send('transpose', { ids: idsOf(selected) }) },
   /* greyed where the selection does not allow it; chosen all the same, each says why in the readout */
