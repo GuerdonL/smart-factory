@@ -66,7 +66,8 @@
    storable(v)       -> whether a value may be kept in an entry or a file: every kind but an error, a decimal and unknown
    surd(n, k, d)     -> n over d under k roots as a value: a plain number where it comes out whole (surd(9, 1) is 3)
    rootOf(v)         -> the square root of a value, itself a value; null where v has none to write (negative,
-                        infinite, a boolean, an error, unknown)
+                        infinite, an error, unknown). A boolean counts as 1 or 0 here as in all arithmetic, so the
+                        root of true is 1 and of false 0: the backend, which holds true as 1, says the same
    sideOf(v)         -> { length } | { refused: why }: a value that has to be a matrix's side, which is a whole number
                         of squares, at least 1. Anything else is refused, and the words say why.
    exact(v), held(e) -> a whole or exact value as { p, q, k } (p over q under k roots), and back; null for any other kind */
@@ -397,6 +398,7 @@ export function written(v){
 
 export function surd(n, k, d = 1){ return valueOf(norm(B(n), B(d), k)); }
 export function rootOf(v){
+  if (typeof v === 'boolean') v = +v;
   if (!(isWhole(v) || isSurd(v) || isSym(v))) return null;
   const s = compare(v, 0); if (isError(s) || s < 0) return null;
   const r = combine('^', v, HALF); return isError(r) ? null : r;

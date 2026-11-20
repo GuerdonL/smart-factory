@@ -121,6 +121,14 @@ class Rules(unittest.TestCase):
         self.assertEqual(whole(g, 'v:w'), [[1, 0], [0, 1]])
         self.assertEqual(whole(g, 'x'), [[2]])      # its width is a size, and no entry is read for it
 
+    def test_the_side_of_a_single_entry_that_is_true_or_false_is_that_of_1_or_0(self):
+        # as the page has it (tests/evaluate.test.js): a boolean counts as 1 or 0, whether given or worked out by a comparison
+        for entry, want in [(True, 1), (False, 0), ({'expr': '2 > 1'}, 1), ({'expr': '1 > 2'}, 0), (9, 3)]:
+            s = variable(1, 1, [[None]], 'S')
+            s['entries'] = {'1,1': entry}
+            g = graph_of({'s': s, 'x': {'op': 'measure', 'inputs': ['s'], 'type': T(1, 1), 'side': 'x'}, 'y': {'op': 'measure', 'inputs': ['s'], 'type': T(1, 1), 'side': 'y'}})
+            self.assertEqual((whole(g, 'x'), whole(g, 'y')), ([[want]], [[want]]), repr(entry))
+
     def test_exact_values_become_floats_at_the_leaves(self):
         for v, want in [(7, 7.0), ('inf', math.inf), ('-inf', -math.inf), (True, 1.0), (False, 0.0), ({'n': 3, 'd': 4, 'k': 0}, .75), ({'n': 2, 'k': 1}, math.sqrt(2)), ({'n': -2, 'k': 1}, -math.sqrt(2)),
                         ({'n': 1, 'd': 5, 'k': 2}, .2 ** .25), ({'sym': '1+sqrt(2)'}, 1 + math.sqrt(2)), ({'sym': 'e^2'}, math.e ** 2), ({'sym': '1208925819614629174706176'}, 2.0 ** 80)]:

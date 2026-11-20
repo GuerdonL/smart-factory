@@ -431,9 +431,12 @@ test('it never throws on a graph that is not well formed: what is no value is an
   for (const g of [{ nodes: { a: null } }, { nodes: { a: { op: 'constructor', inputs: [], type: t(1, 1) } } }, { nodes: { a: { op: 'toString' } } }, { nodes: { a: { op: 'apply', inputs: ['a'], type: t(1, 1), fn: '__proto__' } }, functions: {} }, { nodes: 7 }, 7, 'graph'])
     for (const id of ['a', '__proto__', 'constructor']) assert.equal(evaluate(g, id).error.code === undefined, false);
 });
-test('a single entry\'s side with no root to write is an error', () => {
+test('a single entry\'s side with no root to write is an error, and the side of true or false is that of 1 or 0', () => {
   const side = v => worked(G({ s: V([[v]]), x: N('measure', ['s'], t(1, 1), { side: 'x' }) }), 'x')['1,1'];
-  for (const v of [-4, 'inf', '-inf', { n: -2, k: 1 }, true]) assert.equal(side(v).err, 'it has no root to be a side', JSON.stringify(v));
+  for (const v of [-4, 'inf', '-inf', { n: -2, k: 1 }]) assert.equal(side(v).err, 'it has no root to be a side', JSON.stringify(v));
+  assert.equal(side(true), 1); assert.equal(side(false), 0);      /* a boolean counts as 1 or 0, as in all arithmetic: the backend, which holds true as 1, says the same (backend/tests/test_evaluate.py) */
+  const said = G({ s: { ...V([[null]]), entries: { '1,1': { expr: '2 > 1' } } }, x: N('measure', ['s'], t(1, 1), { side: 'x' }), m: N('measure', ['s'], t(1, 1), { side: 'm' }) });
+  assert.deepEqual(worked(said, 'x'), { '1,1': 1 }); assert.deepEqual(worked(said, 'm'), { '1,1': true });      /* worked out by a comparison likewise; its mass is still true */
   assert.equal(side(16), 4); assert.deepEqual(side({ n: 1, d: 4, k: 0 }), { n: 1, d: 2, k: 0 }); assert.equal(side({ err: 'divide by zero' }).err, 'divide by zero');
 });
 test('an index matrix is worked out at any size the caller allows', () => {

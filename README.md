@@ -797,7 +797,8 @@ A result that would not come out as a whole number is left in algebraic form, ne
 a scalar holding 2 is `√2u`, not `1.41u`; of 12, `2√3u`; of 9, `3u`. Roots are the only case so far, but this is the
 rule for anything worked out later.
 
-A scalar can hold a value of any kind. Typing `3/2` as its side gives it a mass of
+A scalar can hold a value of any kind. One that holds true or false has the sides of 1 or of 0, as a boolean
+counts in all arithmetic, on the page and in the backend alike. Typing `3/2` as its side gives it a mass of
 `9/4`; typing `2^(1/2)` (or `√2`) gives it a mass of 2. Only a matrix's sides have to be whole, because a matrix is
 drawn on the grid.
 
