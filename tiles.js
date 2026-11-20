@@ -146,6 +146,13 @@
                                     in: the tile it is then in (home), or null; holds: the tiles that are then in
                                     it. held: how many blocks inside rect belong to a tile that is neither: such a
                                     block cannot be taken from its tile by drawing round it.
+   copied(inTiles, whole, alone) -> which of the tiles a block is in go with it when it is copied. inTiles: their
+                                    ids, innermost first; whole(id): whether every block of that tile is copied
+                                    with it; alone: whether it is the one block copied. A block in a tile inside
+                                    a tile takes a tile with it only where the whole tile is copied, and copied
+                                    alone it is that block and no tile: to copy a tile, the tile is selected. (A
+                                    block in one tile that is in no other takes its tile, as it did before tiles
+                                    could lie inside tiles.)
    enterable(host, held, fits)   -> { ok: true } | { refused }: whether blocks let go on a frame go into it. Where
                                     the frame is a tile, or is in one (host), and the blocks are all of another
                                     tile's (held), that tile goes in whole: only where it lies wholly inside the
@@ -379,6 +386,7 @@ export function makable(rect, list = [], held = 0){
   return { ok: true, in: made.in, holds };
 }
 
+export const copied = (inTiles, whole = () => false, alone = false) => inTiles.length < 2 ? [...inTiles] : alone ? [] : inTiles.filter(id => whole(id));
 export const enterable = (host, held, fits = false) => host && held && !fits ? { refused: 'A tile goes inside another only where it lies wholly inside that tile\'s pattern: move it there by its frame' } : { ok: true };
 
 export const index = (repeat, offset, c, r, cx = 1, cy = 1) => ({ x: (cx - 1) * repeat.cols + offset.x + c, y: (cy - 1) * repeat.rows + offset.y + r });

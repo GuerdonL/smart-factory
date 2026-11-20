@@ -1,7 +1,7 @@
 /* sources.js: blocks that have values at any size without storing them. Run with: node --test */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SOURCES, DATA, DISTS, kept, kindOf, remote, labelOf, faceOf, noise, seedOf, dataPath, dataName, entry, values, typable, holds } from '../sources.js';
+import { SOURCES, DATA, DISTS, kept, kindOf, remote, labelOf, faceOf, noise, seedOf, dataPath, dataName, entry, values, typable, holds, sizable } from '../sources.js';
 
 const rows = (kind, cols, rows_) => Array.from({ length: rows_ }, (_, r) => Array.from({ length: cols }, (_, c) => values(kind, cols, rows_).get((c + 1) + ',' + (r + 1))).join(' '));
 
@@ -89,4 +89,10 @@ test('a chosen file is given a path of its own under data/', () => {
   assert.equal(dataName('../../etc/passwd'), 'data/etc-passwd.csv'); assert.equal(dataName(''), 'data/data.csv'); assert.equal(dataName('...'), 'data/data.csv');
   assert.equal(dataName('a.csv', new Set(['data/a.csv'])), 'data/a-2.csv'); assert.equal(dataName('a.csv', new Set(['data/a.csv', 'data/a-2.csv'])), 'data/a-3.csv');
   for (const name of ['x'.repeat(300), 'ü.csv', 'a/b\\c.csv', '\0.csv', '..', '.hidden']) assert.equal(dataPath(dataName(name)), dataName(name), name);      /* whatever it was called, the path is one a project may hold */
+});
+
+test('a block that reads a file is the file\'s size and no other; before a file is chosen, and any other source, is any size', () => {
+  assert.equal(sizable({ file: 'data/weights.csv' }, 'Weights').refused, 'Weights reads data/weights.csv: its size is the file\'s. Choose another CSV file to change it');
+  assert.match(sizable({ file: 'data/a b.csv' }).refused, /^It reads data\/a b\.csv/);
+  for (const free of [{ file: null }, { file: '../etc/passwd' }, { noise: { seed: 3, dist: 'normal' } }, 'zeros', 'ones', 'identity', null, undefined, 'file', {}]) assert.deepEqual(sizable(free, 'Keys'), { ok: true });
 });

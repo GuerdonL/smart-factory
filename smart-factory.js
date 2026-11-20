@@ -21,7 +21,7 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, zoneOf, joins, pieces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge, MOST as MOST_HERE } from './evaluate.js';
 import * as project from './project.js';
@@ -31,7 +31,7 @@ import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
-import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds } from './sources.js';
+import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
 import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
 import { createBackend } from './backend.js';
 import { squares } from './components/matrix.js';
@@ -346,7 +346,8 @@ function answerOf(node, binding = null){
    the page works out is the same with a backend and without one, and no decimal is an entry of any block.
 
    With no backend nothing is asked, and what is made of noise or of a data file says "needs the backend" where its
-   numbers would be; everything else is as it is without one. With one, what it gives no numbers for says why in
+   numbers would be; a result that is only too large keeps its symbols, with the same words small under its matrix
+   (decimals.js: marked); everything else is as it is without one. With one, what it gives no numbers for says why in
    their place, and in the readout when the reason arrives. Whether there is one is asked again after a failure and
    every quarter of a minute, so one started or stopped later is noticed. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
@@ -599,6 +600,9 @@ const autoSide = (b, dim) => { if (!isNamed(b) || isArrow(b)) return null; const
   return name + ((dim === 'w') !== turned(b) ? '.x' : '.y'); };
 /* a named scalar has a third measure beside its two sides: its mass, the number it holds, called
    by the shape's name with .mass. ('m' stands for it wherever 'w' and 'h' stand for the sides.) */
+/* a block that reads a data file is the file's size (sources.js: sizable): why its size cannot be changed, or null
+   where it can. A shape fused from such a block is held by it too: pulled, it would pull the block. */
+const fileHeld = b => { const can = sourceSizable(b.source, bare(b.name)); return can.refused || (b.members || []).map(m => fileHeld(m.block)).find(Boolean) || null; };
 const single = b => !b.members && !isArrow(b) && b.rect.w === view.unit && b.rect.h === view.unit && !dataOf(b).length;      /* a scalar: one number and nothing else. A one by one block that holds inner data (a part cut down to one entry) is no scalar */
 /* ---- inner data ----
    Each entry of a shape may itself be an array (inner.js): the shape then has inner axes, block.inner, a list of
@@ -695,7 +699,7 @@ function lengthCalled(name, s, not = null){
 function agree(b){
   const todo = [b], done = new Set();
   /* a named side of a part that does not take in its source's whole side: it is as long as its range, whatever else carries the name */
-  const pinned = ([o, d]) => !!o.from?.range && d !== 'm' && d[0] !== 'k' && !wholeSide(o.from.range, (d === 'w') !== turned(o) ? 'cols' : 'rows');
+  const pinned = ([o, d]) => d !== 'm' && d[0] !== 'k' && (!!fileHeld(o) || (!!o.from?.range && !wholeSide(o.from.range, (d === 'w') !== turned(o) ? 'cols' : 'rows')));      /* and a side of a block that reads a file: it is as long as the file makes it */
   while (todo.length){
     const c = todo.pop(); if (done.has(c)) continue; done.add(c);
     if (isArrow(c)) continue;                  /* an arrow's rectangle is the gap it is drawn in: no size any other shape shares */
@@ -706,7 +710,7 @@ function agree(b){
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = everySpace().find(s => withKept(s).includes(c)); if (!s) continue;
     for (const dim of ['w', 'h', 'm', ...axesOf(c).map((_, i) => 'k' + i)]) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o, d]) => d[0] !== 'k' && rootSide(o) !== null) || group.find(pinned);      /* a single entry's number settles the length: it is not resized to suit the others. So does a part's shortened side */
-      if (boss && pinned(boss) && c !== boss[0] && lenOf(c, dim) !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and is part of ${partOf(boss[0])}, so its size cannot change`);
+      if (boss && pinned(boss) && c !== boss[0] && lenOf(c, dim) !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and ${fileHeld(boss[0]) ? 'reads a data file, so its size is the file\'s' : `is part of ${partOf(boss[0])}, so its size cannot change`}`);
       const length = boss ? sideLength(boss[0], boss[1]) : lenOf(c, dim);
       if (!boss && dim === 'm') continue;
       if (length === null){      /* the entry's side is not a whole number now: no side can be that long, so the sides that carried its name let go of it and stay as they are */
@@ -714,6 +718,7 @@ function agree(b){
           else if (rootSide(o) === null && o.sides[d]){ hud.say(`${o.sides[d]} is not a whole number now: ${bare(o.name)} no longer follows it`); o.sides[d] = null; }
         continue; }
       for (const [o, d] of group) if ((d[0] === 'k' || (rootSide(o) === null && !unset(o))) && lenOf(o, d) !== length){
+        if (d[0] !== 'k' && fileHeld(o)){ hud.say(`${o.sides[d]} is ${Math.round(length / view.unit)}u, and ${bare(o.name)} is the size of its file: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* another length than its file's: it lets go of the name, and stays */
         if (d[0] !== 'k' && madeOne(o, d === 'w' ? length : o.rect.w, d === 'h' ? length : o.rect.h)){ hud.say(`${o.sides[d]} is 1 now, and ${bare(o.name)} holds inner data, so it cannot be one by one: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* a named length that comes to 1 */
         setLen(o, d, length); done.delete(o); todo.push(o); } }
   }
@@ -747,6 +752,10 @@ function typedNow(b, dim, text){
   /* a part of another shape is the size of that part: a length typed on it is not taken, nor a name that is another length already */
   if (rangedOf(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
     if ((n !== null && n * view.unit !== b.rect[dim]) || (has !== undefined && has !== b.rect[dim])){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); if (has !== undefined && has !== b.rect[dim]) return; }
+    n = null; }
+  /* a block that reads a file is the file's size: a length typed on it is not taken, nor a name that is another length already */
+  if (fileHeld(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
+    if ((n !== null && n * view.unit !== b.rect[dim]) || (has !== undefined && has !== b.rect[dim])){ hud.say(fileHeld(b)); return; }
     n = null; }
   /* a named scalar stays a scalar: a length given to its side is the root of its number, so the number becomes the
      length squared, and the block keeps its one square */
@@ -1371,13 +1380,22 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
+const picture = (b, s, goes = null) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
   seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, inner: dataOf(b).map(a => ({ ...a })), attrs: attrsOf(b).map(a => ({ ...a })), values: orderOf(b) ? [...reordered(b.values, orderOf(b))] : measures(b) || indexedOf(b) || takenOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
-  groups: chain(b, s).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
+  groups: chain(b, s).filter(g => !goes || goes(g)).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
   members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
-function copy(){ if (selected.size) clipboard = [...selected].map(b => picture(b, space)); }
+/* which tiles go with a copied block is tiles.js's to say (copied): in a tile inside a tile, only a tile that is copied
+   whole, and none with a block copied alone. A tile that is itself selected (tile) is copied whole, with what is in
+   it and without the frames and tiles it is in. */
+function copy(tile = null){
+  const list = tile ? inGroup(tile) : [...selected]; if (!list.length) return false;
+  const whole = g => inGroup(g).every(b => list.includes(b));
+  clipboard = list.map(b => { const all = chain(b), upto = tile ? all.slice(0, all.indexOf(tile) + 1) : all, kept = tile ? upto : tiles.copied(tilesOf(b), whole, list.length === 1);
+    return picture(b, space, g => upto.includes(g) && (!space.repeats.has(g) || kept.includes(g))); });
+  return true;
+}
 function cut(also){ if (selected.size){ copy(); remove(also); } }
 /* makes the blocks in pictures inside space s, moved by (dx, dy); blocks that were grouped together are grouped together again */
 function develop(pictures, s, dx, dy){
@@ -1431,17 +1449,16 @@ function paste(at, clipboard, fresh = true){                             /* at: 
 
 /* removes the selected blocks, and with each its definition space */
 /* transposes the selection. A shape on its own turns about its top-left corner: its width and height change places,
-   with their names, and entry c,r becomes entry r,c. A product turns as a whole, (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ: each shape is
-   transposed and their order reversed, laid out again from the product's top-left corner. A shape is a variable, so
-   it alone is turned: other uses of the variable stay as they are. (What is inside its definition space is left as it is.)
-   Only a row of products is laid out again; the shapes of a sum or an elementwise piece each turn where they are. */
+   with their names, and entry c,r becomes entry r,c. A piece turns as a whole and is still that piece: a product,
+   (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ, has each shape transposed and their order reversed; a sum and an elementwise piece keep their
+   order ((A + B)ᵀ = Aᵀ + Bᵀ). Each is laid out again from the piece's top-left corner (algebra.js: turnedPlaces). A
+   shape is a variable, so it alone is turned: other uses of the variable stay as they are. (What is inside its
+   definition space is left as it is.) */
 function transpose(){
   if (!selected.size) return;
   const fixed = fixedIn([...selected], 'transposed'); if (fixed){ hud.say(fixed); return shown(); }
   const u = view.unit, list = [...selected], act = list.filter(b => !isOff(b)), done = new Set();
-  const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, inner: dataOf(b) })))
-    .filter(p => p.rule === 'product').map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x))
-    .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
+  const places = turnedPlaces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, inner: dataOf(b) })));
   /* a shape becomes the transpose of what it was: this use alone, marked with a T. Its width and height change places,
      with their names; its entries stay as the variable has them and are read turned. A joined shape is turned bodily,
      with everything it was joined from, and so are all its uses. */
@@ -1450,7 +1467,7 @@ function transpose(){
     for (const k of b.members ? kinOf(b) : [b]){ done.add(k); k.turn(!k.t); k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; }
     for (const m of b.members || []){ [m.fx, m.fy, m.fw, m.fh] = [m.fy, m.fx, m.fh, m.fw]; flip(m.block); } };
   list.forEach(flip);
-  for (const c of chains){ let x = c.x; for (const b of c.blocks.reverse()){ b.set({ ...b.rect, x, y: c.y }); x += b.rect.w; } }
+  act.forEach((b, i) => { if (places[i]) b.set({ ...b.rect, x: places[i].x * u, y: places[i].y * u }); });
   if (space.owner && done.has(space.owner)) write();      /* the block whose space this is has turned too */
   shown();
 }
@@ -2561,7 +2578,7 @@ addEventListener('keydown', e => {
      measurement these keys never reach here, so text is copied and pasted as usual.) */
   /* Ctrl or Cmd with z undoes; with shift and z, or with y, redoes */
   if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')){ e.preventDefault(); return bus.send(e.shiftKey || e.key === 'y' || e.key === 'Y' ? 'redo' : 'undo'); }
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy', { ids: idsOf(selected) }); } return; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')){ if (selected.size){ e.preventDefault(); bus.send('copy', { ids: idsOf(selected) }); } else if (pickedTile){ e.preventDefault(); bus.send('copy', { ids: [], tile: pickedTile }); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')){ if (selected.size){ e.preventDefault(); removing('cut'); } return; }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')){ if (clipboard){ e.preventDefault(); bus.send('paste', { at: { x: view.camera().x, y: view.camera().y }, pasted: clipboard }); } return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -2607,6 +2624,7 @@ function dragged(el, from, e){
   const end = () => { cursor(''); settle(); };
   const grip = el.dataset.grip;
   if (grip && rangedOf(b)){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); return { end(){}, move(){} }; }      /* it is as large as its range, and cannot be pulled larger or smaller */
+  if (grip && fileHeld(b)){ hud.say(fileHeld(b)); return { end(){}, move(){} }; }      /* it is as large as its file */
   if (grip && orderOf(b)){ hud.say(`${bare(b.name)} is turned here: its sides are its variable's axes. Change them on the shape it was made as`); return { end(){}, move(){} }; }
   if (grip){                                    /* the opposite side or corner stays where it is; never smaller than one square */
     if (!selected.has(b) || selected.size > 1) pick([b]);
@@ -2826,7 +2844,9 @@ bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); if (b && !s
 bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size && !openField) select([]); if (kind === 'length' && !openField?.over(x, y)) reach(x, y); });      /* while a formula is being typed the selection stays, and with it the panel the formula is in */
 bus.on('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); });
 bus.on('new', ({ type, source = null }) => { if (type === 'tile') return draw.tile(); const shape = typeNamed(type); return draw[shape.draw]?.(shape, sourceKept(source)); });      /* begins drawing; 'add' is the block. source: the kind of source to draw (sources.js), for a tensor */
-bus.on('copy', ({ ids: list }) => { selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
+bus.on('copy', ({ ids: list = [], tile = null }) => {
+  if (tile){ if (space.repeats.has(tile) && !copy(tile)) hud.say('That tile holds nothing: there is nothing to copy'); return shown(); }      /* a tile selected by its edge or its name */
+  selected.clear(); for (const b of list.map(blockOf)) if (b) selected.add(b); copy(); shown(); });
 bus.on('save', ({ name = null }) => save(name));      /* name: what was typed when asked what to save it as */
 bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () => zipPicker.click());
 /* changing the project */
@@ -2848,6 +2868,7 @@ bus.on('place', ({ rects, axes = [] }) => { const u = view.unit;
   for (const a of axes){ const b = blockOf(a.id), axis = b && (b.inner || [])[a.index]; if (axis && nesting.lengthOk(a.length).ok) axis.length = a.length; }
   for (const r of rects){ const b = blockOf(r.id); if (!b) continue;
     if (madeOne(b, r.w, r.h)){ hud.say(nesting.sizable(1, 1, 1).refused); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }
+    if ((r.w !== b.rect.w || r.h !== b.rect.h) && fileHeld(b)){ hud.say(fileHeld(b)); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }      /* a block that reads a file goes where it is put, at the file's size */
     b.set({ x: r.x, y: r.y, w: r.w, h: r.h }); }
   shown(); }, changes);
 /* these act on the blocks they name: what was selected when they were sent. paste carries what it pastes. */
@@ -3059,7 +3080,7 @@ const menu = createMenu([
   { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
   { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },
   { label: 'Cut', hint: mod + 'X', disabled: () => !selected.size, run: () => removing('cut') },
-  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size, run: () => bus.send('copy', { ids: idsOf(selected) }) },
+  { label: 'Copy', hint: mod + 'C', disabled: () => !selected.size && !pickedTile, run: () => bus.send('copy', selected.size ? { ids: idsOf(selected) } : { ids: [], tile: pickedTile }) },
   { label: 'Paste', hint: mod + 'V', disabled: () => !clipboard, run: () => bus.send('paste', { at: menuAt, pasted: clipboard }) },
   { label: 'Transpose', hint: 'T', disabled: () => !selected.size, run: () => bus.send('transpose', { ids: idsOf(selected) }) },
   /* greyed where the selection does not allow it; chosen all the same, each says why in the readout */

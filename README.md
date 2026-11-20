@@ -406,7 +406,7 @@ New, then Data in, draws a noise block; resting on Data in offers Noise and File
 | Kind | Its entries | On its face | In its panel |
 | --- | --- | --- | --- |
 | Noise | Numbers drawn from its distribution. They follow from its seed, the id of the block the variable was made as, and each entry's column and row, and from nothing else: moving it or resizing it changes no entry that still exists, every reference shows the same numbers, and the same project shows the same numbers on any machine. In a tile every cell holds other numbers, and the first cell holds what the block would hold outside the tile | `~` | seed (a whole number, 0 at first) and distribution (`uniform`, from 0 up to 1, at first; or `normal`, mean 0 and deviation 1) |
-| File | The numbers of a CSV file: numbers with commas between them, every row as many, with or without a first row of names. The file is sent to the backend, which checks it, and the block takes its size. It is kept in the project's directory under `data/` and saved with the project | `csv` | Choose a CSV file… |
+| File | The numbers of a CSV file: numbers with commas between them, every row as many, with or without a first row of names. The file is sent to the backend, which checks it, and the block takes its size. From then on the block is the file's size: a length typed on it, a pull on its edge and a side name of another length are refused, and another file is how it comes to another size. It is kept in the project's directory under `data/` and saved with the project | `csv` | Choose a CSV file… |
 
 A file is chosen once the project has been saved under a name, since that is where it is kept: until the project
 is on the server under the name it has, choosing is refused, and nothing is written. A file that is not a table of
@@ -751,8 +751,9 @@ showing and for nothing else, and is never mixed up with an exact number:
 - it is never saved, and is no entry of any block: results are asked for again when the project is opened.
 
 With no backend, whatever is made of noise or of a data file says "needs the backend" where its numbers would be,
-on the canvas and in its panel, whether it is one block, a piece of several or an arrow's output; nothing else
-changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
+on the canvas and in its panel, whether it is one block, a piece of several or an arrow's output. A result that is
+only too large to work out in the browser keeps its symbols, with "needs the backend" written small under its matrix
+on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
 **What it answers.** `GET /health` gives `{ "ok": true, "version": 2 }` (the version of graph it reads; it still takes a version 1 graph). `POST /run` takes
@@ -818,7 +819,10 @@ What comes out of the list on the right is never a copy.
 - A named frame dragged from the list is made again with each named shape in it a reference to the original.
 
 Copy and paste (Ctrl/Cmd+C, Ctrl/Cmd+V, or the menu) is how a separate thing is made: a paste is a variable of its
-own, with its own entries, and takes a new colour every time.
+own, with its own entries, and takes a new colour every time. A copied block takes with it the frames it is in, and
+the tile it is in. In a tile inside a tile it takes a tile only where every block of that tile is copied, and one
+block copied alone is pasted as that block, in no tile. A tile selected by its edge or its name is copied whole
+(Ctrl/Cmd+C), with what is in it and without the tiles it is in.
 
 Deleting a reference removes only that reference. Deleting a source removes everything that refers to it, in any
 space; before it does, a warning lists the variables and how many instances of each would go, and the deletion can be
