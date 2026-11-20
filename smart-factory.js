@@ -2565,7 +2565,9 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
   hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
-    + (data.changed ? `. ${data.changed === 1 ? '1 piece reads' : data.changed + ' pieces read'} differently now: shapes that meet at a corner, or stand under one in a product, touch` : '')); }
+    + (data.changed ? `. ${data.changed === 1 ? '1 piece reads' : data.changed + ' pieces read'} differently now: shapes that meet at a corner, or stand under one in a product, touch` : '')
+    /* a use that the files drew at another size than its variable's: project.js has set it to its variable's, and says which (no page saves one) */
+    + (data.resized && data.resized.length ? `. ${data.resized.slice(0, 3).map(r => `${bare(r.name)} was drawn ${r.was.cols} × ${r.was.rows} and its variable is ${r.cols} × ${r.rows}`).join('; ')}${data.resized.length > 3 ? `; and ${data.resized.length - 3} more` : ''}: every use of a variable is its size, so ${data.resized.length === 1 ? 'it has' : 'they have'} been set to it` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
 const zipPicker = Object.assign(document.createElement('input'), { type: 'file', accept: '.zip,application/zip', hidden: true });

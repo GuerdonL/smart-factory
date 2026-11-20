@@ -633,6 +633,10 @@ of the model that anything else is to read: the backend (see "The backend"), an 
   then `"column,row,k1,k2,…"`. The rules stay two-dimensional: the evaluator runs each once for every inner
   position. `stack` puts matrices into the entries of one, `entry` takes one out, and a `transpose` with `order`
   turns the axes. The graph's `version` is 2; a version 1 graph holds none of this and is still accepted.
+- A `matmul`'s first input has as many columns as its second has rows, a single entry included: a single entry
+  against a single row or column is a product, and against anything else it is a `scale`, which is another node.
+  `validate` and the backend's check refuse any other product in the same words ("a product of 1 columns and 3
+  rows: a single entry against a matrix is a scale").
 - A node's id says what it is, never where it sits: `matmul(v:b1,v:b2)`. The same product in two places is one
   node, and moving a block without changing what it touches leaves the graph exactly as it was.
 - `spaces` says what each canvas comes to (each piece, each arrow and each tile, with its node or its error), and
@@ -831,6 +835,10 @@ Deleting a reference removes only that reference. Deleting a source removes ever
 space; before it does, a warning lists the variables and how many instances of each would go, and the deletion can be
 cancelled. In a project file a reference carries `"reference": true`, and a length taken from a shape carries
 `"from": { "id": …, "side": "x" | "y" }`.
+
+Every use of a variable is one size: its variable's, the other way round where it is transposed, and for a turned
+use the two axes it draws. No page saves anything else. Where a project's files hold a reference drawn at another
+size, opening sets it to its variable's size where it stands, and the readout names it and gives both sizes.
 
 ## The maths solver
 
