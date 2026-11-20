@@ -547,14 +547,15 @@ test('after review: a framing gesture does not part a tile from the pattern it l
   assert.deepEqual(reframed([T('o', null, 0, 0, 4, 1), T('i', 'o', 9, 9, 2, 1)], [T('o', null, 0, 0, 4, 1), T('i', null, 9, 9, 2, 1)]), { ok: true });
 });
 
-test('a block copied out of a tile inside a tile is that block alone; a tile goes where the whole of it is copied', () => {
+test('a tile goes with what is copied only where the whole of it is copied, in another tile or in none', () => {
   const whole = set => id => set.includes(id);
-  assert.deepEqual(copied(['inner', 'outer'], whole(['inner']), true), []);              /* one block, though it is all its inner tile holds */
-  assert.deepEqual(copied(['inner', 'outer'], whole([]), true), []);
-  assert.deepEqual(copied(['inner', 'outer'], whole([]), false), []);                    /* some of the inner tile's blocks: blocks */
-  assert.deepEqual(copied(['inner', 'outer'], whole(['inner']), false), ['inner']);      /* all of the inner tile, not all of the outer */
-  assert.deepEqual(copied(['inner', 'outer'], whole(['inner', 'outer']), false), ['inner', 'outer']);
-  assert.deepEqual(copied(['a', 'b', 'c'], whole(['a', 'b']), false), ['a', 'b']);
-  /* a block in one tile that is in no other takes its tile whatever else is copied, as it always did; one in none takes none */
-  assert.deepEqual(copied(['only'], whole([]), true), ['only']); assert.deepEqual(copied(['only'], whole([]), false), ['only']); assert.deepEqual(copied([], whole([]), true), []);
+  /* in one tile: one block of several is that block alone; every block of it, or the one block it holds, takes it */
+  assert.deepEqual(copied(['only'], whole([])), []); assert.deepEqual(copied(['only'], whole(['only'])), ['only']); assert.deepEqual(copied([], whole([])), []);
+  /* in a tile inside a tile, the same */
+  assert.deepEqual(copied(['inner', 'outer'], whole([])), []);                                  /* some of the inner tile's blocks: blocks */
+  assert.deepEqual(copied(['inner', 'outer'], whole(['inner'])), ['inner']);                    /* all of the inner tile, or the one block it holds: not all of the outer */
+  assert.deepEqual(copied(['inner', 'outer'], whole(['inner', 'outer'])), ['inner', 'outer']);
+  assert.deepEqual(copied(['a', 'b', 'c'], whole(['a', 'b'])), ['a', 'b']);
+  /* a tile never goes without the tiles inside it that the block is in */
+  assert.deepEqual(copied(['inner', 'outer'], whole(['outer'])), []); assert.deepEqual(copied(['a', 'b', 'c'], whole(['a', 'c'])), ['a']);
 });

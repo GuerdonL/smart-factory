@@ -826,10 +826,10 @@ What comes out of the list on the right is never a copy.
 - A named frame dragged from the list is made again with each named shape in it a reference to the original.
 
 Copy and paste (Ctrl/Cmd+C, Ctrl/Cmd+V, or the menu) is how a separate thing is made: a paste is a variable of its
-own, with its own entries, and takes a new colour every time. A copied block takes with it the frames it is in, and
-the tile it is in. In a tile inside a tile it takes a tile only where every block of that tile is copied, and one
-block copied alone is pasted as that block, in no tile. A tile selected by its edge or its name is copied whole
-(Ctrl/Cmd+C), with what is in it and without the tiles it is in.
+own, with its own entries, and takes a new colour every time. A copied block takes with it the frames it is in. It
+takes a tile it is in only where every block of that tile is copied, whether the tile lies in another or not: one
+block of several is pasted as that block, in no tile, and a block that is all its tile holds takes the tile. A tile
+selected by its edge or its name is copied whole (Ctrl/Cmd+C), with what is in it and without the tiles it is in.
 
 Deleting a reference removes only that reference. Deleting a source removes everything that refers to it, in any
 space; before it does, a warning lists the variables and how many instances of each would go, and the deletion can be

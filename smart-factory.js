@@ -1386,13 +1386,13 @@ const picture = (b, s, goes = null) => ({ id: b.id, arrow: isArrow(b) ? { ...b.a
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
   members: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, pic: picture(m.block, s) })) : null });
-/* which tiles go with a copied block is tiles.js's to say (copied): in a tile inside a tile, only a tile that is copied
-   whole, and none with a block copied alone. A tile that is itself selected (tile) is copied whole, with what is in
-   it and without the frames and tiles it is in. */
+/* which tiles go with a copied block is tiles.js's to say (copied): a tile that is copied whole, in another tile or
+   in none, so one block of several is pasted alone. A tile that is itself selected (tile) is copied whole, with what
+   is in it and without the frames and tiles it is in. */
 function copy(tile = null){
   const list = tile ? inGroup(tile) : [...selected]; if (!list.length) return false;
   const whole = g => inGroup(g).every(b => list.includes(b));
-  clipboard = list.map(b => { const all = chain(b), upto = tile ? all.slice(0, all.indexOf(tile) + 1) : all, kept = tile ? upto : tiles.copied(tilesOf(b), whole, list.length === 1);
+  clipboard = list.map(b => { const all = chain(b), upto = tile ? all.slice(0, all.indexOf(tile) + 1) : all, kept = tile ? upto : tiles.copied(tilesOf(b), whole);
     return picture(b, space, g => upto.includes(g) && (!space.repeats.has(g) || kept.includes(g))); });
   return true;
 }
