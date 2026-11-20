@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { zoneOf, touches, joins, pieces, hollows, resultHollows, stacks, typeOf, readSide, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
+import { zoneOf, touches, joins, pieces, turnedPlaces, hollows, resultHollows, stacks, typeOf, readSide, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -600,4 +600,41 @@ test('a part of a transposed source is of the source as it stands, and a transpo
   assert.deepEqual([...right].sort(), [['1,1', 5], ['1,3', 6]]);
   assert.deepEqual([...partEntries({ col: 1, row: 0, cols: 1, rows: 4, toEnd: { cols: true, rows: true } }, src, true)].sort(), [['1,1', 5], ['3,1', 6]]);      /* turned: a row */
   assert.deepEqual([...partEntries({ col: 1, row: 0, cols: 1, rows: 4, toEnd: { cols: true, rows: true } }, { ...src, turned: false, cols: 4, rows: 2 })].sort(), [['2,2', 6], ['3,1', 9]]);      /* the same entries, not turned: columns 2 to 4 of 4 by 2 */
+});
+
+/* ---- the selection transposed: every piece is still that piece ---- */
+const turnedAll = rects => { const at = turnedPlaces(rects); return rects.map((r, i) => ({ ...r, x: at[i] ? at[i].x : r.x, y: at[i] ? at[i].y : r.y, w: r.h, h: r.w, wName: r.hName, hName: r.wName })); };
+test('a sum transposed is laid out again as the sum of the transposes, in its order, from its top-left corner', () => {
+  const sum = [rect(4, 2, 3, 1), rect(4, 3, 3, 1), rect(4, 4, 3, 1)];      /* three rows of three, one under the other */
+  assert.deepEqual(turnedPlaces(sum), [{ x: 4, y: 2 }, { x: 4, y: 5 }, { x: 4, y: 8 }]);
+  const after = turnedAll(sum), [p] = pieces(after);
+  assert.equal(pieces(after).length, 1); assert.equal(p.rule, 'sum'); assert.deepEqual(p.members, [0, 1, 2]); assert.deepEqual(p.type, type(1, 3));
+  /* given in another order than they lie, each still goes where its place in the column puts it */
+  assert.deepEqual(turnedPlaces([sum[2], sum[0], sum[1]]), [{ x: 4, y: 8 }, { x: 4, y: 2 }, { x: 4, y: 5 }]);
+  /* named sides and inner data go with their shapes: the sum is still defined, and holds what it held */
+  const named = [{ ...rect(0, 0, 3, 2, 'embed', 'key'), inner: [{ length: 4, name: 'head' }] }, { ...rect(0, 2, 3, 2, 'embed', null), inner: [{ length: 4, name: null }] }];
+  assert.deepEqual(pieces(turnedAll(named))[0].type, { ...type(2, 3, 'key', 'embed'), inner: [{ length: 4, name: 'head' }] });
+});
+test('an elementwise piece transposed keeps its order and each step its corner; a broadcast row becomes a broadcast column', () => {
+  const times = [rect(0, 5, 3, 2), rect(3, 3, 3, 2)], over = [rect(0, 0, 3, 2), rect(3, 2, 3, 2)];
+  for (const [pair, kind] of [[times, 'times'], [over, 'over']]){ const after = turnedAll(pair), ts = touches(after);
+    assert.deepEqual(ts.map(t => [t.kind, t.a, t.b, t.ok]), [[kind, 0, 1, true]]); assert.deepEqual(pieces(after)[0].type, type(2, 3));
+    assert.deepEqual([Math.min(...after.map(r => r.x)), Math.min(...after.map(r => r.y))], [0, Math.min(...pair.map(r => r.y))]); }      /* from the corner of the box it had */
+  const chain = [rect(0, 4, 4, 2), rect(4, 3, 4, 1), rect(8, 4, 1, 1)];      /* A ∘ a row of four ⊘ a single entry */
+  assert.deepEqual(pieces(chain)[0].type, type(4, 2));
+  const after = turnedAll(chain);
+  assert.deepEqual(touches(after).map(t => [t.kind, t.a, t.b, t.ok]), [['times', 0, 1, true], ['over', 1, 2, true]]);
+  assert.deepEqual(pieces(after)[0].type, type(2, 4)); assert.deepEqual(after.map(r => [r.x, r.y, r.w, r.h]), [[0, 7, 2, 4], [2, 3, 1, 4], [3, 7, 1, 1]]);
+  /* transposed again it is the piece it was, where it was */
+  assert.deepEqual(turnedAll(after).map(r => [r.x, r.y, r.w, r.h]), chain.map(r => [r.x, r.y, r.w, r.h]));
+});
+test('a row of products transposed is reversed as it always was; a shape alone, mixed rules and no single line stay where they are', () => {
+  const row = [rect(0, 0, 2, 3), rect(2, 0, 4, 2), rect(6, 1, 1, 4)];
+  assert.deepEqual(turnedPlaces(row), [{ x: 6, y: 0 }, { x: 4, y: 0 }, { x: 0, y: 0 }]);
+  assert.deepEqual(pieces(turnedAll(row))[0].type, type(3, 1));
+  assert.deepEqual(turnedPlaces([rect(0, 0, 2, 3), rect(9, 9, 1, 2)]), [null, null]);
+  assert.deepEqual(turnedPlaces([rect(0, 0, 3, 2), rect(3, 0, 2, 3), rect(0, 2, 3, 2)]), [null, null, null]);      /* a product and a sum in one piece */
+  assert.deepEqual(turnedPlaces([rect(0, 2, 2, 2), rect(2, 0, 2, 2), rect(2, 4, 2, 2)]), [null, null, null]);      /* one shape with times and over both: no one reading */
+  /* two pieces in one selection are each laid from their own corner */
+  assert.deepEqual(turnedPlaces([rect(0, 0, 2, 1), rect(0, 1, 2, 1), rect(10, 0, 2, 3), rect(12, 0, 3, 2)]), [{ x: 0, y: 0 }, { x: 0, y: 2 }, { x: 12, y: 0 }, { x: 10, y: 0 }]);
 });

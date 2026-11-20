@@ -21,7 +21,7 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, zoneOf, joins, pieces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge, MOST as MOST_HERE } from './evaluate.js';
 import * as project from './project.js';
@@ -1431,17 +1431,16 @@ function paste(at, clipboard, fresh = true){                             /* at: 
 
 /* removes the selected blocks, and with each its definition space */
 /* transposes the selection. A shape on its own turns about its top-left corner: its width and height change places,
-   with their names, and entry c,r becomes entry r,c. A product turns as a whole, (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ: each shape is
-   transposed and their order reversed, laid out again from the product's top-left corner. A shape is a variable, so
-   it alone is turned: other uses of the variable stay as they are. (What is inside its definition space is left as it is.)
-   Only a row of products is laid out again; the shapes of a sum or an elementwise piece each turn where they are. */
+   with their names, and entry c,r becomes entry r,c. A piece turns as a whole and is still that piece: a product,
+   (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ, has each shape transposed and their order reversed; a sum and an elementwise piece keep their
+   order ((A + B)ᵀ = Aᵀ + Bᵀ). Each is laid out again from the piece's top-left corner (algebra.js: turnedPlaces). A
+   shape is a variable, so it alone is turned: other uses of the variable stay as they are. (What is inside its
+   definition space is left as it is.) */
 function transpose(){
   if (!selected.size) return;
   const fixed = fixedIn([...selected], 'transposed'); if (fixed){ hud.say(fixed); return shown(); }
   const u = view.unit, list = [...selected], act = list.filter(b => !isOff(b)), done = new Set();
-  const chains = pieces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, inner: dataOf(b) })))
-    .filter(p => p.rule === 'product').map(p => p.members.map(m => act[m]).sort((a, b) => a.rect.x - b.rect.x))
-    .map(c => ({ blocks: c, x: Math.min(...c.map(b => b.rect.x)), y: Math.min(...c.map(b => b.rect.y)) }));
+  const places = turnedPlaces(act.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, inner: dataOf(b) })));
   /* a shape becomes the transpose of what it was: this use alone, marked with a T. Its width and height change places,
      with their names; its entries stay as the variable has them and are read turned. A joined shape is turned bodily,
      with everything it was joined from, and so are all its uses. */
@@ -1450,7 +1449,7 @@ function transpose(){
     for (const k of b.members ? kinOf(b) : [b]){ done.add(k); k.turn(!k.t); k.set({ ...k.rect, w: k.rect.h, h: k.rect.w }); k.sides = { w: k.sides.h, h: k.sides.w }; }
     for (const m of b.members || []){ [m.fx, m.fy, m.fw, m.fh] = [m.fy, m.fx, m.fh, m.fw]; flip(m.block); } };
   list.forEach(flip);
-  for (const c of chains){ let x = c.x; for (const b of c.blocks.reverse()){ b.set({ ...b.rect, x, y: c.y }); x += b.rect.w; } }
+  act.forEach((b, i) => { if (places[i]) b.set({ ...b.rect, x: places[i].x * u, y: places[i].y * u }); });
   if (space.owner && done.has(space.owner)) write();      /* the block whose space this is has turned too */
   shown();
 }

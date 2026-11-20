@@ -89,6 +89,13 @@
        not the size of the result (or the piece is not a defined times or over pair). Whether anything is written
        there or not, this is where a hollow is: where a block seated in one sits (arrows.js).
    stacks(rects) -> see below: what a stack was in projects saved before format 3. Not used to work anything out now.
+   turnedPlaces(rects) -> [{ x, y } | null]
+       where each shape goes when all of them are transposed (each then h wide and w tall), so that every piece is
+       still a piece of the same rule: (A·B·C)ᵀ = Cᵀ·Bᵀ·Aᵀ, (A + B)ᵀ = Aᵀ + Bᵀ, (A ∘ B ⊘ C)ᵀ = Aᵀ ∘ Bᵀ ⊘ Cᵀ. A row of
+       products is laid out again in a row, its order reversed; a sum in a column, in its order; an elementwise chain
+       in its order, each step the corner it was (times or over). Each is laid from the top-left corner of the box
+       round the piece as it was. null for a shape that stays at its own top-left corner: one on its own, one in a
+       piece of mixed rules, and one in an elementwise piece that is no single line (it has no one reading).
 
    A rect may also carry none: true, for a shape that has no value just now (a part of another shape that is too
    small to have that part: see ranges, below). Its piece comes to { error: 'no value' }.
@@ -224,6 +231,23 @@ function piecesBy(rects, ts){
     const line = inOneLine(members, inside);
     return { rule, members: line || members, box, type: !line || inside.some(t => !t.ok) ? { error: 'undefined' } : rule === 'product' || !rule ? rowType(rects, line) : chainType(rects, line, rule === 'elementwise') };
   });
+}
+/* where shapes go when every one of them is transposed, so that their pieces are still pieces (see the top) */
+export function turnedPlaces(rects){
+  const ts = touches(rects), out = rects.map(() => null);
+  for (const p of piecesBy(rects, ts)){
+    const ms = [...p.members];
+    if (p.rule === 'product'){ let x = p.box.x; for (const i of ms.sort((a, b) => rects[a].x - rects[b].x).reverse()){ out[i] = { x, y: p.box.y }; x += rects[i].h; } }
+    else if (p.rule === 'sum'){ let y = p.box.y; for (const i of ms.sort((a, b) => rects[a].y - rects[b].y)){ out[i] = { x: p.box.x, y }; y += rects[i].w; } }
+    else if (p.rule === 'elementwise'){
+      const inside = ts.filter(t => ms.includes(t.a)), line = inOneLine(ms, inside); if (!line) continue;
+      const at = [{ x: 0, y: 0 }];      /* each step from the one before: times above its right end, over below it */
+      for (let n = 1; n < line.length; n++){ const a = rects[line[n - 1]], b = rects[line[n]], was = at[n - 1], kind = inside.find(t => t.a === line[n - 1] && t.b === line[n]).kind;
+        at.push({ x: was.x + a.h, y: kind === 'over' ? was.y + a.w : was.y - b.w }); }
+      const dx = p.box.x - Math.min(...at.map(q => q.x)), dy = p.box.y - Math.min(...at.map(q => q.y));
+      line.forEach((i, n) => { out[i] = { x: at[n].x + dx, y: at[n].y + dy }; }); }
+  }
+  return out;
 }
 /* what a row of products comes to (a shape on its own is a row of one): the first one's rows and the last one's
    columns. Single entries in the row only scale it: what it comes to, and whether it is defined, is a matter for the others. */
