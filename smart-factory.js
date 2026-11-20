@@ -346,7 +346,8 @@ function answerOf(node, binding = null){
    the page works out is the same with a backend and without one, and no decimal is an entry of any block.
 
    With no backend nothing is asked, and what is made of noise or of a data file says "needs the backend" where its
-   numbers would be; everything else is as it is without one. With one, what it gives no numbers for says why in
+   numbers would be; a result that is only too large keeps its symbols, with the same words small under its matrix
+   (decimals.js: marked); everything else is as it is without one. With one, what it gives no numbers for says why in
    their place, and in the readout when the reason arrives. Whether there is one is asked again after a failure and
    every quarter of a minute, so one started or stopped later is noticed. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),

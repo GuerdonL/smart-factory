@@ -42,6 +42,9 @@
                   ("needs the backend", or why the backend gave no numbers) no entry is written, and the note is,
                   on one line; a matrix too narrow for its note is made as wide as the note, so that it lies
                   inside the brackets and over nothing else.
+                  Where it carries a mark ("needs the backend": a result too large to work out here, with no
+                  backend running) its entries are written as ever, and on the canvas (decimal: 'square') the mark
+                  is written small under the matrix, from its left edge; it takes no room.
      inner        the axes of what each entry holds, [{ length, name }] (inner.js), where the entries hold inner
                   data; left out or empty where each is one number. values is then keyed "column,row,k1,…", and
                   an entry is not written as a number: one in which any number has been given is a small bracket
@@ -94,6 +97,8 @@ style('matrix', `
 .matrix > span.set.stale { opacity: .4; }      /* numbers of an older state of the project, while the new ones are waited for */
 .matrix > span.blank { visibility: hidden; }
 .matrix > .matrix-note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); box-sizing: border-box; max-width: 100%; padding: 0 .4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 11px/1.5 var(--font-ui); font-style: normal; color: var(--muted); background: var(--bg); border-radius: 3px; }
+/* a few words under a matrix whose entries are written as ever: numbers are to be had, and are not here */
+.matrix > .matrix-mark { position: absolute; left: -4px; top: 100%; margin-top: 5px; white-space: nowrap; font: 10px/1.2 var(--font-ui); font-style: normal; color: var(--muted); pointer-events: none; }
 .matrix sub { font-style: normal; font-size: .68em; vertical-align: -0.35em; line-height: 0; margin-left: .04em; }
 /* the brackets: a tall stroke each side with short feet turned inwards */
 .matrix::before, .matrix::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: 5px; border: 1.2px solid var(--fg); }
@@ -174,5 +179,6 @@ export function createMatrix({ cols, rows, cell, letter = 'x', color = null, val
     const needs = Math.ceil((values.note.length * NOTE_CHAR + NOTE_PAD) / cell) * cell, most = Math.max(width, Math.floor(noteMax / cell) * cell);
     if (needs > most) el.title = values.note;      /* cut short: said in full where the pointer rests */
     width = Math.max(width, Math.min(needs, most)); el.style.minWidth = width + 'px'; }
+  if (values.mark && decimal === 'square'){ const n = html`<span class="matrix-mark"></span>`; n.textContent = values.mark; el.append(n); }
   return { el, width, height: rs.length * cell };
 }

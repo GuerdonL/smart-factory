@@ -751,8 +751,9 @@ showing and for nothing else, and is never mixed up with an exact number:
 - it is never saved, and is no entry of any block: results are asked for again when the project is opened.
 
 With no backend, whatever is made of noise or of a data file says "needs the backend" where its numbers would be,
-on the canvas and in its panel, whether it is one block, a piece of several or an arrow's output; nothing else
-changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
+on the canvas and in its panel, whether it is one block, a piece of several or an arrow's output. A result that is
+only too large to work out in the browser keeps its symbols, with "needs the backend" written small under its matrix
+on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
 **What it answers.** `GET /health` gives `{ "ok": true, "version": 2 }` (the version of graph it reads; it still takes a version 1 graph). `POST /run` takes

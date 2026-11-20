@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { along, drawn, level, fromBackend, functional, wanted, merged, laid, noted, keyOf, NEEDS, ASKING } from '../decimals.js';
+import { along, drawn, level, fromBackend, functional, wanted, merged, laid, noted, marked, keyOf, NEEDS, ASKING } from '../decimals.js';
 import { createBackend, keyFor, DELAY, EVERY } from '../backend.js';
 import { digits, written, kind, storable, combine } from '../values.js';
 
@@ -83,7 +83,11 @@ test('what is laid over an answer for drawing: the backend\'s numbers, or why th
   assert.equal(laid(n, none, { there: false, got }).note, NEEDS);      /* the backend is gone: what it said before is not shown as if it still said it */
   /* only too large: with no backend it is as the browser has it, its symbols; with one it is asked for like the rest */
   const big = { type: t, deferred: true };
-  assert.equal(laid(big, none, { there: false }), none); assert.equal(laid(big, none, { there: true }).note, ASKING); assert.equal(laid(big, none, { there: true, why: 'a node of more than 16,000,000 entries' }).note, 'a node of more than 16,000,000 entries');
+  /* only too large, and no backend: what the browser has of it, unchanged, with the words that say numbers are to be had */
+  const lone = laid(big, none, { there: false }); assert.notEqual(lone, none); assert.equal(lone.mark, NEEDS); assert.equal(lone.note, undefined); assert.deepEqual([...lone], [...none]); assert.equal(none.mark, undefined);
+  assert.equal(laid(big, none, { there: false }), lone); assert.equal(marked(none, NEEDS), lone); assert.notDeepEqual(keyOf(lone), keyOf(none)); assert.notDeepEqual(keyOf(lone), keyOf(noted(NEEDS)));
+  const some = new Map([['1,1', 2]]); assert.deepEqual([...marked(some, NEEDS)], [['1,1', 2]]); assert.equal(laid(big, none, { there: null }), none);      /* not yet known whether there is one: nothing is said */
+  assert.equal(laid(big, none, { there: true }).note, ASKING); assert.equal(laid(big, none, { there: true, why: 'a node of more than 16,000,000 entries' }).note, 'a node of more than 16,000,000 entries');
 });
 
 /* a backend that answers when it is told to, and a clock that moves when it is told to */
