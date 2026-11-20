@@ -41,6 +41,11 @@
                                     directory below data/, and nothing that climbs out of it.
    dataName(name, taken)         -> such a path made from a file's own name ("My Weights.CSV" -> "data/My Weights.csv"),
                                     different from every path in taken (a Set, or anything with has)
+   tooSmall(text)                -> how many numbers of a numeric CSV are written as other than nought and are too
+                                    small for a 32-bit float (1e-60), so that the backend reads them as 0. The same
+                                    count as backend/data.py's survey: the backend says it when a file is chosen
+                                    (POST /data: "small"), and this says it of a file opened with its project
+   smallSays(n)                  -> the sentence for that in the file block's panel, or null where n is 0
    entry(kind, column, row)      -> that entry: 0 or 1. undefined where kind is none of the three, or the place is
                                     not a whole column and row from 1
    values(kind, cols, rows, inner) -> a Map from "column,row" to every entry of a source that size; empty for noise and
@@ -68,6 +73,13 @@ export function dataName(name, taken = new Set()){
   let path = `data/${stem}.csv`; for (let n = 2; taken.has(path); n++) path = `data/${stem}-${n}.csv`;
   return path;
 }
+const NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/, MAY_BE_SMALL = /[eE]|\d{39}/;      /* (only a line with an exponent or a long run of digits can hold one) */
+export function tooSmall(text){ let n = 0;
+  for (const line of String(text ?? '').split(/\r\n|\r|\n/)){ if (!MAY_BE_SMALL.test(line)) continue;
+    for (const c of line.split(',')){ const cell = c.replace(/^[ \t"]+|[ \t"]+$/g, '');
+      if (NUMBER.test(cell) && Math.fround(Number(cell)) === 0 && /[1-9]/.test(cell.split(/[eE]/)[0])) n++; } }
+  return n; }
+export const smallSays = n => Number.isSafeInteger(n) && n > 0 ? `${n === 1 ? '1 number' : n.toLocaleString('en-US') + ' numbers'} too small for 32 bits ${n === 1 ? 'was' : 'were'} read as 0` : null;
 export const noise = (seed = 0, dist = 'uniform') => ({ noise: { seed: Number.isSafeInteger(seed) ? seed : 0, dist: DISTS.includes(dist) ? dist : 'uniform' } });
 export function kept(source){
   if (typeof source === 'string') return byKind.has(source) ? source : null;

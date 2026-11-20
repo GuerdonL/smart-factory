@@ -231,7 +231,8 @@ test('a matrix\'s side is a whole number of at least 1', () => {
 });
 
 test('the exact-value helpers take every kind', () => {
-  for (const v of [INF, true, sym('1-sqrt(2)'), { f: 0.5 }, E('x'), null, -1, q(-1, 2)]) assert.equal(rootOf(v), null, written(v));
+  for (const v of [INF, sym('1-sqrt(2)'), { f: 0.5 }, E('x'), null, -1, q(-1, 2)]) assert.equal(rootOf(v), null, written(v));
+  assert.equal(rootOf(true), 1); assert.equal(rootOf(false), 0);      /* a boolean in arithmetic counts as 1 or 0, and so under a root */
   assert.deepEqual(rootOf(sym('1+sqrt(2)+sqrt(3)')), sym('sqrt(1+sqrt(2)+sqrt(3))'));      /* a symbolic value above 0 has a root, itself symbolic */
   for (const v of [INF, true, sym('1+sqrt(2)'), { f: 0.5 }, E('x'), null]){ assert.equal(exact(v), null); assert.equal(algebra.isWhole(v), false); assert.equal(algebra.isSurd(v), false); }
   assert.deepEqual(held(exact(q(3, 4, 1))), q(3, 4, 1)); assert.equal(isError(E('x')), true); assert.equal(isError(q(1, 2)), false);

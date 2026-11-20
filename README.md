@@ -410,7 +410,8 @@ New, then Data in, draws a noise block; resting on Data in offers Noise and File
 
 A file is chosen once the project has been saved under a name, since that is where it is kept: until the project
 is on the server under the name it has, choosing is refused, and nothing is written. A file that is not a table of
-numbers is refused with the line that is wrong, and an empty cell is never taken as zero. A file is never written
+numbers is refused with the line that is wrong, and an empty cell is never taken as zero. A number too large for
+32 bits is refused; one too small for them (`1e-60`) is read as 0, and the block's panel says how many were. A file is never written
 over: a second file of the same name is kept under a name of its own (`weights-2.csv`). A save keeps the files
 some block reads and those an undo or a redo can still come back to, so a step back never finds its file gone;
 a file nothing can come back to any more is let go at the next save after the project is opened again.
@@ -761,7 +762,8 @@ Keys", "asking the backend" while the first answer is waited for) and in the rea
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
 and each answer is `[c, r, k1, …, value]`; it holds every array with rows and columns as its last two axes);
-`POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`.
+`POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`, and
+`"small"` where some of its numbers are too small for 32 bits and are read as 0: how many.
 `backend/run.py` has each in full.
 
 **Its rules.**
@@ -796,7 +798,8 @@ A result that would not come out as a whole number is left in algebraic form, ne
 a scalar holding 2 is `√2u`, not `1.41u`; of 12, `2√3u`; of 9, `3u`. Roots are the only case so far, but this is the
 rule for anything worked out later.
 
-A scalar can hold a value of any kind. Typing `3/2` as its side gives it a mass of
+A scalar can hold a value of any kind. One that holds true or false has the sides of 1 or of 0, as a boolean
+counts in all arithmetic, on the page and in the backend alike. Typing `3/2` as its side gives it a mass of
 `9/4`; typing `2^(1/2)` (or `√2`) gives it a mass of 2. Only a matrix's sides have to be whole, because a matrix is
 drawn on the grid.
 

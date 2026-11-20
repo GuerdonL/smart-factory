@@ -94,6 +94,9 @@ class PassedOn(BackendCase):
         self.backend.answer = (400, {}, b'{"error": "line 2 is not numbers"}')
         status, _, text = self.request('POST', '/api/backend/data?project=p&path=data/a.csv', b'1,2\nx\n')
         self.assertEqual((status, json.loads(text)), (400, {'error': 'line 2 is not numbers'}))
+        self.backend.answer = (200, {}, b'{"path": "data/a.csv", "cols": 2, "rows": 1, "small": 1}')      # and what it says of a file it took, whole: how many numbers it read as 0 too
+        status, _, text = self.request('POST', '/api/backend/data?project=p&path=data/a.csv', b'1e-60,2\n')
+        self.assertEqual((status, json.loads(text)), (200, {'path': 'data/a.csv', 'cols': 2, 'rows': 1, 'small': 1}))
 
     def test_only_the_three_addresses_are_passed_on(self):
         for method, path in [('GET', '/api/backend'), ('GET', '/api/backend/'), ('GET', '/api/backend/run'), ('GET', '/api/backend/data'), ('POST', '/api/backend/health'), ('GET', '/api/backend/other'), ('POST', '/api/backend/run/x'),
