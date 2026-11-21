@@ -415,6 +415,15 @@ class Promises(unittest.TestCase):
         self.assertEqual(A.outside(A.row([1, None, 0.5]), 'natural', True), (0, 2, (), 0.5))
         self.assertEqual(A.outside(A.row([1, None, 0.5]), 'real', False), (0, 1, (), None))
 
+    def test_an_inner_position_past_nine_is_after_the_second_as_on_the_page(self):
+        """One entry with an inner axis of 12, -5 at inner positions 2 and 10: "at 1, 1, 2", which is what the page
+        says of the same graph (tests/spaces.test.js), where the keys were once compared as text."""
+        entries = {'1,1,%d' % k: (-5 if k in (2, 10) else 1) for k in range(1, 13)}
+        t = {'cols': 1, 'rows': 1, 'colsName': None, 'rowsName': None, 'inner': [{'length': 12, 'name': None}]}
+        g = {'version': 3, 'functions': {}, 'spaces': {}, 'blocks': {}, 'nodes': {'d': {'op': 'variable', 'inputs': [], 'type': t, 'name': 'D', 'named': True, 'defined': 'entries', 'entries': entries, 'holds': 'natural'}}}
+        self.assertEqual(validate(g), [])
+        self.assertEqual(ask(g, [{'node': 'd', 'cells': [[1, 1, 1]]}])['errors'], {'d': 'D is not natural: it holds -5 at 1, 1, 2'})
+
     def test_the_sentences_are_the_pages_own_for_a_shape_a_product_made_of_it_and_what_an_arrow_takes(self):
         from .support import fixture
         g = next(G['graph'] for G in fixture('graphs.json') if G['name'] == 'promises broken by a value')

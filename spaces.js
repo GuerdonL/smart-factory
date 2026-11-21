@@ -69,9 +69,10 @@
                                   number, and is not), and where that cannot be told, or the space is rational and
                                   the value no whole number, the answer is null. Unknown
                                   and an error are not asked (true): they are no values to break a promise.
-   broken(holds, entries)      -> the first entry (by row, then column) that lies outside the space:
-                                  { key, value }, or null. entries: a Map or an object keyed "column,row". An
-                                  entry that cannot be told breaks nothing.
+   broken(holds, entries)      -> the first entry that lies outside the space: { key, value }, or null. First by
+                                  number: by row, then column, then each inner position in order (the backend
+                                  names the same one). entries: a Map or an object keyed "column,row" or, with
+                                  inner data, "column,row,k1,…". An entry that cannot be told breaks nothing.
    untold(holds, entries)      -> the first entry that cannot be told to lie in the space or outside it, or null
    NOT_HELD(name, holds, key, value), UNPROVEN(name, holds, inferred)
                                -> the two sentences: "W is not natural: it holds -3 at 2, 1" and
@@ -245,8 +246,10 @@ export function admits(holds, v){
 }
 function firstThat(holds, entries, answer){
   const list = entries instanceof Map ? [...entries] : Object.entries(entries || {}); let worst = null;
-  for (const [key, value] of list){ if (admits(holds, value) !== answer) continue; const [c, r] = key.split(',').map(Number);
-    if (!worst || r < worst.r || (r === worst.r && c < worst.c) || (r === worst.r && c === worst.c && key < worst.key)) worst = { key, value, c, r }; }
+  /* the first is by number, never by the key as text ("1,1,10" is after "1,1,2"): row, then column, then each inner position in order, which is the order backend/arrays.py (outside) names its first in */
+  const before = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++){ const x = a[i] ?? 0, y = b[i] ?? 0; if (x !== y) return x < y; } return false; };
+  for (const [key, value] of list){ if (admits(holds, value) !== answer) continue; const [c, r, ...ks] = key.split(',').map(Number), at = [r, c, ...ks];
+    if (!worst || before(at, worst.at)) worst = { key, value, at }; }
   return worst && { key: worst.key, value: worst.value };
 }
 export const broken = (holds, entries) => firstThat(holds, entries, false);

@@ -250,6 +250,16 @@ test('a whole or rational value the solver leaves symbolic breaks no promise: it
     if (p.state === 'unproven') assert.match(p.note, /cannot be shown to be/); }
   assert.equal(evaluate(g, 'v:I').error.note, 'I is not integer: it holds 1+√2 at 2, 1');
 });
+test('the first entry outside a space is the first by number: row, then column, then each inner position, also past position 9', () => {
+  assert.deepEqual(broken('natural', { '1,1,10': -5, '1,1,2': -5 }), { key: '1,1,2', value: -5 });      /* not by the key as text, where "1,1,10" comes before "1,1,2" */
+  assert.deepEqual(broken('natural', { '1,1,10,1': -5, '1,1,9,12': -4, '1,1,9,3': -3 }), { key: '1,1,9,3', value: -3 });
+  assert.deepEqual(broken('natural', { '10,1,1': -1, '2,1,12': -2, '1,2,1': -3 }), { key: '2,1,12', value: -2 });      /* row, then column, before any inner position */
+  assert.deepEqual(broken('natural', { '12,10': -1, '3,10': -2, '1,11': -3 }), { key: '3,10', value: -2 });
+  assert.deepEqual(untoldIn('probability', { '1,1,10': evaluateText('tanh(20)'), '1,1,2': evaluateText('tanh(20)') }).key, '1,1,2');
+  const entries = {}; for (let k = 1; k <= 12; k++) entries['1,1,' + k] = k === 2 || k === 10 ? -5 : 1;
+  const g = made(snap([B('D', 0, 0, 1, 1, { inner: [{ length: 12, name: null }], entries, holds: 'natural' })]));
+  assert.equal(evaluate(g, 'v:D').error.note, 'D is not natural: it holds -5 at 1, 1, 2');      /* as the backend says it: backend/tests/test_none.py */
+});
 test('evaluate: what is worked out from a shape whose promise a value breaks has no value, also where it would be the backend\'s to give', () => {
   const g = made(snap([B('W', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [-3, 4]]), holds: 'natural' }), B('Nz', 2, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } }),
     B('K', 0, 10, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]), holds: 'natural' }), B('Nk', 2, 10, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } } }),
