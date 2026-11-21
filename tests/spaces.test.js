@@ -184,7 +184,10 @@ test('validate: a value is one of the ten words, follows from the inputs, and a 
   g = good(); for (const n of Object.values(g.nodes)) delete n.type.value; assert.deepEqual(validate(g), []);      /* no values at all: an older graph */
   g = good(); delete g.nodes['v:C'].type.value; assert.ok(validate(g).length > 0);      /* an input that says none is any?: the sum's value no longer follows */
   g = good(); delete g.nodes['add(v:A,v:C)'].type.value; assert.deepEqual(validate(g), []);
-  for (const version of [1, 2, 3]) assert.deepEqual(validate({ ...good(), version }), []);
+  /* a value and a promise need version 3 (ruled 21 November 2026): a graph that says less and holds either is refused, and one that holds neither is read */
+  for (const version of [1, 2]){ assert.ok(validate({ ...good(), version }).some(w => w.includes('it holds a number space, which needs version 3, and the graph says version ' + version)));
+    g = good(); g.version = version; for (const n of Object.values(g.nodes)) delete n.type.value; assert.equal(validate(g)[0], 'v:A: it holds a promise, which needs version 3, and the graph says version ' + version);
+    delete g.nodes['v:A'].holds; assert.deepEqual(validate(g), []); }
 });
 test('validate: a symbolic value never spells None or an infinity, and a whole number or a fraction of any length is told from its digits', () => {
   const g = (sym, value) => ({ version: VERSION, nodes: { v: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null, value }, name: 'V', named: true, defined: 'entries', entries: { '1,1': { sym } } } }, functions: {}, spaces: {}, blocks: {} });

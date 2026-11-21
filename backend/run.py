@@ -3,6 +3,11 @@
     run(body, root=None)                  -> what POST /run answers, for the bytes it was sent:
                                              { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean } },
                                                "errors":  { key: "why" } }
+                                             and, only where a promise is broken by a number worked out here
+                                             (a variable's holds, what a function's input promises to take),
+                                               "codes":   { key: { "code": "type", "node": "<id>" } }
+                                             beside that key's error, which is then the page's own sentence,
+                                             "W is not natural: it holds ∞ at 3, 1"; node is whose promise it is.
                                              A node whose entries hold inner data answers with inner too, the
                                              lengths of its inner axes ({ cols, rows, inner: [2, 4], cells, … }),
                                              and its cells are [[c, r, k1, k2, value], …]: one more number, from
@@ -36,7 +41,7 @@ import sys
 from . import arrays as A
 from .check import VERSION, is_int, is_obj, lengths, validate
 from .data import NAME, Refused, inspect, read_text, take
-from .evaluate import Run, Trouble
+from .evaluate import Broken, Run, Trouble
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
 NO_VALUE = 'that has no value'
@@ -119,7 +124,7 @@ def answer(body, root, room):
         return A.table(text, skip)
 
     work = Run(graph, read_file, int(tick), room)
-    results, errors = {}, {}
+    results, errors, codes = {}, {}, {}
     for w in want:
         key = w.get('as', w.get('node')) if is_obj(w) else None
         if not isinstance(key, str):
@@ -128,16 +133,21 @@ def answer(body, root, room):
         try:
             results[key] = one(work, graph, w)
             errors.pop(key, None)
+            codes.pop(key, None)
         except Trouble as e:
             errors[key] = str(e)
             results.pop(key, None)
+            codes.pop(key, None)
+            if isinstance(e, Broken):      # a promise broken by a number worked out here: the error type, and whose promise it is
+                codes[key] = {'code': e.code, 'node': e.node}
         except (MemoryError, RecursionError):
             raise
         except Exception as e:      # this one alone has no answer; the others have theirs. What went wrong is the log's to say, not the answer's
             sys.stderr.write('%s could not be worked out: %s: %s\n' % (key, type(e).__name__, e))
             errors[key] = BROKEN
             results.pop(key, None)
-    return {'results': results, 'errors': errors}
+            codes.pop(key, None)
+    return {'results': results, 'errors': errors, 'codes': codes} if codes else {'results': results, 'errors': errors}
 
 
 def one(work, graph, w):

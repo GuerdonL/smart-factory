@@ -628,9 +628,16 @@ and in arithmetic None with anything is None:
 | `none && x` | false |
 | `none \|\| x` | whether `x` is true |
 | `select(none, a, b)` | `b`, and only `b` is worked out |
+| `x != none` | whether `x` holds a value: `!=` is the opposite of `==`, and never None |
 | a product entry with one None term | None |
 | None against an entry not given | not known |
 | None against an error | the error |
+| `none + inf - inf`, `none * 0 * inf`, in any order | an error: see below |
+
+The terms of one sum, or of one product, are looked at all together, so that what they come to does not turn on
+their order: an error among them, or one that two of them make between them (`inf - inf`, `0 * inf`), comes first,
+then an entry not given, then None. That holds for `a + b + c` and `a * b * c` in a formula, for a sum or a times
+of several shapes, and for the terms of a matrix product's entry, on the page and in the backend.
 
 So an optional bias is `select(b, x + b, x)`. The side of a single entry that holds None is None, as its mass is, and
 no side takes that length; a count, a span, a start and an axis's length that come to None are refused. The backend
@@ -652,9 +659,12 @@ decimal, is no part of it.
 | `extended` | the reals and the two infinities, ∞ and -∞ | `any` |
 | `any` | nothing promised | |
 
-A space is written as its word, with `?` after it where None is admitted too (`integer?`). Select a shape and the
-panel has a row **Holds**: a list of the ten words and a box **or None**. After them the list has `complex (not built)`:
-the word is kept back, and choosing it is refused with a sentence.
+A space is written as its word, with `?` after it where None is admitted too (`integer?`). None has a space of its
+own, written `none`: a shape of only None reads "Holds: None", and None joined with a space is that space or None
+(`natural?`). Select a shape and the panel has a row **Holds**: a list of the ten words and **None**, and a box
+**or None**. Choosing a word promises that word alone: the box is unticked until it is ticked, whatever the entries
+hold. After them the list has `complex (not built)`: the word is kept back, and choosing it is refused with a
+sentence.
 
 - With nothing chosen the row is greyed and says what the shape is worked out as: `natural (from its entries)`. The
   space of some values is the smallest that holds them all (0 and 1 are boolean, 2 is natural, -1 ternary, -2
@@ -666,16 +676,30 @@ the word is kept back, and choosing it is refused with a sentence.
   saved as `"holds": "natural"`. A promise is held against the values wherever the page has them: a value outside
   it is an error, said with the entry (`W is not natural: it holds -3 at 1, 2`), in the warning colour, and what is
   worked out from the shape then has no value. An entry not given, and one that is itself an error, break nothing.
-- Where the page has not got the values (a matrix too large for it, noise, a data file), it goes by what the shape
-  is worked out as. If that is not inside the promise the row warns, and the shape keeps its value:
-  `Nz cannot be shown to be probability: it is worked out as real`.
+  On a transposed use, and on one turned through its inner axes, the sentence names the entry as that use draws it.
+- Where the page has not got the values (a matrix too large for it, noise, a data file), the backend holds its own
+  numbers to the promise, and says so in the same sentence (`Nz is not probability: it holds -0.440393865 at 1, 1`).
+  Until it has, or with none running, the page goes by what the shape is worked out as: if that is not inside the
+  promise the row warns, and the shape keeps its value: `Nz cannot be shown to be probability: it is worked out as
+  real`. A shape whose values can be read off the graph (zeros, ones, an identity, entries all typed in) is held
+  by them at any size, with no backend.
+- A type never says what might be false. The space passed on to what is made of a shape is its promise only where
+  what it is worked out as lies inside the promise (or its entries say nothing yet); otherwise it is what is worked
+  out.
 - An arrow has **Takes** and **Gives**. What it takes is the promise of its function's `in` block, held against what
-  the arrow gives it; what it gives is the promise of the block seated on its output. With no block seated there is
-  nothing to hold that promise, and the row only says what the output is worked out as.
+  the arrow gives it: a value outside it is an error like a shape's own, the output has no value, and the sentence
+  names the entry (and the run, where the arrow is repeated). What it gives is the promise of the block seated on
+  its output. With no block seated there is nothing to hold that promise, and the row only says what the output is
+  worked out as. Where what an arrow is given is not known to lie in what it takes, nothing is said of its output
+  (`any or None`).
 - `complex` is a reserved word: it is refused with a sentence saying it is not built.
 
 In the graph a node's type carries `"value": "integer?"`, both validators check that it follows from the node's
-inputs, and a variable that promises carries `"holds"`. The backend does not yet hold its own numbers to a promise.
+inputs, and a variable that promises carries `"holds"`, which is how the promise reaches the backend. Where a number
+it works out breaks one, its answer has, beside that result's error (the sentence), `"codes": { key: { "code":
+"type", "node": id } }`. A graph that says a version too low for what it holds is refused by both validators (None,
+a value and a promise need version 3; inner data needs 2), and a page that finds the backend's `/health` saying an
+older version than its own asks it for no run and says "the backend is older than this page: restart it".
 
 ## The graph and the evaluator
 

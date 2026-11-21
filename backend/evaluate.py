@@ -46,6 +46,7 @@ import math
 from collections import OrderedDict
 
 from . import arrays as A
+from . import spaces as S
 import itertools
 
 from .check import covered, data_path, fn_whole, inner_of, is_int, is_obj, lengths, numbers, ok_range, one, reads_index, run_of
@@ -57,6 +58,42 @@ NAN = math.nan
 
 class Trouble(Exception):
     """A node has no value; str() says why, plainly."""
+
+
+class Broken(Trouble):
+    """A promise broken by a number worked out here: the error type, with the page's own sentence (spaces.js:
+    NOT_HELD), "W is not natural: it holds ∞ at 3, 1". node: the node whose promise it is."""
+    code = 'type'
+
+    def __init__(self, why, node):
+        Trouble.__init__(self, why)
+        self.node = node
+
+
+def said(holds):
+    p = S.parse(holds)
+    return 'None' if p[0] is None else p[0] + (' or None' if p[1] else '')
+
+
+def shown(x):
+    """A number as the sentence writes it: a whole number plainly, an infinity as its sign, any other to nine digits."""
+    if x is None:
+        return 'None'
+    if math.isinf(x):
+        return '∞' if x > 0 else '-∞'
+    return str(int(x)) if x == int(x) and abs(x) < 1e15 else '%.9g' % x
+
+
+def hold(value, holds, name, node, where=''):
+    """Holds what was worked out to a promise (a variable's holds; what a function's input block promises to take):
+    raises Broken, naming the first entry outside it. A promise that is no written space says nothing."""
+    p = S.parse(holds) if isinstance(holds, str) else None
+    if p is None or holds == S.ANY:
+        return
+    out = A.outside(value, p[0], p[1])
+    if out is not None:
+        r, c, ks, x = out
+        raise Broken('%s is not %s: it holds %s at %s%s' % (name, said(holds), shown(x), ', '.join(str(k + 1) for k in (c, r) + ks), where), node)
 
 
 def number_of(v):
@@ -158,11 +195,16 @@ class At:
         self.run.homes()
         return Env(self.env.params, self.env.cells + (a_cell(dict(c, of=self.run.repeats.get(self.id))),), self.env.active)
 
-    def call(self, fn, values, key):
+    def call(self, fn, values, key, where=''):
         f = self.run.functions[fn]
         if fn in self.env.active:
             raise Trouble('a function applies itself')
+        # what the function's input block promises to take, held against what it is given (evaluate.js: call)
+        hold(values, self.run.nodes[f['input']]['type'].get('value'), 'in', self.id, self.said_tail() + where)
         return self.run.work(f['body'], Env(dict(self.env.params, **{fn: {'values': values, 'key': key}}), (), self.env.active + (fn,)))
+
+    def said_tail(self):
+        return ''
 
     def given(self, node):
         fn = (functions_of(node) or [None])[-1]
@@ -374,7 +416,7 @@ def v_mapalong(n, at):
             raise Trouble('run %d of the arrow lies past its input' % k)
         given, off = A.part(X, part['row'], part['col'], part['rows'], part['cols']), (k - 1) * span
         if 'fn' in n:
-            got = at.call(n['fn'], given, '%s#%s:%d:%d' % (at.key_of(0), n['axis'], run['start'] + on, run['span']))      # the rows or columns really handed over (graph.js: mapalong): two arrows of one function on different runs of one input do not share an answer
+            got = at.call(n['fn'], given, '%s#%s:%d:%d' % (at.key_of(0), n['axis'], run['start'] + on, run['span']), ' in run %d' % k if count > 1 else '')      # the rows or columns really handed over (graph.js: mapalong): two arrows of one function on different runs of one input do not share an answer
         else:
             spot = n.get('at')
             where = (int(spot['col']) + (0 if rows else off), int(spot['row']) + (off if rows else 0), False) if spot else None
@@ -395,6 +437,9 @@ class Here(At):
 
     def type(self, k):
         return self.flat if k == 0 else At.type(self, k)
+
+    def said_tail(self):
+        return self.tail[2:].replace(',', ', ')      # the inner position, after the column and the row
 
     def get(self, k, env=None):
         return self.given_here if k == 0 and env is None else At.get(self, k, env)
@@ -627,6 +672,9 @@ class Run:
             self.kept.move_to_end(key)
             return self.kept[key]
         value = OPS[n['op']](n, At(self, i, n, env))
+        if n['op'] == 'variable' and 'holds' in n:      # a promise is held against the numbers worked out here, as the page holds it against its own (evaluate.js: run)
+            in_cells = bool(env.cells) and self.follows(i)
+            hold(value, n['holds'], n.get('name') or i, i, ' in cell ' + ' of cell '.join('%d, %d' % (c['cx'], c['cy']) for c in reversed(env.cells)) if in_cells else '')
         self.kept[key] = value
         self.held += A.size(value)
         while self.held > self.room // 2 and len(self.kept) > 1:      # the oldest are let go: they are worked out again if they are asked for

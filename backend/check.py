@@ -855,6 +855,20 @@ def validate(graph):
         return ['it could not be checked: %s' % (str(e) or type(e).__name__)]
 
 
+def version_for(n):
+    """The version a node needs for what it holds (graph.js: versionFor): None among its entries, a number space or a
+    promise need 3; inner data, a stack, an entry and a transpose's order need 2. -> (version, what), or None."""
+    if 'value' in n['type']:
+        return (3, 'a number space')
+    if 'holds' in n:
+        return (3, 'a promise')
+    if n['op'] == 'variable' and is_obj(n.get('entries')) and any(is_obj(v) and v.get('none') is True for v in n['entries'].values()):
+        return (3, 'None')
+    if 'inner' in n['type'] or n['op'] in ('stack', 'entry') or (n['op'] == 'transpose' and 'order' in n):
+        return (2, 'inner data')
+    return None
+
+
 def check(graph):
     bad = []
     if not is_obj(graph):
@@ -888,6 +902,10 @@ def check(graph):
             continue
         if not ok_type(n.get('type')):
             bad.append('%s: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to %d of { length, name }, where it holds inner data, and value, one of the ten number spaces (with ? after it where None is admitted), where its space is said' % (i, AXES))
+            continue
+        need = version_for(n) if is_num(graph.get('version')) and graph['version'] in VERSIONS else None
+        if need and need[0] > graph['version']:
+            bad.append('%s: it holds %s, which needs version %d, and the graph says version %s' % (i, need[1], need[0], graph['version']))
             continue
         w = n.get('within', MISSING)
         if w is not MISSING and not (isinstance(w, list) and w and all(isinstance(x, str) and x[:2] in ('f:', 't:') for x in w) and len(set(w)) == len(w)):

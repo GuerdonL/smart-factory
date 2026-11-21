@@ -62,6 +62,7 @@ Putting them together
     at_position(a, where)            the matrix at one inner position (a tuple, from 0)
     join(parts, inner)               and matrices, one for each inner position in order, joined into one array
 Reading them
+    outside(a, space, none)          the first entry that lies outside a number space, or None (see the function)
     shape(a) -> (rows, cols);  inner(a) -> the lengths of its inner axes;  size(a) -> how many bytes it takes
     item(a, r, c, ks) -> one entry as a Python float (from 0; ks: its inner position, from 0)
     summary(a) -> (least, most, mean) of the entries that have a value and are not None, as Python floats, or
@@ -405,6 +406,46 @@ def summary(a):
             return None, None, None
         mean = float(known.mean(dtype=D))
         return float(known.min()), float(known.max()), None if math.isnan(mean) else mean      # (an infinity and its opposite have no mean)
+
+
+IN_SPACE = {      # what a number has to be to lie in each number space (spaces.js), asked of the numbers that have a value
+    'boolean': lambda v: (v == 0) | (v == 1),
+    'ternary': lambda v: (v == 0) | (v == 1) | (v == -1),
+    'natural': lambda v: np.isfinite(v) & (v == np.floor(v)) & (v >= 1),
+    'whole': lambda v: np.isfinite(v) & (v == np.floor(v)) & (v >= 0),
+    'integer': lambda v: np.isfinite(v) & (v == np.floor(v)),
+    'rational': np.isfinite,      # a float is a ratio of whole numbers where it is finite: that it is one is all that can be asked of it
+    'probability': lambda v: (v >= 0) & (v <= 1),
+    'real': np.isfinite,
+}
+
+
+def outside(a, space, none):
+    """The first entry of a that lies outside a number space, by row, then column, then inner position:
+    (row, col, ks, what it holds) from 0, what it holds a Python float or None for None; or None where every entry
+    lies in it. space: one of the ten words, or None for the space of None alone; none: whether None is admitted.
+    An entry with no value (NaN: the browser's error) is no number to break a promise, as on the page, so extended
+    and any are broken by nothing but a None that is not admitted."""
+    values, mask = _split(a)
+    with quiet():
+        valued = ~np.isnan(values)
+        if space is None:
+            bad = valued if mask is None else valued & ~mask
+        elif space in IN_SPACE:
+            bad = valued & ~IN_SPACE[space](values)
+            if mask is not None:
+                bad &= ~mask
+        else:
+            bad = np.zeros(np.shape(values), dtype=bool)
+        if mask is not None and not none:
+            bad = bad | mask
+        if not bad.any():
+            return None
+        n = bad.ndim - 2
+        first = np.moveaxis(bad, (n, n + 1), (0, 1))      # rows, then columns, then the inner axes
+        r, c, *ks = (int(x) for x in np.unravel_index(int(np.argmax(first)), first.shape))
+        where = tuple(ks) + (r, c)
+        return r, c, tuple(ks), (None if mask is not None and bool(mask[where]) else float(values[where]))
 
 
 def _lost(*xs):

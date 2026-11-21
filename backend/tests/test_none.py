@@ -43,7 +43,21 @@ class Read(unittest.TestCase):
 
     def test_versions_1_2_and_3_are_read(self):
         for version, good in ((1, True), (2, True), (3, True), (4, False), (0, False), ('3', False), (None, False)):
-            self.assertEqual(validate(graph_of({'a': variable(1, 1, [[NONE]])}, version=version)) == [], good, version)
+            self.assertEqual(validate(graph_of({'a': variable(1, 1, [[7]])}, version=version)) == [], good, version)
+
+    def test_a_graph_that_says_a_version_too_low_for_what_it_holds_is_refused(self):
+        # ruled 21 November 2026: None, a value and a promise need 3; inner data needs 2 (graph.js: versionFor)
+        self.assertEqual(validate(graph_of({'a': variable(1, 1, [[NONE]])}, version=3)), [])
+        for version in (1, 2):
+            self.assertEqual(validate(graph_of({'a': variable(1, 1, [[NONE]])}, version=version)), ['a: it holds None, which needs version 3, and the graph says version %d' % version])
+            self.assertEqual(validate(graph_of({'a': variable(1, 1, [[7]], holds='natural')}, version=version)), ['a: it holds a promise, which needs version 3, and the graph says version %d' % version])
+            valued = variable(1, 1, [[7]])
+            valued['type'] = dict(valued['type'], value='natural')
+            self.assertEqual(validate(graph_of({'a': valued}, version=version)), ['a: it holds a number space, which needs version 3, and the graph says version %d' % version])
+        inner = variable(1, 1, [[None]])
+        inner['type'] = dict(inner['type'], inner=[{'length': 2, 'name': None}])
+        self.assertEqual(validate(graph_of({'a': inner}, version=1)), ['a: it holds inner data, which needs version 2, and the graph says version 1'])
+        self.assertEqual(validate(graph_of({'a': inner}, version=2)), [])
 
 
 def says(a):
@@ -268,3 +282,62 @@ class Answers(unittest.TestCase):
         g = graph_of({'s': variable(1, 1, [[NONE]]), 'x': {'op': 'measure', 'inputs': ['s'], 'type': T(1, 1), 'side': 'x'}, 'm': {'op': 'measure', 'inputs': ['s'], 'type': T(1, 1), 'side': 'm'}}, version=3)
         out = ask(g, [{'node': 'x', 'cells': [[1, 1]]}, {'node': 'm', 'cells': [[1, 1]]}])
         self.assertEqual((out['results']['x']['cells'], out['results']['m']['cells']), ([[1, 1, NONE]], [[1, 1, NONE]]))
+
+
+@needs_numpy
+class Promises(unittest.TestCase):
+    """Ruled 21 November 2026: the backend holds its numbers to a promise, and says so in the page's own sentence."""
+
+    def graph(self, entries, holds, cols=3, value=None):
+        t = {'cols': cols, 'rows': 1, 'colsName': None, 'rowsName': None}
+        g = {'version': 3, 'functions': {}, 'spaces': {}, 'blocks': {}, 'nodes': {'w': {'op': 'variable', 'inputs': [], 'type': t, 'name': 'W', 'named': True, 'defined': 'entries', 'entries': entries, 'holds': holds}}}
+        return g
+
+    def says(self, entries, holds, cols=3):
+        out = ask(self.graph(entries, holds, cols), [{'node': 'w', 'cells': [[1, 1]]}])
+        return out['errors'].get('w'), out.get('codes', {}).get('w')
+
+    def test_each_space_is_held_against_the_numbers(self):
+        inf, half, none = 'inf', {'n': 1, 'd': 2, 'k': 0}, {'none': True}
+        for holds, entries, why in (
+                ('natural', {'1,1': 1, '2,1': 2, '3,1': inf}, 'W is not natural: it holds ∞ at 3, 1'), ('natural', {'1,1': 1, '2,1': 0, '3,1': -3}, 'W is not natural: it holds 0 at 2, 1'),
+                ('whole', {'1,1': 0, '2,1': half, '3,1': 2}, 'W is not whole: it holds 0.5 at 2, 1'), ('integer', {'1,1': -7, '2,1': 2, '3,1': '-inf'}, 'W is not integer: it holds -∞ at 3, 1'),
+                ('ternary', {'1,1': -1, '2,1': 2, '3,1': 0}, 'W is not ternary: it holds 2 at 2, 1'), ('boolean', {'1,1': -1, '2,1': 1, '3,1': 0}, 'W is not boolean: it holds -1 at 1, 1'),
+                ('probability', {'1,1': 0, '2,1': 1, '3,1': {'n': 3, 'd': 2, 'k': 0}}, 'W is not probability: it holds 1.5 at 3, 1'), ('rational', {'1,1': half, '2,1': inf, '3,1': 2}, 'W is not rational: it holds ∞ at 2, 1'),
+                ('real', {'1,1': half, '2,1': 2, '3,1': inf}, 'W is not real: it holds ∞ at 3, 1'), ('real', {'1,1': none, '2,1': 2, '3,1': 3}, 'W is not real: it holds None at 1, 1'),
+                ('integer?', {'1,1': none, '2,1': half, '3,1': 3}, 'W is not integer or None: it holds 0.5 at 2, 1'), ('none', {'1,1': none, '2,1': none, '3,1': 3}, 'W is not None: it holds 3 at 3, 1'),
+                ('extended', {'1,1': none, '2,1': inf, '3,1': 3}, 'W is not extended: it holds None at 1, 1')):
+            self.assertEqual(self.says(entries, holds), (why, {'code': 'type', 'node': 'w'}), holds)
+        for holds, entries in (('natural', {'1,1': 1, '2,1': 2, '3,1': 3}), ('whole', {'1,1': 0, '2,1': 2, '3,1': True}), ('integer', {'1,1': -7, '2,1': 2, '3,1': 0}), ('ternary', {'1,1': -1, '2,1': 1, '3,1': 0}),
+                               ('boolean', {'1,1': 1, '2,1': 0, '3,1': False}), ('probability', {'1,1': 0, '2,1': 1, '3,1': half}), ('rational', {'1,1': half, '2,1': -2, '3,1': 0}), ('real', {'1,1': {'sym': 'e^2'}, '2,1': -2, '3,1': 0}),
+                               ('extended', {'1,1': inf, '2,1': '-inf', '3,1': 0}), ('any', {'1,1': inf, '2,1': half, '3,1': 0}), ('any?', {'1,1': none, '2,1': half, '3,1': inf}), ('natural?', {'1,1': none, '2,1': 4, '3,1': 1}),
+                               ('none', {'1,1': none, '2,1': none, '3,1': none}), ('natural', {'1,1': {'expr': '1/0'}, '2,1': 4, '3,1': 1}), ('extended', {'1,1': {'expr': 'inf - inf'}, '2,1': 4, '3,1': 1})):      # an entry that is itself an error is not held against a promise
+            self.assertEqual(self.says(entries, holds), (None, None), holds)
+
+    def test_what_is_made_of_it_has_no_value_and_an_answer_without_a_broken_promise_has_no_codes(self):
+        g = self.graph({'1,1': 1, '2,1': 2, '3,1': -3}, 'natural')
+        g['nodes']['v'] = {'op': 'variable', 'inputs': [], 'type': dict(g['nodes']['w']['type']), 'name': 'V', 'named': True, 'defined': 'entries', 'entries': {'1,1': 1, '2,1': 1, '3,1': 1}}
+        g['nodes']['s'] = {'op': 'add', 'inputs': ['w', 'v'], 'type': dict(g['nodes']['w']['type'])}
+        out = ask(g, [{'node': 's', 'cells': [[1, 1]]}, {'node': 'v', 'cells': [[1, 1]]}])
+        self.assertEqual(out['errors'], {'s': 'W is not natural: it holds -3 at 3, 1'})
+        self.assertEqual(out['codes'], {'s': {'code': 'type', 'node': 'w'}})
+        self.assertNotIn('codes', ask(g, [{'node': 'v', 'cells': [[1, 1]]}]))
+
+    def test_the_first_entry_is_by_row_then_column_then_inner_position(self):
+        a = np.zeros((2, 3, 2, 2), dtype=np.float32)
+        a[1, 2, 0, 1] = -1
+        a[0, 0, 1, 0] = -2
+        self.assertEqual(A.outside(a, 'whole', False), (0, 1, (1, 2), -1.0))
+        self.assertIsNone(A.outside(a, 'integer', False))
+        self.assertEqual(A.outside(A.row([1, None, 0.5]), 'natural', True), (0, 2, (), 0.5))
+        self.assertEqual(A.outside(A.row([1, None, 0.5]), 'real', False), (0, 1, (), None))
+
+    def test_the_sentences_are_the_pages_own_for_a_shape_a_product_made_of_it_and_what_an_arrow_takes(self):
+        from .support import fixture
+        g = next(G['graph'] for G in fixture('graphs.json') if G['name'] == 'promises broken by a value')
+        want = {'v:Wb': ('Wb is not natural: it holds -3 at 3, 1', 'v:Wb'), 'matmul(v:Wb,v:Wu)': ('Wb is not natural: it holds -3 at 3, 1', 'v:Wb'),
+                'apply(v:X;f:lin)': ('in is not natural: it holds -4 at 2, 2', 'apply(v:X;f:lin)'), 'v:Out': ('in is not natural: it holds -4 at 2, 2', 'apply(v:X;f:lin)'),
+                'mapalong(v:N;f:g;rows;1;2;2)': ('in is not natural: it holds -6 at 2, 1 in run 2', 'mapalong(v:N;f:g;rows;1;2;2)')}      # (tests/spaces.test.js holds evaluate.js to the same sentences)
+        out = ask(g, [{'node': i, 'cells': [[1, 1]]} for i in want])
+        for i, (why, node) in want.items():
+            self.assertEqual((out['errors'].get(i), out['codes'].get(i)), (why, {'code': 'type', 'node': node}), i)

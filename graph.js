@@ -193,7 +193,7 @@ import * as tiles from './tiles.js';
 import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS } from './sources.js';
 import { FUNCTIONS, CONFIG } from './system.js';
 
-export const VERSION = 3;                     /* 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value. An older graph holds none of them and is a version 3 graph as it stands */
+export const VERSION = 3;                     /* 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise. An older graph holds none of them and is a version 3 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
 const VERSIONS = [1, 2, 3];
 export const CODES = ['mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type'];
 const PIECE_CODES = ['mismatch', 'not-a-row', 'mixed', 'size-unknown'];
@@ -1255,6 +1255,17 @@ export function validate(graph){
   try { return check(graph); }
   catch (e){ return ['it could not be checked: ' + (e && e.message ? e.message : String(e))]; }      /* whatever it is handed, it answers with what is wrong */
 }
+/* The version a node needs for what it holds: None among its entries, a number space (a type's value) or a promise
+   need 3; inner data, a stack, an entry and a transpose's order need 2. -> [version, what it holds], or null. A
+   graph that says an older version than something in it needs was not written by a program of that version, and
+   whoever reads it by that version would not see what it holds: it is refused. */
+function versionFor(n){
+  if (n.type.value !== undefined) return [3, 'a number space'];
+  if (n.holds !== undefined) return [3, 'a promise'];
+  if (n.op === 'variable' && n.entries && typeof n.entries === 'object' && Object.values(n.entries).some(v => !!v && typeof v === 'object' && v.none === true)) return [3, 'None'];
+  if (n.type.inner !== undefined || n.op === 'stack' || n.op === 'entry' || (n.op === 'transpose' && n.order !== undefined)) return [2, 'inner data'];
+  return null;
+}
 function check(graph){
   const bad = [];
   if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return ['it is not a graph'];
@@ -1273,6 +1284,8 @@ function check(graph){
     if (!Array.isArray(n.inputs) || n.inputs.length < rule.inputs[0] || n.inputs.length > rule.inputs[1]){ bad.push(`${id}: ${n.op} does not take ${Array.isArray(n.inputs) ? n.inputs.length : 'no'} inputs`); continue; }
     const gone = n.inputs.filter(i => !has(i)); if (gone.length){ bad.push(`${id}: its input ${gone[0]} is not in the graph`); continue; }
     if (!okType(n.type)){ bad.push(`${id}: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to ${AXES} of { length, name }, where it holds inner data, and value, one of the ten number spaces (with ? after it where None is admitted), where its space is said`); continue; }
+    const need = VERSIONS.includes(graph.version) ? versionFor(n) : null;
+    if (need && need[0] > graph.version){ bad.push(`${id}: it holds ${need[1]}, which needs version ${need[0]}, and the graph says version ${graph.version}`); continue; }
     if (n.within !== undefined && !(Array.isArray(n.within) && n.within.length && n.within.every(w => typeof w === 'string' && /^[ft]:/.test(w)) && new Set(n.within).size === n.within.length)){ bad.push(`${id}: within is not a list of functions and tiles`); continue; }
     const wrong = rule.fields(n); if (wrong.length){ bad.push(...wrong.map(w => `${id}: ${w}`)); continue; }
     sound.add(id);

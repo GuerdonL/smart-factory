@@ -22,7 +22,7 @@ import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
-import { build as buildGraph, indexAt } from './graph.js';
+import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, MOST as MOST_HERE } from './evaluate.js';
 import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
@@ -35,7 +35,7 @@ import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adju
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
 import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
-import { createBackend } from './backend.js';
+import { createBackend, OLDER as OLDER_BACKEND } from './backend.js';
 import { squares } from './components/matrix.js';
 import * as nesting from './inner.js';
 
@@ -353,7 +353,7 @@ function answerOf(node, binding = null){
    their place, and in the readout when the reason arrives. Whether there is one is asked again after a failure and
    every quarter of a minute, so one started or stopped later is noticed. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
-  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null),
+  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null), version: GRAPH_VERSION,
   told: why => hud.say((/^the backend /.test(why[0]) ? cap(why[0]) : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
 const laidKept = new WeakMap();                /* an evaluator's answer -> what was last laid over it, and from what */
 const slotAt = (slot, binding) => slot + (binding && binding.cells ? ' ' + binding.cells.map(c => c.cx + ',' + c.cy).join(' ') : '');      /* what is drawn in one place, in one cell: the previous numbers there are dimmed while the new are waited for */
@@ -372,8 +372,11 @@ function unshown(node, binding = null, slot = null){
   const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined);
   if (r.error && r.error.code === 'type' && r.error.node !== node) return 'It has no value: ' + r.error.note;      /* worked out from a shape whose promise a value breaks (that shape says so itself, in its Holds row) */
   if (!wanted(r)) return null;
+  if (backend.available() === false && backend.older()) return r.backend || r.deferred ? cap(OLDER_BACKEND) : null;      /* one is running, and reads an older graph than this page writes: said on each result that needs it */
   if (backend.available() === false) return r.backend ? 'It needs the backend: its numbers are made there, and none is running (README: The backend)' : r.deferred ? tooLarge(r.type) : null;
-  const why = backend.problem(g, node, binding); if (why) return 'The backend gave no numbers: ' + why;
+  const why = backend.problem(g, node, binding), far = why ? backend.broke(g, node, binding) : null;
+  if (far && far.node === node) return null;      /* its own promise, broken by a number the backend worked out: the shape says so itself, in its Holds row */
+  if (why) return (far ? 'It has no value: ' : 'The backend gave no numbers: ') + why;      /* (a promise its numbers break, found by the backend: the sentence is the page's own) */
   return r.deferred && !backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)) ? (backend.available() ? 'Waiting for the backend' : r.backend ? null : tooLarge(r.type)) : null;
 }
 /* a block's entries as they are drawn: the evaluator's, with the backend's laid over them. For drawing only. */
@@ -1038,7 +1041,10 @@ function holdsRow(b, key = 'holds', label = 'Holds'){
     /* the sentence names the entry as it is drawn on the use being looked at: a transposed use's columns are the variable's rows, and one turned through its inner axes has its own */
     const here = note => note && use !== id ? seenFrom(g, use, { code: 'type', note, node: id }) : note;
     if (!n || n.op === 'param') return { key, label, holds, inferred: n && !holds ? 'any?' : null, from: n ? 'whatever it is given' : '', note: null };
-    const p = promiseOf(g, id, { binding: bindingOf([b], spaceWith(b)) }), bare = n.defined === 'entries' && !Object.keys(n.entries).length;
+    const binding = bindingOf([b], spaceWith(b)), p = promiseOf(g, id, { binding }), bare = n.defined === 'entries' && !Object.keys(n.entries).length;
+    /* where its numbers are the backend's, the backend holds them to the promise, and what it found is this row's to say */
+    const far = holds && p && p.state !== 'broken' ? [[use, binding], [use, null], [id, binding], [id, null]].find(([node, at]) => { const c = backend.broke(g, node, at); return c && c.node === id; }) : null;
+    if (far) return { key, label, holds, inferred: null, from: '', note: here(backend.problem(g, far[0], far[1])) };
     return { key, label, holds, inferred: !p || bare ? null : p.inferred, from: bare ? '' : n.defined === 'entries' ? 'from its entries' : n.defined === 'seat' ? 'from the arrow' : n.defined === 'source' ? 'from its source' : 'from what defines it', note: p && p.note ? (p.state === 'broken' ? here(p.note) : p.note) : holds ? here(brokenInTile(b, g, id)) : null }; });
 }
 /* a block of a tile holds its promise in every cell, not the first alone: the tile's matrix is every cell worked

@@ -178,6 +178,14 @@ const CASES = {
     B('Sa', 20, 0, 2, 2, { entries: rowsOf([[NONE, 'inf'], ['inf', NONE]]) }), B('Sb', 20, 2, 2, 2, { entries: rowsOf([['inf', '-inf'], [NONE, 1]]) }), B('Sc', 20, 4, 2, 2, { entries: rowsOf([['-inf', NONE], ['-inf', 2]]) }),      /* a sum of three */
     B('Fo', 40, 0, 4, 2, { entries: rowsOf([[f('none + inf - inf'), f('inf + none - inf'), f('none * 0 * inf'), f('0 * none * inf')], [f('none + 1 + 2'), f('inf - (none + inf)'), f('2 * none * 3'), f('(none + inf) * 0')]]) }),
     B('Pa', 60, 0, 3, 1, { entries: rowsOf([['inf', NONE, '-inf']]) }), B('Pb', 63, 0, 1, 3, { entries: rowsOf([[1], [1], [1]]) })]),      /* a product entry: ∞ − ∞ beside a None term */
+  /* ---- promises broken by a value (ruled 21 November 2026: an error, on the page and in the backend, in the same sentence) ---- */
+  'promises broken by a value': snap([B('Wb', 0, 0, 3, 1, { entries: rowsOf([[1, 2, -3]]), holds: 'natural' }), B('Wu', 3, 0, 1, 3, { entries: rowsOf([[1], [1], [1]]) }),      /* and the product made of it */
+    B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, -4]]) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) }),
+    B('Out', 5, 20, 1, 2, { seat: 'lin' }),
+    B('N', 0, 40, 2, 4, { entries: rowsOf([[1, 2], [3, 4], [5, -6], [7, 8]]) }),
+    arrow('g', { id: 'N', as: 'block' }, { side: 'e', span: 2 }, { x: 2, y: 40, inside: space([B('in2', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wg', -7, 0, 1, 2, { entries: rowsOf([[1], [10]]) })]) })],
+    [tile('t2', [6], { x: 2, y: 40, cols: 1, rows: 2, down: 2 })]),
   /* ---- number spaces (phase 9): promises that are kept, on shapes and on a function's input and output ---- */
   'number spaces': snap([B('Wn', 0, 0, 3, 1, { entries: rowsOf([[1, 2, 3]]), holds: 'natural' }), B('Wz', 0, 1, 3, 1, { entries: rowsOf([[-2, 0, NONE]]), holds: 'integer?' }),      /* a sum of a natural and an integer or None */
     B('Pp', 10, 0, 2, 2, { entries: rowsOf([[half, 1], [0, { n: 1, d: 2, k: 1 }]]) }), B('Pq', 12, 0, 2, 2, { entries: rowsOf([[1, 0], [0, 1]]), holds: 'boolean' }),      /* a product of probabilities and booleans */

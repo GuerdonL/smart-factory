@@ -449,7 +449,13 @@ test('validate accepts what build made, of every operation', () => {
 test('validate refuses a graph that is not one', () => {
   for (const g of [null, 7, 'graph', {}, { version: 1 }, { version: 1, nodes: [], functions: {}, spaces: {}, blocks: {} }]) assert.ok(validate(g).length > 0);
   refused(g => { g.version = 4; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
-  for (const v of [1, 2, 3]){ const g = JSON.parse(JSON.stringify(good())); g.version = v; assert.deepEqual(validate(g), [], 'a version 1 or 2 graph is a version 3 graph as it stands'); }
+  /* a version 1 or 2 graph is a version 3 graph as it stands, where it holds nothing a later version added: a graph that says a version too low for what it holds is refused (ruled 21 November 2026) */
+  const plain = v => { const g = JSON.parse(JSON.stringify(build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': 1, '2,1': 2 } })])))); g.version = v; return g; }, bare = g => { for (const n of Object.values(g.nodes)) delete n.type.value; return g; };
+  for (const v of [1, 2, 3]) assert.deepEqual(validate(bare(plain(v))), [], 'version ' + v);
+  const valued = v => { const g = bare(plain(v)); g.nodes['v:A'].type.value = 'natural'; return g; };
+  assert.deepEqual(validate(valued(2)), ['v:A: it holds a number space, which needs version 3, and the graph says version 2']); assert.deepEqual(validate(valued(3)), []);
+  for (const v of [1, 2, 3]){ const g = bare(JSON.parse(JSON.stringify(good()))); g.version = v; assert.equal(validate(g).length === 0, v >= 2, 'inner data needs version 2: version ' + v); }
+  assert.ok(validate({ ...bare(JSON.parse(JSON.stringify(good()))), version: 1 }).some(w => w.includes('it holds inner data, which needs version 2, and the graph says version 1')));
   const inf = good(); inf.nodes['v:A'].entries['1,1'] = Infinity; assert.ok(validate(inf).length > 0);      /* an infinity is written "inf" */
   const undef = good(); undef.nodes['v:A'].entries['1,1'] = undefined; assert.ok(validate(undef).length > 0);
 });
@@ -817,6 +823,8 @@ test('None: an entry that holds None is kept in the graph as { none: true }, in 
   assert.equal(g.version, 3); assert.equal(VERSION, 3); assert.deepEqual(validate(g), []);
   assert.deepEqual(g.nodes['v:A'].entries, { '1,1': { none: true }, '2,1': { expr: 'none + 1' } });
   for (const v of [{ none: 1 }, { none: false }, { none: true, sym: 'x' }, { none: true, more: 1 }, 'none']){ const h = JSON.parse(JSON.stringify(g)); h.nodes['v:A'].entries['1,1'] = v; assert.ok(validate(h).length > 0, JSON.stringify(v)); }
-  for (const version of [1, 2, 3]) assert.deepEqual(validate({ ...g, version }), []);
+  const older = version => { const h = JSON.parse(JSON.stringify(g)); h.version = version; for (const n of Object.values(h.nodes)) delete n.type.value; return h; };
+  assert.deepEqual(validate(older(3)), []);      /* and a version below 3 cannot hold None (ruled 21 November 2026) */
+  for (const version of [1, 2]) assert.deepEqual(validate(older(version)), ['v:A: it holds None, which needs version 3, and the graph says version ' + version]);
   assert.ok(validate({ ...g, version: 4 }).length > 0);
 });

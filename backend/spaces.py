@@ -19,8 +19,8 @@ file to it, so the two cannot drift apart.
     formula(tree, name)     -> of a formula, from its tree (formula.py: parse) and name(text) -> a written space,
                                or None for a name that is not known ("any?")
 
-Only check.py asks this: a graph's values are checked as its sizes are. Nothing here is asked of the numbers a run
-works out: whether a promise is kept by them is not the backend's to say yet."""
+check.py asks this of a graph: its values are checked as its sizes are. The numbers a run works out are held to a
+promise by evaluate.py (hold), with arrays.py's outside: this file only reads the promise's word for it."""
 import math
 import re
 

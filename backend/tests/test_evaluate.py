@@ -49,7 +49,7 @@ class SameAnswers(unittest.TestCase):
 
     def test_every_node_of_every_fixture(self):
         graphs = fixture('graphs.json')
-        compared = errors = unknown = deep = nones = 0
+        compared = errors = unknown = deep = nones = types = 0
         for G in graphs:
             g = G['graph']
             asks = [(i, None, a) for i, a in G['nodes'].items()] + [(b['node'], b['binding'], b['answer']) for b in G['bound']]
@@ -60,9 +60,11 @@ class SameAnswers(unittest.TestCase):
                 res, err = out['results'].get(str(k)), out['errors'].get(str(k))
                 self.assertTrue((res is None) != (err is None), at)
                 if 'error' in a:      # worked out from a variable that has an error: an error here too
-                    if a['error'] == 'type':
-                        continue      # a promise broken by a value: the page's to say for now. The backend does not yet hold its numbers to a promise (ruled 21 November 2026, to be built: then this line goes)
                     self.assertIsNotNone(err, at)
+                    if a['error'] == 'type':      # a promise broken by a value: the backend holds its numbers to it too, and says so as the page does
+                        self.assertEqual(out.get('codes', {}).get(str(k), {}).get('code'), 'type', at)
+                        self.assertRegex(err, r' is not .*: it holds .* at \d+, \d+', at)
+                        types += 1
                     errors += 1
                 elif 'deferred' in a:
                     continue      # the browser did not work it out: nothing to hold this to
@@ -97,6 +99,7 @@ class SameAnswers(unittest.TestCase):
         self.assertGreater(deep, 400)      # entries at an inner position
         self.assertGreater(errors, 5)
         self.assertGreater(unknown, 5)
+        self.assertGreater(types, 0)      # promises broken by a value
         self.assertGreater(nones, 60)      # entries that are None: every row of the None table that can arise here
 
     def test_a_64_by_64_product_of_fractions(self):
@@ -334,7 +337,8 @@ class Refused(unittest.TestCase):
             g = changed(graphs[m['graph']]['graph'], m)
             nodes = [i for i in (g.get('nodes') if isinstance(g.get('nodes'), dict) else {})][:40]
             out = R.run(json.dumps({'graph': g, 'want': [{'node': i, 'cells': [[1, 1]]} for i in nodes]}).encode(), None, ROOM)
-            self.assertEqual(set(out), {'results', 'errors'})
+            self.assertLessEqual(set(out), {'results', 'errors', 'codes'})      # codes only where a promise is broken by a number
+            self.assertLessEqual({'results', 'errors'}, set(out))
             self.assertEqual('*' in out['errors'], not m['valid'])
             self.assertNotIn('could not work this out', json.dumps(out['errors']))      # every refusal is one that was meant
 

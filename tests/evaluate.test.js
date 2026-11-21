@@ -21,7 +21,7 @@ const t = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsN
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
 const V = (rows, more = {}) => ({ op: 'variable', inputs: [], type: t(rows[0].length, rows.length), name: 'v', named: true, defined: 'entries', entries: rowsOf(rows), ...more });
 /* a graph written by hand. tiles: [[tile id, the repeat that is its matrix]]: a repeat is always some tile's */
-const G = (nodes, functions = {}, tiles = []) => { const g = { version: 1, nodes, functions, blocks: {},
+const G = (nodes, functions = {}, tiles = []) => { const g = { version: 3, nodes, functions, blocks: {},
     spaces: tiles.length ? { top: { owner: null, pieces: [], arrows: [], tiles: tiles.map(([tile, node]) => ({ tile, blocks: [], arrows: [], node, error: null })) } } : {} };
   assert.deepEqual(validate(g), []); return g; };
 const N = (op, inputs, type, more = {}) => ({ op, inputs, type, ...more });
