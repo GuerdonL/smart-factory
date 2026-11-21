@@ -1532,7 +1532,7 @@ function check(graph){
   /* no cycles, through inputs or through the functions nodes apply. (Walked with a list of its own: a graph may be deeper than a stack.) */
   const state = new Map(), after = []; let cyclic = false;
   const next = id => { const n = nodes[id], out = Array.isArray(n.inputs) ? n.inputs.filter(has) : [];
-    const f = own(OPS, n.op) ? fnOf(n) : undefined; return typeof f === 'string' && fnOk(f) ? [...out, graph.functions[f].body] : out; };
+    const f = own(OPS, n.op) ? fnOf(n) : undefined; return typeof f === 'string' && fnOk(f) ? [...out, graph.functions[f].body, graph.functions[f].input] : out; };      /* (its input too: a body that does not read its input comes before it by no other way, and the function is typed before what applies it) */
   for (const start of Object.keys(nodes)){ if (!has(start) || state.has(start)) continue;
     const todo = [[start, next(start), 0]]; state.set(start, 1);
     while (todo.length){ const top = todo[todo.length - 1];

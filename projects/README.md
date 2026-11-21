@@ -311,6 +311,29 @@ A conditional arrow's file carries `"choose": { "then": "<frame id>", "else": "<
 its definition directory holds `in.json`, `true.frame.json` and `false.frame.json`; the empty side is a frame file
 with no shapes.
 
+## running-total/
+
+A loop, beside a copy of the default Menu's `.config`. It was made by mouse, from New > Tensor, Function and Tile.
+
+`X` holds 3, 1, 4, 1. Under its first column is the arrow `take`, and the block `x` is seated on its output; under
+`x` is `S`, holding 0. The tile `Total` is drawn round `x` and `S` and is 4 across. The arrow east of the tile,
+`add`, is the tile's **step** (right-click an arrow on a tile's east side, Step): it is given one whole cell, `x`
+over `S`, and gives the state of the next cell. Open it: two arrows cut `in` into its two rows, and the blocks
+seated on them, `a` over `b`, are a sum.
+
+`S` is the tile's state, because its value is its own typed entry; `x` is worked out afresh in each cell, and since
+it lies in the pattern of a tile with a step it holds the k-th column of `X` in cell k. So the cells show `S` as
+0, 3, 4, 8, the total so far, and the step's output, east of the fourth cell, shows 9. An arrow on any other side of
+the tile reads its whole matrix, every cell with its state.
+
+Change an entry of `X`, or type another number into `S`, and every later cell follows. Type `inf` for the tile's
+`across` and it does not end: its first three cells are drawn, and the step's output says so. (Here the arrow
+`take` then cannot be repeated, since `X` has only four columns: an arrow cannot be repeated in a tile that does
+not end.) Right-click a block of a pattern and choose Stop when true, and the tile stops at the first cell where
+that block is true.
+
+In a file the tile's `"repeat"` has `"step"`, the arrow's id.
+
 ## none-and-spaces/
 
 None and the number spaces, beside a copy of the default Menu's `.config`.

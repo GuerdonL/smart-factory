@@ -1085,7 +1085,7 @@ def check(graph):
         n = nodes[i]
         out = [k for k in n['inputs'] if has(k)] if isinstance(n.get('inputs'), list) else []
         if applies(n) and fn_ok(n['fn']):
-            out.append(functions[n['fn']]['body'])
+            out.extend((functions[n['fn']]['body'], functions[n['fn']]['input']))      # (its input too: a body that does not read its input comes before it by no other way, and the function is typed before what applies it)
         return out
 
     state, after, cyclic = {}, [], False

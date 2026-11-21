@@ -765,7 +765,7 @@ test('every project that comes with the repository opens and saves as it did bef
   for (const name of readdirSync(root)){ if (!statSync(join(root, name)).isDirectory()) continue; seen++;
     const p = read(shipped(name)), files = write(p);
     assert.deepEqual(write(read(files)), files, name); assert.deepEqual(read(files), read(write(read(files))), name);
-    for (const f of files){ assert.ok(name === 'none-and-spaces' || name === 'conditions' || !/"holds"|"none"/.test(f.text), name + '/' + f.path); assert.ok(name === 'conditions' || !/"choose"/.test(f.text), name + '/' + f.path); if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path); } }      /* (none-and-spaces is the one made for format 5: it has both; conditions holds None, and is the one with conditional arrows) */
+    for (const f of files){ assert.ok(name === 'none-and-spaces' || name === 'conditions' || !/"holds"|"none"/.test(f.text), name + '/' + f.path); assert.ok(name === 'conditions' || !/"choose"/.test(f.text), name + '/' + f.path); assert.ok(name === 'running-total' || !/"step"|"until"|"inf"/.test(f.text), name + '/' + f.path); if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path); } }      /* (none-and-spaces is the one made for format 5: it has both; conditions holds None, and is the one with conditional arrows) */
   assert.ok(seen >= 12);
 });
 test('projects/none-and-spaces holds a None, a select that None decides, a promise kept, one broken with its sentence, and an arrow that takes and gives', () => {
@@ -967,4 +967,16 @@ test('a tile\'s step, its stop block and a count of "inf" are kept in its repeat
   assert.deepEqual(Object.keys(JSON.parse(six.find(f => f.path === 'Count.frame.json').text).repeat), ['x', 'y', 'cols', 'rows', 'across', 'down']);
   assert.deepEqual(write(read(six)), now);
   assert.throws(() => read(files.map(f => f.path === 'project.json' ? { ...f, text: f.text.replace('"version": 7', '"version": 8') } : f)), /saved by a newer version \(format 8\)/);
+});
+
+test('projects/running-total: a tile with a step; its cells show 0, 3, 4, 8 and the step gives 9', () => {
+  const files = shipped('running-total'), p = read(files), g = build(p); assert.deepEqual(validate(g), []);
+  const tile = g.spaces.top.tiles.find(t => t.step), by = name => p.top.shapes.find(d => d.name === name);
+  assert.ok(tile); assert.equal(tile.step, by('add').id); assert.equal(by('x').seat, by('take').id);
+  assert.deepEqual(p.top.groups.find(f => f.repeat).repeat, { x: -20, y: -9, cols: 1, rows: 2, across: 4, down: 1, step: by('add').id });
+  assert.deepEqual(evaluate(g, tile.loop).entries, { '1,1': 9 });
+  assert.deepEqual(evaluate(g, tile.node).entries, { '1,1': 3, '2,1': 1, '3,1': 4, '4,1': 1, '1,2': 0, '2,2': 3, '3,2': 4, '4,2': 8 });      /* x holds the k-th column of X in cell k, and S the total so far */
+  const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
+  assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(paths(write(p)), paths(files));      /* saved again it is the files that are shipped */
+  for (const f of files) if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path);
 });
