@@ -221,8 +221,8 @@ export function entered(text, lookup = () => undefined, { settle = false, matric
   const got = evaluate(text, lookup, { matrices });
   if (got.empty) return { clear: true };
   if (got.unread) return { refused: got.value.err };
-  const v = got.value, k = kind(v), t = squeezed(text).toLowerCase(), literal = ['whole', 'infinity', 'exact', 'boolean'].includes(k);
-  const plain = literal && (t === squeezed(written(v)) || t === String(v) || (k === 'infinity' && /^[+-]?(inf|infinity|∞)$/.test(t)) || (k === 'whole' && /^[+-]?\d+$/.test(t)));
+  const v = got.value, k = kind(v), t = squeezed(text).toLowerCase(), literal = ['integer', 'infinity', 'exact', 'boolean'].includes(k);
+  const plain = literal && (t === squeezed(written(v)) || t === String(v) || (k === 'infinity' && /^[+-]?(inf|infinity|∞)$/.test(t)) || (k === 'integer' && /^[+-]?\d+$/.test(t)));
   if (plain || (settle && literal && !leaves(read(text).tree).length)) return { value: v };
   return { value: { expr: text } };
 }

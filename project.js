@@ -250,7 +250,7 @@
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null,
               axes: [variable axis, …] only on a use that is turned } */
 
-import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.js';
+import { stacks, pieces, isFormula, isSurd, isInteger, storable } from './algebra.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
@@ -275,7 +275,7 @@ export const isNamed = name => !/^Shape \d+$/.test(bare(name));
 /* an entry as it is written: a formula's text and nothing it came to, or a literal value. What may not be kept (an error, a decimal) is undefined. */
 const out = v => isFormula(v) ? { expr: v.expr } : !storable(v) ? undefined : v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v;
 /* and as it is read: undefined for what is no entry (an error, a decimal, or nothing this format knows) */
-const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : typeof v === 'boolean' || isWhole(v) ? v : !v || typeof v !== 'object' ? undefined
+const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : typeof v === 'boolean' || isInteger(v) ? v : !v || typeof v !== 'object' ? undefined
   : typeof v.expr === 'string' ? { expr: v.expr } : isSurd(v) && (v.d === undefined || Number.isInteger(v.d)) ? { n: v.n, ...(v.d !== undefined && v.d !== 1 ? { d: v.d } : {}), k: v.k }
   : typeof v.sym === 'string' ? { sym: v.sym } : undefined;
 const kept = (entries, as) => Object.fromEntries(Object.entries(entries || {}).map(([k, v]) => [k, as(v)]).filter(([, v]) => v !== undefined));

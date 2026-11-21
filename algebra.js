@@ -152,7 +152,7 @@
        gives it a length). A number is a length only where it stands alone or apart from the name, so "d2" and "h1"
        are names. name is '' where none was typed; length is a whole number, null where none was typed, or undefined
        where one was typed that is not whole ("2.5"): not accepted, and never rounded
-   combine(op, a, b), apply(fn, a), valueText(v), isWhole(v), isSurd(v), surd, rootOf, sideOf, exact, held and the rest
+   combine(op, a, b), apply(fn, a), valueText(v), isInteger(v), isSurd(v), surd, rootOf, sideOf, exact, held and the rest
        of what values are: values.js, which sets out the eight kinds of value (whole, infinity, exact, boolean,
        symbolic, decimal, error, unknown) and the rules for combining them. Every one of them takes every kind.
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
@@ -371,7 +371,7 @@ export function readSide(text){
 
 /* The kinds of value an entry can come to, and how two combine, are set out in values.js, a pure module beside this
    one. They are given from here too, since this is where the page and the evaluator look for what things mean. */
-export { combine, apply, truth, kind, written as valueText, isWhole, isSurd, isError, isFormula, storable, surd, rootOf, sideOf, exact, held } from './values.js';
+export { combine, apply, truth, kind, written as valueText, isInteger, isSurd, isError, isFormula, storable, surd, rootOf, sideOf, exact, held } from './values.js';
 
 export function initials(name){
   return (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toLowerCase()).join('').slice(0, 3) || 'x';

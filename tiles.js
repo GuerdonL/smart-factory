@@ -228,7 +228,7 @@
                                     of all running past the input is the warning.
    startIn(arrow, k)             -> the arrow's start in cell k, from 1 */
 import { evaluate, entered, refs } from './expression.js';
-import { isWhole, isError, valueText, nested } from './algebra.js';
+import { isInteger, isError, valueText, nested } from './algebra.js';
 
 export const LIMIT = 64, DEPTH = 8;
 export const NO_INDEX = { err: 'not in a tile: there is no index' };
@@ -270,7 +270,7 @@ export function count(stored, lookup = () => undefined, { loops = false, entryOf
   const from = settled(stored.expr, entryOf); if (from.refused) return from;
   const got = evaluate(stored.expr, lookup);
   if (got.empty) return { refused: 'nothing was typed' };
-  return whole1(got.value) && isWhole(got.value) ? { count: got.value, formula: true } : { refused: NOT(got.value) };
+  return whole1(got.value) && isInteger(got.value) ? { count: got.value, formula: true } : { refused: NOT(got.value) };
 }
 export function typed(text, lookup = () => undefined, options = {}){
   const got = entered(text, lookup, { settle: true });

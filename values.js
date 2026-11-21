@@ -2,7 +2,8 @@
 
    A worked-out value is exactly one of eight kinds. Every piece of code that reads an entry handles all of them.
 
-       whole number   7                              a JavaScript number that is a safe integer
+       integer        7                              a JavaScript number that is a safe integer, of either sign
+                                                     (called so, not "whole": whole is the space of 0 and up, spaces.js)
        infinity       Infinity, -Infinity            ("inf" and "-inf" in a file: project.js)
        exact          { n: 3, d: 4, k: 1 }           n over d under k square roots (k 0: a fraction; 1: √; 2: ∜), in
                                                      lowest terms, d left out where it is 1, and kept only where it is
@@ -59,9 +60,9 @@
    digits(f)         -> a decimal's number as text, with exactly 9 significant digits: "2.71828175", "1.00000000"
    written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)", "0.437500000"; "!" for an
                         error (why is v.err), and "" for unknown. The one function that turns a value into text.
-   kind(v)           -> 'whole' | 'infinity' | 'exact' | 'boolean' | 'symbolic' | 'decimal' | 'error' | 'unknown'
-   isWhole(v), isSurd(v), isError(v), isFormula(v)
-                     -> whether v is a whole number; an exact value; an error; a formula, { expr } (which is not a
+   kind(v)           -> 'integer' | 'infinity' | 'exact' | 'boolean' | 'symbolic' | 'decimal' | 'error' | 'unknown'
+   isInteger(v), isSurd(v), isError(v), isFormula(v)
+                     -> whether v is an integer, of either sign; an exact value; an error; a formula, { expr } (which is not a
                         value: it is what an entry holds in place of one, see expression.js)
    storable(v)       -> whether a value may be kept in an entry or a file: every kind but an error, a decimal and unknown
    surd(n, k, d)     -> n over d under k roots as a value: a plain number where it comes out whole (surd(9, 1) is 3)
@@ -76,7 +77,7 @@ const solver = () => globalThis.nerdamer;
 const err = why => ({ err: why });
 const DIV0 = 'divide by zero', EVEN = 'an even root of a negative number', NONE = 'that has no value', LARGE = 'too large to work out';
 
-export const isWhole = v => typeof v === 'number' && Number.isInteger(v);
+export const isInteger = v => typeof v === 'number' && Number.isInteger(v);
 export const isSurd = v => !!v && typeof v === 'object' && Number.isInteger(v.n) && Number.isInteger(v.k);
 export const isError = v => !!v && typeof v === 'object' && typeof v.err === 'string';
 export const isFormula = v => !!v && typeof v === 'object' && typeof v.expr === 'string';
@@ -86,7 +87,7 @@ const isInf = v => v === Infinity || v === -Infinity;
 export function kind(v){
   if (v === null || v === undefined) return 'unknown';
   if (typeof v === 'boolean') return 'boolean';
-  if (typeof v === 'number') return isInf(v) ? 'infinity' : Number.isInteger(v) ? 'whole' : Number.isNaN(v) ? 'error' : 'decimal';
+  if (typeof v === 'number') return isInf(v) ? 'infinity' : Number.isInteger(v) ? 'integer' : Number.isNaN(v) ? 'error' : 'decimal';
   return isError(v) ? 'error' : isSurd(v) ? 'exact' : isSym(v) ? 'symbolic' : isDec(v) ? 'decimal' : 'unknown';
 }
 export const storable = v => { const k = kind(v); return k !== 'error' && k !== 'decimal' && k !== 'unknown'; };
@@ -292,7 +293,7 @@ function infinite(op, a, b){
   if (op === '/') return isInf(a) && isInf(b) ? err('∞ / ∞ has no value') : isInf(b) ? 0 : sb === 0 ? err(DIV0) : INF(sa * sb);
   /* a power. An infinity raised: to more than 0 it is infinite (-∞ only to a whole power, whose evenness gives the sign), to less than 0 it is 0. */
   if (isInf(a) && !isInf(b)){ if (sb === 0) return err('∞^0 has no value'); if (sb < 0) return 0; if (a > 0) return Infinity;
-    return isWhole(b) ? (b % 2 ? -Infinity : Infinity) : err(NONE); }
+    return isInteger(b) ? (b % 2 ? -Infinity : Infinity) : err(NONE); }
   /* raised to an infinity: what is above 1 grows without end and what is between 0 and 1 dies away; 1 and anything below 0 have no value */
   const one = compare(a, 1); if (isError(one)) return one;
   if (sa < 0 || one === 0) return err(NONE);
@@ -399,15 +400,15 @@ export function written(v){
 export function surd(n, k, d = 1){ return valueOf(norm(B(n), B(d), k)); }
 export function rootOf(v){
   if (typeof v === 'boolean') v = +v;
-  if (!(isWhole(v) || isSurd(v) || isSym(v))) return null;
+  if (!(isInteger(v) || isSurd(v) || isSym(v))) return null;
   const s = compare(v, 0); if (isError(s) || s < 0) return null;
   const r = combine('^', v, HALF); return isError(r) ? null : r;
 }
 export function sideOf(v){
   if (isError(v)) return { refused: v.err };
   if (v === null || v === undefined) return { refused: 'it has no value yet' };
-  if (!isWhole(v)) return { refused: `a matrix's side is a whole number of squares: it cannot be ${written(v)}` };
+  if (!isInteger(v)) return { refused: `a matrix's side is a whole number of squares: it cannot be ${written(v)}` };
   return v >= 1 ? { length: v } : { refused: 'it has to be at least 1' };
 }
-export const exact = v => { const a = isWhole(v) || isSurd(v) ? numberOf(v) : null; return a && { p: Number(a[0]), q: Number(a[1]), k: a[2] }; };
+export const exact = v => { const a = isInteger(v) || isSurd(v) ? numberOf(v) : null; return a && { p: Number(a[0]), q: Number(a[1]), k: a[2] }; };
 export const held = e => !e || typeof e !== 'object' || !Number.isInteger(e.p) ? null : valueOf(norm(B(e.p), B(e.q || 1), e.k || 0));

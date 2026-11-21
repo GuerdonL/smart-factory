@@ -10,7 +10,7 @@ const is = (op, a, b, expected) => assert.deepEqual(combine(op, a, b), expected,
 const INF = Infinity;
 
 test('every kind is told apart', () => {
-  const kinds = [[7, 'whole'], [-INF, 'infinity'], [q(3, 4), 'exact'], [true, 'boolean'], [sym('1+sqrt(2)'), 'symbolic'], [{ f: 0.5 }, 'decimal'], [E('x'), 'error'], [null, 'unknown'], [undefined, 'unknown']];
+  const kinds = [[7, 'integer'], [-INF, 'infinity'], [q(3, 4), 'exact'], [true, 'boolean'], [sym('1+sqrt(2)'), 'symbolic'], [{ f: 0.5 }, 'decimal'], [E('x'), 'error'], [null, 'unknown'], [undefined, 'unknown']];
   for (const [v, k] of kinds) assert.equal(kind(v), k);
   assert.equal(isFormula({ expr: '1+1' }), true); assert.equal(isFormula(q(1, 2)), false); assert.equal(kind({ expr: '1' }), 'unknown');      /* a formula is not a value */
 });
@@ -56,7 +56,7 @@ test('a sum or difference of two roots is a single root only when one is a fract
     const v = combine(op, combine('^', a, q(1, 2)), combine('^', b, q(1, 2))), want = op === '+' ? Math.sqrt(a) + Math.sqrt(b) : Math.sqrt(a) - Math.sqrt(b), label = `√${a} ${op} √${b} = ${written(v)}`;
     assert.ok(Math.abs(near(v) - want) < 1e-9, label);
     const one = squareFree(a) === squareFree(b);          /* the same square-free part: √8 and √2, √12 and √3 */
-    assert.equal(kind(v) === 'whole' || kind(v) === 'exact', one, label); assert.equal(kind(v) === 'symbolic', !one, label);
+    assert.equal(kind(v) === 'integer' || kind(v) === 'exact', one, label); assert.equal(kind(v) === 'symbolic', !one, label);
     one ? single++ : symbolic++; }
   assert.equal(single + symbolic, 2 * 23 * 23); assert.equal(single, 2 * [...Array(23)].flatMap((_, i) => [...Array(23)].map((_, j) => [i + 2, j + 2])).filter(([a, b]) => squareFree(a) === squareFree(b)).length);
   /* the ones the solver gets wrong when asked: it says (√2-√6)² is 8 */
@@ -234,7 +234,7 @@ test('the exact-value helpers take every kind', () => {
   for (const v of [INF, sym('1-sqrt(2)'), { f: 0.5 }, E('x'), null, -1, q(-1, 2)]) assert.equal(rootOf(v), null, written(v));
   assert.equal(rootOf(true), 1); assert.equal(rootOf(false), 0);      /* a boolean in arithmetic counts as 1 or 0, and so under a root */
   assert.deepEqual(rootOf(sym('1+sqrt(2)+sqrt(3)')), sym('sqrt(1+sqrt(2)+sqrt(3))'));      /* a symbolic value above 0 has a root, itself symbolic */
-  for (const v of [INF, true, sym('1+sqrt(2)'), { f: 0.5 }, E('x'), null]){ assert.equal(exact(v), null); assert.equal(algebra.isWhole(v), false); assert.equal(algebra.isSurd(v), false); }
+  for (const v of [INF, true, sym('1+sqrt(2)'), { f: 0.5 }, E('x'), null]){ assert.equal(exact(v), null); assert.equal(algebra.isInteger(v), false); assert.equal(algebra.isSurd(v), false); }
   assert.deepEqual(held(exact(q(3, 4, 1))), q(3, 4, 1)); assert.equal(isError(E('x')), true); assert.equal(isError(q(1, 2)), false);
 });
 

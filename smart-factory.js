@@ -21,7 +21,7 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge, MOST as MOST_HERE } from './evaluate.js';
 import * as project from './project.js';
@@ -569,7 +569,7 @@ const variables = createVariables({
     if (item.kind === 'system') return bus.send('summon', { name: item.name, key: item.key || null, group: !!item.group, at });
     if (item.kind === 'frame') return bus.send('replicate', { frame: item.id, at });
     const target = reach(x, y);
-    if (target && !isWhole(item.units)) return hud.say(`${item.name} is ${item.label}, not a whole number: it cannot be a side's length`);      /* only whole numbers are side lengths */
+    if (target && !isInteger(item.units)) return hud.say(`${item.name} is ${item.label}, not a whole number: it cannot be a side's length`);      /* only whole numbers are side lengths */
     return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : bus.send('length.add', { name: item.name, units: item.units, at, of: item.of || null, side: item.side || null }); },      /* on the canvas: an entry that is that length, a root left as a root */
   onEnd: () => bus.send('variable.end'),
 });
@@ -1015,7 +1015,7 @@ const rootOf = b => { const r = rootSide(b); if (r === null && unset(b)){ const 
    number. Only a whole number of units can be a side's length, with no exceptions and no rounding: where the root is
    not whole, this is null, and no side can take it. */
 const sideLength = (b, dim) => { if (unset(b)) return null;      /* no number yet: no length to give */
-  if (dim === 'm'){ const v = scalarOf(b); return isWhole(v) && v >= 1 ? v * view.unit : null; } if (dim[0] === 'k') return lenOf(b, dim); const r = rootSide(b); return r === null ? b.rect[dim] : isWhole(r) && r >= 1 ? r * view.unit : null; };
+  if (dim === 'm'){ const v = scalarOf(b); return isInteger(v) && v >= 1 ? v * view.unit : null; } if (dim[0] === 'k') return lenOf(b, dim); const r = rootSide(b); return r === null ? b.rect[dim] : isInteger(r) && r >= 1 ? r * view.unit : null; };
 /* ---- attributes ----
    Everything a variable has, together, as the properties panel shows it: the lengths of its two sides (x and y),
    a scalar's mass (the number it holds), and whatever attributes have been added to it by hand. Each has a value
@@ -2389,7 +2389,7 @@ function arrowTyped(a, key, text){
   if (key === 'output'){ const m = t.match(/^(\d+)\s*(?:[x×*,]|by)\s*(\d+)$/i);
     if (t && !m){ hud.say('An output size is written columns × rows, or left empty for no promise'); return shown(); }
     return bus.send('arrow.set', { id: a.id, output: m ? { cols: +m[1], rows: +m[2] } : null }); }
-  const got = readTyped(a, t), n = got.refused ? got : isWhole(got.value) && got.value >= 1 ? { length: got.value } : { refused: `it is a whole number, at least 1, and that comes to ${isError(got.value) ? 'an error (' + got.value.err + ')' : got.value === null ? 'nothing yet' : valueText(got.value)}` };
+  const got = readTyped(a, t), n = got.refused ? got : isInteger(got.value) && got.value >= 1 ? { length: got.value } : { refused: `it is a whole number, at least 1, and that comes to ${isError(got.value) ? 'an error (' + got.value.err + ')' : got.value === null ? 'nothing yet' : valueText(got.value)}` };
   if (n.refused){ hud.say(`${key[0].toUpperCase() + key.slice(1)}: ${n.refused}`); return shown(); }
   bus.send('arrow.set', { id: a.id, [key]: n.length });
 }
