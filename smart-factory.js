@@ -1655,13 +1655,27 @@ function fuse(){
   space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
   /* a promise is shown and taken off on a shape's own panel, and a fused shape's members have none: a member's
      promise would live on unseen, and break the fused shape under a name that is no longer on the canvas. So it is
-     taken off, and said; the fused shape is promised like any shape. (One whose variable has another use still on
-     the canvas keeps it: it is that use's to show.) Undo puts everything back as it was. */
-  const let_go = list.filter(b => holdsOf(b) && [...kinOf(b)].every(k => list.includes(k)));
-  for (const b of let_go) delete attrsOf(b).holds;
+     taken off, and said; the fused shape is promised like any shape. (One whose variable has another use still in
+     a space keeps it: it is that use's to show.) Undo puts everything back as it was. */
+  const let_go = unpromised();
   tidy(); select([made]);
-  if (let_go.length) hud.say(`${let_go.map(b => bare(b.name)).join(', ')} ${let_go.length === 1 ? 'promises' : 'promise'} nothing now: a fused shape holds what its shapes hold together, and is promised on its own`);
+  if (let_go.length) hud.say(`${let_go.join(', ')} ${let_go.length === 1 ? 'promises' : 'promise'} nothing now: a fused shape holds what its shapes hold together, and is promised on its own`);
 }
+/* No promise lives where it cannot be seen. A promise is its variable's, shown and taken off on the panel of a use
+   of it that lies in a space. Where no use does any more, though the variable is kept (its shapes are fused into
+   another, or a cut or an intersection has taken them off the canvas and keeps them), the promise is taken off:
+   it would break what is made of the shape under a name that is nowhere to be seen, at a place that is not the
+   made shape's. Gives the names of the variables that let theirs go, for whoever did it to say. Undo puts each
+   back; Revert gives the shapes back without it.
+   (The other ways a shape leaves the canvas leave it in a space, where it is selected and its panel shows the
+   promise: a folded selection lies in the definition space, a seated block on its arrow's output, where the
+   arrow's Gives row is its promise, and a standing shape in its entry.) */
+function unpromised(){
+  const seen = new Set(everyBlock()), names = [];
+  for (const b of everyKnown()) if (holdsOf(b) && ![...kinOf(b)].some(k => seen.has(k))){ delete attrsOf(b).holds; names.push(bare(originOf(b).name)); }
+  return [...new Set(names)];
+}
+const UNSEEN = names => `${names.join(', ')} ${names.length === 1 ? 'promises' : 'promise'} nothing now: ${names.length === 1 ? 'it is' : 'they are'} kept off the canvas, where a promise can be neither seen nor taken off. A shape made of ${names.length === 1 ? 'it' : 'them'} is promised on its own`;
 /* puts the kept blocks of operations back among the blocks of s where each was: at its old place in the order (so
    what was drawn over what still is) and in the frames it was in, a frame that has gone since being made again */
 function putBack(s, pairs){
@@ -1687,7 +1701,10 @@ function operate(op, sources, parts){
     for (const [dim, side] of [['w', 'cols'], ['h', 'rows']]) if (wholeSide(b.from.range, side) && src.sides[dim]) b.sides[dim] = src.sides[dim];      /* a whole side keeps its name */
     space.blocks.push(b); view.world.append(b.el); if (held !== undefined) space.groupOf.set(b, held);
     made.push(b); record.results.push(b.id); }
-  space.ops.push(record); tidy(); select(made);
+  space.ops.push(record);
+  const let_go = unpromised();      /* a source's promise does not live on where it cannot be seen */
+  tidy(); select(made);
+  if (let_go.length) hud.say(UNSEEN(let_go));
 }
 /* puts back the shapes these fused shapes were fused from, where they now fall in each and at the size they now are there; gives them */
 function unfuse(list){
@@ -1767,6 +1784,8 @@ function discard(blocks){
     for (const b of o.sources) if (going.has(b)) forget(b); }
   for (const s of dirty) tidy(s);
   pruneOps();                                  /* a cut whose shapes have all gone is gone too */
+  const let_go = unpromised();                 /* the last use in a space of a variable a cut still keeps has gone: so has its promise */
+  if (let_go.length) hud.say(UNSEEN(let_go));
 }
 /* ---- references ----
    What comes out of the list is never a copy. A shape from the list is a reference to its variable: the same entries,

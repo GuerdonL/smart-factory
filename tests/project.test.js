@@ -452,6 +452,17 @@ const cutSpace = () => space([
   shape('Keys', { id: 'bwide00', cols: 6, rows: 4, variable: 1, reference: true, entries: { '3,1': 7 }, inside: space([shape('Inner', { id: 'binner0' })]) }),
   shape('Shape 2', { id: 'bband00', x: 2, cols: 2, rows: 4 })] }]);
 
+test('a promise on a shape a cut keeps off the canvas is dropped when a project is read, and said, unless a use of its variable lies in a space to show it', () => {
+  /* Keys is promised and still on the canvas (bkeys00), and its kept use says the same: kept. Shape 2 is kept by the cut alone: its promise could be neither seen nor taken off */
+  const cut = cutSpace(); cut.shapes[2].holds = 'natural'; cut.operations[0].sources[0].holds = 'natural'; cut.operations[0].sources[1].holds = 'integer?';
+  let got = read(write(project(cut)));
+  assert.deepEqual(got.unheld, [{ name: 'Shape 2', holds: 'integer?', why: 'it is kept off the canvas by a cut, where a promise can be neither seen nor taken off' }]);
+  assert.deepEqual(got.top.operations[0].sources.map(d => d.holds), ['natural', undefined]); assert.equal(got.top.shapes[2].holds, 'natural');
+  assert.deepEqual(read(write(got)).unheld, []); assert.deepEqual(write(read(write(got))), write(got));      /* and saved again there is nothing left to drop */
+  /* the one use of a variable, kept by a cut: dropped, with or without a variable's number */
+  const lone = cutSpace(); lone.shapes.pop(); lone.operations[0].sources[0] = { ...lone.operations[0].sources[0], reference: false, holds: 'whole' };
+  got = read(write(project(lone))); assert.deepEqual(got.unheld.map(u => [u.name, u.holds]), [['Keys', 'whole']]); assert.ok(!('holds' in got.top.operations[0].sources[0]));
+});
 test('operations and ranges come back as they went, in every space', () => {
   const inner = space([shape('Shape 1', { id: 'bpart00', cols: 2, rows: 2, from: { id: 'bunder0', range: range(1, 1, 2, 2) } })], [],
     [{ id: 'o000002', op: 'intersect', results: ['bpart00'], was: null, sources: [shape('Under', { id: 'bunder0', cols: 5, rows: 5 }),
