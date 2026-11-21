@@ -162,7 +162,10 @@
                                                            x, y: where the pattern's top-left corner is, in units;
                                                            cols, rows: the pattern's size; across, down: how many
                                                            times it is repeated each way, a whole number of at least
-                                                           1 or a formula that comes to one from sizes alone. Its
+                                                           1 or a formula that comes to one from sizes alone, or
+                                                           "inf" (it does not end); with "step", the id of the
+                                                           arrow that is its step, and "until", the id of its
+                                                           stop block, each only where it has one (tiles.js). Its
                                                            shapes are those of the first cell: the copies, and what
                                                            the counts come to, are never written. A tile may hold no
                                                            shapes. A frame inside another may be a tile too; a
@@ -207,7 +210,12 @@
    resized: the references that were drawn at another size than their variable's and have been set to it (see
    oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
 
-   The format is 6. Format 6 adds to format 5 the field "choose" on an arrow, { then, else }, and with it a frame file
+   The format is 7. Format 7 adds to format 6, on a tile's "repeat": "step", the id of the arrow that is the tile's
+   progression function; "until", the id of its stop block; and a count of "inf", one that does not end (tiles.js).
+   A format 6 project has none of the three and is read exactly as it is; saved again it differs only in the
+   format number. The number went up so that a program from before loops refuses such a project ("saved by a newer
+   version") where it would have opened it, dropped the step and the stop block, read "inf" as 1, and saved it so.
+   Format 6 adds to format 5 the field "choose" on an arrow, { then, else }, and with it a frame file
    that holds no shapes (an empty side of a condition). A format 5 project has neither and is read exactly as it is;
    saved again it differs only in the format number. The number went up so that a program from before conditions
    refuses such a project ("saved by a newer version") where it would have opened it, dropped every choose and the
@@ -282,7 +290,7 @@ import { parse as spaceOf, promise as promiseOf } from './spaces.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 6;
+export const FORMAT = 7;
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
 const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
 const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */

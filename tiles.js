@@ -59,8 +59,8 @@
                                     worked out some other way (seated, a part, a measure, defined in its space).
                                     An attribute, a gap, a whole shape, a bare name in a scalar's formula (its own
                                     x or mass), and a mass that is unknown or worked out are refused.
-   typed(text, lookup, options)  -> { value } | { refused }: what typing text for a count stores: a whole number, or
-                                    { expr } where it names a size. Arithmetic on numbers alone is kept as what it
+   typed(text, lookup, options)  -> { value } | { refused }: what typing text for a count stores: a whole number,
+                                    "inf" (typed inf, infinity or ∞), or { expr } where it names a size. Arithmetic on numbers alone is kept as what it
                                     comes to. Refused where count would refuse it (options are count's), or nothing
                                     was typed.
    counts(repeat, lookup, { across, down }) -> { across, down, formula: { across, down }, warn }: both counts as
@@ -84,7 +84,8 @@
    What is drawn
    slots(across, down, formula, limit) -> { xs, ys }: which cells are drawn in each direction, in order: { cell: k } or
                                     { dots: true }. A direction whose count is a formula is one pattern and an
-                                    ellipsis on the side it repeats toward. Otherwise every cell is drawn while
+                                    ellipsis on the side it repeats toward. A direction whose count is open
+                                    (formula.open, as counts gives it) is its first three cells and an ellipsis. Otherwise every cell is drawn while
                                     there are no more than limit of them (LIMIT, unless the tile is inside
                                     another: see laid); beyond that each direction longer than four is its first
                                     three cells, an ellipsis and its last, or, where the limit is under 16 and
@@ -303,6 +304,7 @@ export function count(stored, lookup = () => undefined, { loops = false, entryOf
   return whole1(got.value) && isInteger(got.value) ? { count: got.value, formula: true } : { refused: NOT(got.value) };
 }
 export function typed(text, lookup = () => undefined, options = {}){
+  if (/^\s*(inf|infinity|∞)\s*$/i.test(String(text))) return { value: INF };      /* it does not end */
   const got = entered(text, lookup, { settle: true });
   if (got.clear) return { refused: 'nothing was typed' };
   if (got.refused) return got;
@@ -325,9 +327,10 @@ export const movable = mapped => mapped ? { refused: 'An arrow is repeated in th
 export const dragged = (count, size, moved) => Math.max(1, count + Math.round(moved / size));
 
 export function slots(across, down, formula = {}, limit = LIMIT){
-  const fa = !!formula.across, fd = !!formula.down, many = (fa ? 1 : across) * (fd ? 1 : down) > limit;
-  const one = (n, isFormula) => isFormula || (many && limit < 16 && n > 1) ? [{ cell: 1 }, { dots: true }] : many && n > 4 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }, { cell: n }] : Array.from({ length: n }, (_, i) => ({ cell: i + 1 }));
-  return { xs: one(across, fa), ys: one(down, fd) };
+  /* an open count (formula.open: it does not end, or is settled only when it is run) is its first three cells and an ellipsis, each showing its state; under a small limit, its first cell and an ellipsis */
+  const open = formula.open || {}, fa = !!formula.across && !open.across, fd = !!formula.down && !open.down, many = (fa ? 1 : open.across ? 3 : across) * (fd ? 1 : open.down ? 3 : down) > limit;
+  const one = (n, isFormula, isOpen) => isOpen && limit >= 16 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }] : isOpen || isFormula || (many && limit < 16 && n > 1) ? [{ cell: 1 }, { dots: true }] : many && n > 4 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }, { cell: n }] : Array.from({ length: n }, (_, i) => ({ cell: i + 1 }));
+  return { xs: one(across, fa, !!open.across), ys: one(down, fd, !!open.down) };
 }
 export function layout(repeat, across, down, formula = {}, limit = LIMIT){
   const s = slots(across, down, formula, limit), set = (list, size) => { let at = 0; return [list.map(o => { const one = { ...o, at, size: o.dots ? 1 : size }; at += one.size; return one; }), at]; };

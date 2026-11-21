@@ -102,7 +102,13 @@ test('an open count: one that does not end, and (in a tile with a step) one that
   assert.match(count(attribute, lookup).refused, /an attribute/);                                   /* with no step it is refused, as ever */
   assert.deepEqual(count(attribute, lookup, { step: true }), { count: 1, formula: true, open: 'run' });
   assert.match(count(attribute, lookup, { step: true, loops: true }).refused, /depends on itself/);      /* and never where it reads its own tile's size */
-  assert.deepEqual(count({ expr: '@[keys:y]' }, lookup, { step: true }), { count: 3, formula: true });      /* a count that is settled is settled, step or none */
+  assert.deepEqual(count({ expr: '@[keys:y]' }, lookup, { step: true }), { count: 3, formula: true });      /* a count that is settled is settled, step or none */  /* typed: inf, infinity or ∞ is the count that does not end */
+  for (const text of ['inf', ' Infinity ', '∞']) assert.deepEqual(typed(text, lookup), { value: 'inf' });
+  /* drawn: an open count is its first three cells and an ellipsis; under a small limit, one cell and an ellipsis */
+  assert.deepEqual(slots(1, 1, { across: false, down: false, open: { across: 'inf', down: null } }), { xs: [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }], ys: [{ cell: 1 }] });
+  assert.deepEqual(slots(1, 1, { across: false, down: true, open: { across: null, down: 'run' } }).ys, [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }]);
+  assert.deepEqual(slots(1, 1, { open: { across: 'inf', down: null } }, 8).xs, [{ cell: 1 }, { dots: true }]);
+  assert.deepEqual(layout(rep(1, 2, 'inf', 1), 1, 1, { open: { across: 'inf', down: null } }).w, 4);      /* three patterns one wide, and the ellipsis */
 });
 
 test('the filled size is the pattern times the counts', () => {

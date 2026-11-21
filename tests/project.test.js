@@ -196,7 +196,7 @@ test('what is not a project is refused, with the reason', () => {
   assert.throws(() => read([]), /no project\.json/);
   assert.throws(() => read([file('A.json', config('A'))]), /no project\.json/);
   assert.throws(() => read([file('project.json', { format: 'other' })]), /not a smart-factory project/);
-  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 7\)/);
+  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 8\)/);
   assert.throws(() => read([head(), { path: 'Bad.json', text: '{ not json' }]), /Bad\.json is not valid JSON/);
 });
 
@@ -222,7 +222,7 @@ test('format 1: the settings become the Menu, and the old top level one block be
 const at = (name, x, y, cols, rows, more = {}) => config(name, { position: { x, y }, size: { cols, rows }, ...more });
 const rectsOf = shapes => shapes.map(d => ({ x: d.x, y: d.y, w: d.cols, h: d.rows, wName: d.colsName, hName: d.rowsName }));
 
-test('the format is 6', () => { assert.equal(FORMAT, 6); });
+test('the format is 7', () => { assert.equal(FORMAT, 7); });
 
 test('format 2: a stack is fused into one shape, which holds its shapes top to bottom', () => {
   const p = read([head(2), file('Top.json', at('Top', 4, 0, 3, 2, { id: 'btop', order: 1, value: { entries: { '1,1': 5 } } })), file('Under.json', at('Under', 4, 2, 3, 1, { id: 'bunder', order: 0 })),
@@ -926,9 +926,9 @@ test('an arrow\'s choose is kept where it names two frames, and an empty frame i
   assert.deepEqual(back.top.shapes[1].inside.groups.map(g => [g.id, g.name, g.members]).sort(), [['ge', 'false', []], ['gt', 'true', [1]]]);
   assert.deepEqual(write(read(files)), files);      /* saved, reopened, saved: the same files */
   /* the format's number says it: the program before conditions (format 5) read such a project without complaint, dropped choose from every arrow and the empty side's file, and saved it so. At 6 it refuses it, as this one refuses a 7 */
-  assert.equal(FORMAT, 6); for (const f of files) assert.equal(JSON.parse(f.text).version, 6, f.path);
-  assert.throws(() => read(files.map(f => f.path === 'project.json' ? { ...f, text: f.text.replace('"version": 6', '"version": 7') } : f)), /saved by a newer version \(format 7\)/);
-  const five = files.map(f => ({ ...f, text: f.text.replace(/"version": 6/g, '"version": 5') })); assert.deepEqual(write(read(five)), files);      /* and a format 5 project is read exactly as it is */
+  for (const f of files) assert.equal(JSON.parse(f.text).version, FORMAT, f.path);
+  assert.throws(() => read(files.map(f => f.path === 'project.json' ? { ...f, text: f.text.replace('"version": ' + FORMAT, '"version": ' + (FORMAT + 1)) } : f)), new RegExp('saved by a newer version \\(format ' + (FORMAT + 1) + '\\)'));
+  const five = files.map(f => ({ ...f, text: f.text.replace(new RegExp('"version": ' + FORMAT, 'g'), '"version": 5') })); assert.deepEqual(write(read(five)), files);      /* and a format 5 project is read exactly as it is */
   const g = build(back); assert.deepEqual(validate(g), []); assert.equal(g.functions['f:a1'].body, 'choose(param(f:a1),v:t1,source(none;2×2))');
   /* what is no two frame ids is no condition, and is not written */
   for (const choose of [undefined, null, 'gt', {}, { then: 'gt' }, { then: 'gt', else: 'gt' }, { then: '', else: 'ge' }, { then: 1, else: 2 }]){ const a = JSON.parse(write(project(choose)).find(f => f.path === 'Shape 2.json').text).arrow; assert.ok(!('choose' in a), JSON.stringify(choose)); }
@@ -946,6 +946,25 @@ test('projects/conditions holds a condition, the same arrow used again on a fals
   assert.equal(g.nodes[g.spaces.top.arrows[3].node].op, 'mapalong');
   const truth = name => truthAt(g, g.blocks[by(name).id]);
   assert.deepEqual(['Go', 'No', 'Mask', 'Each', 'Zero', 'Nothing', 'Some', 'Open'].map(truth), [true, false, true, true, false, false, true, null]);      /* what is false is drawn sunk; Open has an entry never given */
-  const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
+  const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text.replace(/"version": \d+/g, '"version": 6')]));      /* (it was shipped at format 6, and is kept as it was shipped: saved now it differs in that number alone) */
   assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(paths(write(p)), paths(files));      /* saved again it is the files that are shipped */
+});
+
+/* ---- loops (phase 9C): a tile's step, its stop block, and a count that does not end ---- */
+test('a tile\'s step, its stop block and a count of "inf" are kept in its repeat, and the format is 7 so that the program before loops refuses them', () => {
+  const at = (name, x, y, cols, rows, more = {}) => ({ id: name.toLowerCase(), type: 'tensor', name, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
+  const arrow = { ...at('Go', 3, 0, 1, 2), id: 'a1', type: 'arrow', arrow: { input: { id: 't1', as: 'tile' }, side: 'e', start: 1, span: 2, gap: 2, gapName: null, output: null, formula: null }, inside: { shapes: [at('in', -12, 0, 1, 2, { in: true })], groups: [], operations: [] } };
+  const snap = { top: { shapes: [at('C', 0, 0, 1, 1, { entries: { '1,1': { expr: 'index.x' } } }), at('S', 0, 1, 1, 1, { entries: { '1,1': 0 } }), arrow],
+    groups: [{ id: 't1', name: 'Count', members: [0, 1], groups: [], repeat: { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 's' } }], operations: [] } };
+  const files = write(read(write(snap))), back = read(files);
+  assert.equal(FORMAT, 7);
+  assert.deepEqual(back.top.groups[0].repeat, { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 's' });
+  assert.deepEqual(write(back), files);      /* saved, reopened, saved: the same files */
+  assert.deepEqual(JSON.parse(files.find(f => f.path === 'Count.frame.json').text).repeat, { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 's' });
+  /* a tile with none of them is written as it always was, and a format 6 project is read exactly as it is */
+  const plain = JSON.parse(JSON.stringify(snap)); plain.top.groups[0].repeat = { x: 0, y: 0, cols: 1, rows: 2, across: 4, down: 1 };
+  const now = write(read(write(plain))), six = now.map(f => ({ ...f, text: f.text.replace(/"version": 7/g, '"version": 6') }));
+  assert.deepEqual(Object.keys(JSON.parse(six.find(f => f.path === 'Count.frame.json').text).repeat), ['x', 'y', 'cols', 'rows', 'across', 'down']);
+  assert.deepEqual(write(read(six)), now);
+  assert.throws(() => read(files.map(f => f.path === 'project.json' ? { ...f, text: f.text.replace('"version": 7', '"version": 8') } : f)), /saved by a newer version \(format 8\)/);
 });
