@@ -460,7 +460,8 @@ export const spanned = (arrow, patch) => ('start' in patch && patch.start !== ar
   ? { refused: 'An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that' } : { ok: true };
 
 export const startIn = (arrow, k) => arrow.start + (k - 1) * arrow.span;
-export function mapped(arrow, repeat, across, down, n, { tile = false, outer = [] } = {}){
+export function mapped(arrow, repeat, across, down, n, { tile = false, outer = [], open = false } = {}){
+  if (open) return { count: 1, through: [], warn: STEP.openMapped };      /* a tile with a step whose count is open: there is no count to repeat the arrow by */
   if (tile) return { count: 1, through: [], warn: 'it is in a tile and reads another tile, all of it, so it cannot be repeated along it: seat a block on that tile\'s output outside this one, and repeat an arrow along the block' };
   const rows = along(arrow.side) === 'rows', times = rows ? down : across, other = rows ? across : down, size = rows ? repeat.rows : repeat.cols;
   const way = rows ? 'down' : 'across', edge = rows ? 'rows' : 'columns';

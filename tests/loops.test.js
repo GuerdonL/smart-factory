@@ -159,3 +159,28 @@ test('build: each refusal with its sentence', () => {
   /* an arrow repeated in a tile that does not end */
   const open = build(runningTotal({ repeat: { across: 'inf' } })); assert.deepEqual(open.spaces.top.arrows.find(a => a.arrow === 'take').error, { code: 'mismatch', note: tiles.STEP.openMapped });
 });
+
+/* ---- an error in words (graph.js: said), and an arrow that cannot be repeated through a tile with a step ---- */
+import { said, CODES } from '../graph.js';
+test('said: every error is a sentence, never a bare code or a count of pieces', () => {
+  for (const code of CODES){ const s = said({ code, note: '' }); assert.ok(s.length > 8 && !CODES.includes(s), code + ': ' + s);
+    for (const note of CODES){ const t = said({ code, note }); assert.ok(!CODES.includes(t) && !t.endsWith(': ' + note) && !t.endsWith('(' + note + ')'), code + ' ' + note + ': ' + t); } }
+  assert.equal(said({ code: 'mismatch', note: tiles.STEP.east }), tiles.STEP.east);      /* a note that is a sentence is the sentence */
+  assert.equal(said({ code: 'pieces', note: '2 pieces' }), 'its space holds 2 pieces, and not one matrix');
+  assert.equal(said({ code: 'no-source', note: 'size' }), 'what it reads is not there: it is not the size it has to be');
+  assert.equal(said({ code: 'nonsense', note: '' }), 'it has no value'); assert.equal(said(null), 'it has no value');
+});
+test('build: an arrow that cannot be repeated through a tile with a step says why, as the page then says it', () => {
+  const take = s => { const g = build(s); assert.deepEqual(validate(g), []); return g.spaces.top.arrows.find(a => a.arrow === 'take').error; };
+  const wide = runningTotal(); wide.top.shapes[0] = B('X', 0, 0, 3, 1, { entries: { '1,1': 3, '2,1': 1, '3,1': 4 } });
+  assert.deepEqual(take(wide), { code: 'size', note: 'its last cell runs past its input, which has 3 columns' });
+  assert.deepEqual(take(runningTotal({ repeat: { across: 6 } })), { code: 'size', note: 'its last cell runs past its input, which has 4 columns' });
+  assert.deepEqual(take(runningTotal({ repeat: { across: 2, down: 2 } })), { code: 'mismatch', note: 'its tile repeats down, and an arrow against columns is repeated across only' });
+  assert.deepEqual(take(runningTotal({ repeat: { across: 1, down: 4 } })), { code: 'mismatch', note: 'its tile repeats down, and an arrow against columns is repeated across only' });
+  assert.deepEqual(take(runningTotal({ repeat: { across: 'inf' } })), { code: 'mismatch', note: tiles.STEP.openMapped });
+  /* tiles.js says the same of each for the page (mapped), an open count included */
+  const arrowS = { side: 's', start: 1, span: 1 }, rep = { x: 0, y: 3, cols: 1, rows: 2 };
+  assert.equal(tiles.mapped(arrowS, rep, 4, 1, 3).warn, 'its last cell runs past its input, which has 3 columns');
+  assert.equal(tiles.mapped(arrowS, rep, 2, 2, 4).warn, 'its tile repeats down, and an arrow against columns is repeated across only');
+  assert.deepEqual(tiles.mapped(arrowS, rep, 1, 1, 4, { open: true }), { count: 1, through: [], warn: tiles.STEP.openMapped });
+});

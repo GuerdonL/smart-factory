@@ -327,9 +327,11 @@ it lies in the pattern of a tile with a step it holds the k-th column of `X` in 
 the tile reads its whole matrix, every cell with its state.
 
 Change an entry of `X`, or type another number into `S`, and every later cell follows. Type `inf` for the tile's
-`across` and it does not end: its first three cells are drawn, and the step's output says so. (Here the arrow
-`take` then cannot be repeated, since `X` has only four columns: an arrow cannot be repeated in a tile that does
-not end.) Right-click a block of a pattern and choose Stop when true, and the tile stops at the first cell where
+`across` and the arrow `take` cannot be repeated, since an arrow cannot be repeated in a tile that does not end:
+the tile and the arrow are drawn in the warning colour, the cells are blank, and the tile's, the arrow's and the
+step's panels say why. The same is so where the tile has more cells than `X` has columns, or repeats down. (A tile
+that does not end and reads nothing outside it shows its first three cells, and its step's panel says that it runs
+until stopped.) Right-click a block of a pattern and choose Stop when true, and the tile stops at the first cell where
 that block is true.
 
 In a file the tile's `"repeat"` has `"step"`, the arrow's id.

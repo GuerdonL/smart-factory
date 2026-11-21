@@ -239,6 +239,17 @@ import { FUNCTIONS, CONFIG } from './system.js';
 export const VERSION = 5;                     /* 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise; 4 choose and a source of kind none. An older graph holds none of what came after it and is a version 4 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
 const VERSIONS = [1, 2, 3, 4, 5];
 export const CODES = ['mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type'];
+/* An error in words, for whoever shows one: its note where that is a sentence, else what its code means. A note that
+   is another error's code (what reads a thing with an error carries that error's code for its note) is said in words
+   too, and so is a count of pieces: a bare code, or a fragment, never stands where a sentence should. */
+const SAID = { mismatch: 'it does not fit', 'not-a-row': 'its shapes are not a single line', mixed: 'it mixes rules', pieces: 'its space does not come to one matrix', size: 'it is not the size it has to be',
+  loop: 'a cycle: it depends on itself', 'no-source': 'what it reads is not there', seat: 'the arrow it is seated on has no output', 'size-unknown': 'a size it depends on is not settled', type: 'a value lies outside what it promises to hold' };
+export function said(e){
+  const has = k => typeof k === 'string' && Object.prototype.hasOwnProperty.call(SAID, k), note = e && typeof e.note === 'string' ? e.note.trim() : '', code = e && has(e.code) ? e.code : null;
+  if (code === 'pieces' && /^\d+ pieces$/.test(note)) return `its space holds ${note}, and not one matrix`;
+  if (note && !has(note)) return note;
+  return (code ? SAID[code] : 'it has no value') + (note && note !== code ? ': ' + SAID[note] : '');
+}
 const PIECE_CODES = ['mismatch', 'not-a-row', 'mixed', 'size-unknown'];
 const DEFINED = ['entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source', 'entry'];
 export const AXES = 6;                           /* the most inner axes a type has */

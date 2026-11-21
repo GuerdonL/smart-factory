@@ -22,7 +22,7 @@ import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText, truthOf } from './algebra.js';
-import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION } from './graph.js';
+import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION, CODES, said as inWords } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, truthAt, stoppedAt, MOST as MOST_HERE } from './evaluate.js';
 import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
@@ -473,7 +473,11 @@ const WHY = { loop: () => 'It depends on itself, so nothing is worked out from i
   'no-source': n => `What it reads is not there${n ? ' (' + n + ')' : ''}`, seat: n => `The arrow it is seated on has no output (${n})`, 'size-unknown': n => `A size it depends on is not settled (${n})` };
 function whyNot(b){
   const g = graphNow(); let n = g.nodes[g.blocks[b.id]]; if (n && n.op === 'transpose') n = g.nodes[n.inputs[0]];
-  return n && n.error && WHY[n.error.code] ? WHY[n.error.code](n.error.note) : null;
+  if (!n || !n.error || !WHY[n.error.code]) return null;
+  /* a block seated on an arrow that has no output says why the arrow has none, in the arrow's own sentence; and a note that is another error's code is said in words */
+  const on = n.error.code === 'seat' && b.seat ? findIn(g).arrows.get(b.seat) : null;
+  if (on && on.error) return 'The arrow it is seated on has no output: ' + inWords(on.error);
+  return WHY[n.error.code](CODES.includes(n.error.note) ? inWords({ code: n.error.note, note: '' }) : n.error.note);
 }
 /* a block's entries: what the evaluator says its node comes to, exactly (what is drawn of them is laidOf's). plain: the variable's own way round, whatever this use is */
 function valuesOf(b, depth = 0, plain = false){
@@ -2082,7 +2086,7 @@ function setUntil(id){
   shown();
 }
 /* an error of the graph in words: its note, or what its code means. The code loop is a cycle (a thing that depends on itself): the word loop is kept for a tile with a step */
-const errorSaid = e => e.note || (e.code === 'loop' ? 'a cycle: it depends on itself' : e.code === 'pieces' ? 'its space does not come to one matrix' : e.code === 'mismatch' ? 'it does not fit' : e.code);
+const errorSaid = e => inWords(e);      /* (graph.js: said) */
 /* what there is to say of a tile's step in the tile's panel: which arrow it is, why it does not fit, the stop block, and the cell it stopped at */
 function stepNotes(s, g){
   const r = s.repeats.get(g); if (!r || (!r.step && !r.until)) return [];
@@ -2096,7 +2100,8 @@ function stepNotes(s, g){
 function stepSaid(a){
   const g = stepTile(a), r = g !== null ? space.repeats.get(g) : null; if (!r || r.step !== a.id) return [];
   const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) : null }; }) || {};
-  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(errorSaid(found.e.error))] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : [])];
+  const mapWarn = mapWarnIn(space, g);      /* an arrow its tile's cells are made from cannot be repeated: the cells, and so the step, have no value */
+  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : [])];
 }
 function tileInfo(s, g, all = tilesIn(s)){
   const rep = s.repeats.get(g); if (!rep) return null;
@@ -2172,8 +2177,17 @@ function sideBox(s, g){
 /* whether an arrow in tile g is repeated there: its input is outside the tile */
 const mapsIn = (s, a, g) => { const inp = a.arrow.input; if (inp.as === 'tile') return inp.id !== g && s.repeats.has(inp.id) && !tilesAbove(s, inp.id).includes(g);      /* another tile is outside this one too, unless it is in this one's pattern: tiles.js says what comes of that */
   const blk = s.blocks.find(k => k.id === inp.id); return !!blk && !chain(blk, s).includes(g); };
+/* the tile with a step an arrow is repeated through by way of the block seated on its output (graph.js: outputOf,
+   "In a tile with a step"): that block lies in the tile, the arrow's input outside it, and the arrow in it or in no
+   tile. In cell k the seated block holds the arrow's k-th run. undefined where there is none. */
+function followsIn(s, a){
+  const seat = seatOn(a, s), g = seat ? tileOf(seat, s) : undefined, inp = a.arrow.input; if (g === undefined || !s.repeats.get(g)?.step || inp.as === 'tile') return undefined;
+  const blk = s.blocks.find(k => k.id === inp.id), mine = tileOf(a, s); if (!blk || chain(blk, s).includes(g) || !(mine === g || mine === undefined)) return undefined;
+  return g;
+}
 /* why an arrow repeated in tile g, or through it from a tile inside it, cannot be: the first there is; null where all can */
-const mapWarnIn = (s, g) => inGroup(g, s).filter(a => isArrow(a) && !isOff(a) && mapsIn(s, a, g)).map(a => outputOf(a).mapWarn).find(Boolean) || null;
+const mapWarnIn = (s, g) => { const inside = inGroup(g, s);
+  return s.blocks.filter(a => isArrow(a) && !isOff(a) && ((inside.includes(a) && mapsIn(s, a, g)) || followsIn(s, a) === g)).map(a => outputOf(a).mapWarn).find(Boolean) || null; };
 const mapsAny = (s, g) => inGroup(g, s).some(a => isArrow(a) && mapsIn(s, a, g));      /* whether any arrow is repeated in the tile, or in a tile inside it, along something outside it */
 /* moves a tile, the tiles inside it and its blocks (dx, dy in units). Arrows and seated blocks are placed by what they read, so they are left to that. */
 function shiftTile(s, g, dx, dy){
@@ -2395,14 +2409,15 @@ function outputOf(a){
     const s = spaceWith(a), arrow = full(a), input = s && !loops ? inputOf(a) : null, seat = seatOn(a, s);
     const defined = arrow.formula || !sized(input) ? null : definedBy(a, input);
     /* in a tile, with its input outside it, the arrow is repeated along that input: how often, and whether it can be, is tiles.js's to say */
-    const g = s ? tileOf(a, s) : undefined, tile = sized(input) && g !== undefined && mapsIn(s, a, g) ? tileInfo(s, g) : null, rows = along(arrow.side) === 'rows';
+    /* (and in a tile with a step it is repeated there too where the block seated on it lies in that tile, whether the arrow is in it or in none: followsIn) */
+    const led = s ? followsIn(s, a) : undefined, g = led !== undefined ? led : s ? tileOf(a, s) : undefined, tile = sized(input) && g !== undefined && (led !== undefined || mapsIn(s, a, g)) ? tileInfo(s, g) : null, rows = along(arrow.side) === 'rows';
     /* and through every tile that tile is in which its input is outside of too: in each of their cells it goes on along its input */
     const above = tile && a.arrow.input.as !== 'tile' ? tilesAbove(s, g).filter(t => mapsIn(s, a, t)).map(t => tileInfo(s, t)) : [];
-    const map = tile ? tiles.mapped(arrow, tile.rep, tile.across, tile.down, rows ? input.rows : input.cols, { tile: a.arrow.input.as === 'tile', outer: above.map(t => ({ repeat: t.rep, across: t.across, down: t.down })) }) : null;
+    const map = tile ? tiles.mapped(arrow, tile.rep, tile.across, tile.down, rows ? input.rows : input.cols, { tile: a.arrow.input.as === 'tile', open: !!tile.open && !!tile.rep.step, outer: above.map(t => ({ repeat: t.rep, across: t.across, down: t.down })) }) : null;
     /* another use of a named arrow has to fit the function's own input (inner); the block seated on the output is not in its own way */
     /* in a tile with a step, where the block seated on its output lies in that tile too, the output is one run, and the seated block holds the k-th in cell k (graph.js: outputOf) */
     const oneRun = !!(seat && tile && tile.rep.step && tileOf(seat, s) === g && map && !map.warn);
-    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map: oneRun ? null : map, drawn: drawnOf(arrow, sized(input)) });
+    const st = standing(arrow, input, s ? othersOf(s, a.arrow.input, seat) : [], seat ? { colsName: seat.sides.w, rowsName: seat.sides.h } : null, defined, { loops, inner: a.ref && !isUse(a) ? innerOf(a) : null, map: oneRun ? null : led !== undefined && map ? { ...map, count: 1 } : map, drawn: drawnOf(arrow, sized(input)) });      /* (one that cannot be repeated by way of its seat keeps its one run's shape, and warns) */
     const out = { ...st, defined: !!defined, mapWarn: map?.warn || null,
       get asDrawn(){ return outputLaid(a, s); },
       get note(){ return steadily(() => { const e = findIn(graphNow()).arrows.get(a.id); return e?.node ? unshown(e.node, bindingOf(readBy(a, s), s, false, a), 'a ' + a.id) : null; }); } };
