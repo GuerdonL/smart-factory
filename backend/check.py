@@ -750,10 +750,10 @@ RULES = {
     'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g), 'space': lambda n, ins, g: 'probability' if n['dist'] == 'uniform' else 'real'},
     'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type, 'space': measure_space},
     'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type, 'space': lambda n, ins, g: space_in(n['formula'], ins, 1, value_of(ins[0]))},
-    'apply': {'inputs': (1, 1), 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type, 'space': lambda n, ins, g: body_of(n, g, ins[0])},
+    'apply': {'inputs': (1, 1), 'body': 'fn', 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type, 'space': lambda n, ins, g: body_of(n, g, ins[0])},
     'param': {'inputs': (0, 0), 'fields': none, 'type': lambda n, ins, g: n['type'] if ok_type(n.get('type')) else 'it has no size of its own', 'space': lambda n, ins, g: value_of(n)},
     'repeat': {'inputs': (1, INF), 'fields': repeat_fields, 'type': repeat_type, 'space': lambda n, ins, g: all_of(ins)},
-    'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g, ins[0]) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
+    'mapalong': {'inputs': (1, INF), 'body': 'fn', 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g, ins[0]) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
     'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type, 'space': lambda n, ins, g: all_of(ins)},
     'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type, 'space': lambda n, ins, g: value_of(ins[0])},
     'choose': {'inputs': (3, 3), 'fields': lambda n: stray(n, (), 'a choose'), 'type': choose_type, 'space': lambda n, ins, g: S.choice(value_of(ins[1]), value_of(ins[2]))},
@@ -761,7 +761,10 @@ RULES = {
 
 
 def applies(n):
-    return n.get('op') in ('apply', 'mapalong') and 'fn' in n
+    """Whether a node has a function for its body (graph.js: fnOf): its operation's table entry says which field
+    holds the function's id ('body'), and the node has that field. Nothing else says which operations have one."""
+    rule = RULES.get(n.get('op')) if isinstance(n.get('op'), str) else None
+    return bool(rule) and 'body' in rule and rule['body'] in n
 
 
 def functions_of(within):

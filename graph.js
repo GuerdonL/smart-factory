@@ -380,7 +380,9 @@ export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' &
 /* ---- the operations ----
    Each: inputs [least, most]; fields(n) -> what is wrong with its own fields (sentences); type(n, ins, g) -> the type
    it must have, given its input nodes (g.fn(id) is a function of the graph), or a sentence where it can have none;
-   id(n) -> its id written out; needs(n, ins) -> which inputs its value is worked out from (left out: all of them);
+   id(n) -> its id written out; body(n) -> the id of the function it has for its body (apply, and a mapalong with fn:
+   left out by an operation that has none; fnOf(n) asks it of any node, and nothing else says which operations
+   have a function); needs(n, ins) -> which inputs its value is worked out from (left out: all of them);
    later(n) -> the inputs it reads only when its value asks for them, with at.pick (a choose's two sides: one is read,
    and which is not known until its condition is worked out);
    value(n, at) -> its entries, a Map from "column,row" (unknown entries absent); deep: true (or deep(n, g) -> whether)
@@ -388,6 +390,9 @@ export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' &
    evaluate.js once for each inner position, on entries keyed "column,row". at is the evaluator's: at.get(k)
    the entries of input k, at.type(k) its type, at.cells the chain of cells, and the rest as evaluate.js sets out. */
 const list = xs => xs.join(',');
+/* the function a node has for its body, by its operation's table entry (body), or undefined: the one place that says
+   which operations have a function */
+export const fnOf = n => { const rule = n && own(OPS, n.op) ? OPS[n.op] : null; return rule && rule.body ? rule.body(n) : undefined; };
 const HELD_APART = 'a matrix its formula names holds inner data that is not its own';
 export const TWO_SIZES = 'its two sides are not one size';
 const SIDE = /^(x|y|m|a|d[1-6])$/;               /* what a measure reads: a drawn side, a mass, an attribute, or the length of an inner axis */
@@ -580,7 +585,7 @@ export const OPS = {
     /* i, j and x are arrows.js's; index.x and index.y are the place of the output's entry in the cell it is worked out for */
     value(n, at){ const got = worked(n.formula, { cols: n.type.cols, rows: n.type.rows, x: at.get(0), lookup: lookupIn(n, at, 1, n.type, p => indexAt(at.cells, p.c, p.r)) });
       for (const [key, v] of got) if (sound(v) !== v) got.set(key, NONE); return got; } },
-  apply: { inputs: [1, 1], id: n => plain(n, ';' + n.fn), space: (n, ins, g) => bodyOf(n, g, ins[0]),      /* what its function's body comes to, where what it is given lies in what the function's input block promises */
+  apply: { inputs: [1, 1], body: n => n.fn, id: n => plain(n, ';' + n.fn), space: (n, ins, g) => bodyOf(n, g, ins[0]),      /* what its function's body comes to, where what it is given lies in what the function's input block promises */
     fields: n => typeof n.fn === 'string' ? [] : ['fn is not a function id'],
     type: (n, [a], g) => { const t = fnFits(n, g, a.type); return typeof t === 'string' ? t : T(t.cols, t.rows, t.colsName, t.rowsName, t.inner); },
     deep: fnWhole,
@@ -600,7 +605,7 @@ export const OPS = {
       const key = JSON.stringify(places);
       return tiles.entries({ x: 0, y: 0, cols: n.pattern.cols, rows: n.pattern.rows }, n.across, n.down, rects,
         (k, cx, cy) => at.get(k, at.cell({ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, cx, cy, at: places, atKey: key }))); } },
-  mapalong: { inputs: [1, Infinity], space: (n, ins, g) => n.fn !== undefined ? bodyOf(n, g, ins[0]) : spaceIn(n.formula, ins, 1, valueOf(ins[0])), id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
+  mapalong: { inputs: [1, Infinity], body: n => n.fn, space: (n, ins, g) => n.fn !== undefined ? bodyOf(n, g, ins[0]) : spaceIn(n.formula, ins, 1, valueOf(ins[0])), id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
     fields: n => [...((n.fn !== undefined) !== (n.formula !== undefined) ? [] : ['it has exactly one of fn and formula']),
       ...(n.fn !== undefined && (typeof n.fn !== 'string' || n.inputs.length !== 1) ? ['fn is a function id, and takes the one input'] : []),
       ...(n.formula !== undefined && !formulaOk(n.formula, n.inputs.length - 1, { arrow: true }) ? ['its formula is one the graph cannot hold: it does not read, or names what is not an input'] : []),
@@ -663,7 +668,7 @@ export const OPS = {
 function scopes(n, ins, fn){
   if (n.op === 'param') return (n.within || []).filter(w => w.startsWith('f:')).slice(-1);
   const out = new Set(ins.flatMap(i => (i.within || []).filter(w => w.startsWith('f:'))));
-  if ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined){ const f = fn(n.fn); for (const w of (f && f.within) || []) if (w.startsWith('f:') && w !== n.fn) out.add(w); }
+  const has = fnOf(n); if (has !== undefined){ const f = fn(has); for (const w of (f && f.within) || []) if (w.startsWith('f:') && w !== has) out.add(w); }
   return [...out];
 }
 /* The tiles a node belongs to. A node follows its cell where a formula of its own reads the index or what it is made
@@ -1256,7 +1261,7 @@ export function build(snapshot){
   let relost = false;
   for (let again = true; again;){ again = false;
     for (const [id, n] of [...nodes]){
-      const lost = (n.op === 'param' && ![...scope.get(id)].some(f => own(functions, f) && functions[f].input === id)) || n.inputs.some(i => !nodes.has(i)) || ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined && !own(functions, n.fn));
+      const lost = (n.op === 'param' && ![...scope.get(id)].some(f => own(functions, f) && functions[f].input === id)) || n.inputs.some(i => !nodes.has(i)) || (fnOf(n) !== undefined && !own(functions, fnOf(n)));
       if (!lost) continue; again = true;
       if (n.op === 'variable'){ const kept = Object.fromEntries(Object.entries(n.entries).filter(([, e]) => !(e && typeof e === 'object' && 'expr' in e)));
         nodes.set(id, { op: 'variable', inputs: [], type: n.type, name: n.name, named: n.named, defined: 'entries', entries: kept, error: n.error || E('no-source', 'what defines it has no value'), ...(n.holds !== undefined ? { holds: n.holds } : {}) }); scope.set(id, new Set()); }
@@ -1288,7 +1293,7 @@ export function build(snapshot){
    function's input promises, by its node. (Walked with a list of its own: a graph may be deeper than a stack.) */
 function valued(nodes, functions, takes){
   const g = { node: id => nodes.get(id), fn: id => (own(functions, id) ? functions[id] : undefined) }, done = new Set();
-  const deps = n => (n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined && own(functions, n.fn) ? [...n.inputs, functions[n.fn].body] : n.inputs;
+  const deps = n => fnOf(n) !== undefined && own(functions, fnOf(n)) ? [...n.inputs, functions[fnOf(n)].body] : n.inputs;
   for (const start of nodes.keys()){ if (done.has(start)) continue; const todo = [start], open = new Set([start]);
     while (todo.length){ const id = todo[todo.length - 1], n = nodes.get(id), wait = deps(n).filter(d => nodes.has(d) && !done.has(d) && !open.has(d));
       if (wait.length){ for (const d of wait){ open.add(d); todo.push(d); } continue; }
@@ -1357,7 +1362,7 @@ function check(graph){
   /* no cycles, through inputs or through the functions nodes apply. (Walked with a list of its own: a graph may be deeper than a stack.) */
   const state = new Map(), after = []; let cyclic = false;
   const next = id => { const n = nodes[id], out = Array.isArray(n.inputs) ? n.inputs.filter(has) : [];
-    return (n.op === 'apply' || n.op === 'mapalong') && typeof n.fn === 'string' && fnOk(n.fn) ? [...out, graph.functions[n.fn].body] : out; };
+    const f = own(OPS, n.op) ? fnOf(n) : undefined; return typeof f === 'string' && fnOk(f) ? [...out, graph.functions[f].body] : out; };
   for (const start of Object.keys(nodes)){ if (!has(start) || state.has(start)) continue;
     const todo = [[start, next(start), 0]]; state.set(start, 1);
     while (todo.length){ const top = todo[todo.length - 1];
@@ -1370,7 +1375,7 @@ function check(graph){
   const order = after.filter(id => sound.has(id)), typed = new Set();
   for (const id of order){ const n = nodes[id], ins = n.inputs.map(i => nodes[i]);
     if (n.inputs.some(i => !typed.has(i))){ bad.push(`${id}: an input of it is not well formed`); continue; }
-    if ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined && !(fnOk(n.fn) && typed.has(graph.functions[n.fn].body) && typed.has(graph.functions[n.fn].input))){ bad.push(`${id}: its function ${n.fn} is not in the graph`); continue; }
+    const f = fnOf(n); if (f !== undefined && !(fnOk(f) && typed.has(graph.functions[f].body) && typed.has(graph.functions[f].input))){ bad.push(`${id}: its function ${f} is not in the graph`); continue; }
     const t = OPS[n.op].type(n, ins, g);
     if (typeof t === 'string'){ bad.push(`${id}: ${t}`); continue; }
     if (!alike(t, n.type)){ bad.push(`${id}: its type is ${written(n.type)} and its inputs give ${written(t)}`); continue; }

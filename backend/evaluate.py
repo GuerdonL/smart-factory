@@ -56,7 +56,7 @@ from . import arrays as A
 from . import spaces as S
 import itertools
 
-from .check import covered, data_path, fn_whole, inner_of, is_int, is_obj, lengths, numbers, ok_range, one, reads_index, run_of
+from .check import applies, covered, data_path, fn_whole, inner_of, is_int, is_obj, lengths, numbers, ok_range, one, reads_index, run_of
 from .formula import DOLLAR, INNER, SYMBOLIC, Wrong, axis_of, evaluate as work, parse, parse_symbolic
 from .limits import BYTES_AN_ENTRY, MAX_BINDING_CELLS, MAX_ENTRIES, MEMORY_LEAST
 
@@ -597,7 +597,7 @@ class Run:
                 continue
             n = self.nodes[i]
             deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
-            if n['op'] in ('apply', 'mapalong') and 'fn' in n:
+            if applies(n):
                 deps.append(self.functions[n['fn']]['body'])
             waiting = [d for d in deps + later(n) if d not in self._needs]
             if waiting:
@@ -642,7 +642,7 @@ class Run:
             return [self.nodes[i[1]]['inputs'][i[2]]]
         n = self.nodes[i]
         deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
-        if n['op'] in ('apply', 'mapalong') and 'fn' in n:
+        if applies(n):
             deps.append(self.functions[n['fn']]['body'])
         return deps + [('side', i, k) for k in range(1, len(n['inputs']))] if n['op'] == 'choose' else deps
 

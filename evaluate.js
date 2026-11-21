@@ -100,7 +100,7 @@
        at.given(node)      the entries a function's input has been given, none where it has been given nothing
        at.rest(k)          what input k, a sum or a product of several, set aside at each entry (graph.js: RESTS), or null
        at.ks               where the rule is being repeated over inner data, the inner position of this run */
-import { OPS, RESTS, readsIndex, tailsOf, inferred } from './graph.js';
+import { OPS, RESTS, readsIndex, tailsOf, inferred, fnOf } from './graph.js';
 import { broken, untold, within, NOT_HELD, UNPROVEN } from './spaces.js';
 import { passed } from './arrows.js';
 import { numbers, truthOf } from './algebra.js';
@@ -145,12 +145,12 @@ function needsOf(graph, st, id, open = new Set()){
   let most = numbers(n.type), bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
   let remote = n.op === 'noise' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
   let bound = fnsOf(n).length ? most : 0;       /* the most numbers of anything it is worked out from that follows a function's input: that is worked out again for each thing the function is applied to */
-  let kept = (n.op === 'variable' && typeof n.holds === 'string') || ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined) ? [id] : NO_IDS;      /* the variables among them, itself included, that promise a number space, and the functions applied, whose input may promise one */
+  let kept = (n.op === 'variable' && typeof n.holds === 'string') || fnOf(n) !== undefined ? [id] : NO_IDS;      /* the variables among them, itself included, that promise a number space, and the functions applied, whose input may promise one */
   if (open.has(id)) return { most, bound, bad: bad || { code: 'loop', note: '', node: id }, remote, kept };
   open.add(id);
   const ins = n.inputs.map(i => nodeAt(graph, i)), rule = OPS[n.op];
   const read = ins.every(Boolean) ? (rule.needs ? rule.needs(n, ins) : n.inputs.map((_, k) => k)).map(k => n.inputs[k]) : n.inputs;
-  const applies = (n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined, body = applies ? fnAt(graph, n.fn) : null;
+  const applies = fnOf(n) !== undefined, body = applies ? fnAt(graph, fnOf(n)) : null;
   /* inputs read only when the value asks for them (a choose's sides): of them only what follows a function's input is counted here, the larger of them */
   if (rule.later && ins.every(Boolean)) for (const k of rule.later(n)) bound = Math.max(bound, needsOf(graph, st, n.inputs[k], open).bound || 0);
   for (const dep of body ? [...read, body.body] : read){ const d = needsOf(graph, st, dep, open); most = Math.max(most, d.most); bound = Math.max(bound, d.bound || 0); bad = bad || d.bad; remote = remote || !!d.remote;
@@ -417,7 +417,7 @@ export function carry(from, to){
     while (todo.length){ const id = todo[todo.length - 1]; if (told.has(id)){ todo.pop(); continue; }
       const x = nodeAt(from, id), y = nodeAt(to, id);
       if (!x || !y || !sameNode(x, y)){ told.set(id, false); todo.pop(); continue; }
-      const f = (y.op === 'apply' || y.op === 'mapalong') && y.fn !== undefined ? [fnAt(from, y.fn), fnAt(to, y.fn)] : null;
+      const f = fnOf(y) !== undefined ? [fnAt(from, fnOf(y)), fnAt(to, fnOf(y))] : null;
       if (f && (!f[0] || !f[1] || f[0].input !== f[1].input || f[0].body !== f[1].body)){ told.set(id, false); todo.pop(); continue; }
       const deps = f ? [...y.inputs, f[1].body, f[1].input] : y.inputs, open = deps.filter(d => !told.has(d) && !todo.includes(d));
       if (open.length){ todo.push(...open); continue; }
