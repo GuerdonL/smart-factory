@@ -108,6 +108,20 @@ class InAGraph(unittest.TestCase):
             change(g)
             self.assertNotEqual(validate(g), [], what)
 
+    def test_a_symbolic_value_never_spells_none_or_an_infinity_and_any_length_of_digits_is_read(self):
+        def g(sym, value):
+            return {'version': 3, 'nodes': {'v': {'op': 'variable', 'inputs': [], 'type': {'cols': 1, 'rows': 1, 'colsName': None, 'rowsName': None, 'value': value}, 'name': 'V', 'named': True, 'defined': 'entries', 'entries': {'1,1': {'sym': sym}}}},
+                    'functions': {}, 'spaces': {}, 'blocks': {}}
+        for sym in ('none', 'None', '∅', 'none + 1', 'inf', '2 * inf', 'Infinity', '∞', '1/∞'):      # each has its one form of its own (graph.js: spells)
+            self.assertEqual(validate(g(sym, 'real')), ['v: entry 1,1 holds no value in its stated form'], sym)
+        for sym in ('1+sqrt(2)', 'e^(-1)', 'information', 'nonexistent'):
+            self.assertFalse([w for w in validate(g(sym, 'real')) if 'stated form' in w], sym)
+        nines = '9' * 4301      # more digits than Python reads as a number: told from the digits themselves, as spaces.js tells them
+        for sym, value in ((nines, 'natural'), ('-' + nines, 'integer'), ('1/' + nines, 'probability'), (nines + '/7', 'rational'), (nines + '/' + nines, 'probability'), ('0' * 4400, 'boolean'), ('0' * 4400 + '1', 'boolean')):
+            self.assertEqual(S.of({'sym': sym}), value, sym[:12])
+            self.assertEqual(validate(g(sym, value)), [], sym[:12])
+        self.assertRegex(validate(g('1+sqrt(2)', 'complex'))[0], r'^v: its type is not .*and value, one of the nine number spaces')
+
     def test_a_type_that_says_none_is_not_checked(self):
         g = self.graph()
         for n in g['nodes'].values():

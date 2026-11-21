@@ -284,8 +284,12 @@ function literal(v){
   if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
   if ('n' in v || 'k' in v) return exactly(v);
   if (v.none === true) return NOTHING;      /* None: a value like any other, and kept */
-  return typeof v.sym === 'string' && v.sym ? { sym: v.sym } : undefined;
+  return typeof v.sym === 'string' && v.sym && !spells(v.sym) ? { sym: v.sym } : undefined;
 }
+/* a symbolic value is arithmetic the solver wrote out: it never spells None or an infinity, each of which has its one
+   form of its own ({ none: true }, "inf"). Text that does is no literal: read as arithmetic it would come to a number
+   that it is not (the backend would answer 0 for "none") */
+const spells = text => /[∅∞]/.test(text) || (text.match(/[A-Za-z_][\w.]*/g) || []).some(name => ['none', 'inf', 'infinity'].includes(name.toLowerCase()));
 /* whether a value is written exactly as the graph writes it: nothing more, and in its one form */
 function okLiteral(v){
   const l = literal(v); if (l === undefined) return false;
@@ -1235,7 +1239,7 @@ function check(graph){
     const rule = own(OPS, n.op) ? OPS[n.op] : null; if (!rule){ bad.push(`${id}: "${n.op}" is no operation`); continue; }
     if (!Array.isArray(n.inputs) || n.inputs.length < rule.inputs[0] || n.inputs.length > rule.inputs[1]){ bad.push(`${id}: ${n.op} does not take ${Array.isArray(n.inputs) ? n.inputs.length : 'no'} inputs`); continue; }
     const gone = n.inputs.filter(i => !has(i)); if (gone.length){ bad.push(`${id}: its input ${gone[0]} is not in the graph`); continue; }
-    if (!okType(n.type)){ bad.push(`${id}: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to ${AXES} of { length, name }, where it holds inner data`); continue; }
+    if (!okType(n.type)){ bad.push(`${id}: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to ${AXES} of { length, name }, where it holds inner data, and value, one of the nine number spaces (with ? after it where None is admitted), where its space is said`); continue; }
     if (n.within !== undefined && !(Array.isArray(n.within) && n.within.length && n.within.every(w => typeof w === 'string' && /^[ft]:/.test(w)) && new Set(n.within).size === n.within.length)){ bad.push(`${id}: within is not a list of functions and tiles`); continue; }
     const wrong = rule.fields(n); if (wrong.length){ bad.push(...wrong.map(w => `${id}: ${w}`)); continue; }
     sound.add(id);

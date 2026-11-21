@@ -281,7 +281,7 @@ def formula_ok(text, most, arrow=False, empty=False):
     for name in names:
         m = DOLLAR.fullmatch(name)
         if m:
-            if int(m.group(1)) > most:
+            if len(m.group(1)) > 9 or int(m.group(1)) > most:      # (never more digits made a number than a graph can have inputs: Python reads no more than 4,300)
                 return False
         elif axis_of(name) is None and not INNER.fullmatch(name) and not (arrow and name.lower() in ('x', 'i', 'j')):
             return False

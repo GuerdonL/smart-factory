@@ -179,6 +179,15 @@ test('validate: a value is one of the nine words, follows from the inputs, and a
   g = good(); delete g.nodes['add(v:A,v:C)'].type.value; assert.deepEqual(validate(g), []);
   for (const version of [1, 2, 3]) assert.deepEqual(validate({ ...good(), version }), []);
 });
+test('validate: a symbolic value never spells None or an infinity, and a whole number or a fraction of any length is told from its digits', () => {
+  const g = (sym, value) => ({ version: VERSION, nodes: { v: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null, value }, name: 'V', named: true, defined: 'entries', entries: { '1,1': { sym } } } }, functions: {}, spaces: {}, blocks: {} });
+  for (const sym of ['none', 'None', '∅', 'none + 1', 'inf', '2 * inf', 'Infinity', '∞', '1/∞']) assert.deepEqual(validate(g(sym, 'real')), ['v: entry 1,1 holds no value in its stated form'], sym);      /* each has its one form of its own */
+  for (const sym of ['1+sqrt(2)', 'e^(-1)', 'information', 'nonexistent']) assert.ok(!validate(g(sym, 'real')).some(w => /stated form/.test(w)), sym);      /* (a longer name that only begins so is a name like any other) */
+  const nines = '9'.repeat(4301);      /* past what Python will read as a number: the backend says the same (test_spaces.py) */
+  for (const [sym, value] of [[nines, 'natural'], ['-' + nines, 'integer'], ['1/' + nines, 'probability'], [nines + '/7', 'rational'], [nines + '/' + nines, 'probability'], ['0'.repeat(4400), 'boolean'], ['0'.repeat(4400) + '1', 'boolean']]){
+    assert.equal(of({ sym }), value, sym.slice(0, 12)); assert.deepEqual(validate(g(sym, value)), [], sym.slice(0, 12)); }
+  assert.match(validate({ ...g('1+sqrt(2)', 'complex') })[0], /^v: its type is not .*and value, one of the nine number spaces/);      /* and a value that is no space is refused with a reason that names value */
+});
 test('evaluate: a promise that is kept; one broken by a value is the error type, naming the entry, for the variable and what is made of it', () => {
   const g = made(snap([B('W', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [-3, 4]]), holds: 'natural' }), B('V', 2, 0, 1, 2, { entries: rowsOf([[1], [1]]) }),
     B('K', 10, 0, 2, 1, { entries: rowsOf([[1, null]]), holds: 'natural' }), B('Z', 20, 0, 2, 1, { entries: rowsOf([[{ expr: '1/0' }, 5]]), holds: 'natural' }),

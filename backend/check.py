@@ -143,7 +143,7 @@ def space_in(text, ins, first, arrow=None):
     def name(word):
         m = DOLLAR.fullmatch(word)
         if m:
-            k = int(m.group(1)) - 1 + first
+            k = (int(m.group(1)) if len(m.group(1)) <= 9 else 10 ** 9) - 1 + first      # (longer than that is past any input there is: Python reads no more than 4,300 digits as a number)
             return value_of(ins[k]) if 0 <= k < len(ins) else None
         if axis_of(word) is not None or INNER.fullmatch(word):
             return 'natural'
@@ -332,7 +332,16 @@ def ok_literal(v):
         return ok_exact(v)
     if v.get('none') is True:
         return len(v) == 1      # None: a value like any other
-    return isinstance(v.get('sym'), str) and bool(v['sym']) and len(v) == 1
+    return isinstance(v.get('sym'), str) and bool(v['sym']) and len(v) == 1 and not spells(v['sym'])
+
+
+SYM_NAME = re.compile(r'[A-Za-z_][\w.]*', re.ASCII)
+
+
+def spells(text):
+    """Whether a symbolic value's text spells None or an infinity, each of which has its one form of its own: such
+    text is no literal (graph.js: spells). Read as arithmetic it would come to a number that it is not."""
+    return '∅' in text or '∞' in text or any(name.lower() in ('none', 'inf', 'infinity') for name in SYM_NAME.findall(text))
 
 
 def ok_error_value(v):
@@ -404,7 +413,7 @@ def ok_entry_key(key, t):
     if t is None:
         return True
     ax = axes(t)
-    return len(p) == len(ax) and all(int(x) <= a['length'] for x, a in zip(p, ax))
+    return len(p) == len(ax) and all(len(x) <= 9 and int(x) <= a['length'] for x, a in zip(p, ax))      # (a side is far below nine digits long)
 
 
 def variable_fields(n):
@@ -871,7 +880,7 @@ def check(graph):
             bad.append('%s: its input %s is not in the graph' % (i, gone[0]))
             continue
         if not ok_type(n.get('type')):
-            bad.append('%s: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to %d of { length, name }, where it holds inner data' % (i, AXES))
+            bad.append('%s: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to %d of { length, name }, where it holds inner data, and value, one of the nine number spaces (with ? after it where None is admitted), where its space is said' % (i, AXES))
             continue
         w = n.get('within', MISSING)
         if w is not MISSING and not (isinstance(w, list) and w and all(isinstance(x, str) and x[:2] in ('f:', 't:') for x in w) and len(set(w)) == len(w)):

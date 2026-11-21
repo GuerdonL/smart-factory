@@ -256,7 +256,7 @@ function mutations(graphs){
   const get = (g, path) => path.reduce((v, k) => v[k], g);
   const apply = (g, m) => { const h = JSON.parse(JSON.stringify(g)), last = m.path[m.path.length - 1], host = get(h, m.path.slice(0, -1));
     if (m.drop){ if (Array.isArray(host)) host.splice(+last, 1); else delete host[last]; } else host[last] = m.set; return h; };
-  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { none: true }, { none: 1 }, { none: true, sym: 'x' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv'];
+  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { none: true }, { none: 1 }, { none: true, sym: 'x' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, { sym: 'none' }, { sym: '∅' }, { sym: 'none + 1' }, { sym: 'inf' }, { sym: '2 * Infinity' }, { sym: '∞' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv'];
   graphs.forEach((g, gi) => { const all = paths(g), ids = Object.keys(g.nodes), tried = new Set();
     const push = m => { const key = JSON.stringify(m); if (tried.has(key)) return; tried.add(key); out.push({ graph: gi, ...m, valid: validate(apply(g, m)).length === 0 }); };
     for (let n = 0; n < Math.min(260, all.length * 2); n++){ const path = all[rnd(all.length)], was = get(g, path), kind = rnd(6);
@@ -283,7 +283,10 @@ function mutations(graphs){
 
 /* ---- the number spaces, as spaces.js has them ---- */
 const VALUES = [0, 1, 2, -1, -2, 7, -7, true, false, 'inf', '-inf', half, root2, { n: 3, d: 2, k: 0 }, { n: -1, d: 2, k: 0 }, { n: 1, d: 2, k: 1 }, { n: -2, k: 1 }, { n: 5, d: 4, k: 2 }, { none: true }, { err: 'no' },
-  { sym: '1+sqrt(2)' }, { sym: 'e^(-1)' }, { sym: '1208925819614629174706176' }, { sym: '-1208925819614629174706176' }, { sym: '1/1208925819614629174706176' }, { sym: '-1/1208925819614629174706176' }, { sym: '1208925819614629174706177/1208925819614629174706176' }, { sym: '(1208925819614629174706177/1)^(1/2)' }];
+  { sym: '1+sqrt(2)' }, { sym: 'e^(-1)' }, { sym: '1208925819614629174706176' }, { sym: '-1208925819614629174706176' }, { sym: '1/1208925819614629174706176' }, { sym: '-1/1208925819614629174706176' }, { sym: '1208925819614629174706177/1208925819614629174706176' }, { sym: '(1208925819614629174706177/1)^(1/2)' },
+  /* whole numbers and fractions past the 4,300 digits Python will read as a number: told from their digits, as BigInt tells them */
+  { sym: '9'.repeat(4301) }, { sym: '-' + '9'.repeat(4301) }, { sym: '0'.repeat(4400) }, { sym: '0'.repeat(4400) + '1' }, { sym: '-' + '0'.repeat(4400) + '1' }, { sym: '1/' + '9'.repeat(4301) }, { sym: '9'.repeat(4301) + '/7' }, { sym: '9'.repeat(4301) + '/' + '9'.repeat(4301) },
+  { sym: '8' + '9'.repeat(4300) + '/' + '9'.repeat(4301) }, { sym: '-1/' + '9'.repeat(4301) }, { sym: '5/' + '0'.repeat(4400) }];
 const FORMULAS = ['1', '0', '2', '0.5', '1.5', '1.0', '5.', '.25', '123456789012345678901234567890', '0.' + '1'.repeat(38), '1' + '0'.repeat(45), '0.' + '0'.repeat(45) + '1', '9'.repeat(400), '∞', 'inf', '-inf', 'none', '∅', 'true', 'false && $1',
   '$1 + $2', '$1 - $2', '$1 * $2', '$1 / $2', '$1 ^ 2', '$1 ^ $2', '2 ^ $1', '$1 ^ 0', '$1 ^ (1/3)', '-$1', '!$1', 'abs($1)', 'sqrt($1)', '√$1', '∜$1', 'exp($1)', 'ln($1)', 'tanh($1)', 'erf($1)', 'max($1, $2)', 'min($1, 0)',
   'select($1, $2, $3)', 'select($1 > 0, none, $2)', 'select(none, $1, $2)', '$1 == $2', '$1 != none', '$1 < $2', '$1 >= none', '$1 && $2', '$1 || none', 'none + $1', 'none == none', 'index.x + index.y', 'k1 * 2', 'x + i * j', 'x / i', 'X ^ J',

@@ -119,6 +119,20 @@ def _clamp(n):
     return max(-2, min(2, int(n)))
 
 
+def _sign_and_size(text):
+    """A whole number written in digits, of any length, as _clamp gives it: -2, -1, 0, 1 or 2. Read from its digits
+    and never made a number: Python refuses to read more than 4,300 digits as one, and spaces.js reads any."""
+    digits = text.lstrip('-').lstrip('0')
+    size = 0 if not digits else 1 if digits == '1' else 2
+    return -size if text.startswith('-') else size
+
+
+def _more(a, b):
+    """Whether the whole number written a is more than the one written b: digits of any length, no sign."""
+    a, b = a.lstrip('0'), b.lstrip('0')
+    return (len(a), a) > (len(b), b)
+
+
 def _is_int(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool) and not (isinstance(x, float) and (math.isinf(x) or math.isnan(x))) and x == int(x)
 
@@ -152,10 +166,10 @@ def _lies(v):
     if isinstance(v.get('sym'), str):
         text = v['sym']
         if INT.fullmatch(text):
-            return (_wholes(_clamp(int(text))), False)
+            return (_wholes(_sign_and_size(text)), False)
         m = FRACTION.fullmatch(text)
-        if m and int(m.group(3)) != 0:
-            return ((Q, P, R, A) if not m.group(1) and int(m.group(2)) <= int(m.group(3)) else (Q, R, A), False)
+        if m and m.group(3).strip('0'):
+            return ((Q, P, R, A) if not m.group(1) and not _more(m.group(2), m.group(3)) else (Q, R, A), False)
         return ((R, A), False)
     return None
 
