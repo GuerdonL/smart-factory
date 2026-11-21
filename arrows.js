@@ -185,6 +185,14 @@
                                    Such a piece belongs to neither: it is { error: ACROSS(0 | 1) }, a sentence that
                                    names the side, before anything else is asked. A side is None only where its
                                    frame holds nothing.
+   conditionAt(at, size, taken) -> { x, y }: where Make conditional sets its new entry, in units, so that what it
+                                   makes lies over nothing that is there. at: where the selection's top left corner
+                                   was; size: the output as it is written, { cols, rows }; taken: the rectangles of
+                                   what is there and stays. The entry is one unit, its arrow's strip the two after
+                                   it, and the output the size given after those. at itself where that is free;
+                                   else the nearest free place to its left on the same line (a definition space's
+                                   equation is on the right), up to 12 units; else the nearest free place anywhere,
+                                   leftwards first; and at itself where there is none within 60 units.
    emptySide(which, other, size) -> where an empty frame of a condition is drawn, a rect in units: which is 'then' or
                                    'else', other the box of the other frame's blocks (null where that is empty
                                    too), size { cols, rows }. The two stand one above the other, then on top, three
@@ -394,6 +402,13 @@ export function chosenType(sides, promise = null, across = null){
   if (a) return { cols: a.cols, rows: a.rows, colsName: a.colsName || null, rowsName: a.rowsName || null, ...(inner(a).length ? { inner: inner(a) } : {}) };
   if (b) return { cols: b.cols, rows: b.rows, colsName: null, rowsName: null, ...(inner(b).length ? { inner: inner(b).map(x => ({ length: x.length, name: null })) } : {}) };
   return promise && whole(promise.cols) && whole(promise.rows) ? { cols: promise.cols, rows: promise.rows, colsName: null, rowsName: null } : { cols: 1, rows: 1, colsName: null, rowsName: null };
+}
+export function conditionAt(at, size, taken){
+  const lies = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const free = (x, y) => ![{ x, y, w: 3, h: 1 }, { x: x + 3, y, w: size.cols, h: size.rows }].some(r => taken.some(t => lies(r, t)));      /* the entry and the triangle's strip, two units deep; and the output */
+  for (let d = 0; d <= 12; d++) if (free(at.x - d, at.y)) return { x: at.x - d, y: at.y };      /* on its own line, as far left as it takes; then anywhere near */
+  for (let d = 1; d <= 60; d++) for (let sy = 0; sy <= d; sy++) for (const [dx, dy] of [[-(d - sy), sy], [-(d - sy), -sy], [d - sy, sy], [d - sy, -sy]]) if (free(at.x + dx, at.y + dy)) return { x: at.x + dx, y: at.y + dy };
+  return { x: at.x, y: at.y };
 }
 export const emptySide = (which, other, size) => other ? { x: other.x, y: which === 'else' ? other.y + other.h + 3 : other.y - 3 - size.rows, w: size.cols, h: size.rows }
   : { x: -6 - size.cols, y: which === 'then' ? -2 - size.rows : 2, w: size.cols, h: size.rows };

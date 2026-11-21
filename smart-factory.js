@@ -31,7 +31,7 @@ import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
-import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide } from './arrows.js';
+import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, conditionAt } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
 import { wanted, laid, noted, drawn as cellsDrawn, level as levelOf } from './decimals.js';
@@ -1480,7 +1480,8 @@ function conditionableNow(list){
 function makeConditional(list){
   const can = conditionableNow(list); if (can.refused){ hud.say(can.refused); return shown(); }
   const u = view.unit, { box, type } = foldable(list), holder = chain(list[0]).find(c => list.every(b => chain(b).includes(c)));      /* the innermost frame that held all of it: what stands in its place is in that frame still (a side of another condition, a tile) */
-  const when = makeBlock({ ...typeNamed('tensor'), color: someColour() }, { x: box.x, y: box.y, w: u, h: u }, conditionName());
+  const at = conditionPlace(list, box, type);
+  const when = makeBlock({ ...typeNamed('tensor'), color: someColour() }, { x: at.x * u, y: at.y * u, w: u, h: u }, conditionName());
   when.values.set('1,1', true); touched(when.values);
   const a = makeArrow(freeName()); a.arrow = { input: { id: when.id, as: 'block' }, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: { cols: type.cols, rows: type.rows } };
   a.fn = { formula: null, choose: { then: newGroup(), else: newGroup() } };
@@ -1497,6 +1498,20 @@ function makeConditional(list){
   if (holder !== undefined){ space.groupOf.set(when, holder); space.groupOf.set(a, holder); }
   tidy();
   select([a]); hud.say(`Made conditional: it is what it was while ${when.name} is true, and None while it is false. Open the arrow for its two sides`);
+}
+/* Where the new entry goes, in units, its arrow and output following on its east side: where the selection's left
+   edge was, unless what the three draw there would lie over something that is there and stays: a block, another
+   arrow's output, or, in a definition space, the equation (the matrix the space comes to is as large as the
+   selection, and the output is written three units further right than the selection began). Then the nearest
+   place where they lie over nothing (arrows.js: conditionAt). Only what the command makes is moved: what is there
+   stays where it is. */
+function conditionPlace(list, box, type){
+  const u = view.unit, x0 = Math.round(box.x / u), y0 = Math.round(box.y / u), size = { cols: squares(type.cols, type.colsName), rows: squares(type.rows, type.rowsName) };
+  const taken = [...space.blocks.filter(b => !list.includes(b)).map(unitsOf), ...space.blocks.filter(k => isArrow(k) && !isOff(k)).map(k => outputOf(k).place).filter(Boolean)];
+  if (space.definition){ const w = (x, y) => view.toWorld(x, y);      /* the equation as it is drawn, and its left matrix as it will be: what the space comes to is the selection's size still */
+    for (const m of space.definition.el.querySelectorAll('.matrix, .definition-slot, .definition-sign')){ const r = m.getBoundingClientRect(); if (!r.width) continue; const a = w(r.left, r.top), b = w(r.right, r.bottom); taken.push({ x: a.x / u - 1, y: a.y / u, w: (b.x - a.x) / u + 2, h: (b.y - a.y) / u }); }      /* with a unit of air on either hand: two matrices side by side with nothing between read as a product */
+    taken.push({ x: -2 - size.cols, y: -size.rows / 2, w: size.cols + 2, h: size.rows }); }
+  return conditionAt({ x: x0, y: y0 }, size, taken);
 }
 /* a name for the entry a condition is made with, that nothing on this canvas has */
 function conditionName(){ const used = new Set(space.blocks.map(b => b.name)); for (let n = 1; ; n++){ const name = n === 1 ? 'if' : 'if ' + n; if (!used.has(name) && !nameable(name).refused) return name; } }

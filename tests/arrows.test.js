@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES, ACROSS } from '../arrows.js';
+import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES, ACROSS, conditionAt } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -492,6 +492,17 @@ test('conditionable: exactly one piece, whole, that comes to a matrix and holds 
   assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], fixed: 'An arrow cannot be made conditional' }).refused, 'An arrow cannot be made conditional');      /* an arrow, a function's input, a seated block: said first */
   assert.equal(conditionable({ blocks: 1, pieces: [], fixed: 'in is the function\'s input: it cannot be made conditional' }).refused, 'in is the function\'s input: it cannot be made conditional');
   assert.equal(conditionable({ blocks: 1, pieces: [] }).refused, 'Make conditional takes exactly one piece, and 0 are selected');
+});
+test('conditionAt: what Make conditional adds lies over nothing that is there, moved left along its line before anywhere else', () => {
+  const size = { cols: 2, rows: 1 };
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, []), { x: -7, y: 0 });
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, [{ x: -20, y: 0, w: 3, h: 1 }, { x: -2, y: 0, w: 2, h: 1 }]), { x: -7, y: 0 });      /* the entry at -7, the strip to -4, the output to -2: against the block there, not over it */
+  /* a definition space's equation, its left matrix from -3 to -1 with a unit of air before it: the output would lie from -4 to -2 */
+  const equation = [{ x: -4, y: -.5, w: 4, h: 1 }, { x: 0, y: -.5, w: 4, h: 1 }];
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, equation), { x: -9, y: 0 });
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, [...equation, { x: -30, y: 0, w: 22, h: 1 }]), { x: -7, y: 1 });      /* nothing free on its line: the nearest place off it */
+  assert.deepEqual(conditionAt({ x: 0, y: 0 }, { cols: 2, rows: 3 }, [{ x: 4, y: 2, w: 1, h: 1 }]), { x: -1, y: 0 });      /* the whole output is looked at, not its first row */
+  assert.deepEqual(conditionAt({ x: 0, y: 0 }, size, [{ x: -200, y: -200, w: 400, h: 400 }]), { x: 0, y: 0 });      /* nowhere: where it was */
 });
 test('chosenType: the size of a condition\'s two sides, which have to be one size; an empty side is None at the other\'s', () => {
   const t = (cols, rows, colsName = null, rowsName = null, inner = null) => ({ cols, rows, colsName, rowsName, ...(inner ? { inner } : {}) }), e = type => ({ type });
