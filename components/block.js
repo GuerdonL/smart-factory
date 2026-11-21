@@ -157,10 +157,10 @@ style('block', `
 `);
 
 /* a picture of a block, for where a shape stands in an equation: it looks the part and does nothing.
-   likeness({ cols, rows, unit, color, name }) -> { el, width, height } */
-export function likeness({ cols, rows, unit, color, name = '' }){
+   likeness({ cols, rows, unit, color, name, sunk }) -> { el, width, height }; sunk draws it sunk, as sink does */
+export function likeness({ cols, rows, unit, color, name = '', sunk = false }){
   const b = createBlock({ color }, { x: 0, y: 0, w: cols * unit, h: rows * unit }, name);
-  b.grips(false); b.el.classList.add('likeness'); b.el.style.pointerEvents = 'none';
+  b.grips(false); b.sink(sunk); b.el.classList.add('likeness'); b.el.style.pointerEvents = 'none';
   return { el: b.el, width: cols * unit, height: rows * unit };
 }
 export function createBlock(shape, rect, name = ''){

@@ -2068,7 +2068,7 @@ function copiesOf(s, t){
     for (const b of T.members){ const r = unitsOf(b), at = { cx: ix, cy: iy, x: ox + r.x - T.rep.x, y: oy + r.y - T.rep.y, w: r.w, h: r.h, color: b.shape.color, name: isNamed(b) ? b.name : '' };
       if (!isArrow(b) && (at.x < 0 || at.y < 0 || at.x + at.w > top.cols || at.y + at.h > top.rows)) continue;
       if (isArrow(b)) out.push({ ...at, tri: cornersOf(b.arrow.side, r.w, r.h) });
-      else out.push({ ...at, values: readsIndex(b) && !dataOf(b).length ? texts(laidOf(b)) : null }); }
+      else out.push({ ...at, values: readsIndex(b) && !dataOf(b).length ? texts(laidOf(b)) : null, sunk: sunkLaid(b) }); }      /* sunk: by its truth in this cell, which is not the first cell's where it reads the index */
     for (const c of T.inner){ const C = tileInfo(s, c);
       for (const sy of C.lay.ys) for (const sx of C.lay.xs){ if (sx.dots || sy.dots) continue;
         cellNow.set(C.rep, { cx: sx.cell, cy: sy.cell }); put(C, ix, iy, ox + C.rep.x - T.rep.x + sx.at, oy + C.rep.y - T.rep.y + sy.at); }

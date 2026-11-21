@@ -233,7 +233,7 @@ test('a promise the backend\'s numbers break comes back as its sentence with a c
 test('on the page, only what draws reads the backend\'s numbers', () => {
   const lines = readFileSync(new URL('../smart-factory.js', import.meta.url), 'utf8').split('\n');
   const may = { 'backend.ask(': ['laidAt', 'unshown'], 'backend.problem(': ['laidAt', 'unshown', 'holdsRow'],      /* (holdsRow: the panel's Holds row writes the sentence of a promise the backend's numbers break) */ 'laidAt(': ['laidAt', 'laidOf', 'pieceLaid', 'outputLaidNow'], 'laidOf(': ['laidOf', 'faceLaid', 'truthLaid', 'write', 'paint', 'copiesOf', 'writtenOn'],      /* (truthLaid: whether a shape is drawn sunk, and which side of a condition is faded, where only the backend can say) */
-    'pieceLaid(': ['pieceLaid', 'paint'], 'faceLaid(': ['faceLaid', 'paint'], 'sunkLaid(': ['sunkLaid', 'paint'], 'truthLaid(': ['truthLaid', 'sunkLaid', 'paint'], 'outputLaid(': ['outputLaid', 'outputOf'], 'outputLaidNow(': ['outputLaid', 'outputLaidNow'], '.asDrawn': ['write', 'paint', 'outputOf'], 'unshown(': ['unshown', 'paint', 'outputOf'] };
+    'pieceLaid(': ['pieceLaid', 'paint'], 'faceLaid(': ['faceLaid', 'paint'], 'sunkLaid(': ['sunkLaid', 'paint', 'copiesOf'], 'truthLaid(': ['truthLaid', 'sunkLaid', 'paint'], 'outputLaid(': ['outputLaid', 'outputOf'], 'outputLaidNow(': ['outputLaid', 'outputLaidNow'], '.asDrawn': ['write', 'paint', 'outputOf'], 'unshown(': ['unshown', 'paint', 'outputOf'] };
   const seen = Object.fromEntries(Object.keys(may).map(k => [k, new Set()])); let top = null;
   for (const line of lines){ const m = /^(?:async )?function (\w+)|^(?:const|let) (\w+)\b/.exec(line); if (m) top = m[1] || m[2];      /* the function or constant, at the start of a line, that this line is in */
     for (const name of line.match(/\b(?:laidAt|laidOf|pieceLaid|outputLaid|outputLaidNow|faceLaid|sunkLaid|truthLaid|backend\.(?:ask|problem)|unshown)\(|\.asDrawn\b/g) || []) seen[name].add(top); }
@@ -252,6 +252,15 @@ test('a sunk block is drawn inside its own box: its rule moves nothing', () => {
   for (const [sel, body] of rules) if (!/>/.test(sel)) assert.doesNotMatch(body, /margin|transform|translate|(?:^|[;\s])(?:top|left|right|bottom|inset|width|height|border|padding)\s*:/, sel);      /* (a rule for something inside it may place that within the box) */
   assert.match(rules.find(([sel]) => sel === '.block.sunk')[1], /--cast: transparent/); assert.match(rules.find(([sel]) => sel === '.block.sunk')[1], /--lit: var\(--raise-dark\); --shade: var\(--raise-light\)/);
 });
+/* Every cell of a tile is drawn by its own truth: a copy is sunk where the block is false in that cell. Held by
+   reading: copiesOf asks while the cell being drawn is the one named (cellNow), and the tile hands it to the likeness. */
+test('a tile\'s copies are sunk by the truth of the block in their own cell', () => {
+  const page = readFileSync(new URL('../smart-factory.js', import.meta.url), 'utf8'), at = page.indexOf('\nfunction copiesOf('), body = page.slice(at, page.indexOf('\n}', at));
+  assert.match(body, /sunk: sunkLaid\(b\)/); assert.ok(body.indexOf('cellNow.set(top') > 0 && body.indexOf('finally') > body.indexOf('cellNow.set(top'));
+  assert.match(readFileSync(new URL('../components/tile.js', import.meta.url), 'utf8'), /likeness\(\{[^}]*sunk: !!c\.sunk/);
+  assert.match(readFileSync(new URL('../components/block.js', import.meta.url), 'utf8'), /export function likeness\(\{[^}]*sunk = false \}\)\{[\s\S]{0,300}b\.sink\(sunk\)/);
+});
+
 /* ---- phase 8: inner data ---- */
 test('inner data: the drawn entries are asked for at every inner position, and an answer is keyed by all but its value', async () => {
   const { drawn, merged, MOST_ASKED } = await import('../decimals.js');
