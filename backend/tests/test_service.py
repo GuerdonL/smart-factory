@@ -63,7 +63,9 @@ class Service(unittest.TestCase):
         return self.request('POST', '/run', dict({'graph': graph, 'want': want}, **more))
 
     def test_health_and_a_run(self):
-        self.assertEqual(self.request('GET', '/health'), (200, {'ok': True, 'version': 3}))
+        self.assertEqual(self.request('GET', '/health'), (200, {'ok': True, 'version': 4}))
+        from backend.check import VERSION
+        self.assertEqual(VERSION, 4)      # the service writes the number out, importing nothing of the graph: the two are held together here
         self.assertEqual(self.run_graph(SMALL, [{'node': 's', 'cells': [[1, 1], [2, 1]]}]),
                          (200, {'results': {'s': {'cols': 2, 'rows': 2, 'cells': [[1, 1, 1.0], [2, 1, 0.0]], 'min': 0.0, 'max': 1.0, 'mean': 0.5, 'truth': True}}, 'errors': {}}))
         self.assertEqual(self.request('GET', '/nothing')[0], 404)

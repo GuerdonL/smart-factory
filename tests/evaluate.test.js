@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { evaluate, carry, MOST, tooLarge, toMap } from '../evaluate.js';
+import { evaluate, carry, MOST, tooLarge, toMap, truthAt } from '../evaluate.js';
 import { build as valued, validate } from '../graph.js';
 /* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
    without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
@@ -621,4 +621,25 @@ test('a source of kind none holds None at every entry, at any size and at every 
   const g = G({ e: N('source', [], t(2, 1), { kind: 'none' }), ei: N('source', [], { ...t(1, 1), inner: [{ length: 2, name: null }] }, { kind: 'none' }), a: V([[1, 2]]), sum: N('add', ['e', 'a'], t(2, 1)), big: N('source', [], t(100, 100), { kind: 'none' }) });
   assert.deepEqual(worked(g, 'e'), { '1,1': NOTHING, '2,1': NOTHING }); assert.deepEqual(worked(g, 'ei'), { '1,1,1': NOTHING, '1,1,2': NOTHING }); assert.deepEqual(worked(g, 'sum'), { '1,1': NOTHING, '2,1': NOTHING });
   assert.equal(evaluate(g, 'big').deferred, true);
+});
+
+/* ---- truth as height (phase 9B): whether a node's whole matrix is true, as far as the page can tell ---- */
+test('truthAt: true where any known entry is true, false where every entry is known and is zero, false or None, else not known', () => {
+  const g = G({ zeros: V([[0, 0], [0, 0]]), nones: V([[NOTHING, NOTHING]]), mixed: V([[0, false, NOTHING]]), one: V([[0, 0], [0, 3]]), no: V([[false]]), yes: V([[true]]), nil: V([[NOTHING]]),
+    open: V([[0, null]]), openTrue: V([[null, 1]]), empty: V([[null]]), lost: V([[0, { err: 'divide by zero' }]]), lostTrue: V([[1, { err: 'divide by zero' }]]), frac: V([[{ n: 1, d: 2, k: 0 }]]), inf: V([['-inf']]),
+    bad: V([[0]], { error: { code: 'loop', note: '' } }), f: V([[{ expr: '2 - 2' }, { expr: '1 > 2' }]]), turned: N('transpose', ['zeros'], t(2, 2)) });
+  for (const id of ['zeros', 'nones', 'mixed', 'no', 'nil', 'f', 'turned']) assert.equal(truthAt(g, id), false, id);
+  for (const id of ['one', 'yes', 'openTrue', 'lostTrue', 'frac', 'inf']) assert.equal(truthAt(g, id), true, id);
+  for (const id of ['open', 'empty', 'lost', 'bad', 'nowhere']) assert.equal(truthAt(g, id), null, id);      /* an entry never given, an entry that is an error, a variable with an error, no such node */
+});
+test('truthAt: a shape too large to work out is judged by what it is known to hold, and one the page cannot know is not known', () => {
+  const big = t(100, 100), all = v => { const e = {}; for (let r = 1; r <= 100; r++) for (let c = 1; c <= 100; c++) e[c + ',' + r] = v; return e; };
+  const src = kind => N('source', [], big, { kind }), under = (of, more = {}) => ({ op: 'variable', inputs: [of], type: big, name: 'v', named: true, defined: 'source', entries: {}, ...more });
+  const g = G({ z: src('zeros'), o: src('ones'), i: src('identity'), e: src('none'), vz: under('z'), vo: under('o'), ve: under('e'), tz: N('transpose', ['vz'], big),
+    typed0: { ...V([[0]]), type: big, entries: all(0) }, typed1: { ...V([[0]]), type: big, entries: { ...all(0), '50,50': 7 } }, part: { ...V([[0]]), type: big, entries: { '1,1': 0 } }, partTrue: { ...V([[0]]), type: big, entries: { '1,1': 2 } },
+    nz: N('noise', [], big, { seed: 1, dist: 'uniform', key: 'nz' }), sum: N('add', ['z', 'z'], big), small: N('noise', [], t(2, 2), { seed: 1, dist: 'uniform', key: 's' }) });
+  assert.equal(evaluate(g, 'vz').deferred, true);
+  for (const id of ['z', 'e', 'vz', 've', 'tz', 'typed0']) assert.equal(truthAt(g, id), false, id);      /* zeros and None are false at any size */
+  for (const id of ['o', 'i', 'vo', 'typed1', 'partTrue']) assert.equal(truthAt(g, id), true, id);
+  for (const id of ['part', 'nz', 'sum', 'small']) assert.equal(truthAt(g, id), null, id);      /* entries not all given; noise; a large result (zeros added to zeros: only working it out would say); the backend's */
 });

@@ -2,7 +2,7 @@
 
     python -m backend [port]          (default 8001; run from the repository's root, with backend/requirements.txt installed)
 
-    GET  /health                      -> { "ok": true, "version": 3 }
+    GET  /health                      -> { "ok": true, "version": 4 }
     POST /run                         <- { "graph", "want", "tick", "project" }   -> { "results", "errors" }   (run.py has both in full)
     POST /data?project=<name>&path=data/<file>.csv     <- the file's bytes        -> { "path", "cols", "rows" } (and "small": see run.py), or { "error": why } where it is refused (413 where it is too large to be read at all)
 
@@ -227,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return
         if urlsplit(self.path).path == '/health':
-            return self.reply(200, {'ok': True, 'version': 3})      # the graph version: check.py's VERSION, written out so that this process imports nothing of the graph
+            return self.reply(200, {'ok': True, 'version': 4})      # the graph version: check.py's VERSION, written out so that this process imports nothing of the graph
         self.reply(404, {'error': 'not found'})
 
     def do_POST(self):

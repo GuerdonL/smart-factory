@@ -33,6 +33,8 @@
                                                variable draws it (a transposed use, one turned through inner axes)
    promiseOf(graph, id, options)               what a variable promises to hold (its number space, spaces.js) and
                                                whether its values keep the promise: see the function
+   truthAt(graph, id, options)                 whether a node's whole matrix counts as true, as far as it can be
+                                               told here: true, false, or null for not known (see the function)
    MOST                                        4096, the default maxEntries: the most numbers the browser works out
    tooLarge(type, most)                        the sentence that says so of a result that size
    toMap(entries)                              an answer's entries as the page keeps them: a Map, infinities as numbers
@@ -101,7 +103,7 @@
 import { OPS, RESTS, readsIndex, tailsOf, inferred } from './graph.js';
 import { broken, untold, within, NOT_HELD, UNPROVEN } from './spaces.js';
 import { passed } from './arrows.js';
-import { numbers } from './algebra.js';
+import { numbers, truthOf } from './algebra.js';
 
 export const MOST = 4096;
 const hasInner = type => Array.isArray(type.inner) && type.inner.length > 0;
@@ -380,6 +382,24 @@ export function seenFrom(graph, use, error){
   if (!order && (n.order || p.length < 2)) return note;
   /* axis k of the use is axis order[k] of the variable (graph.js: transpose): the entry at p is drawn where each of the use's axes reads its own */
   return m[1] + (order ? order.map(i => p[i]) : [p[1], p[0], ...p.slice(2)]).join(', ') + m[3];
+}
+
+/* Whether a node's whole matrix counts as true (values.js: truthOf): true where any known entry is true; false where
+   every entry is known and is zero, false or None; null where that is not known. Where its entries are worked out
+   here, it is theirs to say. Where they are not (it is too large), it is judged by what it is known to hold: a source
+   filled by rule (zeros and a source of None are false at any size, ones and an identity true), or entries all typed
+   in, a transpose of either included. Anything else that is not worked out here (noise, a data file, a large result)
+   and anything that has an error is null: only the backend can say, or nothing can. For whoever draws: a shape that
+   is false is drawn sunk. */
+export function truthAt(graph, id, options = {}){
+  const n = graph && typeof graph === 'object' && typeof id === 'string' ? nodeAt(graph, id) : null; if (!n) return null;
+  const a = evaluate(graph, id, options), all = (values, count) => { const t = truthOf(values); return t === false && values.length < count ? null : t; };      /* an entry never given is absent: with none true, not known */
+  if (a.entries) return all(Object.values(a.entries), numbers(n.type));
+  if (!a.deferred || a.backend) return null;
+  let at = id, m = n; for (let k = 0; m && k < 64 && m.op === 'transpose'; k++){ at = m.inputs[0]; m = nodeAt(graph, at); }      /* turned, it holds the same numbers */
+  const plain = m ? plainly(graph, at) : null; if (!plain) return null;
+  for (let k = 0; m && k < 64 && m.op === 'variable' && m.defined !== 'entries' && !m.error && m.inputs.length === 1; k++) m = nodeAt(graph, m.inputs[0]);
+  return m && m.op === 'source' ? truthOf(Object.values(plain)) : m ? all(Object.values(plain), numbers(m.type)) : null;      /* a source's values are every value there is in it; a variable's entries are its own, one for each that was given */
 }
 
 const texts = new WeakMap();

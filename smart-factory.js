@@ -21,9 +21,9 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText, truthOf } from './algebra.js';
 import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION } from './graph.js';
-import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, MOST as MOST_HERE } from './evaluate.js';
+import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, truthAt, MOST as MOST_HERE } from './evaluate.js';
 import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
@@ -394,6 +394,20 @@ function laidOf(b, plain = false){
 const pieceLaid = (bs, s = space) => steadily(() => { const g = graphNow(), p = findIn(g).pieces.get(bs.map(b => b.id).join(' ')); return !p || !p.node ? null : laidAt(p.node, bindingOf(bs, s), 'p ' + p.blocks.join(' ')); });
 /* a single entry's number as it is written on its block's face where the browser has none for it and the backend has (a decimal); null otherwise. For drawing only. */
 const faceLaid = b => { if (!single(b) || b.source || scalarOf(b) !== null) return null; const m = laidOf(b), v = m.get('1,1'); return v && typeof v === 'object' && typeof v.f === 'number' ? { text: valueText(v), stale: !!m.stale } : null; };
+/* Truth is shown as height: whether a block is drawn sunk, which is where its whole matrix is false (every entry known,
+   and zero, false or None: values.js, truthOf). Every shape is asked, whatever it is for. True, and not known, are
+   drawn as a block always was; so is a block that takes no part (commented out). An arrow is never sunk: a function
+   is always true. Where the page works the block out, its entries say; where it is too large, what it is known to
+   hold says (evaluate.js: truthAt: a source of zeros is false at any size); and where only the backend has its
+   numbers, the backend's answer says once it has come (decimals.js: merged), and until then it is drawn as it was.
+   For drawing only: nothing is worked out from this. */
+function sunkLaid(b){
+  if (isArrow(b) || isOff(b)) return false;
+  return steadily(() => { const n = nodeFor(b, false), u = view.unit;
+    if (!n){ const vs = valuesOf(b), count = Math.round(b.rect.w / u) * Math.round(b.rect.h / u) * dataOf(b).reduce((k, a) => k * a.length, 1); return vs.size >= count && truthOf(vs.values()) === false; }      /* in no graph (a setting in a .config): its own entries */
+    const t = truthAt(graphNow(), n.id, n.binding ? { binding: n.binding } : undefined);
+    return t !== null ? t === false : laidOf(b).truth === false; });
+}
 /* Where a node is looked at from (evaluate.js: binding). A block of a tile, or one in the definition space of a block
    of a tile, is in a cell: the first, or the one being drawn (cellNow). The cell says where every block of the
    pattern lies, and every arrow's output there, so that each reads its own place however it is reached (a product
@@ -1236,6 +1250,7 @@ function paint(){
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
   for (const b of space.blocks){ const v = scalarOf(b), f = v === null ? faceLaid(b) : null; b.face(b.source ? faceOf(b.source) : f ? f.text : v === null ? null : asText(v), f ? { decimal: true, stale: f.stale } : {});      /* a source says what it is on its face: 0, 1 or I; a number that is the backend's is marked as one */
     b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b)); b.sit(!!b.seat); b.given(!!b.in); b.nest(dataOf(b).length);      /* one outline behind it for each inner axis */      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
+    b.sink(sunkLaid(b));      /* truth as height: a shape that is false is drawn sunk */
     if (isArrow(b)) b.el.classList.toggle('anon', !isNamed(b)); }
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;

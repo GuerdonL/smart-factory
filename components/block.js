@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, inner, set(rect), select(on), nest(n), dim(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
+   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, inner, set(rect), select(on), nest(n), dim(on), sink(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
      id       a name for this block that nothing else has: how messages say which block they mean. null until whoever
               made the block gives it one.
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
@@ -31,6 +31,10 @@
               behind its face for each, down and to the right, at most three drawn (0: none). Its name stays
               where every block's is.
      dim      fades the block and its name most of the way to the theme's --fade-to, or brings them back
+     sink     draws it sunk: a shape that is false (every entry known, and zero, false or None). Truth is shown as
+              height: a true shape, and one not known, sits raised as a block always has; a false one is pressed
+              into the canvas, with no shadow under it, set down by the height of its lip, and its lit and shaded
+              lips changed over, so that it reads as a dent. No colour is added for it: the lips are the theme's own
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
      off      shows it as commented out: washed out, with a dashed edge
@@ -70,6 +74,9 @@ style('block', `
 .block.cols { --bands: repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
 .block.rows.cols { --bands: repeating-linear-gradient(to bottom, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))),
   repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
+/* false: sunk. No shadow, set down by the bottom lip's height, and the two lips changed over: the shade along the top
+   edge and the light along the bottom, as a dent is lit. (Before .off, .dim and .input, which each say more of the lips.) */
+.block.sunk { --lit: var(--raise-dark); --shade: var(--raise-light); --cast: transparent; margin-top: calc(4 * var(--px)); }      /* (a margin, not a transform: a block makes no layer of its own) */
 /* commented out: there, but taking no part. (Before .selected, so a selected one still shows its ring.) */
 .block.off { --face: color-mix(in srgb, var(--block) 16%, var(--fade-to)); --ink: var(--muted); --rim: transparent; --lit: transparent; --shade: transparent; --cast: transparent;
   outline: calc(1.5 * var(--px)) dashed var(--muted); outline-offset: calc(-1.5 * var(--px)); }
@@ -83,6 +90,8 @@ style('block', `
 .block.dim { --face: color-mix(in srgb, var(--block) 28%, var(--fade-to)); --ink: color-mix(in srgb, var(--fg) 30%, var(--fade-to));
   --rim: color-mix(in srgb, var(--edge) 25%, transparent); --lit: color-mix(in srgb, var(--raise-light) 40%, transparent);
   --shade: color-mix(in srgb, var(--raise-dark) 25%, transparent); --cast: color-mix(in srgb, var(--shadow) 30%, transparent); }
+.block.sunk.dim { --lit: color-mix(in srgb, var(--raise-dark) 25%, transparent); --shade: color-mix(in srgb, var(--raise-light) 40%, transparent); --cast: transparent; }      /* faded and sunk: the lips still changed over */
+.block.sunk.off, .block.sunk.input { --lit: transparent; --shade: transparent; }
 /* seated on an output: inset, so the output's brackets show round it */
 .block.seated { border: calc(5 * var(--px)) solid transparent; background-clip: padding-box; }
 /* a function's input: pale, with a dashed edge in the function colour */
@@ -158,6 +167,7 @@ export function createBlock(shape, rect, name = ''){
   const block = { id: null, el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(), inner: [], t: false,
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
+    sink(on){ el.classList.toggle('sunk', !!on); },
     nest(n){ const depth = Math.max(0, Math.min(3, Math.round(+n || 0))); if (depth === nested) return; nested = depth;
       for (const d of el.querySelectorAll(':scope > .block-depth')) d.remove();
       el.classList.toggle('nested', depth > 0); for (const k of [1, 2, 3]) el.classList.toggle('nest-' + k, depth === k); el.style.setProperty('--depth', String(depth));

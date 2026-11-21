@@ -232,11 +232,11 @@ test('a promise the backend\'s numbers break comes back as its sentence with a c
    and one another. Everything else the page works out reads valuesOf, which never calls any of them. */
 test('on the page, only what draws reads the backend\'s numbers', () => {
   const lines = readFileSync(new URL('../smart-factory.js', import.meta.url), 'utf8').split('\n');
-  const may = { 'backend.ask(': ['laidAt', 'unshown'], 'backend.problem(': ['laidAt', 'unshown', 'holdsRow'],      /* (holdsRow: the panel's Holds row writes the sentence of a promise the backend's numbers break) */ 'laidAt(': ['laidAt', 'laidOf', 'pieceLaid', 'outputLaidNow'], 'laidOf(': ['laidOf', 'faceLaid', 'write', 'paint', 'copiesOf', 'writtenOn'],
-    'pieceLaid(': ['pieceLaid', 'paint'], 'faceLaid(': ['faceLaid', 'paint'], 'outputLaid(': ['outputLaid', 'outputOf'], 'outputLaidNow(': ['outputLaid', 'outputLaidNow'], '.asDrawn': ['write', 'paint', 'outputOf'], 'unshown(': ['unshown', 'paint', 'outputOf'] };
+  const may = { 'backend.ask(': ['laidAt', 'unshown'], 'backend.problem(': ['laidAt', 'unshown', 'holdsRow'],      /* (holdsRow: the panel's Holds row writes the sentence of a promise the backend's numbers break) */ 'laidAt(': ['laidAt', 'laidOf', 'pieceLaid', 'outputLaidNow'], 'laidOf(': ['laidOf', 'faceLaid', 'sunkLaid', 'write', 'paint', 'copiesOf', 'writtenOn'],      /* (sunkLaid: whether a shape is drawn sunk, where only the backend can say that it is false) */
+    'pieceLaid(': ['pieceLaid', 'paint'], 'faceLaid(': ['faceLaid', 'paint'], 'sunkLaid(': ['sunkLaid', 'paint'], 'outputLaid(': ['outputLaid', 'outputOf'], 'outputLaidNow(': ['outputLaid', 'outputLaidNow'], '.asDrawn': ['write', 'paint', 'outputOf'], 'unshown(': ['unshown', 'paint', 'outputOf'] };
   const seen = Object.fromEntries(Object.keys(may).map(k => [k, new Set()])); let top = null;
   for (const line of lines){ const m = /^(?:async )?function (\w+)|^(?:const|let) (\w+)\b/.exec(line); if (m) top = m[1] || m[2];      /* the function or constant, at the start of a line, that this line is in */
-    for (const name of line.match(/\b(?:laidAt|laidOf|pieceLaid|outputLaid|outputLaidNow|faceLaid|backend\.(?:ask|problem)|unshown)\(|\.asDrawn\b/g) || []) seen[name].add(top); }
+    for (const name of line.match(/\b(?:laidAt|laidOf|pieceLaid|outputLaid|outputLaidNow|faceLaid|sunkLaid|backend\.(?:ask|problem)|unshown)\(|\.asDrawn\b/g) || []) seen[name].add(top); }
   for (const [name, by] of Object.entries(seen)){ assert.ok(by.size > 0, name + ' is still in the page'); for (const fn of by) assert.ok(may[name].includes(fn), `${fn} reads ${name} and does not draw`); }
   /* and what the exact readers are made of names none of them */
   const body = name => { const at = lines.findIndex(l => new RegExp('^(?:function|const) ' + name + '\\b').test(l)); assert.ok(at >= 0, name); let end = at + 1; while (end < lines.length && !/^(?:async )?function \w+|^(?:const|let) \w+|^\/\*/.test(lines[end])) end++; return lines.slice(at, end).join('\n'); };
@@ -253,4 +253,14 @@ test('inner data: the drawn entries are asked for at every inner position, and a
   assert.equal(big.length, MOST_ASKED); assert.deepEqual(big[0], [1, 1, 1, 1]); assert.deepEqual(big[64], [1, 1, 1, 2]);
   const answer = { type: { cols: 2, rows: 1, inner: [{ length: 2, name: null }] }, deferred: true, backend: true };
   assert.deepEqual([...merged(answer, new Map(), { cells: [[1, 1, 1, 0.5], [2, 1, 2, 'inf'], [1, 1], 'x'] })], [['1,1,1', { f: 0.5 }], ['2,1,2', { f: Infinity }]]);
+});
+
+/* ---- truth as height (phase 9B): what the backend says of a whole matrix it alone has ---- */
+test('merged: a deferred answer carries the backend\'s truth of the whole matrix; a stale one, and one worked out here, carry none', () => {
+  const deferred = { type: { cols: 2, rows: 1 }, deferred: true }, res = truth => ({ cols: 2, rows: 1, cells: [[1, 1, 0], [2, 1, 0]], min: 0, max: 0, mean: 0, truth });
+  assert.equal(merged(deferred, new Map(), res(false)).truth, false); assert.equal(merged(deferred, new Map(), res(true)).truth, true);
+  assert.equal(merged(deferred, new Map(), res(null)).truth, undefined); assert.equal(merged(deferred, new Map(), { cols: 2, rows: 1, cells: [] }).truth, undefined);      /* not known, and a backend that does not say */
+  assert.equal(merged(deferred, new Map(), res(false), true).truth, undefined);      /* of an older state of the project: it says nothing of this one */
+  assert.equal(merged({ type: { cols: 2, rows: 1 }, entries: { '1,1': 0, '2,1': 0 } }, new Map([['1,1', 0], ['2,1', 0]]), res(true)).truth, undefined);      /* worked out here: the page's own entries say */
+  assert.equal(laid(deferred, new Map(), { there: true, got: { result: res(false), stale: false } }).truth, false);
 });
