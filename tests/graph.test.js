@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build as valued, validate, OPS, CODES, indexAt, VERSION } from '../graph.js';
+import { runningTotal } from './looping.js';
 /* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
    without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
    tests/graph.test.js); a type with no value is a type still (graph.js: Number spaces). */
@@ -446,12 +447,12 @@ good.groups = [{ id: 't1', name: null, members: [11], groups: [], repeat: { x: 0
 const refused = (change, what) => { const g = JSON.parse(JSON.stringify(good())); change(g); const bad = validate(g); assert.ok(bad.length > 0, 'refused: ' + what); assert.ok(bad.every(b => typeof b === 'string')); return bad; };
 const first = (g, op) => Object.entries(g.nodes).find(([, n]) => n.op === op)[1];
 test('validate accepts what build made, of every operation', () => {
-  const g = good(); assert.deepEqual(validate(g), []);
-  assert.deepEqual([...new Set(Object.values(g.nodes).map(n => n.op))].sort(), Object.keys(OPS).sort());
+  const g = good(), looped = valued(runningTotal()); assert.deepEqual(validate(g), []); assert.deepEqual(validate(looped), []);      /* (a tile with a step is a canvas of its own: tests/looping.js) */
+  assert.deepEqual([...new Set([g, looped].flatMap(x => Object.values(x.nodes).map(n => n.op)))].sort(), Object.keys(OPS).sort());
 });
 test('validate refuses a graph that is not one', () => {
   for (const g of [null, 7, 'graph', {}, { version: 1 }, { version: 1, nodes: [], functions: {}, spaces: {}, blocks: {} }]) assert.ok(validate(g).length > 0);
-  refused(g => { g.version = 5; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
+  refused(g => { g.version = 6; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
   /* a version 1, 2 or 3 graph is a version 4 graph as it stands, where it holds nothing a later version added: a graph that says a version too low for what it holds is refused (ruled 21 November 2026) */
   const plain = v => { const g = JSON.parse(JSON.stringify(build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': 1, '2,1': 2 } })])))); g.version = v; return g; }, bare = g => { for (const n of Object.values(g.nodes)) delete n.type.value; return g; };
   for (const v of [1, 2, 3, 4]) assert.deepEqual(validate(bare(plain(v))), [], 'version ' + v);
@@ -825,13 +826,13 @@ test('after review (phase 7): a formula in a graph is bounded as the backend bou
 /* ---- None (phase 9) ---- */
 test('None: an entry that holds None is kept in the graph as { none: true }, in that one form, and both older versions are still read', () => {
   const g = build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': { none: true }, '2,1': { expr: 'none + 1' } } })]));
-  assert.equal(g.version, 4); assert.equal(VERSION, 4); assert.deepEqual(validate(g), []);
+  assert.equal(g.version, 5); assert.equal(VERSION, 5); assert.deepEqual(validate(g), []);
   assert.deepEqual(g.nodes['v:A'].entries, { '1,1': { none: true }, '2,1': { expr: 'none + 1' } });
   for (const v of [{ none: 1 }, { none: false }, { none: true, sym: 'x' }, { none: true, more: 1 }, 'none']){ const h = JSON.parse(JSON.stringify(g)); h.nodes['v:A'].entries['1,1'] = v; assert.ok(validate(h).length > 0, JSON.stringify(v)); }
   const older = version => { const h = JSON.parse(JSON.stringify(g)); h.version = version; for (const n of Object.values(h.nodes)) delete n.type.value; return h; };
   assert.deepEqual(validate(older(3)), []);      /* and a version below 3 cannot hold None (ruled 21 November 2026) */
   for (const version of [1, 2]) assert.deepEqual(validate(older(version)), ['v:A: it holds None, which needs version 3, and the graph says version ' + version]);
-  assert.deepEqual(validate({ ...g, version: 4 }), []); assert.ok(validate({ ...g, version: 5 }).length > 0);
+  assert.deepEqual(validate({ ...g, version: 4 }), []); assert.deepEqual(validate({ ...g, version: 5 }), []); assert.ok(validate({ ...g, version: 6 }).length > 0);
 });
 
 /* ---- conditions (phase 9B): choose, the source of None, and the arrow that chooses between two frames ---- */

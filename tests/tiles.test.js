@@ -87,11 +87,22 @@ test('what typing a count stores: a number, or a formula where it names a size',
 });
 
 test('both counts, with 1 standing in for one that cannot be worked out, and why', () => {
-  assert.deepEqual(counts(rep(3, 2, 3, 2)), { across: 3, down: 2, formula: { across: false, down: false }, warn: null });
-  assert.deepEqual(counts(rep(4, 1, 1, { expr: '@[keys:y]' }), lookup), { across: 1, down: 3, formula: { across: false, down: true }, warn: null });
+  assert.deepEqual(counts(rep(3, 2, 3, 2)), { across: 3, down: 2, formula: { across: false, down: false }, open: { across: null, down: null }, warn: null });
+  assert.deepEqual(counts(rep(4, 1, 1, { expr: '@[keys:y]' }), lookup), { across: 1, down: 3, formula: { across: false, down: true }, open: { across: null, down: null }, warn: null });
   const gone = counts(rep(4, 1, { expr: '@[gone:x]' }, 2), lookup);
   assert.equal(gone.across, 1); assert.equal(gone.down, 2); assert.match(gone.warn, /^across: .*missing variable/);
   assert.match(counts(rep(1, 1, 2, { expr: '@[keys:x]/3' }), lookup).warn, /^down: /);
+});
+test('an open count: one that does not end, and (in a tile with a step) one that is settled only when it is run', () => {
+  assert.deepEqual(kept({ x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 'b2' }), { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 'b2' });
+  assert.deepEqual(kept({ x: 0, y: 0, cols: 1, rows: 2, across: 'forever', down: 1, step: 7, until: '' }), { x: 0, y: 0, cols: 1, rows: 2, across: 1, down: 1 });      /* what is no count is 1, and what is no id is left out */
+  assert.deepEqual(count('inf'), { count: 1, formula: false, open: 'inf' });
+  assert.deepEqual(counts(rep(1, 2, 'inf', 1)), { across: 1, down: 1, formula: { across: false, down: false }, open: { across: 'inf', down: null }, warn: null });
+  const attribute = { expr: '@[keys:a:heads]' };
+  assert.match(count(attribute, lookup).refused, /an attribute/);                                   /* with no step it is refused, as ever */
+  assert.deepEqual(count(attribute, lookup, { step: true }), { count: 1, formula: true, open: 'run' });
+  assert.match(count(attribute, lookup, { step: true, loops: true }).refused, /depends on itself/);      /* and never where it reads its own tile's size */
+  assert.deepEqual(count({ expr: '@[keys:y]' }, lookup, { step: true }), { count: 3, formula: true });      /* a count that is settled is settled, step or none */
 });
 
 test('the filled size is the pattern times the counts', () => {

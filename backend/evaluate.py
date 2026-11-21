@@ -43,6 +43,14 @@ other node before anything is made. For memory a choose counts its condition, wh
 for the heavier side only, and what a side shares with anything else whichever is taken (weight); and room to work
 on the largest thing in either (needs: room), since which side it takes is not known before it runs. A condition with no truth (an entry with no value and none that is true) leaves it with no value.
 
+A tile with a step (graph.js: a repeat with fn and state, and a loop) is worked out cell by cell in order, as
+evaluate.js does it: the state of cell k is what the step's function made of cell k - 1, and a state block asked for
+in a later cell is its part of that state. Only the last two states of a tile are kept (state_in), and no more than
+MAX_KEPT values of any size are remembered at once, so a loop of a million steps holds no more than a short one;
+what a step's body came to is let go like any other value. A loop is stopped after MAX_STEPS steps (limits.py), "not
+stopped after 1,000,000 steps: a loop is stopped then", as a run is at MAX_SECONDS; one with an infinite count and
+no stop block is refused, "it runs until stopped". A stop block with no truth is no value, as a condition is.
+
 What has been worked out is remembered for the run, up to half the room the run was given for its arrays (room, in
 bytes: limits.py says how it follows from the machine's memory): past that the oldest results are let go, and worked
 out again if they are asked for again. weight(node) says how many entries a node is worked out from in all, and
@@ -56,11 +64,12 @@ from . import arrays as A
 from . import spaces as S
 import itertools
 
-from .check import applies, covered, data_path, fn_whole, inner_of, is_int, is_obj, lengths, numbers, ok_range, one, reads_index, run_of
+from .check import applies, state_at, covered, data_path, fn_whole, inner_of, is_int, is_obj, lengths, numbers, ok_range, one, reads_index, run_of
 from .formula import DOLLAR, INNER, SYMBOLIC, Wrong, axis_of, evaluate as work, parse, parse_symbolic
-from .limits import BYTES_AN_ENTRY, MAX_BINDING_CELLS, MAX_ENTRIES, MEMORY_LEAST
+from .limits import MAX_STEPS, BYTES_AN_ENTRY, MAX_BINDING_CELLS, MAX_ENTRIES, MEMORY_LEAST
 
 NAN = math.nan
+MAX_KEPT = 50_000      # values a run keeps at once, however small: a loop of a million steps makes several each step, and each is more in memory than its numbers
 
 
 class Trouble(Exception):
@@ -409,6 +418,103 @@ def v_repeat(n, at):
     return out
 
 
+# ---- a tile with a step (evaluate.js sets the same out): a repeat with fn and state, and a loop ----
+def places_of(n):
+    ids = n['inputs'][:len(n['at'])]
+    return {i: {'col': int(n['at'][k]['col']), 'row': int(n['at'][k]['row'])} for k, i in enumerate(ids) if n['inputs'].count(i) == 1}
+
+
+def cell_at(n, k):
+    """Where cell k of a tile with a step lies: left to right, then the next row down (graph.js: cellAt)."""
+    if n['across'] == 'inf':
+        return k, 1
+    across = int(n['across'])
+    return (k - 1) % across + 1, (k - 1) // across + 1
+
+
+def step_number(n, c):
+    return c['cx'] if n['across'] == 'inf' else (c['cy'] - 1) * int(n['across']) + c['cx']
+
+
+def cell_env(run, tile, n, outer, j, k):
+    cx, cy = cell_at(n, j)
+    places = places_of(n)
+    c = a_cell({'x': (cx - 1) * int(n['pattern']['cols']), 'y': (cy - 1) * int(n['pattern']['rows']), 'dx': int(n['at'][k]['col']), 'dy': int(n['at'][k]['row']), 'cx': cx, 'cy': cy,
+                'of': [tile], 'at': places, 'atKey': json.dumps(places, sort_keys=True)})
+    return Env(outer.params, outer.cells + (c,), outer.active)
+
+
+def whole_cell(run, tile, n, outer, j):
+    """Cell j of a tile with a step, whole: every part of its pattern as it is in that cell, set in its place."""
+    first = run.nodes[n['inputs'][0]]['type']
+    out = A.blank(int(n['pattern']['rows']), int(n['pattern']['cols']), lengths(first))
+    for k, a in enumerate(n['at']):
+        out = A.place(out, run.work(n['inputs'][k], cell_env(run, tile, n, outer, j, k)), int(a['row']), int(a['col']))
+    return out
+
+
+def state_in(run, tile, outer, k, node=None):
+    """The state of cell k (2 or more) of a tile with a step: what the step made of cell k - 1 (evaluate.js: stateIn).
+    Worked out in order, one step each; the last two are kept (a cell is made of the state before it, and is asked
+    for its own while it is set down), so a loop of a million steps holds two states and no more. One asked for
+    that is no longer kept is worked out again from the first cell."""
+    run.homes()
+    i = run.loops[tile]
+    n = run.nodes[i]
+    key = tile + '|' + '|'.join('%s=%s' % (f, outer.params[f]['key']) for f in sorted(outer.params)) + '|' + ';'.join('%d,%d' % (c['x'], c['y']) for c in outer.cells)
+    kept = run.stepped.get(key)
+    if kept is None or (kept and k not in kept and k < max(kept)):
+        kept = run.stepped[key] = {}
+    f = run.functions[n['fn']]
+    j = max(kept) + 1 if kept else 2
+    while j <= k:
+        if j - 1 > MAX_STEPS:
+            raise Trouble('not stopped after %s steps: a loop is stopped then' % format(MAX_STEPS, ','))
+        if n['fn'] in outer.active:
+            raise Trouble('a function applies itself')
+        values = whole_cell(run, tile, n, outer, j - 1)
+        hold(values, run.nodes[f['input']]['type'].get('value'), 'in', node or i, ' in cell %d' % (j - 1))
+        kept[j] = run.work(f['body'], Env(dict(outer.params, **{n['fn']: {'values': values, 'key': 'step %s#%d' % (key, j)}}), (), outer.active + (n['fn'],)))
+        kept.pop(j - 2, None)
+        j += 1
+    return kept[k]
+
+
+def v_loop(n, at):
+    run = at.run
+    run.homes()
+    tile = (run.repeats.get(at.id) or [None])[0]
+    if tile is None:
+        raise Trouble("a loop that is no tile's")
+    count = n['count']
+    if is_obj(count):
+        got = at.get(count['input'])
+        count = math.nan if A.is_none(got, 0, 0) else A.item(got, 0, 0)
+        if math.isnan(count) or not (count == math.inf or (count >= 1 and count == int(count))):      # no count: every entry is the error (graph.js: BAD_COUNT)
+            t = n['type']
+            return A.full(int(t['rows']), int(t['cols']), NAN, lengths(t))
+    if count == 'inf':
+        count = math.inf
+    if count == math.inf and n['until'] is None:
+        raise Trouble('it runs until stopped: its count is infinite and it has no stop block')
+    state = lambda k: state_in(run, tile, at.env, k, at.id) if k > 1 else A.part(whole_cell(run, tile, n, at.env, 1), int(n['state']['row']), int(n['state']['col']), int(n['state']['rows']), int(n['state']['cols']))
+    k = 1
+    while k <= count:
+        if n['until'] is not None:
+            if k - 1 > MAX_STEPS:
+                raise Trouble('not stopped after %s steps: a loop is stopped then' % format(MAX_STEPS, ','))
+            t = A.truth(run.work(n['inputs'][n['until']], cell_env(run, tile, n, at.env, k, n['until'])))
+            if t is None:      # (the page leaves every entry unknown; here what is not known is no value)
+                raise Trouble('unknown: its stop block has an entry with no value, and none that is true')
+            if t:
+                run.stops[at.id] = k
+                return state(k)
+        k += 1
+        if n['until'] is None and k <= count:
+            state(k)      # each step in its turn, so that no state is asked for that is not the next
+    return state(int(count) + 1)
+
+
 def v_mapalong(n, at):
     x, X, rows = at.type(0), at.get(0), n['axis'] == 'rows'
     count, span = int(n['count']), int(n['span'])
@@ -506,6 +612,7 @@ OPS = {
     'apply': positioned(lambda n, at: at.call(n['fn'], at.get(0), at.key_of(0))),
     'param': lambda n, at: at.given(n),
     'repeat': v_repeat,
+    'loop': v_loop,
     'mapalong': lambda n, at: (positioned(v_mapalong) if 'fn' in n else v_mapalong)(n, at),
     'stack': v_stack,
     'entry': lambda n, at: A.entry(at.get(0), int(n['at']['col']), int(n['at']['row'])),
@@ -543,6 +650,7 @@ class Run:
         self.read_file, self.files, self.trees = read_file, {}, {}
         self.kept, self.held = OrderedDict(), 0
         self._needs, self._follows, self._homes, self.repeats = {}, {}, None, {}
+        self.loops, self.state_ids, self.stepped, self.stops = {}, {}, {}, {}      # tiles with a step: tile -> the node that says its pattern, state and function; a state block -> { tile: where it lies in the state }; the states kept; where each loop stopped
 
     def tree(self, text):
         if text not in self.trees:
@@ -558,18 +666,20 @@ class Run:
 
     def follows(self, i):
         """Whether a node's value follows the cell it is worked out in (evaluate.js: follows)."""
-        todo = [i]
+        self.homes()
+        todo, opened = [i], set()
         while todo:
             k = todo[-1]
             if k in self._follows:
                 todo.pop()
                 continue
             n = self.nodes[k]
-            if reads_index(n):
+            if k in self.state_ids or reads_index(n):      # (a state block of a tile with a step holds what the step made of the cell before)
                 self._follows[k] = True
             else:
-                waiting = [d for d in n['inputs'] if d not in self._follows and d not in todo]
+                waiting = [d for d in n['inputs'] if d not in self._follows and d not in opened]
                 if waiting:
+                    opened.add(k)
                     todo.extend(waiting)
                     continue
                 self._follows[k] = any(self._follows.get(d, False) for d in n['inputs'])
@@ -735,6 +845,7 @@ class Run:
         if self._homes is not None:
             return self._homes
         homes, repeats, spaces, blocks = {}, {}, self.graph['spaces'], self.graph['blocks']
+        loops, state_ids = {}, {}
 
         def add(i, tiles):
             if i not in self.nodes:
@@ -766,9 +877,19 @@ class Run:
                     if a['node'] is not None and self.nodes[a['node']]['op'] == 'map':
                         again = add(a['node'], inside('arrows', a['arrow'])) or again
                 for t in s['tiles']:
-                    if t['node'] is not None and t['tile'] not in repeats.setdefault(t['node'], []):
-                        repeats[t['node']].append(t['tile'])
-        self._homes, self.repeats = homes, repeats
+                    for i in (t['node'], t.get('loop')):
+                        if i is None:
+                            continue
+                        if t['tile'] not in repeats.setdefault(i, []):
+                            repeats[i].append(t['tile'])
+                        n = self.nodes[i]
+                        if 'fn' in n and 'state' in n:      # a tile with a step
+                            loops.setdefault(t['tile'], i)
+                            for k in range(len(n['at'])):
+                                where = state_at(n, k, self.nodes[n['inputs'][k]]['type'])
+                                if where:
+                                    state_ids.setdefault(n['inputs'][k], {})[t['tile']] = where
+        self._homes, self.repeats, self.loops, self.state_ids = homes, repeats, loops, state_ids
         return homes
 
     def key_for(self, i, n, env):
@@ -795,13 +916,22 @@ class Run:
         if key in self.kept:
             self.kept.move_to_end(key)
             return self.kept[key]
-        value = OPS[n['op']](n, At(self, i, n, env))
+        value = None
+        if env.cells and env.cells[-1]['of'] and i in self.state_ids:      # a state block in a later cell of its tile holds what the step made of the cell before
+            last, where = env.cells[-1], self.state_ids[i]
+            tile = next((t for t in last['of'] if t in where), None)
+            k = step_number(self.nodes[self.loops[tile]], last) if tile else 1
+            if k > 1:
+                w = where[tile]
+                value = A.part(state_in(self, tile, Env(env.params, env.cells[:-1], env.active), k), w['row'], w['col'], w['rows'], w['cols'])
+        if value is None:
+            value = OPS[n['op']](n, At(self, i, n, env))
         if n['op'] == 'variable' and 'holds' in n:      # a promise is held against the numbers worked out here, as the page holds it against its own (evaluate.js: run)
             in_cells = bool(env.cells) and self.follows(i)
             hold(value, n['holds'], n.get('name') or i, i, ' in cell ' + ' of cell '.join('%d, %d' % (c['cx'], c['cy']) for c in reversed(env.cells)) if in_cells else '')
         self.kept[key] = value
         self.held += A.size(value)
-        while self.held > self.room // 2 and len(self.kept) > 1:      # the oldest are let go: they are worked out again if they are asked for
+        while (self.held > self.room // 2 or len(self.kept) > MAX_KEPT) and len(self.kept) > 1:      # the oldest are let go: they are worked out again if they are asked for
             _, gone = self.kept.popitem(last=False)
             self.held -= A.size(gone)
         return value

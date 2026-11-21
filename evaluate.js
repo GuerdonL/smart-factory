@@ -1,6 +1,6 @@
 /* A graph worked out, exactly. No drawing here: a graph (graph.js) and a node's id in, that node's entries out.
 
-   evaluate(graph, nodeId, { maxEntries = 4096, binding = null })
+   evaluate(graph, nodeId, { maxEntries = 4096, binding = null, maxSteps = 256 })
        -> { type, entries }                    worked out: entries is keyed "column,row" from 1 (and, where the type
                                                holds inner data, "column,row,k1,k2,…": one more number, from 1, for
                                                each inner axis) and holds values of
@@ -18,6 +18,10 @@
                                                the entry. It is found here, where the values are, not by build.
         | { type, deferred: true, backend: true }   it is worked out from noise or from a data file, whose numbers
                                                only the backend has (backend/): nothing here can say them
+        | { type, deferred: true, steps: 256 }      a tile's step was applied maxSteps times and the loop had not
+                                               stopped (or its tile has more cells than that): the backend's
+        | { type, deferred: true, forever: true }   a loop with an infinite count and no stop block: it has no last
+                                               cell, and runs until it is stopped
    It never throws, for a well-formed graph (graph.js: validate) or any other, and it finishes: a function that
    reaches itself, which validate refuses, is the error loop here and not an endless descent, and whatever else
    goes wrong in a graph that is not well formed is the error no-source with what went wrong for its note.
@@ -35,6 +39,9 @@
                                                whether its values keep the promise: see the function
    truthAt(graph, id, options)                 whether a node's whole matrix counts as true, as far as it can be
                                                told here: true, false, or null for not known (see the function)
+   stoppedAt(graph, id)                        the cell (from 1) at which a loop last worked out here was stopped
+                                               by its stop block, or null
+   STEPS                                       256, the default maxSteps: the most steps of a loop worked out here
    MOST                                        4096, the default maxEntries: the most numbers the browser works out
    tooLarge(type, most)                        the sentence that says so of a result that size
    toMap(entries)                              an answer's entries as the page keeps them: a Map, infinities as numbers
@@ -72,6 +79,14 @@
    space is in the cells that block is in. A cell says which tile it is of (of: tile ids); one that does not is
    kept. A node that stands for no block is worked out under whatever chain reaches it.
 
+   A tile with a step (graph.js: a repeat with fn and state, and a loop). Its cells are worked out in order, each
+   once: the state of cell k is what the step made of cell k − 1, all of it set in its places, and is remembered
+   under the tile, what the functions round it were given, the chain of outer cells and k. A state block asked for
+   in a cell after the first, by whoever asks (the tile's matrix, its loop, a block beside it, an arrow in the
+   tile, the page drawing that cell), is the part of that state that is its own: so every cell shows its state, and
+   a tile in the pattern with a step of its own starts again in each outer cell. The step's function is run with no
+   cell: it cannot read the index. No more than maxSteps steps are taken for any one tile.
+
    binding says where a node is being looked at from, for a caller that draws what is inside a function or a tile:
        { params: { "<function id>": "<node id>" | { of: "<node id>", range: { col, row, cols, rows } } },
          cells:  [ { x, y, dx, dy, cx, cy, turned, of: ["t:<frame id>"], at: { "<node id>": { col, row } } } ] }
@@ -99,13 +114,16 @@
        at.keyOf(k)         a key for input k's entries as they are under this env
        at.given(node)      the entries a function's input has been given, none where it has been given nothing
        at.rest(k)          what input k, a sum or a product of several, set aside at each entry (graph.js: RESTS), or null
+       at.state(k, stopped)   a loop's: the state of cell k of its tile (stopped: it ends there, which is noted)
+       at.stopped(k)       a loop's: whether its stop block is true as a whole matrix in cell k (null: not known)
+       at.forever()        a loop's: it has no last cell
        at.ks               where the rule is being repeated over inner data, the inner position of this run */
-import { OPS, RESTS, readsIndex, tailsOf, inferred, fnOf } from './graph.js';
+import { OPS, RESTS, readsIndex, tailsOf, inferred, fnOf, stateAt, placesOf, cellAt } from './graph.js';
 import { broken, untold, within, NOT_HELD, UNPROVEN } from './spaces.js';
 import { passed } from './arrows.js';
 import { numbers, truthOf } from './algebra.js';
 
-export const MOST = 4096;
+export const MOST = 4096, STEPS = 256;
 const hasInner = type => Array.isArray(type.inner) && type.inner.length > 0;
 export const tooLarge = (type, most = MOST) => numbers(type) > most
   ? `it holds ${[type.cols, type.rows, ...(hasInner(type) ? type.inner.map(a => a.length) : [])].join(' × ')} numbers, more than the ${most} that are worked out here: its size is shown, and its numbers are not`
@@ -119,11 +137,11 @@ const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && O
 const nodeAt = (graph, id) => own(graph.nodes, id) && graph.nodes[id] && typeof graph.nodes[id] === 'object' && own(OPS, graph.nodes[id].op) && Array.isArray(graph.nodes[id].inputs) && graph.nodes[id].type ? graph.nodes[id] : null;
 const fnAt = (graph, id) => own(graph.functions, id) && graph.functions[id] && typeof graph.functions[id] === 'object' ? graph.functions[id] : null;
 const states = new WeakMap();                   /* a graph -> what has been worked out of it: values and answers by node id, then by binding */
-const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map() }); return states.get(graph); };
+const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map(), stepped: new Map(), stops: new Map() }); return states.get(graph); };
 /* whether a node's value follows the cell it is worked out in: a formula of its own reads the index, or what it is made of does.
    (The graph marks such a node with its tiles; this is asked of the node itself, so that a value is never remembered under too little.) */
 function follows(graph, st, id){
-  if (!st.follows.has(id)){ st.follows.set(id, false); const n = nodeAt(graph, id); st.follows.set(id, !!n && (readsIndex(n) || n.inputs.some(i => follows(graph, st, i)))); }
+  if (!st.follows.has(id)){ st.follows.set(id, false); const n = nodeAt(graph, id); st.follows.set(id, !!n && (homesOf(graph, st).stateIds.has(id) || readsIndex(n) || n.inputs.some(i => follows(graph, st, i)))); }      /* (a state block of a tile with a step holds what the step made of the cell before) */
   return st.follows.get(id);
 }
 const under = (map, id) => { if (!map.has(id)) map.set(id, new Map()); return map.get(id); };
@@ -168,7 +186,7 @@ function needsOf(graph, st, id, open = new Set()){
    stands for no block that is placed (a standing shape, what is in a function's space): it is not in the Map. */
 function homesOf(graph, st){
   if (st.homes) return st;
-  const homes = new Map(), repeats = new Map(), spaces = graph.spaces && typeof graph.spaces === 'object' ? graph.spaces : {}, list = v => Array.isArray(v) ? v : [];
+  const homes = new Map(), repeats = new Map(), loops = new Map(), stateIds = new Map(), spaces = graph.spaces && typeof graph.spaces === 'object' ? graph.spaces : {}, list = v => Array.isArray(v) ? v : [];
   const add = (id, set) => { if (typeof id !== 'string' || !nodeAt(graph, id)) return false; if (!homes.has(id)){ homes.set(id, new Set(set)); return true; }
     const had = homes.get(id); let grew = false; for (const t of set) if (!had.has(t)){ had.add(t); grew = true; } return grew; };
   for (let pass = 0, again = true; again && pass < 64; pass++){ again = false;
@@ -179,8 +197,12 @@ function homesOf(graph, st){
         const id = graph.blocks[b], n = nodeAt(graph, id), set = inTiles('blocks', b);
         if (add(id, set)) again = true; if (n && n.op === 'transpose' && add(n.inputs[0], set)) again = true; }
       for (const a of list(s.arrows)){ const n = a && typeof a.node === 'string' ? nodeAt(graph, a.node) : null; if (n && n.op === 'map' && add(a.node, inTiles('arrows', a.arrow))) again = true; }
-      for (const t of tiles) if (typeof t.node === 'string'){ if (!repeats.has(t.node)) repeats.set(t.node, []); if (!repeats.get(t.node).includes(t.tile)) repeats.get(t.node).push(t.tile); } } }
-  st.homes = homes; st.repeats = repeats; return st;
+      for (const t of tiles) for (const id of [t.node, t.loop]) if (typeof id === 'string'){ if (!repeats.has(id)) repeats.set(id, []); if (!repeats.get(id).includes(t.tile)) repeats.get(id).push(t.tile);
+        /* a tile with a step: the node that says its pattern, state and function (its matrix, else its loop), and where each state block lies in the state */
+        const n = nodeAt(graph, id); if (!n || n.fn === undefined || !n.state || !Array.isArray(n.at)) continue;
+        if (!loops.has(t.tile)) loops.set(t.tile, id);
+        n.at.forEach((_, k) => { const i = nodeAt(graph, n.inputs[k]), where = i ? stateAt(n, k, i.type) : null; if (!where) return; if (!stateIds.has(n.inputs[k])) stateIds.set(n.inputs[k], new Map()); stateIds.get(n.inputs[k]).set(t.tile, where); }); } } }
+  st.homes = homes; st.repeats = repeats; st.loops = loops; st.stateIds = stateIds; return st;
 }
 /* What a variable holds, where that can be read off the graph without working anything out, at any size: its own
    entries where every one of them is a value typed in (no formula among them); or, where it is a source filled with
@@ -234,6 +256,32 @@ function repeated(rule, n, at, types){
   return out;
 }
 
+/* ---- a tile with a step ---- */
+const cellEnv = (graph, st, tile, n, outer, j, k) => { const { cx, cy } = cellAt(n, j), places = placesOf(n);
+  return { ...outer, cells: [...outer.cells, aCell({ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, cx, cy, of: [tile], at: places, atKey: JSON.stringify(places) })] }; };
+/* cell j of a tile with a step, whole: every part of its pattern as it is in that cell, set in its place */
+function wholeCell(graph, st, tile, n, outer, j){
+  const out = new Map();
+  n.at.forEach((a, k) => { const t = graph.nodes[n.inputs[k]].type;
+    for (const [key, v] of run(graph, st, n.inputs[k], cellEnv(graph, st, tile, n, outer, j, k))){ const [c, r, ...ks] = key.split(',').map(Number); if (c <= t.cols && r <= t.rows) out.set((c + a.col) + ',' + (r + a.row) + (ks.length ? ',' + ks.join(',') : ''), v); } });
+  return out;
+}
+/* the state of cell k (2 or more) of a tile with a step, under what lies round the tile (outer: the env less the
+   tile's own cell): what the step made of cell k − 1. Worked out in order from the last cell known, one step each. */
+function stateIn(graph, st, tile, outer, k){
+  const id = st.loops.get(tile), n = graph.nodes[id], key = tile + '|' + Object.keys(outer.params).sort().map(f => f + '=' + outer.params[f].key).join('|') + '|' + outer.cells.map(c => c.x + ',' + c.y).join(';');
+  if (!st.stepped.has(key)) st.stepped.set(key, [null, null]);
+  const list = st.stepped.get(key), f = fnAt(graph, n.fn); if (!f) throw new Error('no such function');
+  while (list.length <= k){ const j = list.length;      /* cell j's state, from cell j − 1 */
+    if (j - 1 > outer.steps) throw { later: { steps: outer.steps } };
+    if (outer.active.includes(n.fn)) throw LOOP;
+    const values = wholeCell(graph, st, tile, n, outer, j - 1), p = nodeAt(graph, f.input), takes = p && p.op === 'param' && typeof p.type.value === 'string' && p.type.value !== 'any?' ? p.type.value : null, out = takes ? broken(takes, values) : null;
+    if (out) throw { broke: { code: 'type', note: NOT_HELD('in', takes, out.key, out.value === Infinity ? 'inf' : out.value === -Infinity ? '-inf' : out.value) + ' in cell ' + (j - 1), node: id } };
+    list.push(run(graph, st, f.body, { params: { ...outer.params, [n.fn]: { values, key: 'step ' + key + '#' + j } }, cells: [], active: [...outer.active, n.fn], scratch: new Map(), most: outer.most, steps: outer.steps })); }
+  return list[k];
+}
+const stepNumber = (n, c) => n.across === 'inf' ? c.cx : (c.cy - 1) * n.across + c.cx;
+
 function run(graph, st, id, env){
   const n = graph.nodes[id], home = env.cells.length ? homesOf(graph, st).homes.get(id) : undefined;
   /* a block is in the cells of the tiles it is itself in, and no others, whoever reads it */
@@ -261,7 +309,16 @@ function run(graph, st, id, env){
          run. where: which run of a repeated arrow; tail: which inner position, where it is run at each. */
       const p = nodeAt(graph, f.input), takes = p && p.op === 'param' && typeof p.type.value === 'string' && p.type.value !== 'any?' ? p.type.value : null, out = takes ? broken(takes, values) : null;
       if (out) throw { broke: { code: 'type', note: NOT_HELD('in', takes, out.key + tail, out.value === Infinity ? 'inf' : out.value === -Infinity ? '-inf' : out.value) + where, node: id } };
-      return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn], scratch: scratch || env.scratch || null, most: env.most }); },
+      return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn], scratch: scratch || env.scratch || null, most: env.most, steps: env.steps }); },
+    /* a loop's (graph.js): the tile is the one spaces names it for; the cell before the first step is the pattern as it stands */
+    state(k, stopped = false){ const tile = (homesOf(graph, st).repeats.get(id) || [])[0]; if (!tile) throw new Error('a loop that is no tile\'s');
+      if (stopped) st.stops.set(id, k);
+      return k > 1 ? stateIn(graph, st, tile, env, k) : passed(wholeCell(graph, st, tile, n, env, 1), n.state); },
+    stopped(k){ const tile = (homesOf(graph, st).repeats.get(id) || [])[0]; if (!tile) throw new Error('a loop that is no tile\'s');
+      if (k - 1 > env.steps) throw { later: { steps: env.steps } };
+      const c = run(graph, st, n.inputs[n.until], cellEnv(graph, st, tile, n, env, k, n.until)), t = truthOf(c.values());
+      return t === false && c.size < numbers(graph.nodes[n.inputs[n.until]].type) ? null : t; },      /* an entry never given is absent: with none true, not known */
+    forever(){ throw { later: { forever: true } }; },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */
         const from = nodeAt(graph, of), all = from ? run(graph, st, of, { ...env, params: rest }) : new Map(), part = typeof spec === 'string' || !spec.range ? all : passed(all, spec.range);
@@ -270,7 +327,11 @@ function run(graph, st, id, env){
       return p.values; } };
   const rule = OPS[n.op], types = n.inputs.map((_, k) => at.type(k));
   const deep = !types.some(hasInner) || (typeof rule.deep === 'function' ? rule.deep(n, { node: i => nodeAt(graph, i), fn: f => fnAt(graph, f) }) : !!rule.deep);
-  const value = deep ? rule.value(n, at) : repeated(rule, n, at, types);
+  /* a state block in a later cell of its tile holds what the step made of the cell before, not its own entries */
+  let carried = null;
+  if (last && last.of && homesOf(graph, st).stateIds.has(id)){ const where = st.stateIds.get(id), tile = last.of.find(t => where.has(t)), ln = tile ? graph.nodes[st.loops.get(tile)] : null, k = ln ? stepNumber(ln, last) : 1;
+    if (k > 1) carried = passed(stateIn(graph, st, tile, { ...env, cells: env.cells.slice(0, -1) }, k), where.get(tile)); }
+  const value = carried || (deep ? rule.value(n, at) : repeated(rule, n, at, types));
   /* a variable that promises a number space is held to it here, where its values are: one that lies outside it
      is the error type, said with the entry, for the variable and for everything worked out from it */
   if (n.op === 'variable' && typeof n.holds === 'string'){ const out = broken(n.holds, value);
@@ -280,10 +341,10 @@ function run(graph, st, id, env){
   mine.set(key, value); return value;
 }
 
-export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = {}){
+export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null, maxSteps = STEPS } = {}){
   const n = graph && typeof graph === 'object' && typeof nodeId === 'string' ? nodeAt(graph, nodeId) : null;
   if (!n) return { error: { code: 'no-source', note: 'no such node', node: String(nodeId) } };
-  const st = stateOf(graph), bkey = binding ? JSON.stringify(binding) : '', kept = under(st.answers, nodeId), akey = maxEntries + '\n' + bkey;
+  const st = stateOf(graph), bkey = binding ? JSON.stringify(binding) : '', kept = under(st.answers, nodeId), akey = maxEntries + (maxSteps === STEPS ? '' : '/' + maxSteps) + '\n' + bkey;
   if (kept.has(akey)) return kept.get(akey);
   const done = answer => { kept.set(akey, answer); return answer; };
   let brokeIn = () => null;
@@ -298,12 +359,12 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
       /* one whose values can be read off the graph (a source filled with one known value, entries all typed in) is held to its promise by them at any size, itself included */
       const kn = nodeAt(graph, v), plain = kn && kn.op === 'variable' && typeof kn.holds === 'string' ? plainly(graph, v) : null, out = plain ? broken(kn.holds, plain) : null;
       if (out) return { code: 'type', note: NOT_HELD(kn.name || v, kn.holds, out.key, out.value), node: v };
-      if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding }); if (a.error && a.error.code === 'type') return a.error; } } return null; };
+      if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding, maxSteps }); if (a.error && a.error.code === 'type') return a.error; } } return null; };
     brokeIn = broke;
     if (needs.some(d => d.most > maxEntries)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, ...(needs.some(d => d.remote) ? { backend: true } : {}) }); }
     const bad = needs.map(d => d.bad).find(Boolean); if (bad) return done({ error: bad });
     if (needs.some(d => d.remote)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, backend: true }); }
-    const env = { params: Object.fromEntries(given.map(([fn, spec]) => [fn, { spec, key: 'given ' + bkey }])), active: [], most: maxEntries,
+    const env = { params: Object.fromEntries(given.map(([fn, spec]) => [fn, { spec, key: 'given ' + bkey }])), active: [], most: maxEntries, steps: maxSteps,
       cells: ((binding && Array.isArray(binding.cells) && binding.cells) || []).filter(c => c && typeof c === 'object').map(aCell) };
     const values = run(graph, st, nodeId, env), entries = {};
     for (const tail of tailsOf(n.type)) for (let r = 1; r <= n.type.rows; r++) for (let c = 1; c <= n.type.cols; c++){ const v = values.get(c + ',' + r + tail);
@@ -312,7 +373,7 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
   } catch (e){      /* never thrown: a function inside itself is a loop, and anything else is a graph that is not well formed */
     if (e && e.broke) return done({ error: e.broke });      /* a promise broken by a value, here or in what this is worked out from; or an error in the side a choose took */
     if (e && e.later){ let b = null; try { b = brokeIn([e.later]); } catch { b = null; }      /* the side a choose took is too large to work out here, or the backend's: so is this */
-      return done(b ? { error: b } : { type: n.type, deferred: true, ...(e.later.remote ? { backend: true } : {}) }); }
+      return done(b ? { error: b } : { type: n.type, deferred: true, ...(e.later.remote ? { backend: true } : {}), ...(e.later.steps !== undefined ? { steps: e.later.steps } : {}), ...(e.later.forever ? { forever: true } : {}) }); }
     return done({ error: e === LOOP ? { code: 'loop', note: '', node: nodeId } : { code: 'no-source', note: 'it could not be worked out: ' + (e && e.message ? e.message : String(e)), node: nodeId } });
   }
 }
@@ -402,6 +463,9 @@ export function truthAt(graph, id, options = {}){
   for (let k = 0; m && k < 64 && m.op === 'variable' && m.defined !== 'entries' && !m.error && m.inputs.length === 1; k++) m = nodeAt(graph, m.inputs[0]);
   return m && m.op === 'source' ? truthOf(Object.values(plain)) : m ? all(Object.values(plain), numbers(m.type)) : null;      /* a source's values are every value there is in it; a variable's entries are its own, one for each that was given */
 }
+
+/* the cell at which a loop was last stopped by its stop block when it was worked out here, or null */
+export const stoppedAt = (graph, id) => { const st = graph && typeof graph === 'object' ? states.get(graph) : null; return st && st.stops.has(id) ? st.stops.get(id) : null; };
 
 const texts = new WeakMap();
 export function carry(from, to){

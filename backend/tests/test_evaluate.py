@@ -74,7 +74,7 @@ class SameAnswers(unittest.TestCase):
                     unknown += 1
                 elif err is not None:      # the browser has every entry, and this reads a variable some of whose other entries are unknown: refused, never guessed
                     self.assertIn('unknown entries in', err, at)
-                    self.assertIn(G['name'], ('unknown entries',), at)
+                    self.assertIn(G['name'], ('unknown entries', 'loops: a stop block that is not known'), at)
                     unknown += 1
                 else:
                     cells = {tuple(cell[:-1]): cell[-1] for cell in res['cells']}

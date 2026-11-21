@@ -1,11 +1,12 @@
 """The limits. The server is deployed, so the backend refuses what is outsized, with a plain reason, and never runs it.
 
-The five the specification sets, together:"""
+The five the specification sets, and the sixth that came with loops (phase 9), together:"""
 MAX_BODY = 5 * 1024 * 1024          # bytes in the body of a request to /run
 MAX_NODES = 20_000                  # nodes in a graph
 MAX_ENTRIES = 16_000_000            # numbers in any one node: its columns times its rows times every inner length
 MAX_SECONDS = 30                    # seconds a run may take: it is stopped then
 MAX_UPLOAD = 50 * 1024 * 1024       # bytes in a file sent to /data
+MAX_STEPS = 1_000_000               # steps of any one loop (a tile with a step): it is stopped then, as it is at MAX_SECONDS
 
 # And the backend's own smaller bounds, which keep any one step short. None of them is reached by a graph the page builds.
 MAX_FORMULA = 10_000                # characters in one formula (and in one symbolic value)

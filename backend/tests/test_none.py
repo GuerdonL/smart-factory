@@ -42,7 +42,7 @@ class Read(unittest.TestCase):
             self.assertFalse(ok(v), v)
 
     def test_versions_1_2_and_3_are_read(self):
-        for version, good in ((1, True), (2, True), (3, True), (4, True), (5, False), (0, False), ('3', False), (None, False)):
+        for version, good in ((1, True), (2, True), (3, True), (4, True), (5, True), (6, False), (0, False), ('3', False), (None, False)):
             self.assertEqual(validate(graph_of({'a': variable(1, 1, [[7]])}, version=version)) == [], good, version)
 
     def test_a_graph_that_says_a_version_too_low_for_what_it_holds_is_refused(self):

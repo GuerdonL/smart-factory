@@ -708,7 +708,7 @@ In the graph a node's type carries `"value": "integer?"`, both validators check 
 inputs, and a variable that promises carries `"holds"`, which is how the promise reaches the backend. Where a number
 it works out breaks one, its answer has, beside that result's error (the sentence), `"codes": { key: { "code":
 "type", "node": id } }`. A graph that says a version too low for what it holds is refused by both validators (None,
-a value and a promise need version 3; inner data needs 2; a `choose` and a source of None need 4), and a page that finds the backend's `/health` saying an
+a value and a promise need version 3; inner data needs 2; a `choose` and a source of None need 4; a `loop` and a `repeat` with a step need 5), and a page that finds the backend's `/health` saying an
 older version than its own asks it for no run and says "the backend is older than this page: restart it".
 
 ## Conditions, and truth as height
@@ -770,14 +770,14 @@ of the model that anything else is to read: the backend (see "The backend"), an 
                                                // (deferred with backend: true: made of noise or a data file, which only the backend has)
 
 - A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
-  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack`, `entry` and `choose`; its `inputs` are the nodes it is
+  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack`, `entry`, `choose` and `loop`; its `inputs` are the nodes it is
   worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`, holds no
   other name but `index.x`, `index.y`, `k1` to `k6` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
 - A node's `type` is `{ cols, rows, colsName, rowsName }`, with `inner`, the list of its inner axes
   (`[{ "length": 2, "name": "key" }, …]`), where its entries hold inner data, and no other key. An entry's key is
   then `"column,row,k1,k2,…"`. The rules stay two-dimensional: the evaluator runs each once for every inner
   position. `stack` puts matrices into the entries of one, `entry` takes one out, and a `transpose` with `order`
-  turns the axes. These need a graph of `version` 2 (the graph's version is now 4: see above); a version 1 graph holds none of this and is still accepted.
+  turns the axes. These need a graph of `version` 2 (the graph's version is now 5: see above); a version 1 graph holds none of this and is still accepted.
 - A `matmul`'s first input has as many columns as its second has rows, a single entry included: a single entry
   against a single row or column is a product, and against anything else it is a `scale`, which is another node.
   `validate` and the backend's check refuse any other product in the same words ("a product of 1 columns and 3
@@ -906,7 +906,7 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 4 }` (the version of graph it reads; it still takes a version 1, 2 or 3 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 5 }` (the version of graph it reads; it still takes a version 1, 2, 3 or 4 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean", "truth" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
@@ -930,7 +930,7 @@ and each answer is `[c, r, k1, …, value]`; it holds every array with rows and 
 - Noise is the generator written out at the top of `backend/arrays.py`, the same on any machine.
 - All array code is in `backend/arrays.py`, the one module that imports NumPy, so another library can take its place.
 - It refuses what is outsized, with the reason: a request of more than 5 MB; a graph of more than 20,000 nodes; any
-  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; an uploaded file
+  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; a loop that has not stopped after 1,000,000 steps, which is stopped too ("not stopped after 1,000,000 steps: a loop is stopped then"); an uploaded file
   of more than 50 MB. The five numbers are together at the top of `backend/limits.py`, with its smaller bounds
   beneath them: a run that would hold more in arrays than a worker may (see above), more than 65,536 entries asked
   for in one run, more than 64 files or 200 MB under one project's `data/`.

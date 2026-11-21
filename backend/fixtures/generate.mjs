@@ -41,6 +41,7 @@ import { evaluate } from '../../evaluate.js';
 import { read } from '../../project.js';
 import * as S from '../../spaces.js';
 import { treeOf } from '../../expression.js';
+import { total, LOOPS } from '../../tests/looping.js';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..');
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -261,6 +262,14 @@ const HAND = {
     two: V(ty(1, 2), (c, r) => r - 1), runs: N('mapalong', ['two'], ty(2, 4), { fn: 'f:1', axis: 'rows', start: 1, span: 1, count: 2 }) }, fn('body')),
 };
 
+/* ---- loops (phase 9C): graphs by hand, for what the canvases above do not reach (tests/looping.js) ---- */
+const BY_HAND_LOOPS = {
+  'by hand: loop': total(), 'by hand: loop, two rows of two': total({ count: 4, across: 2 }), 'by hand: loop, 256 steps': total({ count: 256, across: 256 }),
+  'by hand: loop, a count that is an input': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': 4 } } } }),
+  'by hand: loop, a count that is no whole number': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': { n: 1, d: 2, k: 0 } } } } }),
+  'by hand: loop, None as state': total({ s0: { none: true } }),
+};
+
 const files = (dir, at = '') => readdirSync(join(dir, at)).sort().flatMap(n => statSync(join(dir, at, n)).isDirectory() ? files(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const near = v => v === null || v === undefined ? null : v === 'inf' || v === '-inf' ? v : typeof v === 'boolean' ? +v : typeof v === 'number' ? v
   : typeof v.err === 'string' ? 'err' : v.none === true ? 'none' : typeof v.sym === 'string' ? Number(globalThis.nerdamer(v.sym).evaluate().text('decimals', 30)) : Math.sign(v.n) * Math.pow(Math.abs(v.n) / (v.d || 1), 1 / 2 ** v.k);
@@ -292,8 +301,8 @@ export function fixtures(){
   const add = (name, g) => { const bad = validate(g); if (bad.length) throw new Error(name + ' is not well formed: ' + bad[0]);
     graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(evaluate(g, id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(evaluate(g, b.node, { binding: b.binding })) })) }); };
   for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$/.test(f.path)), ...given(name)])));
-  for (const [name, s] of Object.entries(CASES)) add(name, build(s));
-  for (const [name, g] of Object.entries(HAND)) add(name, g);
+  for (const [name, s] of Object.entries({ ...CASES, ...LOOPS })) add(name, build(s));
+  for (const [name, g] of Object.entries({ ...HAND, ...BY_HAND_LOOPS })) add(name, g);
   return { graphs: JSON.parse(JSON.stringify(graphs)), mutations: mutations(graphs.map(x => JSON.parse(JSON.stringify(x.graph)))) };
 }
 
@@ -330,7 +339,7 @@ function mutations(graphs){
     /* a choose and a source of None hold their operation's fields and no other */
     for (const id of ids.filter(id => g.nodes[id].op === 'choose' || (g.nodes[id].op === 'source' && g.nodes[id].kind === 'none')).slice(0, 4))
       for (const [k, set] of [['fn', 'mul'], ['formula', 'x'], ['kind', 'zeros'], ['seed', 1], ['holds', 'any'], ['entries', {}], ['name', 'A'], ['within', ['f:x']]]) push({ path: ['nodes', id, k], set });
-    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 5, 0, '2']) push({ path: ['version'], set: v }); });
+    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 5, 6, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }
 
