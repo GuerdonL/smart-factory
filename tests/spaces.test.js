@@ -46,12 +46,12 @@ test('the space a value lies in is the smallest that holds it', () => {
   is(0, 'boolean'); is(1, 'boolean'); is(true, 'boolean'); is(false, 'boolean'); is(2, 'natural'); is(-1, 'ternary'); is(-2, 'integer'); is(q(1, 2), 'probability'); is(q(3, 2), 'rational'); is(q(-1, 2), 'rational'); is(q(2, 1, 1), 'real');
   is(q(1, 2, 1), 'probability');      /* √(1/2) is a real from 0 to 1 */
   is(q(-2, 1, 1), 'real'); is(Infinity, 'extended'); is(-Infinity, 'extended'); is('inf', 'extended'); is('-inf', 'extended');      /* an infinity is no real: the smallest space that holds it is extended */
-  is(NONE, 'boolean?');      /* no number, and None */
+  is(NONE, 'none');      /* no number, and None: the space of its own */
   is(sym('1+sqrt(2)'), 'real'); is(sym('1208925819614629174706176'), 'natural'); is(sym('-1208925819614629174706176'), 'integer'); is(sym('1/1208925819614629174706176'), 'probability');
   is({ f: 0.5 }, 'probability'); is({ f: 2 }, 'real'); is({ f: Infinity }, 'extended');      /* a decimal is not said to be whole or a ratio */
   for (const none of [null, undefined, { err: 'x' }, NaN, 'x', {}]) assert.equal(of(none), null);      /* unknown and an error are no spaces */
   assert.equal(ofAll([1, 2, 3]), 'natural'); assert.equal(ofAll([1, 2, NONE]), 'natural?'); assert.equal(ofAll([0, 5]), 'whole'); assert.equal(ofAll([1, -1, null]), 'ternary'); assert.equal(ofAll([2, q(1, 2)]), 'rational'); assert.equal(ofAll([1]), 'boolean'); assert.equal(ofAll([1, 1, 2]), 'natural'); assert.equal(ofAll([0, q(1, 2)]), 'probability'); assert.equal(ofAll([q(1, 2), q(1, 3)]), 'probability'); assert.equal(ofAll([q(1, 2), q(2, 1, 1)]), 'real'); assert.equal(ofAll([1], ['natural']), 'natural');
-  assert.equal(ofAll([null, { err: 'x' }]), 'boolean'); assert.equal(ofAll([]), 'boolean'); assert.equal(ofAll([NONE]), 'boolean?'); assert.equal(ofAll([2], ['integer?']), 'integer?');
+  assert.equal(ofAll([null, { err: 'x' }]), 'boolean'); assert.equal(ofAll([]), 'boolean'); assert.equal(ofAll([NONE]), 'none'); assert.equal(ofAll([NONE, null]), 'none'); assert.equal(ofAll([], ['none']), 'none'); assert.equal(ofAll([NONE], ['natural']), 'natural?'); assert.equal(ofAll([2], ['integer?']), 'integer?');
 });
 test('what each operation gives, as the rules are stated', () => {
   const is = (op, a, b, r) => assert.equal(binary(op, a, b), r, `${a} ${op} ${b}`), one = (fn, a, r) => assert.equal(unary(fn, a), r, `${fn} ${a}`);
@@ -106,7 +106,7 @@ test('every rule is sound: for every operation and every pair of spaces, what va
 });
 test('a formula\'s space is read off its tree', () => {
   const names = { $1: 'natural', $2: 'integer?', $3: 'probability', x: 'rational' }, is = (text, s) => assert.equal(formula(treeOf(text), n => names[n]), s, text);
-  is('1', 'boolean'); is('2', 'natural'); is('0.5', 'probability'); is('1.5', 'rational'); is('-1', 'ternary'); is('inf', 'extended'); is('ln($2)', 'extended?'); is('1 / inf', 'real'); is('true', 'boolean'); is('none', 'boolean?');
+  is('1', 'boolean'); is('2', 'natural'); is('0.5', 'probability'); is('1.5', 'rational'); is('-1', 'ternary'); is('inf', 'extended'); is('ln($2)', 'extended?'); is('1 / inf', 'real'); is('true', 'boolean'); is('none', 'none'); is('none + $1', 'none'); is('select($1 > 2, none, none)', 'none');
   is('$1 + $1', 'natural'); is('$1 - $1', 'integer'); is('$1 * $2', 'integer?'); is('$1 / $1', 'rational'); is('$1 ^ 2', 'natural'); is('$1 ^ $2', 'real?'); is('exp($1)', 'real'); is('ln($1)', 'real'); is('ln($3)', 'extended');
   is('select($2, $1, $3)', 'real'); is('select($1 > 2, none, $1)', 'natural?'); is('$2 == none', 'boolean'); is('$2 < 1', 'boolean?'); is('!$2', 'boolean'); is('max($1, 0)', 'whole'); is('x * 2', 'rational');
   is('tanh($1)', 'probability'); is('sqrt($3)', 'probability'); is('1 - $3', 'real'); is('unknownName + 1', 'any?'); is('1' + '0'.repeat(45), 'real');
@@ -151,7 +151,7 @@ test('graph: every node\'s type says its number space, by its operation\'s rule'
     arrow('sq', { id: 'A', as: 'block' }, { side: 's', span: 2, formula: 'x ^ 2 - i' }), arrow('cmp', { id: 'A', as: 'block' }, { side: 'n', span: 2, formula: 'x > 2' })].map((d, i) => i === 0 ? { ...d, variable: 1 } : d)));
   const is = (id, s) => assert.equal(valueOf(g, id), s, id);
   is('v:A', 'natural'); is('v:W', 'boolean'); is('matmul(v:A,v:W)', 'whole'); is('v:C', 'ternary'); is('v:D', 'probability'); is('add(v:C,v:D)', 'real'); is('ewise(v:E,v:F;div;none)', 'rational');
-  is('v:s', 'boolean?'); is('scale(v:s,v:M)', 'whole?');      /* None alone is written boolean?, the smallest word there is: what is made of it is wider than it need be, never narrower */
+  is('v:s', 'none'); is('scale(v:s,v:M)', 'none');      /* None alone has its own space, and None with anything is None */
    is('v:U', 'boolean');      /* an entry not given says nothing */
   is('v:Fm', 'real'); is('measure(v:A;x)', 'natural'); is('v:Zs', 'boolean'); is('v:Nu', 'probability'); is('v:Nn', 'real'); is('v:Fl', 'real'); is('transpose(v:A)', 'natural');
   is(g.spaces.top.arrows.find(a => a.arrow === 'sq').node, 'integer'); is(g.spaces.top.arrows.find(a => a.arrow === 'cmp').node, 'boolean');
@@ -265,4 +265,28 @@ test('evaluate: a promise on the block seated on an arrow is held against the ar
     B('Out', 5, 20, 1, 2, { seat: 'lin', holds: 'whole' })]));
   assert.deepEqual(evaluate(g, 'v:Out'), { error: { code: 'type', note: 'Out is not whole: it holds -5 at 1, 2', node: 'v:Out' } });
   assert.equal(promiseOf(g, 'v:Out').state, 'broken'); assert.deepEqual(evaluate(g, g.spaces.top.arrows[0].node).entries, { '1,1': 5, '1,2': -5 });      /* the arrow's own output is as it was */
+});
+
+/* ---- ruled 21 November 2026: None has a space of its own ---- */
+test('none is the space of None alone: joined with a space S it is S? exactly, it lies within what admits None, and it can be promised', () => {
+  assert.deepEqual(parse('none'), { space: null, none: true }); assert.equal(parse('none?'), null); assert.equal(parse('None'), null); assert.ok(!SPACES.includes('none'));
+  assert.deepEqual(promise('none'), { holds: 'none' }); assert.deepEqual(promise(' None '), { holds: 'none' }); assert.deepEqual(promise('none?'), { holds: 'none' });      /* None or None is None */
+  assert.equal(said('none'), 'None'); assert.equal(of(NONE), 'none'); assert.equal(ofAll([NONE, NONE]), 'none');
+  for (const s of SPACES){ assert.equal(both('none', s), s + '?', s); assert.equal(both(s + '?', 'none'), s + '?', s); assert.equal(choice('none', s), s + '?', s);
+    assert.ok(within('none', s + '?'), s); assert.ok(!within('none', s), s); assert.ok(!within(s, 'none'), s); assert.ok(!within(s + '?', 'none'), s);
+    for (const op of ['+', '-', '*', '/', '^', '<', '>', '<=', '>=', 'max', 'min']){ assert.equal(binary(op, 'none', s), 'none', op + ' ' + s); assert.equal(binary(op, s + '?', 'none'), 'none', op + ' ' + s); }      /* None with anything is None */
+    for (const op of ['==', '!=', '&&', '||']) assert.equal(binary(op, 'none', s), 'boolean', op + ' ' + s); }
+  assert.equal(both('none', 'none'), 'none'); assert.ok(within('none', 'none')); assert.equal(both('none', 'natural'), 'natural?');      /* not whole? */
+  for (const fn of ['neg', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']) assert.equal(unary(fn, 'none'), 'none', fn); assert.equal(unary('!', 'none'), 'boolean');
+  assert.equal(sum('none', 3), 'none'); assert.equal(product('none', 'natural', 2), 'none');
+  assert.equal(admits('none', NONE), true); assert.equal(admits('none', 0), false); assert.equal(admits('none', null), true); assert.equal(admits('none', { err: 'x' }), true);
+  assert.deepEqual(broken('none', { '1,1': NONE, '2,1': 2 }), { key: '2,1', value: 2 }); assert.equal(NOT_HELD('W', 'none', '2,1', 2), 'W is not None: it holds 2 at 2, 1');
+  assert.equal(UNPROVEN('W', 'none', 'natural?'), 'W cannot be shown to be None: it is worked out as natural or None');
+});
+test('a shape of only None is worked out as none, promises it and keeps it, and a number in it breaks the promise', () => {
+  const B = (id, entries, more = {}) => ({ id, type: 'tensor', name: id, x: 0, y: 0, cols: 2, rows: 1, colsName: null, rowsName: null, entries, inside: null, variable: null, ...more });
+  const g = build({ top: { shapes: [B('E', { '1,1': NONE, '2,1': NONE }), B('P', { '1,1': NONE, '2,1': NONE }, { x: 10, holds: 'none' }), B('Q', { '1,1': NONE, '2,1': 3 }, { x: 20, holds: 'none' })], groups: [], operations: [] } });
+  assert.deepEqual(validate(g), []); const node = id => g.blocks[id];
+  assert.equal(g.nodes[node('E')].type.value, 'none'); assert.equal(promiseOf(g, node('E')).inferred, 'none'); assert.equal(g.nodes[node('P')].holds, 'none'); assert.equal(promiseOf(g, node('P')).state, 'kept');
+  assert.deepEqual(promiseOf(g, node('Q')), { holds: 'none', inferred: 'natural?', state: 'broken', note: 'Q is not None: it holds 3 at 2, 1' });
 });

@@ -203,7 +203,7 @@
 
    The format is 5. Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
    shape: the number space it promises (spaces.js), one of the ten words with a "?" after it where it may hold None
-   ("integer?"), left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
+   ("integer?"), or "none" for None alone, left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
    saved again it differs only in the format number. Reading, a holds that is no such word is dropped, and so is one
    written only on a reference (a promise is its variable's, said on the shape the variable was made as) or on a
    shape fused into another: read's project carries unheld, [{ name, holds, why }], each of them, for whoever

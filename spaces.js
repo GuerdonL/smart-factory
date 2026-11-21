@@ -14,7 +14,10 @@
        extended       the reals and the two infinities, ∞ and -∞         inside any
        any            nothing promised
 
-   A space is written as its word, with "?" after it where None is admitted too: "integer?". Unknown and error are
+   A space is written as its word, with "?" after it where None is admitted too: "integer?". None has a space of
+   its own, written "none": no number at all, and None. It is no eleventh number space (it is not in SPACES, and
+   takes no "?"): joined with any space S it gives "S?" exactly, it lies within every space that admits None and
+   within no other, and it can be promised, as the ten can. Unknown and error are
    no spaces: any shape may have an entry not yet given, and an error is of no type. complex is a reserved word: it
    is refused as a promise, with a sentence saying it is not built.
 
@@ -29,7 +32,9 @@
                                [[of, result], …]. The first clause both sides lie inside gives the result; where
                                none does it is any. Each is sound: it never gives a smaller space than the result
                                can lie in, and where there was doubt it gives the wider one.
-   parse(text)                 -> { space, none } for a word with or without its "?", else null
+   NONE                        "none", the space of None alone
+   parse(text)                 -> { space, none } for a word with or without its "?", else null; "none" is
+                                  { space: null, none: true }, and "none?" is no way to write anything
    promise(text)               -> { holds: "integer?" } | { refused: why }: a word typed or read as a promise
    inside(a, b)                -> whether the space a lies inside b (or is b); a and b are words
    within(a, b)                -> the same of two written spaces, None and all: "natural" is within "integer?",
@@ -37,12 +42,13 @@
    both(a, b)                  -> the space of both: the smallest listed space that holds the two, written
    of(value)                   -> the smallest space a value lies in, written: 0 and 1 are boolean, 2 natural, -1
                                   ternary, -2 integer, 1/2 probability, 3/2 rational, √2 real, ±∞ extended; None is
-                                  "boolean?" (no number, and None); null for unknown and for an error. A value as
+                                  "none"; null for unknown and for an error. A value as
                                   the graph writes it or as values.js holds it. A symbolic value is real (or, where
                                   it is a whole number or a fraction too long for plain numbers, what that is):
                                   nothing here asks the solver, so that the backend can say the same.
-   ofAll(values, more)         -> the space of them all, unknowns and errors left out; "boolean" where there is
-                                  no number among them (the smallest word there is to say so). more: written
+   ofAll(values, more)         -> the space of them all, unknowns and errors left out; "none" where there is
+                                  no number among them and a None is, and "boolean" where there is nothing at
+                                  all (the smallest word there is to say so). more: written
                                   spaces that are among them too (what a variable's formulas come to)
    binary(op, a, b)            -> the space of a op b, for + - * / ^, == != < > <= >=, && ||, max and min
    unary(fn, a)                -> of fn(a), for neg ! abs sqrt exp ln tanh erf
@@ -70,6 +76,7 @@ import { combine, written as valueText, isError, isNone } from './values.js';
 
 export const SPACES = ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'extended', 'any'];
 export const INSIDE = { boolean: ['whole', 'ternary', 'probability'], ternary: ['integer'], natural: ['whole'], whole: ['integer'], integer: ['rational'], rational: ['real'], probability: ['real'], real: ['extended'], extended: ['any'], any: [] };
+export const NONE = 'none';
 export const RESERVED = { complex: 'complex numbers are not built: a shape holds numbers on the line' };
 const B = 'boolean', T = 'ternary', N = 'natural', W = 'whole', Z = 'integer', Q = 'rational', P = 'probability', R = 'real', X = 'extended', A = 'any';
 export const BINARY = {
@@ -101,17 +108,18 @@ for (const a of SPACES) for (const b of SPACES){ const common = SPACES.filter(s 
 /* inside, a space is [word or null, whether None is admitted]: null is no number at all (None alone, or nothing known) */
 const join = (a, b) => a === null ? b : b === null ? a : joins[a + ' ' + b];
 const WORD = /^([a-z]+)(\?)?$/;
-export function parse(text){ const m = typeof text === 'string' ? text.match(WORD) : null; return m && SPACES.includes(m[1]) ? { space: m[1], none: !!m[2] } : null; }
+export function parse(text){ if (text === NONE) return { space: null, none: true };
+  const m = typeof text === 'string' ? text.match(WORD) : null; return m && SPACES.includes(m[1]) ? { space: m[1], none: !!m[2] } : null; }
 const read = text => { const p = parse(text); return p ? [p.space, p.none] : [A, true]; };      /* what is not written is not known: any, or None */
-const write = ([space, none]) => (space === null ? B : space) + (none ? '?' : '');
+const write = ([space, none]) => space === null ? (none ? NONE : B) : space + (none ? '?' : '');      /* no number: None alone where a None is; where nothing is known at all, the smallest word there is */
 export function promise(text){
-  const t = String(text ?? '').trim().toLowerCase(), word = t.replace(/\?$/, '');
+  const typed = String(text ?? '').trim().toLowerCase(), word = typed.replace(/\?$/, ''), t = word === NONE ? NONE : typed;      /* None or None is None */
   if (Object.hasOwn(RESERVED, word)) return { refused: RESERVED[word] };
-  return parse(t) ? { holds: t } : { refused: `${word || 'that'} is no number space: a shape holds one of ${SPACES.join(', ')}` };
+  return parse(t) ? { holds: t } : { refused: `${word || 'that'} is no number space: a shape holds one of ${SPACES.join(', ')}, or ${NONE}` };
 }
-export const within = (a, b) => { const x = parse(a), y = parse(b); return !!x && !!y && inside(x.space, y.space) && (!x.none || y.none); };
+export const within = (a, b) => { const x = parse(a), y = parse(b); return !!x && !!y && (x.space === null || (y.space !== null && inside(x.space, y.space))) && (!x.none || y.none); };
 export const both = (a, b) => { const x = read(a), y = read(b); return write([join(x[0], y[0]), x[1] || y[1]]); };
-export const said = text => { const p = parse(text); return p ? p.space + (p.none ? ' or None' : '') : ''; };
+export const said = text => { const p = parse(text); return !p ? '' : p.space === null ? 'None' : p.space + (p.none ? ' or None' : ''); };
 
 /* ---- values ----
    A value lies in several spaces at once (1 is boolean and natural), so the smallest space of some values is not
@@ -143,10 +151,10 @@ function lies(v){
 }
 /* the first listed space that holds every one of the values and has every one of the written spaces inside it */
 function smallest(values, more = []){
-  let held = FIRST, none = false;
-  for (const v of values){ const s = lies(v); if (s){ held = held.filter(x => s[0].includes(x)); none = none || s[1]; } }
-  for (const w of more){ const s = read(w); held = held.filter(x => s[0] === null || inside(s[0], x)); none = none || s[1]; }
-  return [held[0], none];
+  let held = FIRST, none = false, number = false;
+  for (const v of values){ const s = lies(v); if (s){ held = held.filter(x => s[0].includes(x)); none = none || s[1]; number = number || !s[1]; } }
+  for (const w of more){ const s = read(w); held = held.filter(x => s[0] === null || inside(s[0], x)); none = none || s[1]; number = number || s[0] !== null; }
+  return [number || !none ? held[0] : null, none];      /* None and no number among them: None alone */
 }
 /* one value as [space or null, None]: null for None, which is no number */
 const ofValue = v => { const s = lies(v); return s === undefined ? undefined : s[1] ? [null, true] : [FIRST.find(x => s[0].includes(x)), false]; };
@@ -214,6 +222,7 @@ export function admits(holds, v){
   const p = parse(holds); if (!p) return true;
   if (v === null || v === undefined || isError(v)) return true;
   if (isNone(v)) return p.none;
+  if (p.space === null) return false;      /* promised None alone: no number is that */
   if (v === 'inf') v = Infinity; else if (v === '-inf') v = -Infinity;
   if (typeof v === 'object' && typeof v.f === 'number') return p.space === A || p.space === X || (Number.isFinite(v.f) && (p.space === R || (p.space === P && v.f >= 0 && v.f <= 1)));      /* a decimal is asked only whether it is on the line (or an infinity), and from 0 to 1 */
   return HOLDS[p.space](v);

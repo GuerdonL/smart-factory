@@ -1,13 +1,14 @@
 """Number spaces: which numbers a shape may hold. spaces.js written again for the backend, from the same tables.
 
 spaces.js is the reference and sets the ten spaces out: boolean, ternary, natural, whole, integer, rational,
-probability, real, extended (the reals with ∞ and -∞) and any, written as the word with "?" after it where None is admitted ("integer?"). They are not
+probability, real, extended (the reals with ∞ and -∞) and any, written as the word with "?" after it where None is
+admitted ("integer?"); and "none", the space of None alone, which is no number space and takes no "?". They are not
 one chain; INSIDE says which lies directly inside which, and BINARY and UNARY hold one list of clauses for each
 operation. Everything here is worked from those tables, as it is there, and backend/fixtures/spaces.json (made by
 spaces.js) holds what they come to for every pair of spaces and every operation: tests/test_spaces.py holds this
 file to it, so the two cannot drift apart.
 
-    parse(text)             -> (space, none) for a word with or without its "?", else None
+    parse(text)             -> (space, none) for a word with or without its "?", else None; "none" is (None, True)
     inside(a, b)            -> whether the space a lies inside b (or is b)
     within(a, b)            -> the same of two written spaces, None and all
     both(a, b)              -> the space of both: the smallest listed space that holds the two, written
@@ -45,6 +46,7 @@ UNARY = {
 COMPARES = ('==', '!=', '<', '>', '<=', '>=')
 LOGIC = ('&&', '||')
 ANY = 'any?'
+NONE = 'none'
 
 
 def _above():
@@ -88,6 +90,8 @@ def _join(a, b):
 
 
 def parse(text):
+    if isinstance(text, str) and text == NONE:
+        return (None, True)
     m = WORD.fullmatch(text) if isinstance(text, str) else None
     return (m.group(1), bool(m.group(2))) if m and m.group(1) in SPACES else None
 
@@ -97,12 +101,12 @@ def _read(text):
 
 
 def _write(s):
-    return (B if s[0] is None else s[0]) + ('?' if s[1] else '')
+    return (NONE if s[1] else B) if s[0] is None else s[0] + ('?' if s[1] else '')
 
 
 def within(a, b):
     x, y = parse(a), parse(b)
-    return bool(x and y) and inside(x[0], y[0]) and (not x[1] or y[1])
+    return bool(x and y) and (x[0] is None or (y[0] is not None and inside(x[0], y[0]))) and (not x[1] or y[1])
 
 
 def both(a, b):
@@ -178,15 +182,15 @@ FIRST = (B, T, N, W, Z, P, Q, R, X, A)      # a smaller space before any it lies
 
 
 def _smallest(values, more=()):
-    held, none = list(FIRST), False
+    held, none, number = list(FIRST), False, False
     for v in values:
         s = _lies(v)
         if s:
-            held, none = [x for x in held if x in s[0]], none or s[1]
+            held, none, number = [x for x in held if x in s[0]], none or s[1], number or not s[1]
     for w in more:
         s = _read(w)
-        held, none = [x for x in held if s[0] is None or inside(s[0], x)], none or s[1]
-    return (held[0], none)
+        held, none, number = [x for x in held if s[0] is None or inside(s[0], x)], none or s[1], number or s[0] is not None
+    return (held[0] if number or not none else None, none)      # None and no number among them: None alone
 
 
 def _of(v):

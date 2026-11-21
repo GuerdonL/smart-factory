@@ -26,7 +26,7 @@ class SameAsSpacesJs(unittest.TestCase):
             self.assertEqual(S.inside(*pair(key)), yes, key)
 
     def test_the_space_of_both_for_every_pair(self):
-        self.assertEqual(len(self.table['both']), 20 * 20)
+        self.assertEqual(len(self.table['both']), 21 * 21)
         for key, word in self.table['both'].items():
             self.assertEqual(S.both(*pair(key)), word, key)
         for key, yes in self.table['within'].items():
@@ -38,7 +38,7 @@ class SameAsSpacesJs(unittest.TestCase):
         seen = 0
         self.assertEqual(sorted(self.table['binary']), sorted(['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min']))
         for op, by in self.table['binary'].items():
-            self.assertEqual(len(by), 20 * 20)
+            self.assertEqual(len(by), 21 * 21)
             for key, word in by.items():
                 self.assertEqual(S.binary(op, *pair(key)), word, '%s %s' % (op, key))
                 seen += 1
@@ -88,6 +88,33 @@ class SameAsSpacesJs(unittest.TestCase):
         self.assertGreater(len(self.table['formulas']), 150)
         for text, arrow, word in self.table['formulas']:
             self.assertEqual(S.formula(parse(text), lookup(arrow)), word, '%s%s' % (text[:60], ' (an arrow\'s)' if arrow else ''))
+
+
+class NoneAlone(unittest.TestCase):
+    """Ruled 21 November 2026: None has a space of its own, none."""
+
+    def test_none_is_read_joined_and_held_within_as_spaces_js_has_it(self):
+        self.assertEqual(S.parse('none'), (None, True))
+        self.assertIsNone(S.parse('none?'))
+        self.assertEqual(S.of({'none': True}), 'none')
+        self.assertEqual(S.of_all([{'none': True}, None]), 'none')
+        for s in S.SPACES:
+            self.assertEqual(S.both('none', s), s + '?')
+            self.assertTrue(S.within('none', s + '?'))
+            self.assertFalse(S.within('none', s))
+            self.assertFalse(S.within(s + '?', 'none'))
+            self.assertEqual(S.binary('*', 'none', s), 'none')
+            self.assertEqual(S.binary('==', 'none', s), 'boolean')
+        self.assertTrue(S.within('none', 'none'))
+
+    def test_a_graph_may_say_none_for_a_value_and_for_a_promise(self):
+        t = {'cols': 1, 'rows': 1, 'colsName': None, 'rowsName': None, 'value': 'none'}
+        g = {'version': 3, 'functions': {}, 'spaces': {}, 'blocks': {}, 'nodes': {'v': {'op': 'variable', 'inputs': [], 'type': t, 'name': 'V', 'named': True, 'defined': 'entries', 'entries': {'1,1': {'none': True}}, 'holds': 'none'}}}
+        self.assertEqual(validate(g), [])
+        g['nodes']['v']['type']['value'] = 'none?'
+        self.assertNotEqual(validate(g), [])
+        g['nodes']['v']['type']['value'] = 'boolean?'
+        self.assertNotEqual(validate(g), [])
 
 
 class InAGraph(unittest.TestCase):

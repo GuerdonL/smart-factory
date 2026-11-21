@@ -24,7 +24,8 @@ import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, MOST as MOST_HERE } from './evaluate.js';
-import { SPACES, RESERVED, promise as promiseRead } from './spaces.js';
+import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
+const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';

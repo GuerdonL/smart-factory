@@ -292,14 +292,14 @@ const FORMULAS = ['1', '0', '2', '0.5', '1.5', '1.0', '5.', '.25', '123456789012
   'select($1, $2, $3)', 'select($1 > 0, none, $2)', 'select(none, $1, $2)', '$1 == $2', '$1 != none', '$1 < $2', '$1 >= none', '$1 && $2', '$1 || none', 'none + $1', 'none == none', 'index.x + index.y', 'k1 * 2', 'x + i * j', 'x / i', 'X ^ J',
   '$4', '$1 + unknown', '2x', '2(3+1)', '1/0', '(-8)^(1/3)', '($1 + $2) * ($3 - 1) / 2 ^ 2', 'exp(-($1 ^ 2))', 'tanh(abs($1))', '1 - $3', 'abs($1 - $2)', 'max(1, $1)', 'ln($1 + 1)', 'ln(2)', 'sqrt(4)', '-1', '-(1)', '+$1', '2 - 1'];
 export function spaceTable(){
-  const words = S.SPACES.flatMap(s => [s, s + '?']), pairs = fn => Object.fromEntries(words.flatMap(a => words.map(b => [a + ' ' + b, fn(a, b)])));
+  const words = [...S.SPACES.flatMap(s => [s, s + '?']), S.NONE], pairs = fn => Object.fromEntries(words.flatMap(a => words.map(b => [a + ' ' + b, fn(a, b)])));
   const named = ['natural', 'integer?', 'probability'], lookup = arrow => name => { const m = name.match(/^\$(\d+)$/); if (m) return named[+m[1] - 1]; if (/^index\.[xy]$/i.test(name) || /^k[1-6]$/i.test(name)) return 'natural';
     const k = name.toLowerCase(); return !arrow ? undefined : k === 'x' ? 'rational' : k === 'i' || k === 'j' ? 'natural' : undefined; };
   return { spaces: S.SPACES, inside: Object.fromEntries(S.SPACES.flatMap(a => S.SPACES.map(b => [a + ' ' + b, S.inside(a, b)]))), within: pairs(S.within), both: pairs(S.both), choice: pairs(S.choice),
     binary: Object.fromEntries(['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min'].map(op => [op, pairs((a, b) => S.binary(op, a, b))])),
     unary: Object.fromEntries(['neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf'].map(fn => [fn, Object.fromEntries(words.map(a => [a, S.unary(fn, a)]))])),
     sum: Object.fromEntries(words.flatMap(a => [1, 2, 3, 5].map(n => [a + ' ' + n, S.sum(a, n)]))), product: Object.fromEntries([1, 2, 4].map(n => [n, pairs((a, b) => S.product(a, b, n))])),
-    parse: ['integer', 'integer?', 'any?', 'complex', 'Integer', 'integer ?', '', '?', 'whole?', 'number', 'decimal', 'fraction', 'root', 'irrational'].map(w => [w, S.parse(w) ? [S.parse(w).space, S.parse(w).none] : null]),
+    parse: ['integer', 'integer?', 'any?', 'complex', 'Integer', 'integer ?', '', '?', 'whole?', 'number', 'decimal', 'fraction', 'root', 'irrational', 'none', 'none?', 'None'].map(w => [w, S.parse(w) ? [S.parse(w).space, S.parse(w).none] : null]),
     of: VALUES.map(v => [v, S.of(v)]), ofAll: [[], [1, 2], [0, 1], [1, -1], [2, half], [{ none: true }], [{ none: true }, 2, 3], [2, 'inf'], [{ err: 'x' }, -5], [half, root2], [true, { n: 3, d: 2, k: 0 }]].map(vs => [vs, S.ofAll(vs)]),
     formulas: FORMULAS.flatMap(text => [false, true].map(arrow => [text, arrow, S.formula(treeOf(text), lookup(arrow))])) };
 }

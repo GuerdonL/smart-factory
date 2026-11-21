@@ -27,7 +27,7 @@
                                        the warning colour, the promise's word in that colour too
                              fixed     the row can only be read (there is no block to hold the promise)
                              hint      a sentence written after the list: what to do to promise it
-                           A row is a list of the ten words (the first choice is no promise) and an "or None" box;
+                           A row is a list of the ten words and None, the space of None alone (the first choice is no promise), and an "or None" box;
                            a choice is handed on as onHolds(key, "integer?"), and no promise as onHolds(key, null).
                            words: the ten, in order. reserved: words kept back for what is not built
                            (complex), listed after them as "complex (not built)"; choosing one is handed on like
@@ -179,14 +179,14 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
       /* the number space it holds: a promise chosen from the ten words, with "or None"; or, greyed, what it is worked out as */
       for (const sp of what.spaces || []){
         const label = html`<span class="label"></span>`, cellV = html`<span class="value spaced"></span>`, pick = html`<select class="space"></select>`, box = html`<label class="space-none"><input type="checkbox"> or None</label>`, tick = box.firstElementChild;
-        const word = sp.holds ? sp.holds.replace(/\?$/, '') : '', none = sp.holds ? sp.holds.endsWith('?') : !!sp.inferred && sp.inferred.endsWith('?'), said = sp.inferred ? sp.inferred.replace(/\?$/, '') + (sp.inferred.endsWith('?') ? ' or None' : '') : 'not known yet';
+        const word = sp.holds ? sp.holds.replace(/\?$/, '') : '', none = sp.holds ? sp.holds.endsWith('?') : !!sp.inferred && sp.inferred.endsWith('?'), said = sp.inferred === 'none' ? 'None' : sp.inferred ? sp.inferred.replace(/\?$/, '') + (sp.inferred.endsWith('?') ? ' or None' : '') : 'not known yet';      /* (none: the space of None alone, spaces.js) */
         label.textContent = sp.label; pick.dataset.k = sp.key + '.space'; pick.setAttribute('aria-label', sp.label + ': the number space'); tick.dataset.k = sp.key + '.none';
         const free = html`<option value=""></option>`; free.textContent = said + (sp.from ? ` (${sp.from})` : ''); pick.append(free);
-        for (const w of what.words || []){ const o = html`<option></option>`; o.value = w; o.textContent = w; pick.append(o); }
+        for (const w of what.words || []){ const o = html`<option></option>`; o.value = w; o.textContent = w === 'none' ? 'None' : w; pick.append(o); }
         /* a word that is kept back for what is not built: listed, so that it is seen to be none of the spaces, and choosing it is refused with its sentence by whoever is told (the list goes back to what it showed) */
         for (const w of what.reserved || []){ const o = html`<option class="reserved"></option>`; o.value = w; o.textContent = w + ' (not built)'; pick.append(o); }
-        pick.value = word; pick.classList.toggle('inferred', !word); pick.classList.toggle('unmet', !!sp.note); tick.checked = none; pick.disabled = !!sp.fixed; tick.disabled = !!sp.fixed || !word;
-        const tell = () => { showing = ''; onHolds(sp.key, pick.value ? pick.value + (tick.checked ? '?' : '') : null); };
+        pick.value = word; pick.classList.toggle('inferred', !word); pick.classList.toggle('unmet', !!sp.note); tick.checked = none; pick.disabled = !!sp.fixed; tick.disabled = !!sp.fixed || !word || word === 'none';      /* (None alone admits None already: there is nothing to tick) */
+        const tell = () => { showing = ''; onHolds(sp.key, pick.value ? pick.value + (tick.checked && pick.value !== 'none' ? '?' : '') : null); };
         pick.addEventListener('change', tell); tick.addEventListener('change', tell);
         cellV.append(pick, box);
         if (sp.note){ const r = html`<span class="outcome error"></span>`; r.textContent = sp.note; cellV.append(r); }
