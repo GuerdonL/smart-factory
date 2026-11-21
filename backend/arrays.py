@@ -220,6 +220,11 @@ def _wrong(a, ma, b, mb):
     return lost | zero | ((up > 0) & (down > 0))
 
 
+def _along(flags, axis):
+    """Flags brought down to one axis (counted from the end): true at a place where any of them is."""
+    return flags.any(axis=tuple(k for k in range(flags.ndim) if k != flags.ndim + axis))
+
+
 def matmul(a, b):
     a, ma = _split(a)
     b, mb = _split(b)
@@ -229,9 +234,25 @@ def matmul(a, b):
             return out
         # an entry is None where a term of it is: a None anywhere in its row of the one, or its column of the other
         none = np.broadcast_to((ma.any(axis=-1, keepdims=True) if ma is not None else False) | (mb.any(axis=-2, keepdims=True) if mb is not None else False), out.shape)
-        met = (ma is not None and np.isinf(b).any()) or (mb is not None and np.isinf(a).any())
-        wrong = np.broadcast_to(_wrong(a, ma, b, mb), out.shape) if met else np.isnan(out)
-        out = np.where(none & wrong, NAN, out).astype(F)      # an entry with no value stays one, None term or no
+        # An entry with no value stays one, None term or no. As numbers that is told by the product itself, but for
+        # one case: a None (held as 0) set against an infinity is 0 × ∞, which is no term at all. That can only be
+        # at an entry whose row of the one has a None at a place where the other has an infinity in its column (or
+        # the same with the two changed about). Those rows against those columns alone are counted term by term
+        # (_wrong), and nothing is where no None meets an infinity.
+        wrong = np.isnan(out)
+        ia, ib = np.isinf(a), np.isinf(b)
+        for mask, inf, on_a in ((ma, ib, True), (mb, ia, False)):
+            if mask is None or not inf.any():
+                continue
+            # the rows of the one and the columns of the other between which a None of mask can meet an infinity of inf
+            if on_a:
+                rows, cols = _along(mask & _along(inf, -2), -2), _along(inf & _along(mask, -1)[:, None], -1)
+            else:
+                rows, cols = _along(inf & _along(mask, -2), -2), _along(mask & _along(inf, -1)[:, None], -1)
+            r, c = np.flatnonzero(rows), np.flatnonzero(cols)
+            if r.size and c.size:
+                wrong[..., r[:, None], c] = _wrong(a[..., r, :], None if ma is None else ma[..., r, :], b[..., :, c], None if mb is None else mb[..., :, c])
+        out = np.where(none & wrong, NAN, out).astype(F)
         return _held(out, none & ~wrong)
 
 
