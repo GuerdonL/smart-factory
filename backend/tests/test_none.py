@@ -74,6 +74,14 @@ class Masks(unittest.TestCase):
         self.assertEqual(says(A.binary('!=', x, y)), [[1.0, 0.0, 1.0, 1.0, 'err', 0.0]])
         self.assertNotIsInstance(A.binary('==', x, y), A.Held)      # true or false, never None
 
+    def test_x_is_not_none_tests_that_a_value_is_present(self):
+        # ruled 21 November 2026: != is the opposite of ==, never None
+        x = self.row('none', 0, 3, math.inf, 'err')
+        got = evaluate(parse('x != none'), lambda name: x, A)
+        self.assertEqual(says(got), [[0.0, 1.0, 1.0, 1.0, 'err']])
+        self.assertNotIsInstance(got, A.Held)
+        self.assertEqual(says(evaluate(parse('select(x != none, x, 0 - 1)'), lambda name: x, A)), [[-1.0, 0.0, 3.0, math.inf, 'err']])
+
     def test_none_is_false(self):
         x, y = self.row('none', 'none', 'none', 3, 'none'), self.row(3, 0, 'none', 'none', 'err')
         self.assertEqual(says(A.binary('&&', x, y)), [[0.0, 0.0, 0.0, 0.0, 'err']])

@@ -324,3 +324,12 @@ test('none typed into an entry is kept as the value None, and is typed over as n
   assert.deepEqual(entered('none + 1'), { value: { expr: 'none + 1' } });      /* a formula is kept as its text, whatever it comes to */
   assert.equal(typed(NONE), 'none'); assert.deepEqual(entered(typed(NONE)), { value: NONE });
 });
+
+/* ruled 21 November 2026 */
+test('x != none tests that a value is present: true for a number, false for None, in a formula and in a select', () => {
+  const at = x => name => name === 'x' ? x : undefined, NONE = { none: true };
+  assert.equal(evaluate('x != none', at(3)).value, true); assert.equal(evaluate('x != none', at(0)).value, true); assert.equal(evaluate('x != none', at(NONE)).value, false);
+  assert.equal(evaluate('none != none').value, false); assert.equal(evaluate('none != 0').value, true); assert.equal(evaluate('x == none', at(NONE)).value, true);
+  assert.equal(evaluate('select(x != none, x, 0)', at(NONE)).value, 0); assert.equal(evaluate('select(x != none, x, 0)', at(7)).value, 7);
+  assert.equal(evaluate('x != none', at(null)).value, null);      /* an entry not given is not known to be present or not */
+});

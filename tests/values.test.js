@@ -292,6 +292,12 @@ test('None == 0 and None == false are false; None == None is true; != is the oth
   is('==', N, 0, false); is('==', 0, N, false); is('==', N, false, false); is('==', N, N, true);
   is('!=', N, 0, true); is('!=', N, N, false); is('==', N, q(1, 2), false); is('==', N, INF, false); is('==', N, sym('1+sqrt(2)'), false);
 });
+/* ruled 21 November 2026: != is the opposite of ==, never None, so x != none tests that a value is present */
+test('None != x is the opposite of None == x for every kind of value: true but for None itself, and never None', () => {
+  for (const v of [0, 1, -3, false, true, q(1, 2), q(2, 1, 1), INF, -INF, sym('1+sqrt(2)'), { f: 0.5 }]){ is('!=', N, v, true); is('!=', v, N, true); is('==', N, v, false); is('==', v, N, false); }
+  is('!=', N, N, false); is('==', N, N, true);
+  is('!=', N, E('x'), E('x')); is('!=', E('x'), N, E('x')); is('!=', N, null, null); is('!=', null, N, null);      /* an error and an unknown come first, as everywhere */
+});
 test('None < 1 and max(None, 3) are None', () => { for (const op of ['<', '>', '<=', '>=', 'max', 'min']){ is(op, N, 1, N); is(op, 3, N, N); } });
 test('1 / None is None, not a division by zero', () => { is('/', 1, N, N); is('/', N, 0, N); is('/', N, 1, N); });
 test('exp(None), ln(None) and every other function of None are None; !None is true', () => {
