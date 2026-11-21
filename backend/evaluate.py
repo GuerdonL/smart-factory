@@ -38,8 +38,9 @@ hold it at once, a map's to the whole matrix. A select works both its sides out 
 
 What has been worked out is remembered for the run, up to half the room the run was given for its arrays (room, in
 bytes: limits.py says how it follows from the machine's memory): past that the oldest results are let go, and worked
-out again if they are asked for again. weight(node) says how many entries a node is worked out from in all, so that
-run.py can refuse one that would not fit before any of it is made."""
+out again if they are asked for again. weight(node) says how many entries a node is worked out from in all, and
+bytes_for(node, …) how many bytes that may come to (the mask of an array that may hold None counted, as arrays.size
+counts it), so that run.py can refuse one that would not fit before any of it is made."""
 import json
 import math
 from collections import OrderedDict
@@ -439,7 +440,7 @@ def reads(n, ins):
 class Run:
     def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST):
         self.graph, self.nodes, self.functions, self.tick = graph, graph['nodes'], graph['functions'], tick
-        self.room, self._weights = room, {}      # room: the bytes its arrays may take in all
+        self.room, self._weights, self._masked = room, {}, {}      # room: the bytes its arrays may take in all
         self.read_file, self.files, self.trees = read_file, {}, {}
         self.kept, self.held = OrderedDict(), 0
         self._needs, self._follows, self._homes, self.repeats = {}, {}, None, {}
@@ -510,10 +511,11 @@ class Run:
         """How many entries there are in everything a node's value is worked out from, itself included, each node
         counted once: what a run of it may come to hold at once. Walked with a list of its own."""
         if start not in self._weights:
-            seen, todo, total = {start}, [start], 0
+            seen, todo, total, masked = {start}, [start], 0, 0
             while todo:
                 n = self.nodes[todo.pop()]
                 total += numbers(n['type'])
+                masked += numbers(n['type']) if self.may_be_none(n['type']) else 0
                 deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
                 if n['op'] in ('apply', 'mapalong') and 'fn' in n:
                     deps.append(self.functions[n['fn']]['body'])
@@ -521,8 +523,22 @@ class Run:
                     if d not in seen:
                         seen.add(d)
                         todo.append(d)
-            self._weights[start] = total
+            self._weights[start], self._masked[start] = total, masked
         return self._weights[start]
+
+    def may_be_none(self, t):
+        """Whether an array of this type may carry a mask beside its numbers (arrays.py: Held), a byte an entry more:
+        its value admits None ("integer?"), or, in a graph of version 3, says nothing, which reads as any or None.
+        An older graph's types say no value and are counted as they always were."""
+        value = t.get('value')
+        return value.endswith('?') if isinstance(value, str) else self.graph.get('version', 0) >= 3
+
+    def bytes_for(self, start, room_to_work, bytes_an_entry):
+        """The bytes a run of a node may come to hold at once: everything it is worked out from, held together, and
+        room to work on the largest of it; with the byte an entry that says which entries are None, where one may."""
+        weight, need = self.weight(start), self.needs(start)
+        most = self.nodes[need['where']]['type']
+        return bytes_an_entry * (weight + room_to_work * need['most']) + self._masked[start] + (room_to_work * need['most'] if self.may_be_none(most) else 0)
 
     def homes(self):
         """The tiles each block's node is itself in, and which tiles each repeat is the matrix of (evaluate.js: homesOf)."""

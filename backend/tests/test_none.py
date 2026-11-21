@@ -101,6 +101,54 @@ class Masks(unittest.TestCase):
         self.assertEqual(says(A.matmul(self.row('err', 'none'), np.ones((2, 1), dtype=np.float32))), [['err']])
         self.assertEqual(says(A.matmul(self.row(1, 2), np.ones((2, 1), dtype=np.float32))), [[3.0]])
 
+    def test_a_product_with_none_and_an_infinity_is_told_term_by_term_wherever_the_infinities_lie(self):
+        """The special terms are counted only at the places an infinity is at (arrays._wrong): the answer must be
+        what counting every term gives, for few infinities and many, with and without inner axes."""
+        rng = np.random.default_rng(9)
+
+        def made(shape, rare):
+            pool = np.array([0, 1, -1, 2, 0.5, -3], dtype=np.float32)
+            v = rng.choice(pool, size=shape)
+            v[rng.random(shape) < rare] = math.inf
+            v[rng.random(shape) < rare] = -math.inf
+            v[rng.random(shape) < rare / 2] = math.nan
+            m = rng.random(shape) < 0.08
+            v[m] = 0
+            return v, m
+
+        def told(a, ma, b, mb):      # one entry at a time, one term at a time
+            out = np.empty(a.shape[:-1] + b.shape[-1:], dtype=object)
+            for at in np.ndindex(out.shape):
+                lead, i, j = at[:-2], at[-2], at[-1]
+                none = bad = up = down = False
+                for k in range(a.shape[-1]):
+                    x, y, nx, ny = a[lead + (i, k)], b[lead + (k, j)], ma[lead + (i, k)], mb[lead + (k, j)]
+                    if (not nx and math.isnan(x)) or (not ny and math.isnan(y)):
+                        bad = True
+                    elif nx or ny:
+                        none = True
+                    else:
+                        with np.errstate(all='ignore'):
+                            t = float(np.float32(x) * np.float32(y))
+                        bad = bad or math.isnan(t)
+                        up, down = up or t == math.inf, down or t == -math.inf
+                out[at] = 'err' if bad or (up and down) else 'none' if none else 'number'
+            return out
+
+        seen = set()
+        for shape_a, shape_b in (((5, 6), (6, 4)), ((2, 5, 6), (2, 6, 4)), ((3, 1, 4, 7), (3, 2, 7, 3)), ((1, 9), (9, 1))):
+            for rare in (0.0, 0.02, 0.1, 0.5):
+                for _ in range(12):
+                    (a, ma), (b, mb) = made(shape_a, rare), made(shape_b, rare)
+                    got = A.matmul(A.Held(a, ma) if ma.any() else a, A.Held(b, mb) if mb.any() else b)
+                    values, none = (got.values, got.none) if isinstance(got, A.Held) else (got, np.zeros(np.shape(got), dtype=bool))
+                    wide = np.broadcast_shapes(shape_a[:-2], shape_b[:-2])
+                    want = told(np.broadcast_to(a, wide + shape_a[-2:]), np.broadcast_to(ma, wide + shape_a[-2:]), np.broadcast_to(b, wide + shape_b[-2:]), np.broadcast_to(mb, wide + shape_b[-2:]))
+                    said = np.where(none, 'none', np.where(np.isnan(values), 'err', 'number')).astype(object)
+                    self.assertEqual(said.tolist(), want.tolist(), (shape_a, shape_b, rare))
+                    seen.update(want.reshape(-1).tolist())
+        self.assertEqual(seen, {'err', 'none', 'number'})
+
     def test_only_an_array_that_holds_a_none_is_held(self):
         x, y = A.row([1.0, 2.0]), A.row([0.0, math.nan])
         for made in (A.binary('+', x, y), A.binary('/', x, y), A.call('select', [x, x, y]), A.matmul(x, A.transpose(y)), A.spread(x, 2, 2), A.part(x, 0, 0, 1, 1), A.place(A.blank(1, 2), x, 0, 0), A.put(A.blank(1, 2), [0, 0], [0, 1], x)):
@@ -149,6 +197,24 @@ def ask(graph, want):
 
 @needs_numpy
 class Answers(unittest.TestCase):
+    def test_the_room_a_run_needs_counts_the_byte_that_says_none(self):
+        """Refused from the sizes alone, before anything is made: an array that may hold None takes 5 bytes an
+        entry (arrays.size), and so does the room to work on it. An older graph, whose types say no value, is
+        counted as it always was."""
+        n = 1000
+        def graph(value, version):      # ones, and a variable seated on them that promises what it holds
+            t = lambda v: dict(T(n, n), **({'value': v} if v else {}))
+            return graph_of({'s': {'op': 'source', 'inputs': [], 'type': t(value and 'boolean'), 'kind': 'ones'},
+                             'v': dict({'op': 'variable', 'inputs': ['s'], 'type': t(value), 'name': 'V', 'named': True, 'defined': 'seat', 'entries': {}}, **({'holds': value} if value else {}))}, version=version)
+        def asked(value, version, room):
+            return json.loads(json.dumps(R.run(json.dumps({'graph': graph(value, version), 'want': [{'node': 'v', 'cells': [[1, 1]]}]}).encode(), None, room)))
+        plain = 4 * n * n * (2 + 6)      # the two of them, and six more of the larger to work in
+        self.assertEqual(asked('boolean', 3, plain)['results']['v']['cells'], [[1, 1, 1.0]])
+        self.assertIn('needs about 37 MB of memory', asked('boolean?', 3, plain)['errors']['v'])      # a byte more for the variable, and for each of the six
+        self.assertEqual(asked('boolean?', 3, plain + n * n * (1 + 6))['results']['v']['cells'], [[1, 1, 1.0]])
+        self.assertIn('needs about 38 MB of memory', asked(None, 3, plain)['errors']['v'])      # a type that says no value reads as any or None: both of them
+        self.assertEqual(asked(None, 2, plain)['results']['v']['cells'], [[1, 1, 1.0]])
+
     def test_a_run_says_which_entries_are_none(self):
         g = graph_of({'a': variable(3, 1, [[NONE, 2, {'expr': 'none * 0'}]]), 'b': variable(3, 1, [[1, 1, 1]]),
                       'sum': {'op': 'add', 'inputs': ['a', 'b'], 'type': T(3, 1)}}, version=3)

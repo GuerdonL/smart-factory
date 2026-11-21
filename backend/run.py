@@ -163,7 +163,7 @@ def one(work, graph, w):
     if need['bad']:
         raise Trouble(need['bad'])
     # refused before anything is made: what it is worked out from, all held at once, and room to work on the largest of it
-    wanted = BYTES_AN_ENTRY * (work.weight(node) + ROOM_TO_WORK * need['most'])
+    wanted = work.bytes_for(node, ROOM_TO_WORK, BYTES_AN_ENTRY)      # 4 bytes a number, and one more where an entry may be None
     if wanted > work.room:
         raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(work.weight(node), ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
     value = work.value(node, w.get('binding'))

@@ -195,12 +195,25 @@ def _count(x, y):
 def _wrong(a, ma, b, mb):
     """Which entries of a product have no value, told from the terms neither side of which is None: a term with no
     value of its own; 0 × ∞; or ∞ − ∞ among them. Asked only where a None meets an infinity, whose product as
-    numbers (0 × ∞) would otherwise be taken for an entry with no value."""
-    off = np.zeros((), dtype=bool)
-    ma, mb = off if ma is None else ma, off if mb is None else mb
+    numbers (0 × ∞) would otherwise be taken for an entry with no value.
+
+    Only a term one side of which is an infinity can be 0 × ∞ or ±∞, and such a term lies at a place along the
+    joined axis (a column of the one, a row of the other) where some infinity is. So the terms are counted over
+    those places alone: one infinity in a product of 4000 by 4000 costs products one place long, not ten of the
+    whole. Where infinities lie at every place the whole is counted, which is ten products."""
     lost = np.isnan(a).any(axis=-1, keepdims=True) | np.isnan(b).any(axis=-2, keepdims=True)
     ia, ib = np.isinf(a), np.isinf(b)
-    zero = (_count((a == 0) & ~ma, ib) + _count(ia, (b == 0) & ~mb)) > 0
+    at = ia.any(axis=tuple(range(ia.ndim - 1))) | ib.any(axis=tuple(k for k in range(ib.ndim) if k != ib.ndim - 2))      # the places an infinity is at
+    if not at.all():
+        a, b, ia, ib = a[..., at], b[..., at, :], ia[..., at], ib[..., at, :]
+        ma, mb = (None if ma is None else ma[..., at]), (None if mb is None else mb[..., at, :])
+    za, zb = (a == 0), (b == 0)
+    if ma is not None:
+        za &= ~ma
+    if mb is not None:
+        zb &= ~mb
+    zero = (_count(za, ib) + _count(ia, zb)) > 0
+    del za, zb
     pa, na, pb, nb = a > 0, a < 0, b > 0, b < 0
     up = _count(pa, pb) - _count(pa & ~ia, pb & ~ib) + _count(na, nb) - _count(na & ~ia, nb & ~ib)      # the terms that are ∞
     down = _count(pa, nb) - _count(pa & ~ia, nb & ~ib) + _count(na, pb) - _count(na & ~ia, pb & ~ib)      # and those that are -∞
