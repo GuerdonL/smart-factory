@@ -185,7 +185,7 @@
    A block's zone, for what it touches, is the innermost tile it is in (algebra.js: zoneOf).
    Definitions are read 64 deep, one inside the next, and no deeper. */
 import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isNone, isFormula, exact, held as fromExact } from './algebra.js';
-import { ROOTS } from './values.js';
+import { ROOTS, together } from './values.js';
 import { parts as textParts, evaluate as work, namesIn, refs, treeOf } from './expression.js';
 import * as S from './spaces.js';
 import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES } from './arrows.js';
@@ -376,6 +376,26 @@ const range = r => `${r.col},${r.row},${r.cols},${r.rows}`;
 const okRange = r => !!r && typeof r === 'object' && [r.col, r.row].every(v => Number.isInteger(v) && v >= 0) && whole1(r.cols) && whole1(r.rows);
 const okAt = a => a === undefined || (!!a && typeof a === 'object' && Number.isInteger(a.col) && Number.isInteger(a.row));
 const okPlaces = n => Array.isArray(n.at) && n.at.length === n.inputs.length && n.at.every(a => a && okAt(a));
+/* ---- several shapes added, or multiplied entry by entry: their terms looked at all together (values.js: together) ----
+   A sum of several shapes is one node, and its terms are all there. A times of several is one node made of another,
+   and so is a sum made of a sum: what the terms set aside in the inner one came to (those that were neither None
+   nor unknown) is kept beside its value, by entry, and the outer one reads it, so that None × 0 × ∞ is an error
+   whichever two are multiplied first. RESTS: a node's value (the Map) -> { op: '+' | '*', at: Map from an entry's
+   key }. It is read only by a node of the same kind made directly of that one: nothing else sees it, and a
+   variable between the two ends it. evaluate.js keeps it where a rule is repeated over inner data. */
+export const RESTS = new WeakMap();
+const CHAIN = { add: '+', scale: '*', ewise: '*' };
+const chainOf = n => n && (n.op === 'ewise' ? (n.fn === 'mul' ? '*' : null) : CHAIN[n.op] || null);
+/* each(c, r, key) -> [[value, the key it has in input k], …] for one entry: the terms, in the inputs' order */
+function allTogether(n, at, op, each){
+  const rests = n.inputs.map((i, k) => chainOf(at.graph.nodes[i]) === op ? at.rest(k) : null), out = new Map(), kept = new Map();
+  for (let r = 1; r <= n.type.rows; r++) for (let c = 1; c <= n.type.cols; c++){ const key = c + ',' + r, terms = each(c, r, key);
+    const got = together(op, terms.map(t => t[0]), null, terms.map((t, k) => rests[k] ? rests[k].get(t[1]) : undefined));
+    if (got.value !== null && got.value !== undefined) out.set(key, got.value);
+    if (got.rest !== undefined) kept.set(key, got.rest); }
+  if (kept.size) RESTS.set(out, { op, at: kept });
+  return out;
+}
 const entrywise = (t, each) => { const out = new Map(); for (let r = 1; r <= t.rows; r++) for (let c = 1; c <= t.cols; c++){ const v = each(c, r, c + ',' + r); if (v !== null && v !== undefined) out.set(c + ',' + r, v); } return out; };
 /* one run of a repeated arrow: the part of the input cell k covers, and the cell's type */
 const runOf = (n, k) => ({ side: n.axis === 'rows' ? 'e' : 's', start: n.start + (k - 1) * n.span, span: n.span });
@@ -448,24 +468,25 @@ export const OPS = {
       || (a.type.cols === b.type.rows && !nested(innerOf(a.type), innerOf(b.type)).ok ? 'a product of shapes whose inner data does not agree: ' + nested(innerOf(a.type), innerOf(b.type)).note
         : `a product of ${a.type.cols} columns and ${b.type.rows} rows` + (one(a.type) || one(b.type) ? ': a single entry against a matrix is a scale' : '')),
     /* entry c,r is the sum over k of left k,r times right c,k. An unknown term makes the entry unknown, even against
-       a known zero: what two values come to is combine's to say, for every pair. The terms that are None are left
-       out of the sum and make the entry None, so that it does not turn on where among the terms the None stands */
+       a known zero: what two values come to is combine's to say, for every pair. The terms that are None or unknown
+       are left out of the sum, so that it does not turn on where among the terms they stand: an error among the
+       others (∞ − ∞ between two of them) comes first, then unknown, then None */
     value(n, at){ const a = at.type(0), b = at.type(1), L = at.get(0), R = at.get(1), K = a.cols, out = new Map();
       const rowsOf = [], colsOf = [];
       for (let r = 1; r <= a.rows; r++){ const row = new Array(K); for (let k = 1; k <= K; k++) row[k - 1] = cell(L, k + ',' + r); rowsOf.push(row); }
       for (let c = 1; c <= b.cols; c++){ const col = new Array(K); for (let k = 1; k <= K; k++) col[k - 1] = cell(R, c + ',' + k); colsOf.push(col); }
       for (let r = 1; r <= a.rows; r++){ const row = rowsOf[r - 1];
-        for (let c = 1; c <= b.cols; c++){ const col = colsOf[c - 1]; let sum = combine('*', row[0], col[0]), none = false;
-          for (let k = 1; k < K; k++){ const term = combine('*', row[k], col[k]);
-            if (isNone(sum)){ none = true; sum = term; } else if (isNone(term)) none = true; else sum = combine('+', sum, term); }
-          /* a term that is None makes the entry None, whichever term it is: unless the others come to no value (an
-             error) or are not all known, which come first, as they do for a pair of values */
-          if (none && sum !== null && !isError(sum)) sum = NOTHING;
-          if (sum !== null) out.set(c + ',' + r, sum); } }
+        for (let c = 1; c <= b.cols; c++){ const col = colsOf[c - 1]; let sum, none = false, unknown = false;
+          for (let k = 0; k < K; k++){ const term = combine('*', row[k], col[k]);
+            if (term === null) unknown = true; else if (isNone(term)) none = true; else sum = sum === undefined ? term : combine('+', sum, term); }
+          /* a term that is None makes the entry None, whichever term it is, and an unknown one unknown: unless the
+             others come to no value (an error), which comes first, as it does for a pair of values */
+          if (!isError(sum)) sum = unknown ? null : none ? NOTHING : sum;
+          if (sum !== null && sum !== undefined) out.set(c + ',' + r, sum); } }
       return out; } },
   scale: { inputs: [2, 2], fields: () => [], id: n => plain(n), space: (n, [s, m]) => S.binary('*', valueOf(s), valueOf(m)),
     type: (n, [s, m]) => one(s.type) ? T(m.type.cols, m.type.rows, m.type.colsName, m.type.rowsName, m.type.inner) : 'the first input of a scale is a single number',
-    value(n, at){ const s = cell(at.get(0), '1,1'), M = at.get(1); return entrywise(n.type, (c, r, key) => combine('*', s, cell(M, key))); } },
+    value(n, at){ const s = cell(at.get(0), '1,1'), M = at.get(1); return allTogether(n, at, '*', (c, r, key) => [[s, '1,1'], [cell(M, key), key]]); } },
   transpose: { inputs: [1, 1], deep: true, id: n => plain(n, n.order ? ';' + n.order.join(',') : ''), space: (n, [a]) => valueOf(a),
     fields: n => n.order === undefined || (Array.isArray(n.order) && n.order.length >= 3 && n.order.length <= AXES + 2 && n.order.every((i, k) => Number.isInteger(i) && i >= 0 && i < n.order.length && n.order.indexOf(i) === k)) ? [] : ['order is not its axes, each once, counted from 0'],
     /* with no order it swaps the two drawn sides. order names every axis of the input (the two drawn ones are 0 and 1): axis k of the result is axis order[k] of the input */
@@ -479,13 +500,14 @@ export const OPS = {
       for (const [key, v] of at.get(0, at.turn())){ const i = key.indexOf(','), j = key.indexOf(',', i + 1); out.set((j < 0 ? key.slice(i + 1) : key.slice(i + 1, j)) + ',' + key.slice(0, i) + (j < 0 ? '' : key.slice(j)), v); } return out; } },
   add: { inputs: [2, Infinity], fields: () => [], id: n => plain(n), space: (n, ins) => ins.map(valueOf).reduce((a, b) => S.binary('+', a, b)),
     type(n, ins){ let y = 0; return lone(ins.map(i => { const r = rectOf(i.type, 0, y); y += i.type.rows; return r; })) || 'a sum of shapes that are not one size'; },
-    value(n, at){ const ms = n.inputs.map((_, k) => at.get(k)); return entrywise(n.type, (c, r, key) => ms.slice(1).reduce((sum, m) => combine('+', sum, cell(m, key)), cell(ms[0], key))); } },
+    value(n, at){ const ms = n.inputs.map((_, k) => at.get(k)); return allTogether(n, at, '+', (c, r, key) => ms.map(m => [cell(m, key), key])); } },
   ewise: { inputs: [2, 2], id: n => plain(n, `;${n.fn};${n.broadcast}`), space: (n, [a, b]) => S.binary(n.fn === 'div' ? '/' : '*', valueOf(a), valueOf(b)),
     fields: n => [...(n.fn === 'mul' || n.fn === 'div' ? [] : [`fn is "${n.fn}"`]), ...(['none', 'scalar', 'row', 'col'].includes(n.broadcast) ? [] : [`broadcast is "${n.broadcast}"`])],
     type(n, [a, b]){ const t = lone([rectOf(a.type, 0, 0), rectOf(b.type, a.type.cols, n.fn === 'div' ? a.type.rows : -b.type.rows)]);
       return !t ? 'sizes that do not agree entry by entry' : n.broadcast !== broadcastOf(a.type, b.type) ? `broadcast is "${n.broadcast}" and its inputs make it "${broadcastOf(a.type, b.type)}"` : t; },
     value(n, at){ const a = at.type(0), b = at.type(1), A = at.get(0), B = at.get(1), op = n.fn === 'div' ? '/' : '*';
       const of = (t, m, c, r) => cell(m, (t.cols === 1 ? 1 : c) + ',' + (t.rows === 1 ? 1 : r));      /* a single entry, row or column is applied to every one */
+      if (op === '*'){ const keyIn = (t, c, r) => (t.cols === 1 ? 1 : c) + ',' + (t.rows === 1 ? 1 : r); return allTogether(n, at, '*', (c, r) => [[of(a, A, c, r), keyIn(a, c, r)], [of(b, B, c, r), keyIn(b, c, r)]]); }
       return entrywise(n.type, (c, r) => combine(op, of(a, A, c, r), of(b, B, c, r))); } },
   block: { inputs: [1, Infinity], deep: true, space: (n, ins) => allOf(ins), id: n => `block(${n.inputs.map((i, k) => `${i}@${n.at[k].col},${n.at[k].row}`).join(';')})`,
     fields: n => okPlaces(n) ? [] : ['at is not one { col, row } for each part'],

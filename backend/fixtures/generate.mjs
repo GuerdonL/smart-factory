@@ -172,6 +172,12 @@ const CASES = {
     B('Jn', 100, 0, 2, 1, { name: 'Shape 23', joined: [{ fx: 0, fy: 0, fw: .5, fh: 1, shape: B('Jl', 100, 0, 1, 1, { entries: { '1,1': NONE } }) }, { fx: .5, fy: 0, fw: .5, fh: 1, shape: B('Jr', 101, 0, 1, 1, { entries: { '1,1': 7 } }) }] }),
     B('Tn', 0, 40, 2, 1, { entries: rowsOf([[NONE, f('index.x')]]) }), arrow('out', { id: 't1', as: 'tile' })].map((d, i) => i === 0 ? { ...d, variable: 1 } : d),
     [tile('t1', [25], { y: 40, cols: 2, rows: 1, across: 2, down: 2 })]),
+  /* ---- several terms of one sum or product, whatever their order (ruled 21 November 2026): an error two of them make comes before None ---- */
+  'several terms, whatever their order': snap([
+    B('Ka', 0, 0, 2, 2, { entries: rowsOf([[NONE, 0], ['inf', NONE]]) }), B('Kb', 2, -2, 2, 2, { entries: rowsOf([['inf', NONE], [0, 2]]) }), B('Kc', 4, -4, 2, 2, { entries: rowsOf([[0, 'inf'], [NONE, 3]]) }),      /* times, three of them */
+    B('Sa', 20, 0, 2, 2, { entries: rowsOf([[NONE, 'inf'], ['inf', NONE]]) }), B('Sb', 20, 2, 2, 2, { entries: rowsOf([['inf', '-inf'], [NONE, 1]]) }), B('Sc', 20, 4, 2, 2, { entries: rowsOf([['-inf', NONE], ['-inf', 2]]) }),      /* a sum of three */
+    B('Fo', 40, 0, 4, 2, { entries: rowsOf([[f('none + inf - inf'), f('inf + none - inf'), f('none * 0 * inf'), f('0 * none * inf')], [f('none + 1 + 2'), f('inf - (none + inf)'), f('2 * none * 3'), f('(none + inf) * 0')]]) }),
+    B('Pa', 60, 0, 3, 1, { entries: rowsOf([['inf', NONE, '-inf']]) }), B('Pb', 63, 0, 1, 3, { entries: rowsOf([[1], [1], [1]]) })]),      /* a product entry: ∞ − ∞ beside a None term */
   /* ---- number spaces (phase 9): promises that are kept, on shapes and on a function's input and output ---- */
   'number spaces': snap([B('Wn', 0, 0, 3, 1, { entries: rowsOf([[1, 2, 3]]), holds: 'natural' }), B('Wz', 0, 1, 3, 1, { entries: rowsOf([[-2, 0, NONE]]), holds: 'integer?' }),      /* a sum of a natural and an integer or None */
     B('Pp', 10, 0, 2, 2, { entries: rowsOf([[half, 1], [0, { n: 1, d: 2, k: 1 }]]) }), B('Pq', 12, 0, 2, 2, { entries: rowsOf([[1, 0], [0, 1]]), holds: 'boolean' }),      /* a product of probabilities and booleans */

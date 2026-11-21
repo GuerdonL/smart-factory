@@ -39,8 +39,10 @@ Putting them together
     matmul(a, b)                     the matrix product
     transpose(a)
     root(a, p, q)                    a to the power p/q, q odd (see below)
-    binary(op, a, b)                 entry by entry: + - * / ^, == != < > <= >= (1 or 0), && ||. A side that is one
-                                     entry, one row or one column is spread over the other
+    binary(op, a, b, chain)          entry by entry: + - * / ^, == != < > <= >= (1 or 0), && ||. A side that is one
+                                     entry, one row or one column is spread over the other. chain: for a step of a
+                                     sum or product of several terms, which are looked at all together (see the
+                                     function)
     call(fn, [args])                 entry by entry: neg ! abs sqrt exp ln tanh erf; max min; select(c, a, b), which
                                      takes a where c is not 0 and b elsewhere: both sides are whole arrays already,
                                      and what is not chosen is dropped, so an error there does no harm
@@ -113,11 +115,16 @@ def quiet():
 
 
 class Held:
-    """An array some of whose entries are None: values, and none, true where the entry is None (the number there is 0)."""
-    __slots__ = ('values', 'none')
+    """An array some of whose entries are None: values, and none, true where the entry is None (the number there is 0).
 
-    def __init__(self, values, none):
-        self.values, self.none = values, none
+    rest, of: where it is a sum or a product of several terms (binary, chain), what the terms that were not None
+    came to at each entry that is None, as far as the next term needs it: of is '+' or '*', and rest a byte an
+    entry, 0, 1 or 2 (see _class). Kept only where some entry's is not 0, and read only by the next step of the same
+    sum or product: everything else makes its Held anew, without it."""
+    __slots__ = ('values', 'none', 'rest', 'of')
+
+    def __init__(self, values, none, rest=None, of=None):
+        self.values, self.none, self.rest, self.of = values, none, rest, of
 
 
 def _split(a):
@@ -172,10 +179,16 @@ def row(values):
 
 
 def spread(a, rows, cols, inner=None):
+    whole = a
     a, none = _split(a)
     to = (np.shape(a)[:-2] if inner is None else tuple(inner)) + (rows, cols)
     out = np.array(np.broadcast_to(a, to), dtype=F)
-    return out if none is None else _held(out, np.array(np.broadcast_to(none, to)))
+    if none is None:
+        return out
+    made = _held(out, np.array(np.broadcast_to(none, to)))
+    if isinstance(whole, Held) and whole.rest is not None and isinstance(made, Held):      # a sum or product spread over a matrix is that sum or product still
+        made.rest, made.of = np.array(np.broadcast_to(whole.rest, to)), whole.of
+    return made
 
 
 def along(inner):
@@ -364,8 +377,9 @@ def inner(a):
 
 
 def size(a):
+    rest = a.rest if isinstance(a, Held) else None
     a, none = _split(a)
-    return int(a.nbytes) + (0 if none is None else int(none.nbytes))
+    return int(a.nbytes) + (0 if none is None else int(none.nbytes)) + (0 if rest is None else int(rest.nbytes))
 
 
 def item(a, r, c, ks=()):
@@ -452,7 +466,32 @@ def _wide(fn, a):
 COMPARE = {'==': np.equal, '!=': np.not_equal, '<': np.less, '>': np.greater, '<=': np.less_equal, '>=': np.greater_equal}
 
 
-def binary(op, a, b):
+def _class(of, values, none, held, keep, minus):
+    """What each entry says to the rest of a sum or a product it is a term of, a byte an entry: for a product 1 where
+    it is 0 and 2 where it is an infinity; for a sum 1 where it is ∞ and 2 where it is -∞ (the two changed about for
+    a term that is taken away); 0 otherwise. A 1 and a 2 among the terms that are not None is an entry with no value
+    (0 × ∞, ∞ − ∞), and nothing else among them is. Where the entry is None it is what the terms set aside in it
+    said (held.rest, where keep: the term is itself a step of this sum or product), and 0 where there were none."""
+    if of == '*':
+        out = np.where(values == 0, 1, np.where(np.isinf(values), 2, 0)).astype(np.int8)
+    else:
+        out = np.where(values == (-np.inf if minus else np.inf), 1, np.where(values == (np.inf if minus else -np.inf), 2, 0)).astype(np.int8)
+    if none is None:
+        return out
+    under = held.rest if keep and isinstance(held, Held) and held.rest is not None and held.of == of else None
+    if under is None:
+        return np.where(none, 0, out).astype(np.int8)
+    if minus:
+        under = np.where(under == 1, 2, np.where(under == 2, 1, 0))
+    return np.where(none, under, out).astype(np.int8)
+
+
+def binary(op, a, b, chain=None):
+    """chain: where this is a step of a sum or product of several terms, all of which are looked at together
+    (values.js: together), (whether a is itself a step of it, whether b is). Then an entry one of whose terms is
+    None is still an entry with no value where the others make one between them (∞ + −∞, 0 × ∞), in whatever order
+    they stand. Left out: the two are a pair, and None with anything is None."""
+    held_a, held_b = a, b
     a, ma = _split(a)
     b, mb = _split(b)
     if ma is None and mb is None:
@@ -467,7 +506,23 @@ def binary(op, a, b):
         if op in ('==', '!='):      # None is equal to None and to nothing else
             return np.where(lost, NAN, np.where(ma | mb, (ma & mb) == (op == '=='), out)).astype(F)
         none = (ma | mb) & ~lost
-        return _held(np.where(lost, NAN, out).astype(F), none)
+        if chain is None or op not in ('+', '-', '*'):
+            return _held(np.where(lost, NAN, out).astype(F), none)
+        of = '*' if op == '*' else '+'
+        said = _class(of, a, ma if isinstance(held_a, Held) else None, held_a, chain[0], False) | _class(of, b, mb if isinstance(held_b, Held) else None, held_b, chain[1], op == '-')
+        wrong = none & (said == 3)      # a 1 and a 2 among the terms that are not None
+        none = none & ~wrong
+        made = _held(np.where(lost | wrong, NAN, out).astype(F), none)
+        if isinstance(made, Held):
+            rest = np.where(made.none, said, 0).astype(np.int8)
+            if rest.any():
+                made.rest, made.of = rest, of
+        return made
+
+
+def step(op, a, b, steps):
+    """One step of a sum or a product of several terms (+ - *): binary, with which of the two is itself a step of it."""
+    return binary(op, a, b, steps)
 
 
 def _binary(op, a, b):

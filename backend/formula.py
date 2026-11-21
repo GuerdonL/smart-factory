@@ -30,7 +30,9 @@ the tree is walked with a list of its own, so a long sum is no deeper than a sho
                                    of the entry: INNER), or (arrow) x, i or j
     axis_of(name)               -> 'x' | 'y' for index.x and index.y, else None
     evaluate(tree, leaf, ops)   -> what it comes to. leaf(name) gives a name's value; ops does the arithmetic:
-                                   ops.number(float), ops.binary(op, a, b) for + - * / ^ == != < > <= >= && ||,
+                                   ops.number(float), ops.binary(op, a, b) for + - * / ^ == != < > <= >= && ||
+                                   (and, where ops has it, ops.step(op, a, b, (a is a step of it, b is)) for
+                                   + - and *, each a step of a sum or a product of several terms: arrays.py),
                                    ops.call(fn, [args]) for neg ! select max min abs sqrt exp ln tanh erf, and
                                    ops.root(a, p, q) for a to the power p/q where the exponent is written in the
                                    formula as a fraction with an odd number under the line ((0-8)^(1/3), x^0.2):
@@ -331,6 +333,12 @@ def odd_root(tree):
     return (r.numerator, r.denominator) if r is not None and r.denominator != 1 and r.denominator % 2 == 1 else None
 
 
+def family(node):
+    """'+' for a sum or a difference, '*' for a product, None for anything else: a run of one family, brackets and
+    all, is one sum or one product, whose terms are looked at together whatever their order."""
+    return ('+' if node[1] in ('+', '-') else '*' if node[1] == '*' else None) if node[0] == 'op' else None
+
+
 def evaluate(tree, leaf, ops):
     out, todo = [], [(tree, False)]
     while todo:
@@ -349,7 +357,11 @@ def evaluate(tree, leaf, ops):
             b = out.pop()
             a = out.pop()
             odd = odd_root(node[3]) if node[1] == '^' else None      # read off the formula as it is written, never off a float
-            out.append(ops.root(a, odd[0], odd[1]) if odd else ops.binary(node[1], a, b))
+            of = family(node)
+            if of and hasattr(ops, 'step'):      # a + b + c, a * b * c: one sum, one product, its terms looked at together (expression.js); a pair on its own is a sum of two
+                out.append(ops.step(node[1], a, b, (family(node[2]) == of, family(node[3]) == of)))
+            else:
+                out.append(ops.root(a, odd[0], odd[1]) if odd else ops.binary(node[1], a, b))
         else:
             n = len(node[2])
             args = out[len(out) - n:]

@@ -21,6 +21,8 @@
        unknown        null                           an entry not given a value: it stays a symbol, and is not zero
 
    How two combine, in this order:
+     (Several terms of one sum or one product are looked at all together, so that their order does not matter:
+     together, below. An error among them, or one two of them make, comes first; then unknown; then None.)
      an error with anything is that error (the first of two);
      unknown with anything else is unknown: it is never taken as zero or false;
      None with anything else is None: None + 1, None × 0, 1 / None, None < 1, max(None, 3) and exp(None) are all
@@ -57,6 +59,7 @@
    of the difference: see compare. A side past what a floating-point number holds (exp(1000)) is compared by its
    logarithm. Whether a symbolic value counts as true is the same question, asked against 0.
 
+   together(op, terms, signs, rests) -> { value, rest }   several terms of one sum or product, whatever their order: see the function
    combine(op, a, b) -> a value      op is '+' '-' '*' '/' '^', '==' '!=' '<' '>' '<=' '>=', '&&' '||', 'max' or 'min'
    apply(fn, a)      -> a value      fn is 'neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh' or 'erf'. exp, ln, tanh and
                                      erf stay symbolic unless they come out (exp(0) is 1, ln(1) is 0, and at the
@@ -357,6 +360,30 @@ export function combine(op, a, b){
     if (s < 0 && y[1] % 2n === 0n) return err(EVEN);
     if (s < 0){ const r = combine('^', combine('-', 0, a), b); return y[0] % 2n ? combine('-', 0, r) : r; } }      /* and an odd root of one below 0 is the real one: the root of it turned round, turned back */
   return solve(forSolver(a) + op + forSolver(b));
+}
+
+/* Several terms of one sum, or factors of one product, looked at all together, so that what they come to does not
+   turn on the order they stand in. A chain of combine calls does: None + ∞ is None, and None − ∞ after it None
+   again, where ∞ − ∞ before the None is an error. Here the terms that are None or unknown are set aside and the
+   others are added (or multiplied) in their order: if those come to an error (one of them is one, or two of them
+   make one between them, ∞ + −∞, 0 × ∞) the whole is that error; otherwise it is unknown if any term is unknown,
+   None if any is None, and what the others came to where none is either, which is the chain of combine calls it
+   always was.
+       together(op, terms, signs, rests) -> { value, rest }
+   op: '+' or '*'. signs: for a sum, -1 for a term that is taken away (a − b + c: [1, -1, 1]; the first is never);
+   left out, every term is added. rests: for a term that is itself the None or the unknown of such a sum or product
+   (one node of a graph made of another), what the terms set aside there came to, undefined where there were none.
+   rest: the same for this one, undefined where nothing was set aside or nothing was left. */
+export function together(op, terms, signs = null, rests = null){
+  let unknown = false, none = false;
+  for (const v of terms){ if (v === null || v === undefined) unknown = true; else if (isNone(v)) none = true; }
+  const step = (acc, v, k) => { const minus = !!signs && signs[k] < 0; return acc === undefined ? (minus ? combine('-', 0, v) : v) : combine(minus ? '-' : op, acc, v); };
+  let acc;
+  if (!unknown && !none){ for (let k = 0; k < terms.length; k++) acc = step(acc, terms[k], k); return { value: acc }; }
+  for (let k = 0; k < terms.length; k++){ const v = terms[k], aside = v === null || v === undefined || isNone(v), w = aside ? (rests ? rests[k] : undefined) : v;
+    if (w !== undefined && w !== null) acc = step(acc, w, k); }
+  if (isError(acc)) return { value: acc };
+  return { value: unknown ? null : NONE, rest: acc };
 }
 
 const HALF = { n: 1, d: 2, k: 0 };

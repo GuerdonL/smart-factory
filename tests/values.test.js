@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { combine, apply, truth, truthOf, NONE, isNone, kind, written, typedNumber, storable, sideOf, rootOf, isError, isFormula, exact, held } from '../values.js';
+import { combine, together, apply, truth, truthOf, NONE, isNone, kind, written, typedNumber, storable, sideOf, rootOf, isError, isFormula, exact, held } from '../values.js';
 import * as algebra from '../algebra.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), E = why => ({ err: why }), sym = text => ({ sym: text });
@@ -330,4 +330,13 @@ test('the truth of a whole matrix is three-valued', () => {
   assert.equal(truthOf([0, null]), null); assert.equal(truthOf([null]), null); assert.equal(truthOf([N, undefined]), null); assert.equal(truthOf([0, E('divide by zero')]), null);
   assert.equal(truthOf(new Map([['1,1', 0], ['2,1', 5]]).values()), true);
   assert.equal(algebra.truthOf([0]), false);
+});
+/* ruled 21 November 2026 */
+test('together: the terms of one sum or product, whatever their order; what was set aside is handed on', () => {
+  const N = NONE, INF = Infinity;
+  assert.deepEqual(together('+', [1, 2, 3]), { value: 6 }); assert.deepEqual(together('+', [5, 2, 1], [1, -1, 1]), { value: 4 }); assert.deepEqual(together('*', [2, q(1, 2), 3]), { value: 3 });
+  assert.deepEqual(together('+', [N, 1, 2]), { value: N, rest: 3 }); assert.deepEqual(together('+', [N, null, 2]), { value: null, rest: 2 }); assert.deepEqual(together('+', [N, N]), { value: N, rest: undefined });
+  assert.ok(isError(together('+', [N, INF, -INF]).value)); assert.ok(isError(together('+', [INF, N, INF], [1, 1, -1]).value)); assert.ok(isError(together('*', [null, 0, INF]).value));
+  assert.deepEqual(together('+', [N, -INF], null, [INF, undefined]).value, { err: together('+', [INF, -INF]).value.err });      /* what an inner sum set aside meets the next term */
+  assert.deepEqual(together('*', [N, 5], null, [0, undefined]), { value: N, rest: 0 }); assert.deepEqual(together('+', [N, INF], [1, -1]), { value: N, rest: -INF });
 });

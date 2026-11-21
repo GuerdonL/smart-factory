@@ -88,8 +88,9 @@
                            the function is applied to
        at.keyOf(k)         a key for input k's entries as they are under this env
        at.given(node)      the entries a function's input has been given, none where it has been given nothing
+       at.rest(k)          what input k, a sum or a product of several, set aside at each entry (graph.js: RESTS), or null
        at.ks               where the rule is being repeated over inner data, the inner position of this run */
-import { OPS, readsIndex, tailsOf, inferred } from './graph.js';
+import { OPS, RESTS, readsIndex, tailsOf, inferred } from './graph.js';
 import { broken, untold, within, NOT_HELD, UNPROVEN } from './spaces.js';
 import { passed } from './arrows.js';
 import { numbers } from './algebra.js';
@@ -204,15 +205,19 @@ function split(values){
 const flatType = t => { const { inner: _, ...rest } = t; return rest; };
 const flatNode = n => { if (!flats.has(n)) flats.set(n, hasInner(n.type) ? { ...n, type: flatType(n.type) } : n); return flats.get(n); };
 function repeated(rule, n, at, types){
-  const out = new Map(), lead = types.find(hasInner), flat = flatNode(n), applies = n.fn !== undefined;
+  const out = new Map(), lead = types.find(hasInner), flat = flatNode(n), applies = n.fn !== undefined; let rests = null;      /* (rests: what a sum or product set aside, graph.js: RESTS, kept by the long keys) */
   for (const tail of tailsOf(lead)){
     /* a function's body at one position is of no use at the next: what it comes to there is kept only while that position is worked out */
     const scratch = applies ? new Map() : null;
     const here = { ...at, ks: tail.slice(1).split(',').map(Number), ...(applies ? { call: (fn, values, k, _, where = '') => at.call(fn, values, k, scratch, where, tail) } : {}),
       type: k => hasInner(types[k]) ? flatType(types[k]) : types[k],
       get: (k, e) => hasInner(types[k]) ? split(at.get(k, e)).get(tail) || EMPTY : at.get(k, e),
+      rest: k => { const kept = at.rest(k); return kept && hasInner(types[k]) ? { get: key => kept.get(key + tail) } : kept; },
       keyOf: k => at.keyOf(k) + (hasInner(types[k]) ? '#k' + tail : '') };
-    for (const [key, v] of rule.value(flat, here)) out.set(key + tail, v); }
+    const made = rule.value(flat, here), rest = RESTS.get(made);
+    for (const [key, v] of made) out.set(key + tail, v);
+    if (rest){ if (!rests) rests = { op: rest.op, at: new Map() }; for (const [key, v] of rest.at) rests.at.set(key + tail, v); } }
+  if (rests) RESTS.set(out, rests);
   return out;
 }
 
@@ -228,6 +233,7 @@ function run(graph, st, id, env){
   const at = { id, graph, env, cells: env.cells,
     type: k => graph.nodes[n.inputs[k]].type,
     get: (k, e = env) => run(graph, st, n.inputs[k], e),
+    rest: k => { const kept = RESTS.get(run(graph, st, n.inputs[k], env)); return kept ? kept.at : null; },
     keyOf: k => n.inputs[k] + keyFor(graph, st, n.inputs[k], graph.nodes[n.inputs[k]], env),
     turn: () => ({ ...env, cells: inner(env.cells, c => ({ ...c, turned: !c.turned })) }),
     shift: (dx, dy) => ({ ...env, cells: inner(env.cells, c => c.turned ? { ...c, dx: c.dx + dy, dy: c.dy + dx } : { ...c, dx: c.dx + dx, dy: c.dy + dy }) }),

@@ -526,3 +526,30 @@ test('None: a sum, a scale, entry by entry, a formula and a measure follow the t
   assert.deepEqual(worked(g, 'side'), { '1,1': NONE }); assert.deepEqual(worked(g, 'mass'), { '1,1': NONE });
   assert.deepEqual(worked(g, 'm'), rowsOf([[-1, 2, 1]]));
 });
+
+/* ---- ruled 21 November 2026: special values in a sum or product of several terms are order-free ---- */
+test('several shapes added or multiplied entry by entry are looked at all together: an error two of them make comes before unknown, and unknown before None, whatever their order', () => {
+  const NONE = { none: true }, perms = xs => xs.length < 2 ? [xs] : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map(p => [x, ...p]));
+  const says = v => v === undefined ? 'unknown' : v && v.err ? 'error' : v && v.none ? 'None' : valueText(v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v);
+  const one = v => V([[v]]), T = t(1, 1);
+  const sum = terms => { const g = G({ ...Object.fromEntries(terms.map((v, k) => ['v' + k, one(v)])), s: N('add', terms.map((_, k) => 'v' + k), T) }); return says(evaluate(g, 's').entries['1,1']); };
+  /* a times of several is one node made of another, as a canvas makes it; and a sum made of a sum, and a scale of a times */
+  const nested = (op, more) => terms => { const nodes = Object.fromEntries(terms.map((v, k) => ['v' + k, one(v)])); let acc = 'v0';
+    terms.slice(1).forEach((_, k) => { nodes['n' + k] = N(op, [acc, 'v' + (k + 1)], T, more); acc = 'n' + k; }); return says(evaluate(G(nodes), acc).entries['1,1']); };
+  const times = nested('ewise', { fn: 'mul', broadcast: 'none' }), sums = nested('add'), scales = terms => { const nodes = Object.fromEntries(terms.map((v, k) => ['v' + k, one(v)])); let acc = 'v' + (terms.length - 1);
+    for (let k = terms.length - 2; k >= 0; k--){ nodes['n' + k] = N('scale', ['v' + k, acc], T); acc = 'n' + k; } return says(evaluate(G(nodes), acc).entries['1,1']); };
+  for (const [terms, want] of [[[NONE, 'inf', '-inf'], 'error'], [[null, 'inf', '-inf'], 'error'], [[NONE, null, 'inf', '-inf'], 'error'], [[NONE, null, 3], 'unknown'], [[NONE, 1, 2], 'None'], [[NONE, 'inf', 'inf'], 'None'], [[1, 2, 3], '6'], [[NONE, { err: 'x' }, 1], 'error']])
+    for (const p of perms(terms)){ assert.equal(sum(p), want, 'a sum of ' + JSON.stringify(p)); assert.equal(sums(p), want, 'a sum made of sums, ' + JSON.stringify(p)); }
+  for (const [terms, want] of [[[NONE, 0, 'inf'], 'error'], [[null, 0, '-inf'], 'error'], [[NONE, null, 0, 'inf'], 'error'], [[NONE, null, 0], 'unknown'], [[NONE, 2, 3], 'None'], [[NONE, 0, 0], 'None'], [[2, 3, 4], '24'], [[NONE, 1, 'inf'], 'None']])
+    for (const p of perms(terms)){ assert.equal(times(p), want, 'a times of ' + JSON.stringify(p)); assert.equal(scales(p), want, 'scales of ' + JSON.stringify(p)); }
+  /* what is set aside is read only by a sum made directly of a sum: through a variable, or by a product, None is None */
+  const g = G({ a: one(NONE), b: one('inf'), c: one('-inf'), s: N('add', ['a', 'b'], T), named: N('variable', ['s'], T, { name: 'S', named: true, defined: 'definition', entries: {} }), u: N('add', ['named', 'c'], T), z: one(0),
+    m: N('ewise', ['s', 'z'], T, { fn: 'mul', broadcast: 'none' }) });
+  assert.equal(says(evaluate(g, 'u').entries['1,1']), 'None'); assert.equal(says(evaluate(g, 'm').entries['1,1']), 'None');
+});
+test('a product entry\'s terms are looked at together: ∞ − ∞ among them is an error beside a None or an unknown term, wherever they stand', () => {
+  const NONE = { none: true }, at = (row, col) => { const r = evaluate(product([row], col.map(v => [v])), 'p'); const v = r.entries['1,1']; return v === undefined ? 'unknown' : v.err ? 'error' : v.none ? 'None' : v; };
+  for (const row of [['inf', NONE, '-inf'], [NONE, 'inf', '-inf'], ['inf', '-inf', NONE], ['inf', null, '-inf'], [null, 'inf', '-inf'], ['inf', '-inf', null], [null, NONE, 'inf', '-inf']]) assert.equal(at(row, row.map(() => 1)), 'error', JSON.stringify(row));
+  assert.equal(at([null, NONE, 2], [1, 1, 1]), 'unknown'); assert.equal(at([NONE, null, 2], [1, 1, 1]), 'unknown'); assert.equal(at([NONE, 2, 3], [1, 1, 1]), 'None'); assert.equal(at([1, 2, 3], [1, 1, 1]), 6);
+  assert.equal(at([NONE, 'inf', 5], [1, 0, 1]), 'error');      /* a term that is itself an error: 0 × ∞ */
+});

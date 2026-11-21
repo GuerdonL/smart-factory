@@ -82,6 +82,33 @@ class Masks(unittest.TestCase):
         self.assertNotIsInstance(got, A.Held)
         self.assertEqual(says(evaluate(parse('select(x != none, x, 0 - 1)'), lambda name: x, A)), [[-1.0, 0.0, 3.0, math.inf, 'err']])
 
+    def test_a_sum_or_product_of_several_terms_does_not_turn_on_their_order(self):
+        # ruled 21 November 2026: an error two of the terms make comes before None, wherever the None stands
+        from itertools import permutations
+        says_one = lambda a: says(A.spread(a, 1, 1))[0][0]
+        for op, terms, want in (('+', ('none', math.inf, -math.inf), 'err'), ('+', ('none', 1, 2), 'none'), ('+', ('none', math.inf, math.inf), 'none'), ('+', ('none', 'none', math.inf, -math.inf), 'err'), ('+', (1, 2, 3), 6.0),
+                                ('*', ('none', 0, math.inf), 'err'), ('*', ('none', 0, 0), 'none'), ('*', ('none', 2, -math.inf), 'none'), ('*', ('none', 'none', math.inf, 0), 'err'), ('*', (2, 3, 4), 24.0), ('+', ('none', 'err', 1), 'err')):
+            for p in permutations(terms):
+                vs = [self.row(v) for v in p]
+                left = vs[0]
+                for k, v in enumerate(vs[1:]):
+                    left = A.step(op, left, v, (k > 0, False))
+                self.assertEqual(says_one(left), want, 'from the left, %s %r' % (op, p))
+                right = vs[-1]
+                for k, v in enumerate(reversed(vs[:-1])):
+                    right = A.step(op, v, right, (False, k > 0))
+                self.assertEqual(says_one(right), want, 'from the right, %s %r' % (op, p))
+        # a term taken away: ∞ − (None + ∞) is ∞ − ∞ beside a None
+        inner = A.step('+', self.row('none'), self.row(math.inf), (False, False))
+        self.assertEqual(says_one(A.step('-', self.row(math.inf), inner, (False, True))), 'err')
+        self.assertEqual(says_one(A.step('-', self.row(-math.inf), inner, (False, True))), 'none')
+        # what was set aside is read by the next step of the same sum alone: a pair on its own, or a product, sees None
+        self.assertEqual(says_one(A.binary('+', inner, self.row(-math.inf))), 'none')
+        self.assertEqual(says_one(A.step('*', inner, self.row(0.0), (False, False))), 'none')
+        self.assertEqual(says(A.step('+', A.spread(inner, 2, 2), self.row(-math.inf), (True, False))), [['err', 'err'], ['err', 'err']])      # and it is spread with its matrix
+        plain = A.step('+', A.number(1.0), A.number(2.0), (False, False))
+        self.assertNotIsInstance(plain, A.Held)      # with no None among them nothing is kept, and nothing is made that was not made before
+
     def test_none_is_false(self):
         x, y = self.row('none', 'none', 'none', 3, 'none'), self.row(3, 0, 'none', 'none', 'err')
         self.assertEqual(says(A.binary('&&', x, y)), [[0.0, 0.0, 0.0, 0.0, 'err']])

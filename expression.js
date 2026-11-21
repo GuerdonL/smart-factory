@@ -96,7 +96,7 @@
    guard() -> working(key, work): works out things that may depend on one another. working(key, work) gives work(),
        unless key is already being worked out further up, in which case the thing depends on itself and what it
        gives is the error "depends on itself". */
-import { combine, apply, truth, typedNumber, written, kind, isError, isFormula, isNone, NONE } from './values.js';
+import { combine, together, apply, truth, typedNumber, written, kind, isError, isFormula, isNone, NONE } from './values.js';
 export { written };
 
 class Wrong extends Error {}
@@ -205,9 +205,23 @@ export function evaluate(text, lookup = () => undefined, { matrices = false } = 
     if (v === undefined) return unread('unknown name: ' + leaf.name);
     known.set(leaf, v);
   }
+  /* a + b + c and a * b * c are one sum and one product, their terms looked at all together (values.js: together):
+     None + ∞ − ∞ is an error wherever the None stands. The terms of a run of + and −, or the factors of a run of *,
+     are gathered through brackets too, with a list of its own. Where none of them is None or unknown, it is worked
+     out sign by sign as it is written, exactly as before. */
+  const family = n => n.op === '+' || n.op === '-' ? '+' : n.op === '*' ? '*' : null;
+  const chained = top => { const fam = family(top), leaves = [], signs = [], todo = [[top, 1]];
+    while (todo.length){ const [m, s] = todo.pop(); if (m.op && family(m) === fam){ todo.push([m.b, m.op === '-' ? -s : s]); todo.push([m.a, s]); } else { leaves.push(m); signs.push(s); } }
+    const values = leaves.map(run);
+    if (values.some(v => v === null || v === undefined || isNone(v))) return together(fam, values, signs).value;
+    const at = new Map(leaves.map((m, k) => [m, values[k]]));
+    const fold = n => { if (at.has(n)) return at.get(n); const spine = []; let m = n; while (!at.has(m) && !at.has(m.a)){ spine.push(m); m = m.a; }
+      let v = at.has(m) ? at.get(m) : combine(m.op, at.get(m.a), fold(m.b)); while (spine.length){ const up = spine.pop(); v = combine(up.op, v, fold(up.b)); } return v; };
+    return fold(top); };
   const run = n => {
     if ('num' in n) return n.num;
     if (known.has(n)) return known.get(n);
+    if (n.op && family(n) && (family(n.a) === family(n) || family(n.b) === family(n))) return chained(n);
     if (n.op && n.a.op){      /* a long run of signs is a tree deep on its left: it is gone down with a list, not the stack, and worked out coming back up */
       const spine = []; let at = n; while (at.op && at.a.op){ spine.push(at); at = at.a; }
       let v = run(at); while (spine.length){ const up = spine.pop(); v = combine(up.op, v, run(up.b)); } return v; }

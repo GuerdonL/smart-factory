@@ -261,11 +261,32 @@ def v_matmul(n, at):
     return A.matmul(at.get(0), at.get(1))
 
 
+CHAIN = {'add': '+', 'scale': '*', 'ewise': '*'}
+
+
+def chain_of(n):
+    """'+' or '*' for a node that is a sum, or a product entry by entry: one made directly of another of its kind
+    is one sum or product with it, its terms looked at together whatever their order (graph.js: RESTS)."""
+    return None if n['op'] == 'ewise' and n['fn'] != 'mul' else CHAIN.get(n['op'])
+
+
+def is_step(at, k, of):
+    return chain_of(at.run.nodes[at.n['inputs'][k]]) == of
+
+
 def v_add(n, at):
     out = at.get(0)
     for k in range(1, len(n['inputs'])):
-        out = A.binary('+', out, at.get(k))
+        out = A.binary('+', out, at.get(k), (k > 1 or is_step(at, 0, '+'), is_step(at, k, '+')))
     return out
+
+
+def v_ewise(n, at):
+    if n['fn'] == 'div':
+        made = A.binary('/', at.get(0), at.get(1))
+    else:
+        made = A.binary('*', at.get(0), at.get(1), (is_step(at, 0, '*'), is_step(at, 1, '*')))
+    return A.spread(made, int(n['type']['rows']), int(n['type']['cols']), lengths(n['type']))
 
 
 def v_block(n, at):
@@ -409,10 +430,10 @@ def v_stack(n, at):
 OPS = {
     'variable': v_variable,
     'matmul': v_matmul,
-    'scale': lambda n, at: A.binary('*', at.get(0), at.get(1)),
+    'scale': lambda n, at: A.binary('*', at.get(0), at.get(1), (is_step(at, 0, '*'), is_step(at, 1, '*'))),
     'transpose': v_transpose,
     'add': v_add,
-    'ewise': lambda n, at: A.spread(A.binary('/' if n['fn'] == 'div' else '*', at.get(0), at.get(1)), int(n['type']['rows']), int(n['type']['cols']), lengths(n['type'])),
+    'ewise': v_ewise,
     'block': v_block,
     'slice': v_slice,
     'source': v_source,
@@ -515,7 +536,7 @@ class Run:
             while todo:
                 n = self.nodes[todo.pop()]
                 total += numbers(n['type'])
-                masked += numbers(n['type']) if self.may_be_none(n['type']) else 0
+                masked += numbers(n['type']) * (2 if chain_of(n) else 1) if self.may_be_none(n['type']) else 0      # (a sum or a product of several may keep a second byte an entry: arrays.py, Held.rest)
                 deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
                 if n['op'] in ('apply', 'mapalong') and 'fn' in n:
                     deps.append(self.functions[n['fn']]['body'])

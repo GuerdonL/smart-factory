@@ -333,3 +333,13 @@ test('x != none tests that a value is present: true for a number, false for None
   assert.equal(evaluate('select(x != none, x, 0)', at(NONE)).value, 0); assert.equal(evaluate('select(x != none, x, 0)', at(7)).value, 7);
   assert.equal(evaluate('x != none', at(null)).value, null);      /* an entry not given is not known to be present or not */
 });
+test('a + b + c and a * b * c are one sum and one product: an error two terms make comes before unknown and None, wherever the None stands', () => {
+  const says = (text, names = {}) => { const v = evaluate(text, n => (n in names ? names[n] : undefined)).value; return v === null ? 'unknown' : v && v.err ? 'error' : v && v.none ? 'None' : v; };
+  for (const text of ['none + inf - inf', 'inf + none - inf', 'inf - inf + none', 'none - inf + inf', 'inf - (none + inf)', '(inf + none) + (0 - inf)', 'none * 0 * inf', '0 * none * inf', 'inf * 0 * none', 'none * (0 * inf)', '0(none)(inf)']) assert.equal(says(text), 'error', text);
+  for (const text of ['none + 1 + 2', '1 + none + 2', '1 + 2 + none', 'none + inf + inf', 'inf - none + inf', '2 * none * 3', 'none * 0 * 0', '(none + inf) * 0', '(none * inf) + 1 - 1', 'none + inf', 'none * 0']) assert.equal(says(text), 'None', text);
+  for (const text of ['u + inf - inf', 'inf + u - inf', 'none + u + inf - inf', 'u * 0 * inf']) assert.equal(says(text, { u: null }), 'error', text);
+  for (const text of ['u + none + 1', 'none + u + 1', '1 + none + u', 'u * none * 2']) assert.equal(says(text, { u: null }), 'unknown', text);
+  /* with no None and nothing unknown it is worked out sign by sign, as it always was */
+  assert.equal(says('1 - 2 + 3'), 2); assert.equal(says('10 - (2 - 3)'), 11); assert.equal(says('2 * 3 * 4'), 24); assert.equal(says('2 * (3 * 4) * 5'), 120); assert.equal(says('1 - (2 + (3 - (4 - 5)))'), -5);
+  assert.equal(says(Array.from({ length: 5000 }, () => '1').join('+')), 5000); assert.equal(says('none+' + Array.from({ length: 5000 }, () => '1').join('+')), 'None');      /* a long one is not gone down with the stack */
+});
