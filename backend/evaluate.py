@@ -718,7 +718,7 @@ class Run:
             bad = None
             if n['op'] == 'variable' and 'error' in n:
                 e = n['error']
-                bad = '%s has no value (%s%s)' % (n.get('name') or i, e['code'], ': ' + e['note'] if e['note'] else '')
+                bad = '%s has no value (%s%s)' % (n.get('name') or i, 'a cycle' if e['code'] == 'loop' else e['code'], ': ' + e['note'] if e['note'] else '')      # (the error code loop is a cycle: the word loop is kept for a tile with a step)
             for d in deps:
                 got = self._needs[d]
                 if got['most'] > most:

@@ -57,8 +57,10 @@
        size           a definition that comes to another size ("5 × 6 ≠ 4 × 6", what it comes to first, columns
                       first); a block seated on an output of another size; an arrow whose span runs past its
                       input, or that does not come to what it promises
-       loop           a variable that depends on itself, through a definition, a formula or a seat; an arrow that
-                      reads itself, or whose function applies itself
+       loop           a cycle: a variable that depends on itself, through a definition, a formula or a seat; an
+                      arrow that reads itself, or whose function applies itself. (The code is older than the
+                      operation loop, a tile's step carried through, and has nothing to do with it: wherever a
+                      person is told of this error it is called a cycle, or "it depends on itself".)
        no-source      a variable or an arrow that reads what is not there: a block that is gone, a part its source
                       is too small to have, a result that is an error (the note is that error's code), a tile with
                       no matrix (the note says why), a formula that names what nothing is (the note says what), a

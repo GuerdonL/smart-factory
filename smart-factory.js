@@ -365,6 +365,7 @@ const slotAt = (slot, binding) => slot + (binding && binding.cells ? ' ' + bindi
 function laidAt(node, binding = null, slot = null){
   const exact = answerOf(node, binding); if (exact === null) return null;
   const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined); if (!wanted(r)) return exact;
+  if (r.forever) return RUNS_UNTIL;      /* a loop with no last cell: there is nothing to ask the backend for until something runs it */
   const there = backend.available(), got = there === false ? null : backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)), why = got ? null : backend.problem(g, node, binding);      /* only the entries that are drawn are asked for */
   const was = laidKept.get(r); if (was && was.there === there && was.result === (got ? got.result : null) && was.stale === (got ? got.stale : false) && was.why === why) return was.map;
   const map = laid(r, exact, { there, got, why }); laidKept.set(r, { there, result: got ? got.result : null, stale: got ? got.stale : false, why, map }); return map;
@@ -372,6 +373,7 @@ function laidAt(node, binding = null, slot = null){
 const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), node, binding ? { binding } : undefined).deferred;
 /* what to say, in the panel, of a node whose numbers are not shown: that it needs the backend, why the backend gave
    none, or (for one that is only too large) that it is; null where its numbers are shown, or it has an error of its own */
+const RUNS_UNTIL = noted('runs until stopped');
 const RUNS_ON = 'It runs until stopped: its count is infinite and it has no stop block. Its first cells show their state';
 const notStopped = steps => `Not stopped after ${steps} steps: needs the backend`;
 function unshown(node, binding = null, slot = null){
@@ -2079,12 +2081,14 @@ function setUntil(id){
   else { r.until = can.b.id; hud.say(`${name} stops at the first cell where ${bare(can.b.name) || 'that block'} is true` + (r.step ? '' : ': once it has a step (Step, on an arrow on its east side)')); }
   shown();
 }
+/* an error of the graph in words: its note, or what its code means. The code loop is a cycle (a thing that depends on itself): the word loop is kept for a tile with a step */
+const errorSaid = e => e.note || (e.code === 'loop' ? 'a cycle: it depends on itself' : e.code === 'pieces' ? 'its space does not come to one matrix' : e.code === 'mismatch' ? 'it does not fit' : e.code);
 /* what there is to say of a tile's step in the tile's panel: which arrow it is, why it does not fit, the stop block, and the cell it stopped at */
 function stepNotes(s, g){
   const r = s.repeats.get(g); if (!r || (!r.step && !r.until)) return [];
   const a = r.step ? s.blocks.find(k => k.id === r.step) : null, stop = r.until ? s.blocks.find(k => k.id === r.until) : null, out = [];
   const found = steadily(() => { const gr = graphNow(), f = findIn(gr), e = a ? f.arrows.get(a.id) : null, t = f.tiles.get('t:' + g); if (e && e.node) workOut(gr, e.node); return { e, t, at: e && e.node ? stoppedAt(gr, e.node) : null }; }) || {};
-  if (a) out.push(found.e && found.e.error ? 'Its step does not fit: ' + (found.e.error.note || found.e.error.code) : `It has a step${isNamed(a) ? ', ' + bare(a.name) : ''}: its cells are worked out in order, each from the one before`);
+  if (a) out.push(found.e && found.e.error ? 'Its step does not fit: ' + errorSaid(found.e.error) : `It has a step${isNamed(a) ? ', ' + bare(a.name) : ''}: its cells are worked out in order, each from the one before`);
   if (stop) out.push(`It stops at the first cell where ${bare(stop.name) || 'its stop block'} is true` + (found.at ? `: that is cell ${found.at}` : ''));
   return out;
 }
@@ -2092,7 +2096,7 @@ function stepNotes(s, g){
 function stepSaid(a){
   const g = stepTile(a), r = g !== null ? space.repeats.get(g) : null; if (!r || r.step !== a.id) return [];
   const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) : null }; }) || {};
-  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(found.e.error.note || 'It does not fit')] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : [])];
+  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(errorSaid(found.e.error))] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : [])];
 }
 function tileInfo(s, g, all = tilesIn(s)){
   const rep = s.repeats.get(g); if (!rep) return null;
@@ -3130,7 +3134,7 @@ bus.on('space.out', out); bus.on('space.back', backIn);
 bus.on('space.go', ({ index }) => { deeper.length = 0; go(trail()[index]); });
 bus.on('camera', camera => { hud.show(camera); menu.close(); shown(); });
 bus.on('camera.home', () => view.home());
-bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); if (b && !selected.has(b)) select(members(b));      /* a right click on a block that is not selected selects it first */
+bus.on('menu.open', ({ x, y, id }) => { const b = id && blockOf(id); menuOn = b && space.blocks.includes(b) ? b : null; if (b && !selected.has(b)) select(members(b));      /* a right click on a block that is not selected selects it first */
   menuAt = view.toWorld(x, y); menu.openAt(x, y); });
 bus.on('variable.drag', ({ kind, x, y }) => { if (selected.size && !openField) select([]); if (kind === 'length' && !openField?.over(x, y)) reach(x, y); });      /* while a formula is being typed the selection stays, and with it the panel the formula is in */
 bus.on('variable.end', () => { for (const m of near.values()) m.el.remove(); near.clear(); });
@@ -3376,7 +3380,8 @@ addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftHeld){ shiftHe
 addEventListener('keyup', e => { if (e.key === 'Shift' && shiftHeld){ shiftHeld = false; relist(); } });
 addEventListener('blur', () => { if (shiftHeld){ shiftHeld = false; relist(); } });
 
-let menuAt = { x: 0, y: 0 };
+let menuAt = { x: 0, y: 0 }, menuOn = null;      /* where the menu was opened, and the block it was opened on: Step and Stop when true are commands on that one block, whatever frame's blocks were selected with it */
+const aimed = () => (menuOn && space.blocks.includes(menuOn) ? [menuOn] : [...selected]);
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 const menu = createMenu([
   /* New: a kind of block to draw. Tensor is drawn by clicking it, as before; resting on it opens the sources (sources.js), each drawn the same way */
@@ -3395,8 +3400,8 @@ const menu = createMenu([
   { label: 'Difference', why: () => refusing([...selected], difference(inOrder([...selected]).map(unitsOf)), 'cut or fused').refused || null, run: () => bus.send('difference', { ids: idsOf(selected) }) },
   { label: 'Intersect', why: () => refusing([...selected], intersection(inOrder([...selected]).map(unitsOf)), 'cut').refused || null, run: () => bus.send('intersect', { ids: idsOf(selected) }) },
   { label: 'Make conditional', why: () => conditionableNow([...selected]).refused || null, run: () => bus.send('conditional', { ids: idsOf(selected) }) },
-  { label: 'Step', why: () => steppable([...selected]).refused || null, run: () => bus.send('step', { id: [...selected][0]?.id ?? null }) },
-  { label: 'Stop when true', why: () => stoppable([...selected]).refused || null, run: () => bus.send('until', { id: [...selected][0]?.id ?? null }) },
+  { label: 'Step', why: () => steppable(aimed()).refused || null, run: () => bus.send('step', { id: aimed()[0]?.id ?? null }) },
+  { label: 'Stop when true', why: () => stoppable(aimed()).refused || null, run: () => bus.send('until', { id: aimed()[0]?.id ?? null }) },
   { label: 'Revert', why: () => revertible().refused || null, run: reverting },
   { label: 'Unseat', why: () => selected.size === 1 && [...selected][0].seat ? null : 'Unseat takes a seated block off its seat: select one block that is seated', run: () => bus.send('unseat', { id: [...selected][0].id }) },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => removing('delete') },
