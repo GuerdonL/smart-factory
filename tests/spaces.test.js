@@ -11,7 +11,7 @@ import { combine, apply, isError, isNone, written } from '../values.js';
 import { treeOf, evaluate as evaluateExpr } from '../expression.js';
 const evaluateText = text => evaluateExpr(text, () => undefined).value;
 import { build, validate, inferred, CODES, VERSION } from '../graph.js';
-import { evaluate, promiseOf, judged } from '../evaluate.js';
+import { evaluate, promiseOf, judged, seenFrom } from '../evaluate.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), NONE = { none: true }, sym = text => ({ sym: text });
 
@@ -350,4 +350,15 @@ test('evaluate: a shape too large to work out whose values can be read off the g
   assert.equal(promiseOf(g, 'v:Ty').note, 'Ty is not natural: it holds -7 at 80, 80');
   assert.equal(promiseOf(g, 'v:Tf').state, 'unproven');      /* a formula among its entries: it would have to be worked out */
   assert.equal(evaluate(g, g.blocks.R).error.note, 'Zs is not natural: it holds 0 at 1, 1');      /* and what is made of it has no value */
+});
+
+/* ---- ruled 21 November 2026: a sentence names the place as drawn on the shape being looked at ---- */
+test('a broken promise\'s sentence names the entry as the use being looked at draws it: transposed, and turned through its inner axes', () => {
+  const g = made(snap([B('W', 0, 0, 3, 2, { entries: rowsOf([[1, 2, -3], [4, 5, 6]]), holds: 'natural', variable: 1 }), B('Wt', 0, 10, 2, 3, { name: 'W', variable: 1, reference: true, transposed: true })]));
+  const use = g.blocks.Wt, error = evaluate(g, 'v:W').error; assert.equal(g.nodes[use].op, 'transpose');
+  assert.equal(error.note, 'W is not natural: it holds -3 at 3, 1'); assert.equal(seenFrom(g, use, error), 'W is not natural: it holds -3 at 1, 3');
+  assert.equal(seenFrom(g, 'v:W', error), error.note); assert.equal(seenFrom(g, use, { code: 'size', note: 'x at 3, 1', node: 'v:W' }), 'x at 3, 1'); assert.equal(seenFrom(g, use, { ...error, node: 'v:other' }), error.note);
+  /* a use turned through its inner axes: axis k of the use is axis order[k] of the variable */
+  const turned = { ...g, nodes: { ...g.nodes, turn: { op: 'transpose', inputs: ['v:W'], order: [2, 0, 3, 1], type: g.nodes['v:W'].type } } };
+  assert.equal(seenFrom(turned, 'turn', { code: 'type', note: 'W is not natural: it holds -3 at 5, 6, 7, 8 in cell 2, 1', node: 'v:W' }), 'W is not natural: it holds -3 at 7, 5, 8, 6 in cell 2, 1');
 });

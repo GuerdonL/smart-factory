@@ -23,7 +23,7 @@ import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
-import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, MOST as MOST_HERE } from './evaluate.js';
+import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, MOST as MOST_HERE } from './evaluate.js';
 import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
@@ -1034,10 +1034,12 @@ const holdsOf = b => attrsOf(b).holds || null;
 /* the row of the panel that says what a block holds: its promise, or what it is worked out as; and where a promise
    is broken by a value or cannot be shown to be kept, the sentence (evaluate.js: promiseOf) */
 function holdsRow(b, key = 'holds', label = 'Holds'){
-  return steadily(() => { const g = graphNow(), holds = holdsOf(b); let id = g.blocks[b.id], n = id && g.nodes[id]; if (n && n.op === 'transpose'){ id = n.inputs[0]; n = g.nodes[id]; }
+  return steadily(() => { const g = graphNow(), holds = holdsOf(b), use = g.blocks[b.id]; let id = use, n = id && g.nodes[id]; if (n && n.op === 'transpose'){ id = n.inputs[0]; n = g.nodes[id]; }
+    /* the sentence names the entry as it is drawn on the use being looked at: a transposed use's columns are the variable's rows, and one turned through its inner axes has its own */
+    const here = note => note && use !== id ? seenFrom(g, use, { code: 'type', note, node: id }) : note;
     if (!n || n.op === 'param') return { key, label, holds, inferred: n && !holds ? 'any?' : null, from: n ? 'whatever it is given' : '', note: null };
     const p = promiseOf(g, id, { binding: bindingOf([b], spaceWith(b)) }), bare = n.defined === 'entries' && !Object.keys(n.entries).length;
-    return { key, label, holds, inferred: !p || bare ? null : p.inferred, from: bare ? '' : n.defined === 'entries' ? 'from its entries' : n.defined === 'seat' ? 'from the arrow' : n.defined === 'source' ? 'from its source' : 'from what defines it', note: p && p.note ? p.note : holds ? brokenInTile(b, g, id) : null }; });
+    return { key, label, holds, inferred: !p || bare ? null : p.inferred, from: bare ? '' : n.defined === 'entries' ? 'from its entries' : n.defined === 'seat' ? 'from the arrow' : n.defined === 'source' ? 'from its source' : 'from what defines it', note: p && p.note ? (p.state === 'broken' ? here(p.note) : p.note) : holds ? here(brokenInTile(b, g, id)) : null }; });
 }
 /* a block of a tile holds its promise in every cell, not the first alone: the tile's matrix is every cell worked
    out, so where that has no value because this block breaks its promise in some cell, the sentence (which names

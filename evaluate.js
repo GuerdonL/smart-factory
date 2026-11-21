@@ -29,6 +29,8 @@
                                                input says nothing once the input has changed.) Gives how many nodes.
    judged(graph, id, holds, name, options)     a promise held against any node's values (what a function's input
                                                block promises, against what it is given): see the function
+   seenFrom(graph, use, error)                 a broken promise's sentence with the entry's place as one use of the
+                                               variable draws it (a transposed use, one turned through inner axes)
    promiseOf(graph, id, options)               what a variable promises to hold (its number space, spaces.js) and
                                                whether its values keep the promise: see the function
    MOST                                        4096, the default maxEntries: the most numbers the browser works out
@@ -340,6 +342,21 @@ function byRun(entries, { axis, start, span, count }){
   for (const [key, v] of Object.entries(entries)){ const p = key.split(','), at = Number(p[rows ? 1 : 0]) - start; if (!(at >= 0 && at < span * count)) continue;
     const run = Math.floor(at / span) + 1; p[rows ? 1 : 0] = String(at % span + 1); if (!out.has(run)) out.set(run, {}); out.get(run)[p.join(',')] = v; }
   return [...out].sort((x, y) => x[0] - y[0]);
+}
+
+/* A broken promise's sentence as it reads on one use of the variable. The sentence names the entry by the variable's
+   own columns, rows and inner positions; a use that is transposed, or turned through its inner axes, draws that
+   entry somewhere else, and whoever is looking at that use is told the place as it is drawn there.
+   use: the use's node (a transpose of the variable, with its order where it is turned); error: evaluate's.
+   -> the note, with the place moved; the note as it is for any other node. */
+export function seenFrom(graph, use, error){
+  const n = graph && typeof graph === 'object' && typeof use === 'string' ? nodeAt(graph, use) : null, note = error && typeof error.note === 'string' ? error.note : '';
+  if (!n || n.op !== 'transpose' || !error || error.code !== 'type' || n.inputs[0] !== error.node) return note;
+  const m = note.match(/^([^]* at )(\d+(?:, \d+)+)([^]*)$/); if (!m) return note;
+  const p = m[2].split(', '), order = Array.isArray(n.order) && n.order.length === p.length ? n.order : null;
+  if (!order && (n.order || p.length < 2)) return note;
+  /* axis k of the use is axis order[k] of the variable (graph.js: transpose): the entry at p is drawn where each of the use's axes reads its own */
+  return m[1] + (order ? order.map(i => p[i]) : [p[1], p[0], ...p.slice(2)]).join(', ') + m[3];
 }
 
 const texts = new WeakMap();
