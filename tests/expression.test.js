@@ -304,7 +304,7 @@ test('after review (phase 7): a sum of five thousand terms is read and worked ou
 /* ---- None (phase 9) ---- */
 const NONE = { none: true };
 test('none and ∅ are None, a constant of the language like inf and true', () => {
-  is('none', NONE); is('None', NONE); is('∅', NONE); is('none + 1', NONE); is('none * 0', NONE); is('1/none', NONE); is('exp(none)', NONE); is('ln(none)', NONE); is('max(none, 3)', NONE); is('none < 1', NONE); is('-none', NONE);
+  is('none', NONE); is('None', NONE); is('∅', NONE); is('none + 1', NONE); is('none * 0', NONE); is('1/none', NONE); is('exp(none)', NONE); is('ln(none)', NONE); is('max(none, 3)', NONE); is('none < 1', NONE); is('-none', NONE); is('√∅', NONE); is('∜∅', NONE); is('√none', NONE); is('2∅', NONE);      /* the sign is read under a root and against a number, as ∞ is */
   is('none == 0', false); is('none == false', false); is('none == none', true); is('none != 0', true);
   is('!none', true); is('none && 1', false); is('none || 2', true); is('none || 0', false);
   assert.equal(written(NONE), '∅');

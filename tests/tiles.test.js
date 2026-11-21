@@ -59,9 +59,9 @@ test('a count that depends on its own tile\'s size is refused, whatever it would
 test('a count may read the mass of a scalar whose entry is a literal number, or a formula of sizes and such masses', () => {
   /* n holds 3; half holds 3/2; k holds a formula of a size; deep a formula of k's mass; own a formula of its own x;
      attr a formula of an attribute; loop reads itself; seated is worked out some other way */
-  const held = { n: 3, half: { n: 3, d: 2, k: 0 }, k: { expr: '@[keys:y] + 1' }, deep: { expr: '2 * @[k:m]' }, own: { expr: 'x * 2' }, attr: { expr: '@[keys:a:heads]' }, loop: { expr: '@[loop:m] + 1' }, fn: { expr: 'max(@[keys:x], 2)' } };
+  const held = { n: 3, half: { n: 3, d: 2, k: 0 }, k: { expr: '@[keys:y] + 1' }, deep: { expr: '2 * @[k:m]' }, own: { expr: 'x * 2' }, attr: { expr: '@[keys:a:heads]' }, loop: { expr: '@[loop:m] + 1' }, fn: { expr: 'max(@[keys:x], 2)' }, sel: { expr: 'select(none, 2, 3)' } };
   const entryOf = id => held[id];
-  for (const ok of ['@[n:m]', '@[k:m]', '@[deep:m]', '@[fn:m]', '@[keys:x] * @[n:m]', '@[half:m] * 2']) assert.deepEqual(settled(ok, entryOf), { ok: true }, ok);
+  for (const ok of ['@[n:m]', '@[k:m]', '@[deep:m]', '@[fn:m]', '@[sel:m]', '@[keys:x] * @[n:m]', '@[half:m] * 2']) assert.deepEqual(settled(ok, entryOf), { ok: true }, ok);
   assert.match(settled('@[own:m]', entryOf).refused, /not a mass worked out from the scalar's own measures/);
   assert.match(settled('@[attr:m]', entryOf).refused, /not an attribute/);
   assert.match(settled('@[seated:m]', entryOf).refused, /not a mass that is unknown or worked out/);      /* entryOf knows nothing of it */

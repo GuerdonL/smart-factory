@@ -31,6 +31,8 @@ class Read(unittest.TestCase):
         self.assertEqual(names_in('none + $1 * None'), ['$1'])
         self.assertTrue(formula_ok('select($1 == none, 0, $1)', 1))
         self.assertTrue(formula_ok('∅ + 1', 0))
+        for text in ('√∅', '∜∅', '2∅'):      # the sign under a root and against a number, as expression.js reads it
+            self.assertTrue(formula_ok(text, 0), text)
         self.assertFalse(formula_ok('nothing + 1', 0))
 
     def test_none_is_a_literal_in_its_one_form(self):

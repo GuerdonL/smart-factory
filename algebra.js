@@ -153,8 +153,8 @@
        are names. name is '' where none was typed; length is a whole number, null where none was typed, or undefined
        where one was typed that is not whole ("2.5"): not accepted, and never rounded
    combine(op, a, b), apply(fn, a), valueText(v), isInteger(v), isSurd(v), surd, rootOf, sideOf, exact, held and the rest
-       of what values are: values.js, which sets out the eight kinds of value (whole, infinity, exact, boolean,
-       symbolic, decimal, error, unknown) and the rules for combining them. Every one of them takes every kind.
+       of what values are: values.js, which sets out the nine kinds of value (integer, infinity, exact, boolean,
+       symbolic, decimal, error, none, unknown) and the rules for combining them. Every one of them takes every kind.
    initials(name) -> the letters a variable's entries are called by: "Key Weights" -> "kw", "Shape 3" -> "s" */
 
 const innerIn = v => Array.isArray(v) ? v : [];

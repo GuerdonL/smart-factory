@@ -138,7 +138,7 @@ function parse(text){
   const inside = read => { deepest = Math.max(deepest, ++depth); try { return read(); } finally { depth--; } };
   const UNREAD = 'that cannot be read as arithmetic';
   const take = t => ts[i]?.t === t ? ts[i++] : null;
-  const starts = t => !!t && ['name', 'ref', '(', '√', '∜', '∞'].includes(t.t);      /* what, set straight against a number or a bracket, multiplies it */
+  const starts = t => !!t && ['name', 'ref', '(', '√', '∜', '∞', '∅'].includes(t.t);      /* what, set straight against a number or a bracket, multiplies it */
   const level = (next, ops) => () => { let a = next(); while (ts[i] && ops.includes(ts[i].t)) a = { op: ts[i++].t, a, b: next() }; return a; };
   function atom(){
     const t = ts[i++]; if (!t) throw new Wrong(UNREAD);

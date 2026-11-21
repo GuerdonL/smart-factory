@@ -42,7 +42,8 @@
    axisTyped(text)               { name, length } | { refused }: what was typed on an axis's row, read as a side's
                                  measurement is (algebra.js: readSide): "4" a length, "embed" a name, "embed 4"
                                  both, "-" takes the name off. name is undefined where none was typed, null for "-";
-                                 length is undefined where none was typed.
+                                 length is undefined where none was typed. "none" and "∅" are refused: None is no
+                                 length, and is no name for an axis.
    described(cols, rows, inner)  what the properties panel calls the shape, or null where it holds no inner data:
                                  "vector of 2 × 4 matrices". Never a count of dimensions: the drawn sides are always
                                  two, and a count could only disagree with what is seen.
@@ -128,6 +129,7 @@ export function axisTyped(text){
   const read = readSide(text);
   if (read.length !== null && read.length !== undefined && read.length > LONGEST) return { refused: lengthOk(read.length).refused };
   if (read.length === undefined || (read.length !== null && read.length < 1)) return { refused: `${String(text).trim()}: only a whole number, at least 1, can be an axis's length` };
+  if (read.name && ['none', '∅'].includes(String(read.name).toLowerCase())) return { refused: `${String(text).trim()}: only a whole number, at least 1, can be an axis's length` };      /* None is a value of the language, and no length (0 and 3/2 are refused the same way) */
   if (!read.name && read.length === null) return { refused: 'Type a length, a name, or both: "4", "embed", "embed 4"' };
   return { name: read.name === '-' ? null : read.name || undefined, length: read.length === null ? undefined : read.length };
 }

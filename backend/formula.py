@@ -72,7 +72,7 @@ ONE = set('+-*/^(),<>!√∜∞∅')
 UNREAD = 'that cannot be read as arithmetic'
 # what binds how tightly, loosest first; all of them group from the left
 LEVEL = {'||': 1, '&&': 2, '==': 3, '!=': 3, '<': 3, '>': 3, '<=': 3, '>=': 3, '+': 4, '-': 4, '*': 5, '/': 5}
-STARTS = ('name', '(', '√', '∜', '∞')      # what, set straight against a number or a bracket, multiplies it
+STARTS = ('name', '(', '√', '∜', '∞', '∅')      # what, set straight against a number or a bracket, multiplies it
 
 
 def tokens(text):

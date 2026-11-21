@@ -248,7 +248,7 @@ export function circular(tile, reads, next){
   while (todo.length){ const id = todo.pop(); if (id === tile) return true; if (seen.has(id)) continue; seen.add(id); todo.push(...next(id)); }
   return false;
 }
-const WORDS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf', 'inf', 'infinity', 'true', 'false']);
+const WORDS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf', 'inf', 'infinity', 'true', 'false', 'none']);
 const NOT_SETTLED = 'a count comes from what is settled before anything is worked out: a width, a height, or the mass of a scalar that holds a number or a formula of those; not ';
 export function settled(text, entryOf = () => undefined, depth = 0, inner = false){
   if (depth > 16) return { refused: NOT_SETTLED + 'a mass that depends on itself' };
