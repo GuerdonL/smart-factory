@@ -233,6 +233,33 @@ test('a value the solver cannot compare exactly breaks no promise: it is not sho
   assert.ok(evaluate(g, 'v:E4').entries); assert.deepEqual(promiseOf(g, 'v:E4'), { holds: 'probability', inferred: 'real', state: 'unproven', note: 'E4 cannot be shown to be probability: it is worked out as real' });
   assert.equal(evaluate(g, 'v:E5').error.note, 'E5 is not probability: it holds 3 at 2, 1');      /* and a value that is told to lie outside still breaks it */
 });
+test('a whole or rational value the solver leaves symbolic breaks no promise: it is asked whether it is the whole number it is nearest, and is neither in nor out where that cannot be told', () => {
+  const three = evaluateText('ln(8)/ln(2)'), one = evaluateText('ln(2)+ln(3)-ln(6)+1');
+  assert.equal(typeof three.sym, 'string'); assert.equal(typeof one.sym, 'string');      /* the solver leaves them as they are written, and cannot reduce their difference from 3 and from 1 to 0 */
+  for (const s of ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational']){ assert.notEqual(admits(s, three), false, s); assert.notEqual(admits(s, one), false, s); assert.equal(broken(s, { '1,1': three, '2,1': 1 }), null, s); }
+  assert.equal(admits('probability', three), false); assert.equal(admits('real', three), true);      /* and what can be told is: 3 is above 1 */
+  /* one that is shown to be no whole number is outside every space of whole numbers, and is not said to be no ratio */
+  for (const text of ['1+sqrt(2)', 'exp(-1)', 'exp(1)/3', '2^(1/3)']){ const v = evaluateText(text);
+    for (const s of ['boolean', 'ternary', 'natural', 'whole', 'integer']) assert.equal(admits(s, v), false, text + ' ' + s);
+    assert.equal(admits('rational', v), null, text); assert.equal(broken('rational', { '1,1': v }), null); assert.deepEqual(untoldIn('rational', { '1,1': v }), { key: '1,1', value: v }); }
+  /* a value written in digits is told as before, whatever its length */
+  assert.equal(admits('rational', evaluateText('(2^80+1)/3')), true); assert.equal(admits('integer', evaluateText('(2^80+1)/3')), false); assert.equal(admits('natural', evaluateText('2^80+1')), true);
+  const g = made(snap([B('S', 0, 0, 2, 1, { entries: { '1,1': { expr: 'ln(8)/ln(2)' }, '2,1': 3 }, holds: 'integer' }), B('Nt', 5, 0, 1, 1, { entries: { '1,1': { expr: 'ln(2)+ln(3)-ln(6)+1' } }, holds: 'natural' }),
+    B('Q', 10, 0, 1, 1, { entries: { '1,1': { expr: 'ln(8)/ln(2)' } }, holds: 'rational' }), B('I', 15, 0, 2, 1, { entries: { '1,1': { expr: 'ln(8)/ln(2)' }, '2,1': { expr: '1+sqrt(2)' } }, holds: 'integer' })]));
+  for (const id of ['v:S', 'v:Nt', 'v:Q']){ const a = evaluate(g, id), p = promiseOf(g, id); assert.ok(a.entries, id); assert.notEqual(p.state, 'broken', id);      /* the shape keeps its value, and the row warns at most */
+    if (p.state === 'unproven') assert.match(p.note, /cannot be shown to be/); }
+  assert.equal(evaluate(g, 'v:I').error.note, 'I is not integer: it holds 1+√2 at 2, 1');
+});
+test('the first entry outside a space is the first by number: row, then column, then each inner position, also past position 9', () => {
+  assert.deepEqual(broken('natural', { '1,1,10': -5, '1,1,2': -5 }), { key: '1,1,2', value: -5 });      /* not by the key as text, where "1,1,10" comes before "1,1,2" */
+  assert.deepEqual(broken('natural', { '1,1,10,1': -5, '1,1,9,12': -4, '1,1,9,3': -3 }), { key: '1,1,9,3', value: -3 });
+  assert.deepEqual(broken('natural', { '10,1,1': -1, '2,1,12': -2, '1,2,1': -3 }), { key: '2,1,12', value: -2 });      /* row, then column, before any inner position */
+  assert.deepEqual(broken('natural', { '12,10': -1, '3,10': -2, '1,11': -3 }), { key: '3,10', value: -2 });
+  assert.deepEqual(untoldIn('probability', { '1,1,10': evaluateText('tanh(20)'), '1,1,2': evaluateText('tanh(20)') }).key, '1,1,2');
+  const entries = {}; for (let k = 1; k <= 12; k++) entries['1,1,' + k] = k === 2 || k === 10 ? -5 : 1;
+  const g = made(snap([B('D', 0, 0, 1, 1, { inner: [{ length: 12, name: null }], entries, holds: 'natural' })]));
+  assert.equal(evaluate(g, 'v:D').error.note, 'D is not natural: it holds -5 at 1, 1, 2');      /* as the backend says it: backend/tests/test_none.py */
+});
 test('evaluate: what is worked out from a shape whose promise a value breaks has no value, also where it would be the backend\'s to give', () => {
   const g = made(snap([B('W', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [-3, 4]]), holds: 'natural' }), B('Nz', 2, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } }),
     B('K', 0, 10, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]), holds: 'natural' }), B('Nk', 2, 10, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } } }),
@@ -284,6 +311,7 @@ test('none is the space of None alone: joined with a space S it is S? exactly, i
   assert.equal(sum('none', 3), 'none'); assert.equal(product('none', 'natural', 2), 'none');
   assert.equal(admits('none', NONE), true); assert.equal(admits('none', 0), false); assert.equal(admits('none', null), true); assert.equal(admits('none', { err: 'x' }), true);
   assert.deepEqual(broken('none', { '1,1': NONE, '2,1': 2 }), { key: '2,1', value: 2 }); assert.equal(NOT_HELD('W', 'none', '2,1', 2), 'W is not None: it holds 2 at 2, 1');
+  assert.equal(NOT_HELD('W', 'none', '1,1', true), 'W is not None: it holds 1 at 1, 1'); assert.equal(NOT_HELD('W', 'none', '1,1', false), 'W is not None: it holds 0 at 1, 1');      /* a boolean as the backend writes it in the same sentence (backend/tests/test_none.py) */
   assert.equal(UNPROVEN('W', 'none', 'natural?'), 'W cannot be shown to be None: it is worked out as natural or None');
 });
 test('a shape of only None is worked out as none, promises it and keeps it, and a number in it breaks the promise', () => {
@@ -353,6 +381,11 @@ test('evaluate: a shape too large to work out whose values can be read off the g
   assert.equal(promiseOf(g, 'v:Ty').note, 'Ty is not natural: it holds -7 at 80, 80');
   assert.equal(promiseOf(g, 'v:Tf').state, 'unproven');      /* a formula among its entries: it would have to be worked out */
   assert.equal(evaluate(g, g.blocks.R).error.note, 'Zs is not natural: it holds 0 at 1, 1');      /* and what is made of it has no value */
+  /* with inner data the place is said with its inner position, as the same shape small says it and as the backend does */
+  const inner = [{ length: 2, name: null }], h = made(snap([B('Zi', 0, 0, 70, 70, { inner, source: 'zeros', holds: 'natural' }), B('Zj', 100, 0, 2, 2, { inner, source: 'zeros', holds: 'natural' }),
+    B('Ii', 200, 0, 70, 70, { inner: [{ length: 2, name: null }, { length: 3, name: null }], source: 'identity', holds: 'natural' })]));
+  assert.equal(evaluate(h, 'v:Zi').error.note, 'Zi is not natural: it holds 0 at 1, 1, 1'); assert.equal(evaluate(h, 'v:Zj').error.note, 'Zj is not natural: it holds 0 at 1, 1, 1');
+  assert.equal(evaluate(h, 'v:Ii').error.note, 'Ii is not natural: it holds 0 at 2, 1, 1, 1');
 });
 
 /* ---- ruled 21 November 2026: a sentence names the place as drawn on the shape being looked at ---- */

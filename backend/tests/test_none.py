@@ -133,6 +133,89 @@ class Masks(unittest.TestCase):
         self.assertEqual(says(A.call('select', [c, a, b])), [[-1.0, 'none', 'none', 'err', 50.0]])
         self.assertEqual(says(A.call('select', [A.nothing(), A.number(1), A.number(2)]).reshape(1, 1)), [[2.0]])
 
+    def test_a_product_with_none_is_each_entry_s_own_terms_whatever_special_values_are_in_it(self):
+        """Every entry against a model that takes one entry and one term at a time: its kind, and its number where it
+        is one (an infinity included). With infinities of one sign and of both, on one side and on both, with
+        zeros, errors and None, sparse and dense, and with inner axes."""
+        rng = np.random.default_rng(21)
+
+        def made(shape, none, up, down, zero, lost):
+            v = rng.integers(1, 4, size=shape).astype(np.float32)
+            v = np.where(rng.random(shape) < 0.3, -v, v)
+            for value, p in ((0, zero), (math.inf, up), (-math.inf, down), (math.nan, lost)):
+                v = np.where(rng.random(shape) < p, np.float32(value), v)
+            m = rng.random(shape) < none
+            return np.where(m, np.float32(0), v).astype(np.float32), m
+
+        def model(a, ma, b, mb, at):
+            lead, i, j = at[:-2], at[-2], at[-1]
+            none, known = False, []
+            for k in range(a.shape[-1]):
+                x, y, nx, ny = float(a[lead + (i, k)]), float(b[lead + (k, j)]), bool(ma[lead + (i, k)]), bool(mb[lead + (k, j)])
+                if (not nx and math.isnan(x)) or (not ny and math.isnan(y)):
+                    return 'err'
+                if nx or ny:
+                    none = True
+                elif (x == 0 and math.isinf(y)) or (y == 0 and math.isinf(x)):
+                    return 'err'
+                else:
+                    known.append(x * y)
+            if math.inf in known and -math.inf in known:
+                return 'err'
+            return 'none' if none else float(sum(known))
+
+        kinds, asked = set(), 0
+        for shape_a, shape_b in (((4, 5), (5, 3)), ((1, 6), (6, 1)), ((2, 3, 4), (2, 4, 5)), ((2, 1, 3, 4), (1, 3, 4, 2)), ((7, 2), (2, 7))):
+            for none_a, none_b in ((0.2, 0), (0, 0.2), (0.15, 0.15), (0.6, 0.6)):
+                for up, down in ((0, 0), (0.2, 0), (0, 0.2), (0.15, 0.15), (0.5, 0.4), (0.02, 0)):
+                    for zero, lost in ((0, 0), (0.2, 0), (0.2, 0.05)) * 3:
+                        (a, ma), (b, mb) = made(shape_a, none_a, up, down, zero, lost), made(shape_b, none_b, up, down, zero, lost)
+                        got = A.matmul(A.Held(a, ma) if ma.any() else a, A.Held(b, mb) if mb.any() else b)
+                        values, none = (got.values, got.none) if isinstance(got, A.Held) else (got, np.zeros(np.shape(got), dtype=bool))
+                        wide = np.broadcast_shapes(shape_a[:-2], shape_b[:-2])
+                        full = [np.broadcast_to(x, wide + shape[-2:]) for x, shape in ((a, shape_a), (ma, shape_a), (b, shape_b), (mb, shape_b))]
+                        self.assertEqual(values.shape, wide + (shape_a[-2], shape_b[-1]))
+                        for at in np.ndindex(values.shape):
+                            want = model(*full, at)
+                            said = 'none' if none[at] else 'err' if math.isnan(values[at]) else float(values[at])
+                            self.assertEqual(said, want, (shape_a, shape_b, at, a.tolist(), ma.tolist(), b.tolist(), mb.tolist()))
+                            if none[at]:
+                                self.assertEqual(float(values[at]), 0.0)      # the number under a None is 0
+                            kinds.add(want if isinstance(want, str) else 'inf' if math.isinf(want) else 'number')
+                            asked += 1
+        self.assertEqual(kinds, {'err', 'none', 'number', 'inf'})
+        self.assertGreater(asked, 20000)
+
+    def test_a_product_with_none_and_infinities_never_takes_more_room_than_a_run_is_given(self):
+        """limits.ROOM_TO_WORK results, the inputs aside, however many None and infinities there are and wherever
+        they lie: the check before a run counts on it."""
+        import tracemalloc
+        from backend import limits
+        n = 300
+        rng = np.random.default_rng(3)
+        a, b = rng.random((n, n), dtype=np.float32), rng.random((n, n), dtype=np.float32)
+        none, upper = np.eye(n, dtype=bool), np.triu(np.ones((n, n), dtype=bool), 1)
+
+        def scattered(x, signs):
+            m = rng.random((n, n)) < 0.01
+            v = x.copy()
+            for sign in signs:
+                v[rng.random((n, n)) < 0.01] = sign * math.inf
+            v[rng.random((n, n)) < 0.01] = 0
+            return A.Held(np.where(m, np.float32(0), v), m)
+
+        cases = {'an attention mask': (A.Held(np.where(none, np.float32(0), a), none), np.where(upper, np.float32(-math.inf), b)),
+                 'None and ∞ scattered on both sides': (scattered(a, [1]), scattered(b, [1])),
+                 'None, ∞ and -∞ scattered on both sides': (scattered(a, [1, -1]), scattered(b, [1, -1])),
+                 'None in every row but two, ∞ and -∞': (A.Held(np.where(none, np.float32(0), a), none & (np.arange(n) > 1)[:, None]), scattered(b, [1, -1]).values)}
+        for name, (x, y) in cases.items():
+            A.matmul(x, y)
+            tracemalloc.start()
+            A.matmul(x, y)
+            peak = tracemalloc.get_traced_memory()[1]
+            tracemalloc.stop()
+            self.assertLessEqual(peak / (4 * n * n), limits.ROOM_TO_WORK, name)
+
     def test_every_function_of_none_is_none(self):
         x = self.row('none', 4, 'err')
         for fn, four in (('neg', -4.0), ('abs', 4.0), ('sqrt', 2.0), ('exp', float(np.float32(math.exp(4)))), ('ln', float(np.float32(math.log(4)))), ('tanh', float(np.float32(math.tanh(4)))), ('erf', float(np.float32(math.erf(4))))):
@@ -151,8 +234,8 @@ class Masks(unittest.TestCase):
         self.assertEqual(says(A.matmul(self.row(1, 2), np.ones((2, 1), dtype=np.float32))), [[3.0]])
 
     def test_a_product_with_none_and_an_infinity_is_told_term_by_term_wherever_the_infinities_lie(self):
-        """The special terms are counted only at the places an infinity is at (arrays._wrong): the answer must be
-        what counting every term gives, for few infinities and many, with and without inner axes."""
+        """The answer must be what counting every term gives, for few infinities and many, with and without inner
+        axes (arrays._told asks the product again only where a None meets an infinity)."""
         rng = np.random.default_rng(9)
 
         def made(shape, rare):
@@ -331,6 +414,19 @@ class Promises(unittest.TestCase):
         self.assertIsNone(A.outside(a, 'integer', False))
         self.assertEqual(A.outside(A.row([1, None, 0.5]), 'natural', True), (0, 2, (), 0.5))
         self.assertEqual(A.outside(A.row([1, None, 0.5]), 'real', False), (0, 1, (), None))
+
+    def test_a_boolean_that_breaks_a_promise_of_none_is_written_1_or_0_as_on_the_page(self):
+        self.assertEqual(self.says({'1,1': True, '2,1': {'none': True}, '3,1': {'none': True}}, 'none')[0], 'W is not None: it holds 1 at 1, 1')      # tests/spaces.test.js has the same sentence of spaces.js
+        self.assertEqual(self.says({'1,1': {'none': True}, '2,1': False, '3,1': {'none': True}}, 'none')[0], 'W is not None: it holds 0 at 2, 1')
+
+    def test_an_inner_position_past_nine_is_after_the_second_as_on_the_page(self):
+        """One entry with an inner axis of 12, -5 at inner positions 2 and 10: "at 1, 1, 2", which is what the page
+        says of the same graph (tests/spaces.test.js), where the keys were once compared as text."""
+        entries = {'1,1,%d' % k: (-5 if k in (2, 10) else 1) for k in range(1, 13)}
+        t = {'cols': 1, 'rows': 1, 'colsName': None, 'rowsName': None, 'inner': [{'length': 12, 'name': None}]}
+        g = {'version': 3, 'functions': {}, 'spaces': {}, 'blocks': {}, 'nodes': {'d': {'op': 'variable', 'inputs': [], 'type': t, 'name': 'D', 'named': True, 'defined': 'entries', 'entries': entries, 'holds': 'natural'}}}
+        self.assertEqual(validate(g), [])
+        self.assertEqual(ask(g, [{'node': 'd', 'cells': [[1, 1, 1]]}])['errors'], {'d': 'D is not natural: it holds -5 at 1, 1, 2'})
 
     def test_the_sentences_are_the_pages_own_for_a_shape_a_product_made_of_it_and_what_an_arrow_takes(self):
         from .support import fixture

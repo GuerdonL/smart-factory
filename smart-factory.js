@@ -34,7 +34,7 @@ import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColou
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
-import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
+import { wanted, laid, noted, drawn as cellsDrawn, level as levelOf } from './decimals.js';
 import { createBackend, OLDER as OLDER_BACKEND } from './backend.js';
 import { squares } from './components/matrix.js';
 import * as nesting from './inner.js';
@@ -384,6 +384,10 @@ function unshown(node, binding = null, slot = null){
   if (why) return (far ? 'It has no value: ' : 'The backend gave no numbers: ') + why;      /* (a promise its numbers break, found by the backend: the sentence is the page's own) */
   return r.deferred && !backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)) ? (backend.available() ? 'Waiting for the backend' : r.backend ? null : tooLarge(r.type)) : null;
 }
+/* In the panel a sentence is said once. A matrix with no numbers carries why in place of its entries (decimals.js:
+   noted), and the notes beneath it say the same in full ("It has no value: in is not natural: …"): where they do,
+   the matrix says only that it has no value. values: what the panel draws; laidOut: what was laid, which has the note. */
+const once = (values, laidOut, said) => laidOut && laidOut.note && typeof said === 'string' && said !== laidOut.note && said.endsWith(laidOut.note) ? noted('no value') : values;
 /* a block's entries as they are drawn: the evaluator's, with the backend's laid over them. For drawing only. */
 function laidOf(b, plain = false){
   if (isArrow(b)) return new Map();
@@ -1281,7 +1285,7 @@ function paint(){
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       shape: (fn.formula ? 'entry formula' : fn.choose ? 'a condition: its true side, or its false side' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn), spaces: arrowHolds(one), words: SPACES, reserved: Object.keys(RESERVED),
       notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...(fn.choose && !fn.formula && !o.warn && conditionOpen(one) ? ['Its condition is not known'] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
-      matrix: t ? { letter: initials((seat || one).name), values: path.length ? nesting.opened(laidOut || new Map(), path, data.length) : laidOut || new Map(), ...(path.length ? {} : { colsName: t.colsName, rowsName: t.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } : null }); }
+      matrix: t ? { letter: initials((seat || one).name), values: once(path.length ? nesting.opened(laidOut || new Map(), path, data.length) : laidOut || new Map(), laidOut, o.note ? cap(o.note) : null), ...(path.length ? {} : { colsName: t.colsName, rowsName: t.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit), data = dataOf(one), path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path);      /* at: what the panel shows: the shape, or the entry of it that is opened */
     const all = laidOf(one), values = path.length ? nesting.opened(all, path, data.length) : all, scalar = cols === 1 && rows === 1 && !one.members && !data.length, wrong = scalar ? [] : [...all].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
     const says = nesting.described(cols, rows, data), sized = `${cols} wide × ${rows} tall` + (says ? ` · ${says}` : '');      /* what it is, and never a count of dimensions */
@@ -1292,7 +1296,7 @@ function paint(){
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
       notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(strays.has(one) ? ['It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
-      matrix: { letter: initials(one.name), values, transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
+      matrix: { letter: initials(one.name), values: once(values, all, quiet), transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
   else measure?.el.remove();
@@ -1726,13 +1730,27 @@ function fuse(){
   space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
   /* a promise is shown and taken off on a shape's own panel, and a fused shape's members have none: a member's
      promise would live on unseen, and break the fused shape under a name that is no longer on the canvas. So it is
-     taken off, and said; the fused shape is promised like any shape. (One whose variable has another use still on
-     the canvas keeps it: it is that use's to show.) Undo puts everything back as it was. */
-  const let_go = list.filter(b => holdsOf(b) && [...kinOf(b)].every(k => list.includes(k)));
-  for (const b of let_go) delete attrsOf(b).holds;
+     taken off, and said; the fused shape is promised like any shape. (One whose variable has another use still in
+     a space keeps it: it is that use's to show.) Undo puts everything back as it was. */
+  const let_go = unpromised();
   tidy(); select([made]);
-  if (let_go.length) hud.say(`${let_go.map(b => bare(b.name)).join(', ')} ${let_go.length === 1 ? 'promises' : 'promise'} nothing now: a fused shape holds what its shapes hold together, and is promised on its own`);
+  if (let_go.length) hud.say(`${let_go.join(', ')} ${let_go.length === 1 ? 'promises' : 'promise'} nothing now: a fused shape holds what its shapes hold together, and is promised on its own`);
 }
+/* No promise lives where it cannot be seen. A promise is its variable's, shown and taken off on the panel of a use
+   of it that lies in a space. Where no use does any more, though the variable is kept (its shapes are fused into
+   another, or a cut or an intersection has taken them off the canvas and keeps them), the promise is taken off:
+   it would break what is made of the shape under a name that is nowhere to be seen, at a place that is not the
+   made shape's. Gives the names of the variables that let theirs go, for whoever did it to say. Undo puts each
+   back; Revert gives the shapes back without it.
+   (The other ways a shape leaves the canvas leave it in a space, where it is selected and its panel shows the
+   promise: a folded selection lies in the definition space, a seated block on its arrow's output, where the
+   arrow's Gives row is its promise, and a standing shape in its entry.) */
+function unpromised(){
+  const seen = new Set(everyBlock()), names = [];
+  for (const b of everyKnown()) if (holdsOf(b) && ![...kinOf(b)].some(k => seen.has(k))){ delete attrsOf(b).holds; names.push(bare(originOf(b).name)); }
+  return [...new Set(names)];
+}
+const UNSEEN = names => `${names.join(', ')} ${names.length === 1 ? 'promises' : 'promise'} nothing now: ${names.length === 1 ? 'it is' : 'they are'} kept off the canvas, where a promise can be neither seen nor taken off. A shape made of ${names.length === 1 ? 'it' : 'them'} is promised on its own`;
 /* puts the kept blocks of operations back among the blocks of s where each was: at its old place in the order (so
    what was drawn over what still is) and in the frames it was in, a frame that has gone since being made again */
 function putBack(s, pairs){
@@ -1758,7 +1776,10 @@ function operate(op, sources, parts){
     for (const [dim, side] of [['w', 'cols'], ['h', 'rows']]) if (wholeSide(b.from.range, side) && src.sides[dim]) b.sides[dim] = src.sides[dim];      /* a whole side keeps its name */
     space.blocks.push(b); view.world.append(b.el); if (held !== undefined) space.groupOf.set(b, held);
     made.push(b); record.results.push(b.id); }
-  space.ops.push(record); tidy(); select(made);
+  space.ops.push(record);
+  const let_go = unpromised();      /* a source's promise does not live on where it cannot be seen */
+  tidy(); select(made);
+  if (let_go.length) hud.say(UNSEEN(let_go));
 }
 /* puts back the shapes these fused shapes were fused from, where they now fall in each and at the size they now are there; gives them */
 function unfuse(list){
@@ -1838,6 +1859,8 @@ function discard(blocks){
     for (const b of o.sources) if (going.has(b)) forget(b); }
   for (const s of dirty) tidy(s);
   pruneOps();                                  /* a cut whose shapes have all gone is gone too */
+  const let_go = unpromised();                 /* the last use in a space of a variable a cut still keeps has gone: so has its promise */
+  if (let_go.length) hud.say(UNSEEN(let_go));
 }
 /* ---- references ----
    What comes out of the list is never a copy. A shape from the list is a reference to its variable: the same entries,

@@ -87,7 +87,8 @@
                         root of true is 1 and of false 0: the backend, which holds true as 1, says the same
    sideOf(v)         -> { length } | { refused: why }: a value that has to be a matrix's side, which is a whole number
                         of squares, at least 1. Anything else is refused, and the words say why.
-   exact(v), held(e) -> a whole or exact value as { p, q, k } (p over q under k roots), and back; null for any other kind */
+   exact(v), held(e) -> a whole or exact value as { p, q, k } (p over q under k roots), and back; null for any other kind
+   nearest(v)        -> the whole number a symbolic value comes nearest to, or null: to ask whether it is that number */
 
 const solver = () => globalThis.nerdamer;
 const err = why => ({ err: why });
@@ -325,6 +326,14 @@ function infinite(op, a, b){
   const one = compare(a, 1); if (isError(one)) return one;
   if (sa < 0 || one === 0) return err(NOVALUE);
   return one > 0 ? (b > 0 ? Infinity : 0) : b > 0 ? 0 : sa === 0 ? err(DIV0) : Infinity;
+}
+/* The whole number a symbolic value comes nearest to, as the solver's own precision tells it, or null where that is
+   no number a plain one holds. It is never shown and settles nothing: it is the one whole number the value can be
+   asked against exactly (combine('==', v, nearest(v))), which is how a number space tells ln(8)/ln(2) to be 3. */
+export function nearest(v){
+  if (!isSym(v)) return null;
+  const x = numberOf(v), N = x ? null : solver(); if (!x && !N) return null;
+  const n = Math.round(x ? approx(x) : numeric(N, v.sym)); return Number.isSafeInteger(n) ? n + 0 : null;      /* (+ 0: never -0) */
 }
 /* a value as a floating-point number, for where a decimal is involved */
 const float = v => isDec(v) ? v.f : typeof v === 'boolean' ? +v : typeof v === 'number' ? v : numberOf(v) ? approx(numberOf(v)) : numeric(solver(), v.sym);

@@ -63,17 +63,22 @@
    admits(holds, value)        -> whether a value lies in a written space: true, false, or null where it cannot be
                                   told. Exact: it asks values.js, so a symbolic value is told from 0 and 1 as any
                                   comparison is, and one the solver cannot compare exactly (tanh(20) against 1) is
-                                  null: not shown to lie in the space, and not shown to lie outside it. Unknown
+                                  null: not shown to lie in the space, and not shown to lie outside it. So it is
+                                  for every space: a symbolic value is asked whether it is the whole number it
+                                  comes nearest to (ln(8)/ln(2) is 3, and is integer and natural; 1+√2 is no whole
+                                  number, and is not), and where that cannot be told, or the space is rational and
+                                  the value no whole number, the answer is null. Unknown
                                   and an error are not asked (true): they are no values to break a promise.
-   broken(holds, entries)      -> the first entry (by row, then column) that lies outside the space:
-                                  { key, value }, or null. entries: a Map or an object keyed "column,row". An
-                                  entry that cannot be told breaks nothing.
+   broken(holds, entries)      -> the first entry that lies outside the space: { key, value }, or null. First by
+                                  number: by row, then column, then each inner position in order (the backend
+                                  names the same one). entries: a Map or an object keyed "column,row" or, with
+                                  inner data, "column,row,k1,…". An entry that cannot be told breaks nothing.
    untold(holds, entries)      -> the first entry that cannot be told to lie in the space or outside it, or null
    NOT_HELD(name, holds, key, value), UNPROVEN(name, holds, inferred)
                                -> the two sentences: "W is not natural: it holds -3 at 2, 1" and
                                   "W cannot be shown to be natural: it is worked out as integer"
    said(written)               -> a written space in words for the panel: "integer", "integer or None" */
-import { combine, written as valueText, isError, isNone } from './values.js';
+import { combine, nearest, written as valueText, isError, isNone } from './values.js';
 
 export const SPACES = ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'extended', 'any'];
 export const INSIDE = { boolean: ['whole', 'ternary', 'probability'], ternary: ['integer'], natural: ['whole'], whole: ['integer'], integer: ['rational'], rational: ['real'], probability: ['real'], real: ['extended'], extended: ['any'], any: [] };
@@ -208,13 +213,21 @@ export function formula(tree, name = () => undefined){
 /* ---- a promise against values ---- */
 /* a comparison the solver cannot decide (values.js: "cannot be compared exactly") is neither yes nor no: null */
 const told = (op, a, b) => { const r = combine(op, a, b); return r === true ? true : r === false ? false : null; };
+/* A symbolic value not written in digits (ln(8)/ln(2), which is 3) is asked of the solver as any comparison is: the
+   whole number it comes nearest to is found (values.js: nearest), and whether it is that number is an exact
+   comparison. -> that whole number; false where it is shown to be none; null where it cannot be told. */
+const spelled = v => !!v && typeof v === 'object' && typeof v.sym === 'string' && !INT.test(v.sym) && !FRACTION.test(v.sym);
+function wholeOf(v){ const n = nearest(v); if (n === null) return null; const is = told('==', v, n); return is === true ? n : is; }
+/* a space of whole numbers: such a value is in it where the whole number it is shown to be is, and out where it is shown to be no whole number or one outside it */
+const counted = holds => v => { if (!spelled(v)) return holds(v); const n = wholeOf(v); return n === null || n === false ? n : holds(n); };
 const HOLDS = {
-  boolean: v => typeof v === 'boolean' || v === 0 || v === 1,
-  ternary: v => typeof v === 'boolean' || v === 0 || v === 1 || v === -1,
-  natural: v => (Number.isInteger(v) && v >= 1) || v === true || bigWhole(v) > 0,
-  whole: v => (Number.isInteger(v) && v >= 0) || typeof v === 'boolean' || bigWhole(v) > 0,
-  integer: v => Number.isInteger(v) || typeof v === 'boolean' || bigWhole(v) !== 0,
-  rational: v => HOLDS.integer(v) || (!!v && typeof v === 'object' && ((Number.isInteger(v.n) && v.k === 0) || (typeof v.sym === 'string' && FRACTION.test(v.sym)))),
+  boolean: counted(v => typeof v === 'boolean' || v === 0 || v === 1),
+  ternary: counted(v => typeof v === 'boolean' || v === 0 || v === 1 || v === -1),
+  natural: counted(v => (Number.isInteger(v) && v >= 1) || v === true || bigWhole(v) > 0),
+  whole: counted(v => (Number.isInteger(v) && v >= 0) || typeof v === 'boolean' || bigWhole(v) > 0),
+  integer: counted(v => Number.isInteger(v) || typeof v === 'boolean' || bigWhole(v) !== 0),
+  /* a ratio: a value that is shown to be a whole number is one; of any other symbolic value nothing is known (that it is no whole number does not make it no ratio) */
+  rational: v => spelled(v) ? (typeof wholeOf(v) === 'number' ? true : null) : HOLDS.integer(v) || (!!v && typeof v === 'object' && ((Number.isInteger(v.n) && v.k === 0) || (typeof v.sym === 'string' && FRACTION.test(v.sym)))),
   probability: v => { if (infinite(v)) return false; const low = told('>=', v, 0), high = told('<=', v, 1); return low === false || high === false ? false : low === null || high === null ? null : true; },
   real: v => !infinite(v),
   extended: () => true,
@@ -233,12 +246,15 @@ export function admits(holds, v){
 }
 function firstThat(holds, entries, answer){
   const list = entries instanceof Map ? [...entries] : Object.entries(entries || {}); let worst = null;
-  for (const [key, value] of list){ if (admits(holds, value) !== answer) continue; const [c, r] = key.split(',').map(Number);
-    if (!worst || r < worst.r || (r === worst.r && c < worst.c) || (r === worst.r && c === worst.c && key < worst.key)) worst = { key, value, c, r }; }
+  /* the first is by number, never by the key as text ("1,1,10" is after "1,1,2"): row, then column, then each inner position in order, which is the order backend/arrays.py (outside) names its first in */
+  const before = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++){ const x = a[i] ?? 0, y = b[i] ?? 0; if (x !== y) return x < y; } return false; };
+  for (const [key, value] of list){ if (admits(holds, value) !== answer) continue; const [c, r, ...ks] = key.split(',').map(Number), at = [r, c, ...ks];
+    if (!worst || before(at, worst.at)) worst = { key, value, at }; }
   return worst && { key: worst.key, value: worst.value };
 }
 export const broken = (holds, entries) => firstThat(holds, entries, false);
 export const untold = (holds, entries) => firstThat(holds, entries, null);
-const shown = v => v === 'inf' ? '∞' : v === '-inf' ? '-∞' : isNone(v) ? 'None' : valueText(v);
+/* (true and false are written 1 and 0 here, as the backend, which holds them so, writes them in the same sentence: only a promise of None alone is broken by one) */
+const shown = v => v === 'inf' ? '∞' : v === '-inf' ? '-∞' : isNone(v) ? 'None' : typeof v === 'boolean' ? (v ? '1' : '0') : valueText(v);
 export const NOT_HELD = (name, holds, key, value) => `${name} is not ${said(holds)}: it holds ${shown(value)} at ${key.split(',').join(', ')}`;
 export const UNPROVEN = (name, holds, inferred) => `${name} cannot be shown to be ${said(holds)}: it is worked out as ${said(inferred)}`;

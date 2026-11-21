@@ -211,8 +211,9 @@
    shape: the number space it promises (spaces.js), one of the ten words with a "?" after it where it may hold None
    ("integer?"), or "none" for None alone, left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
    saved again it differs only in the format number. Reading, a holds that is no such word is dropped, and so is one
-   written only on a reference (a promise is its variable's, said on the shape the variable was made as) or on a
-   shape fused into another: read's project carries unheld, [{ name, holds, why }], each of them, for whoever
+   written only on a reference (a promise is its variable's, said on the shape the variable was made as), on a
+   shape fused into another, or on a shape a cut keeps off the canvas (operations.json) no use of whose variable
+   lies in a space: read's project carries unheld, [{ name, holds, why }], each of them, for whoever
    opens it to say; empty for every project a page saved.
    Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
    that go with it, from.entry, and a use's "axes". A format 3 project has none of them and is read exactly as it is: no field is
@@ -451,6 +452,12 @@ export function read(files){
     for (const d of list) if (d.reference && d.holds !== undefined && made.length === 1 && d.holds !== own){ unheld.push({ name: d.name, holds: d.holds, why: 'a promise is its variable\'s, said on the shape the variable was made as' }); delete d.holds; } }
   const fusedIn = d => { for (const j of d.joined || []){ if (j.shape.holds !== undefined){ unheld.push({ name: j.shape.name, holds: j.shape.holds, why: `it is fused into ${d.name}, which promises for itself` }); delete j.shape.holds; } fusedIn(j.shape); } };
   for (const d of every) if (!every.some(o => (o.joined || []).some(j => j.shape === d))) fusedIn(d);
+  /* nor has one on a shape a cut or an intersection keeps off the canvas, unless a use of its variable still lies in
+     a space to show it: no page saves one (the cut takes it off) */
+  const inSpace = new Set(), spaces = [], look = s => { spaces.push(s); s.shapes.forEach(d => inSpace.add(d)); const deep = d => { if (d.inside) look(d.inside); for (const j of d.joined || []) deep(j.shape); }; s.shapes.forEach(deep); for (const o of s.operations || []) o.sources.forEach(deep); };
+  look(project.top);
+  const shown = d => d.variable != null && [...inSpace].some(v => !v.arrow && v.variable === d.variable);
+  for (const s of spaces) for (const o of s.operations || []) for (const d of o.sources) if (d.holds !== undefined && !shown(d)){ unheld.push({ name: d.name, holds: d.holds, why: 'it is kept off the canvas by a cut, where a promise can be neither seen nor taken off' }); delete d.holds; }
   return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld };
 }
 

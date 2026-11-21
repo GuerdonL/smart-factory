@@ -619,7 +619,8 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
 as `{ "none": true }`. It is not an entry never given, which stays a symbol, and it is not zero. Since `none` is that
 word, nothing is called it: typed, sent or pasted as the name of a shape, an attribute, a side, an inner axis or an
 arrow's gap, however it is capitalised, it is refused with "none is the word for no value, so nothing can be called
-it", and nothing changes. A name that only has it in it (`none_1`, `nonesuch`) is a name like any other, and a
+it", and nothing changes. So is `∅`, and so is either behind comment marks or beside a blank a formula passes over:
+a name is refused where a formula would read the whole of it as None. A name that only has it in it (`none_1`, `nonesuch`) is a name like any other, and a
 project saved before the rule opens as it is. None counts as false, and in arithmetic None with anything is None:
 
 | | |
@@ -680,6 +681,12 @@ sentence.
   it is an error, said with the entry (`W is not natural: it holds -3 at 1, 2`), in the warning colour, and what is
   worked out from the shape then has no value. An entry not given, and one that is itself an error, break nothing.
   On a transposed use, and on one turned through its inner axes, the sentence names the entry as that use draws it.
+  A value the solver leaves as it is written (`ln(8)/ln(2)`, which is 3) is asked whether it is the whole number it
+  comes nearest to; where that cannot be told it breaks nothing, and the row warns at most.
+- No promise lives where it cannot be seen. When the last use of a variable that lies in a space is fused into
+  another shape, or taken off the canvas by Difference or Intersect (which keep it), its promise is taken off and
+  the readout says so: the shape made is promised on its own. Undo puts it back; Revert gives the shapes back
+  without it.
 - Where the page has not got the values (a matrix too large for it, noise, a data file), the backend holds its own
   numbers to the promise, and says so in the same sentence (`Nz is not probability: it holds -0.440393865 at 1, 1`).
   Until it has, or with none running, the page goes by what the shape is worked out as: if that is not inside the
