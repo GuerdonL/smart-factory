@@ -27,7 +27,7 @@
                   be pressed, and carries the id as data-standing for whoever handles the click. Left out where the matrix is elided.
      values       a Map from "column,row" (say "2,1") to a value, for entries that have come to one: any kind of
                   value but unknown (values.js). Those are written as the value, upright, in place of the symbol:
-                  7, 3/4, √2, 1+√2, T or F for a boolean, and infinity as ∞ or -∞. An error is written as ! in the
+                  7, 3/4, √2, 1+√2, T or F for a boolean, ∅ for None, and infinity as ∞ or -∞. An error is written as ! in the
                   warning colour, with why as the entry's title. An entry not in the Map is unknown, and is its symbol.
                   With product or combined, an entry that has a value is written as the value (in the ordinary text
                   colour: it is no one block's), and only one that has none as what it is made from.
