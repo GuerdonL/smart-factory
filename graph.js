@@ -16,10 +16,11 @@
    axes(type)                    every axis of a type in order, [{ length, name }]: columns, rows, then the inner ones
    tailsOf(type)                 every inner position of a type as what follows "column,row" in a key ([""]: none)
    AXES                          6, the most inner axes a type has
-   VERSION                       3. Version 2 added inner axes, stack, entry and a transpose's order; version 3 the
+   VERSION                       4. Version 2 added inner axes, stack, entry and a transpose's order; version 3 the
                                  value None ({ "none": true }) and a type's "value", the number space it lies in
-                                 (spaces.js). A version 1 or 2 graph has none of them, and validate takes it as
-                                 it stands.
+                                 (spaces.js); version 4 choose, and a source of kind "none". An older graph has
+                                 none of what came after it, and validate takes it as it stands; one that says
+                                 an older version and holds what came later is refused.
    CODES                         every error code
    inferred(graph, id)           the number space a variable would have with no promise (see "Number spaces")
    indexAt(cells, c, r)          the index an entry reads, from the cell it is in (see "Bindings", below)
@@ -27,7 +28,7 @@
                                  reads the index, it is an arrow repeated through an outer tile, or it is noise
 
    The graph
-       { "version": 3,
+       { "version": 4,
          "nodes":     { "<node id>": { "op", "inputs": [node ids], "type": { "cols", "rows", "colsName", "rowsName" }, … } },
                       (a type also has "inner" where its entries hold inner data: see "Inner data", below)
          "functions": { "<function id>": { "input": "<the node of its in block>", "body": "<the node its space comes to>" } },
@@ -96,8 +97,16 @@
        ewise       two; fn "mul" or "div"; broadcast "none", "scalar", "row" or "col". A chain is nested from the left.
        block       parts set into one matrix with no gap and no overlap; at: one { col, row } for each, from 0
        slice       range { col, row, cols, rows }, from 0, of its input
-       source      kind "zeros", "ones" or "identity": values by rule, at the node's size. Or kind "file" with path
+       source      kind "zeros", "ones" or "identity": values by rule, at the node's size. Kind "none": every entry
+                   None, at the node's size (the empty side of a choose). Or kind "file" with path
                    "data/….csv": the numbers of that file of the project, which only the backend reads
+       choose      a condition, then one side for true and one for false: [c, a, b]. What counts of c, which may be
+                   any size, is whether it is true as a whole matrix (values.js: truthOf): true where any known
+                   entry is true; false where every entry is known and is zero, false or None; else not known.
+                   True, it is a; false, b; not known, every entry of it is unknown, at the size it has. Only the
+                   side chosen is worked out: the other may be an error, too large, or the backend's alone, and
+                   does no harm. The two sides are one size (drawn sides, inner axes, and no side under two
+                   names), and its type is a's. Entry by entry there is select, in a formula: this is no such thing
        noise       seed (a whole number), dist ("uniform" or "normal") and key (the id of the block the variable was
                    made as): numbers that follow from those, the entry's column and row and, in a tile, the cell.
                    Only the backend makes them (backend/arrays.py). It follows its cell without reading the index.
@@ -172,6 +181,12 @@
    the columns of the filled tile that lie before the entry, and one more. Cells nest, outermost first; the index
    an entry reads is that of the innermost cell it is in (indexAt, the one place that says so).
 
+   A conditional arrow. An arrow whose "choose" names two frames of its definition space, { then, else }, is a
+   condition: its function's body is choose(its input, what the then frame comes to, what the else frame comes to),
+   and its output that function applied to what its base covers, which is the condition (any size). Each frame holds
+   one piece or nothing; an empty one is a source of kind none at the other's size. What lies in neither frame takes
+   no part. A frame that is gone is no-source on the arrow; sides of two sizes are the error size.
+
    Reading a canvas. A block whose name begins with // and a block in a frame named .config take no part. A
    definition space whose blocks are all standing shapes has no pieces: once they cover the matrix they are a block
    of it, or, where the variable's entries hold inner data (two axes or more), a stack: each stands for one entry,
@@ -184,17 +199,17 @@
    may read what comes of the tile it is in, of a tile beside it or of a tile in its pattern, short of a real cycle.
    A block's zone, for what it touches, is the innermost tile it is in (algebra.js: zoneOf).
    Definitions are read 64 deep, one inside the next, and no deeper. */
-import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isNone, isFormula, exact, held as fromExact } from './algebra.js';
+import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isNone, isFormula, exact, held as fromExact, truthOf, numbers } from './algebra.js';
 import { ROOTS, together } from './values.js';
 import { parts as textParts, evaluate as work, namesIn, refs, treeOf } from './expression.js';
 import * as S from './spaces.js';
 import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES } from './arrows.js';
 import * as tiles from './tiles.js';
-import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS } from './sources.js';
+import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS, EMPTY } from './sources.js';
 import { FUNCTIONS, CONFIG } from './system.js';
 
-export const VERSION = 3;                     /* 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise. An older graph holds none of them and is a version 3 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
-const VERSIONS = [1, 2, 3];
+export const VERSION = 4;                     /* 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise; 4 choose and a source of kind none. An older graph holds none of what came after it and is a version 4 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
+const VERSIONS = [1, 2, 3, 4];
 export const CODES = ['mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type'];
 const PIECE_CODES = ['mismatch', 'not-a-row', 'mixed', 'size-unknown'];
 const DEFINED = ['entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source', 'entry'];
@@ -362,12 +377,15 @@ export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' &
    Each: inputs [least, most]; fields(n) -> what is wrong with its own fields (sentences); type(n, ins, g) -> the type
    it must have, given its input nodes (g.fn(id) is a function of the graph), or a sentence where it can have none;
    id(n) -> its id written out; needs(n, ins) -> which inputs its value is worked out from (left out: all of them);
+   later(n) -> the inputs it reads only when its value asks for them, with at.pick (a choose's two sides: one is read,
+   and which is not known until its condition is worked out);
    value(n, at) -> its entries, a Map from "column,row" (unknown entries absent); deep: true (or deep(n, g) -> whether)
    where the rule reads inner positions itself, its keys then "column,row,k1,…": any other rule is run by
    evaluate.js once for each inner position, on entries keyed "column,row". at is the evaluator's: at.get(k)
    the entries of input k, at.type(k) its type, at.cells the chain of cells, and the rest as evaluate.js sets out. */
 const list = xs => xs.join(',');
 const HELD_APART = 'a matrix its formula names holds inner data that is not its own';
+export const TWO_SIZES = 'its two sides are not one size';
 const SIDE = /^(x|y|m|a|d[1-6])$/;               /* what a measure reads: a drawn side, a mass, an attribute, or the length of an inner axis */
 const innerText = t => innerOf(t).length ? '·' + innerOf(t).map(a => a.length).join('×') : '';
 const unnamed = t => innerOf(t).map(a => ({ length: a.length, name: null }));
@@ -526,9 +544,9 @@ export const OPS = {
     type(n, [a]){ const r = n.range; if (r.col + r.cols > a.type.cols || r.row + r.rows > a.type.rows) return 'its range runs past its input';
       return T(r.cols, r.rows, r.cols === a.type.cols ? a.type.colsName : null, r.rows === a.type.rows ? a.type.rowsName : null, a.type.inner); },      /* the range is taken at every inner position */
     value: (n, at) => passed(at.get(0), n.range) },
-  source: { inputs: [0, 0], deep: true, space: n => n.kind === 'file' ? 'real' : 'boolean',      /* zeros, ones and an identity hold 0 and 1; a data file any numbers on the line */
+  source: { inputs: [0, 0], deep: true, space: n => n.kind === 'file' ? 'real' : n.kind === EMPTY ? S.NONE : 'boolean',      /* zeros, ones and an identity hold 0 and 1; a data file any numbers on the line; and the empty one None alone */
     id: n => `source(${n.kind}${n.kind === 'file' ? ':' + n.path : ''};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
-    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && sourceKept(n.kind) ? ('path' in n ? ['only a file has a path'] : []) : [`kind is "${n.kind}"`],
+    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && (n.kind === EMPTY || sourceKept(n.kind)) ? ('path' in n ? ['only a file has a path'] : []) : [`kind is "${n.kind}"`],
     type: n => !okType(n.type) ? 'it has no size of its own' : n.kind === 'file' && innerOf(n.type).length ? 'a data file holds no inner data' : T(n.type.cols, n.type.rows, null, null, unnamed(n.type)),
     value: n => sourceValues(n.kind, n.type.cols, n.type.rows, innerOf(n.type).map(a => a.length)) },      /* (a file's numbers are the backend's: evaluate.js does not ask here for them) */
   noise: { inputs: [0, 0], deep: true, space: n => n.dist === 'uniform' ? 'probability' : 'real', id: n => `noise(${n.seed};${n.dist};${n.key};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
@@ -603,6 +621,15 @@ export const OPS = {
         const each = Math.round((rows ? n.type.rows : n.type.cols) / n.count);
         for (const [key, v] of got){ const [c, r, ...ks] = key.split(',').map(Number); out.set((rows ? c + ',' + (r + (k - 1) * each) : (c + (k - 1) * each) + ',' + r) + tailOf(ks), sound(v)); } }
       return out; } },
+  /* one of two matrices, by whether a third is true as a whole. The sides are typed and held to one size whether or
+     not they are chosen; only the one chosen is worked out (at.pick), so what is wrong with the other does no harm */
+  choose: { inputs: [3, 3], deep: true, fields: () => [], id: n => plain(n), space: (n, [, a, b]) => S.choice(valueOf(a), valueOf(b)),
+    type: (n, [, a, b]) => !same(a.type, b.type) || !nested(innerOf(a.type), innerOf(b.type), true).ok || ['colsName', 'rowsName'].some(k => a.type[k] && b.type[k] && a.type[k] !== b.type[k]) ? TWO_SIZES
+      : T(a.type.cols, a.type.rows, a.type.colsName, a.type.rowsName, a.type.inner),
+    needs: () => [0], later: () => [1, 2],
+    value(n, at){ const c = at.get(0); let t = truthOf(c.values());
+      if (t === false && c.size < numbers(at.type(0))) t = null;      /* an entry never given is absent: with none true, the whole is not known */
+      return t === null ? new Map() : at.pick(t ? 1 : 2); } },
   /* matrices put into the entries of one: part k is the whole of entry at[k]. Every part is one size and holds the
      same inner data; between them they cover a rectangle of entries, one part to an entry. The inner axes of the
      result are the parts' two drawn sides, then the parts' own. */
@@ -946,17 +973,17 @@ export function build(snapshot){
   }
   /* what a space comes to: its ends, the pieces and outputs nothing reads from (arrows.js). Told from the shapes alone:
      { none } for nothing, or for a function's input alone; { error } for several; { piece: k } | { arrow: rec } for the one */
-  function endOf(ctx, input = null){
-    const R = read(ctx), list = arrowsIn(ctx);
-    const es = endsOf(R.ps.map((p, k) => ({ ids: [...p.members.map(m => R.active[m].id), ...new Set(p.members.map(m => R.rects[m].zone).filter(z => z !== null))], type: p.type, k })),
+  function endOf(ctx, input = null, side = null){      /* side: one frame of a conditional arrow's space; what it comes to is asked of what lies wholly in it */
+    const R = read(ctx), inSide = r => !side || chain(r).includes(side), list = arrowsIn(ctx).filter(inSide);
+    const es = endsOf(R.ps.map((p, k) => ({ ids: [...p.members.map(m => R.active[m].id), ...new Set(p.members.map(m => R.rects[m].zone).filter(z => z !== null))], type: p.type, k })).filter(p => R.ps[p.k].members.every(m => inSide(R.active[m]))),
       list.map(a => ({ id: a.id, reads: a.arrow.input && a.arrow.input.id, seated: ctx.recs.some(r => r.d.seat === a.id), type: {}, rec: a })),
       ctx.recs.filter(r => !r.arrow && takesPart(r) && r.d.from && typeof r.d.from === 'object' && r.d.from.entry).map(r => r.d.from.id));      /* a block an entry is taken out of is read from, as an arrow's input is: its piece is no end */
     if (!es.length || (input && es.length === 1 && es[0].piece && es[0].piece.ids.length === 1 && es[0].piece.ids[0] === input.id)) return { none: true };
     if (es.length > 1) return { error: E('pieces', es.length + ' pieces') };
     return es[0].piece ? { piece: es[0].piece.k } : { arrow: es[0].arrow.rec };
   }
-  function comesTo(ctx, input = null){
-    const end = endOf(ctx, input); if (end.none) return {}; if (end.error) return { error: end.error };
+  function comesTo(ctx, input = null, side = null){
+    const end = endOf(ctx, input, side); if (end.none) return {}; if (end.error) return { error: end.error };
     const made = end.piece !== undefined ? pieceNode(ctx, end.piece) : arrowOut(end.arrow);
     return made.node ? { node: made.node } : { error: made.error };
   }
@@ -969,12 +996,30 @@ export function build(snapshot){
     if (av.fnState === 'building') return { loop: true };
     av.fnState = 'building';
     const ctx = av.inside, input = ctx && ctx.recs.find(r => r.d.in), end = ctx && input ? endOf(ctx, input) : { none: true };
+    const sides = ctx && input ? conditionOf(av.src.arrow) : null;
     if (!ctx || !input) av.fn = { pass: true };
+    else if (sides) av.fn = chosen(ctx, sides);
     else if (end.error) av.fn = { error: end.error };
     else { const fid = spaceKey(ctx), param = paramOf(ctx), came = end.none ? { node: param } : comesTo(ctx, input);
       if (came.node){ av.fn = { fn: fid, param, body: came.node, pass: !!end.none }; functions[fid] = { input: param, body: came.node }; rank.set(fid, ctx.depth); }
       else av.fn = { error: came.error || E('mismatch') }; }
     av.fnState = 'done'; return av.fn;
+  }
+  /* A conditional arrow (its arrow carries choose: { then, else }, two frames of its definition space): its function
+     is choose(its input, what the then frame comes to, what the else frame comes to). A frame holds one piece or
+     nothing: an empty one is None at the other's size (both empty: at the size the arrow promises, else one by
+     one); several pieces in one are the error pieces. What lies in neither frame takes no part. A frame that is
+     gone leaves the arrow no-source; two sides of two sizes are the error size. */
+  const conditionOf = A => A && A.choose && typeof A.choose === 'object' && typeof A.choose.then === 'string' && typeof A.choose.else === 'string' ? A.choose : null;
+  function chosen(ctx, sides){
+    const frames = [ctx.groups.get(sides.then), ctx.groups.get(sides.else)]; if (frames.some(f => !f) || frames[0] === frames[1]) return { error: E('no-source', 'a side of its condition is gone') };
+    const fid = spaceKey(ctx), param = paramOf(ctx), came = frames.map(f => comesTo(ctx, null, f)), lost = came.find(c => c.error); if (lost) return { error: lost.error };
+    const out = ctx.owner.arrow.output, full = came.find(c => c.node), size = full ? typeOf(full.node) : out && whole1(out.cols) && whole1(out.rows) ? T(out.cols, out.rows) : T(1, 1);
+    const [a, b] = came.map(c => c.node || N('source', [], { kind: EMPTY }, T(size.cols, size.rows, null, null, unnamed(size))));
+    const body = a && b && N('choose', [param, a, b]);
+    if (!body) return { error: a && b ? E('size', sizes(typeOf(a), typeOf(b))) : E('mismatch') };
+    functions[fid] = { input: param, body }; rank.set(fid, ctx.depth);
+    return { fn: fid, param, body, pass: false };
   }
   const usable = ctx => { const f = fnRead(ctx.owner.v); return !f.error && !f.loop; };
   /* the arrow whose function a use applies (null: the program's own, or none): arrows.js says which shadows which */
@@ -1255,11 +1300,13 @@ export function validate(graph){
   try { return check(graph); }
   catch (e){ return ['it could not be checked: ' + (e && e.message ? e.message : String(e))]; }      /* whatever it is handed, it answers with what is wrong */
 }
-/* The version a node needs for what it holds: None among its entries, a number space (a type's value) or a promise
-   need 3; inner data, a stack, an entry and a transpose's order need 2. -> [version, what it holds], or null. A
+/* The version a node needs for what it holds: a choose and a source of kind none need 4; None among its entries, a
+   number space (a type's value) or a promise need 3; inner data, a stack, an entry and a transpose's order need 2. -> [version, what it holds], or null. A
    graph that says an older version than something in it needs was not written by a program of that version, and
    whoever reads it by that version would not see what it holds: it is refused. */
 function versionFor(n){
+  if (n.op === 'choose') return [4, 'a choose'];
+  if (n.op === 'source' && n.kind === EMPTY) return [4, 'a source of None'];
   if (n.type.value !== undefined) return [3, 'a number space'];
   if (n.holds !== undefined) return [3, 'a promise'];
   if (n.op === 'variable' && n.entries && typeof n.entries === 'object' && Object.values(n.entries).some(v => !!v && typeof v === 'object' && v.none === true)) return [3, 'None'];

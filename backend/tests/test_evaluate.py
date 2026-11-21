@@ -163,7 +163,7 @@ class Rules(unittest.TestCase):
         self.assertEqual((out['results']['m']['min'], out['results']['m']['max'], out['results']['m']['mean']), (0.0, 1.0, 0.5))
         self.assertEqual(out['results']['s']['cells'], [[1, 1, 1.0], [2, 1, 0.0], [3, 1, 0.0]])      # the side not chosen does no harm
         inf = graph_of({'v': variable(2, 1, [['inf', '-inf']])})
-        self.assertEqual(ask(inf, [{'node': 'v', 'cells': [[1, 1], [2, 1]]}])['results']['v'], {'cols': 2, 'rows': 1, 'cells': [[1, 1, 'inf'], [2, 1, '-inf']], 'min': '-inf', 'max': 'inf', 'mean': None})
+        self.assertEqual(ask(inf, [{'node': 'v', 'cells': [[1, 1], [2, 1]]}])['results']['v'], {'cols': 2, 'rows': 1, 'cells': [[1, 1, 'inf'], [2, 1, '-inf']], 'min': '-inf', 'max': 'inf', 'mean': None, 'truth': True})
 
     def noise_graph(self, seed=0, key='b1', cols=4, rows=4, dist='uniform'):
         return graph_of({'n': {'op': 'noise', 'inputs': [], 'type': T(cols, rows), 'seed': seed, 'dist': dist, 'key': key}, 'v:%s' % key: {'op': 'variable', 'inputs': ['n'], 'type': T(cols, rows), 'name': 'N', 'named': True, 'defined': 'source', 'entries': {}}})

@@ -49,6 +49,10 @@
 
    What a node needs is its inputs, less those its rule says it does not read (a measure reads a length off its
    input's type, so a matrix's width never waits on the matrix), and, for a function applied, the function's body.
+   A choose needs its condition; which of its two sides it needs is not known until that is worked out, so the side
+   it then takes is looked at when it is taken (at.pick), and the other never: an error in the side not chosen, a
+   side too large to work out here and one only the backend has do no harm. (Only where a function is run at each
+   inner position is the larger of the two sides counted beforehand, since that count is made before anything runs.)
 
    Remembering. Results are remembered for one graph: evaluate on a new graph starts clean, unless they are carried
    to it (carry). A node outside every
@@ -78,7 +82,11 @@
    gives each its own place. Any of it may be left out.
 
    The rules are handed `at`, which is everything they may ask:
-       at.get(k, env)      the entries of input k (a Map; not to be changed), under env where one is given
+       at.get(k, env)      the entries of input k (a Map; not to be changed), under env where one is given. An
+                           input is worked out when it is asked for, and not before
+       at.pick(k)          the entries of an input the rule reads only now (graph.js: later; a choose's chosen
+                           side): what it needs is looked at here, as every other input's was before anything was
+                           run, so that an error in it, or its being too large or the backend's, is the answer
        at.type(k)          input k's type
        at.cells            the chain of cells this node is being worked out in
        at.turn()           an env in which the innermost cell is read through a transpose
@@ -141,6 +149,8 @@ function needsOf(graph, st, id, open = new Set()){
   const ins = n.inputs.map(i => nodeAt(graph, i)), rule = OPS[n.op];
   const read = ins.every(Boolean) ? (rule.needs ? rule.needs(n, ins) : n.inputs.map((_, k) => k)).map(k => n.inputs[k]) : n.inputs;
   const applies = (n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined, body = applies ? fnAt(graph, n.fn) : null;
+  /* inputs read only when the value asks for them (a choose's sides): of them only what follows a function's input is counted here, the larger of them */
+  if (rule.later && ins.every(Boolean)) for (const k of rule.later(n)) bound = Math.max(bound, needsOf(graph, st, n.inputs[k], open).bound || 0);
   for (const dep of body ? [...read, body.body] : read){ const d = needsOf(graph, st, dep, open); most = Math.max(most, d.most); bound = Math.max(bound, d.bound || 0); bad = bad || d.bad; remote = remote || !!d.remote;
     if (d.kept && d.kept.length) kept = kept.length ? [...new Set([...kept, ...d.kept])] : d.kept;
     /* a function run at each inner position of what it is given (its input block holds none) is its body worked out that many times: that is counted before it is run */
@@ -181,7 +191,7 @@ function plainly(graph, id){
   if (!n) return null;
   if (n.op === 'variable') return n.defined === 'entries' && !n.error && n.entries && typeof n.entries === 'object' && !Object.values(n.entries).some(v => v && typeof v === 'object' && 'expr' in v) ? n.entries : null;
   if (n.op !== 'source') return null;
-  return n.kind === 'zeros' ? { '1,1': 0 } : n.kind === 'ones' ? { '1,1': 1 } : n.kind === 'identity' ? { '1,1': 1, ...(n.type.cols > 1 ? { '2,1': 0 } : n.type.rows > 1 ? { '1,2': 0 } : {}) } : null;
+  return n.kind === 'none' ? { '1,1': { none: true } } : n.kind === 'zeros' ? { '1,1': 0 } : n.kind === 'ones' ? { '1,1': 1 } : n.kind === 'identity' ? { '1,1': 1, ...(n.type.cols > 1 ? { '2,1': 0 } : n.type.rows > 1 ? { '1,2': 0 } : {}) } : null;
 }
 const inner = (cells, change) => cells.length ? [...cells.slice(0, -1), change(cells[cells.length - 1])] : cells;
 
@@ -233,6 +243,9 @@ function run(graph, st, id, env){
   const at = { id, graph, env, cells: env.cells,
     type: k => graph.nodes[n.inputs[k]].type,
     get: (k, e = env) => run(graph, st, n.inputs[k], e),
+    pick(k){ const d = needsOf(graph, st, n.inputs[k]);
+      if (d.most > env.most) throw { later: d }; if (d.bad) throw { broke: d.bad }; if (d.remote) throw { later: d };
+      return run(graph, st, n.inputs[k], env); },
     rest: k => { const kept = RESTS.get(run(graph, st, n.inputs[k], env)); return kept ? kept.at : null; },
     keyOf: k => n.inputs[k] + keyFor(graph, st, n.inputs[k], graph.nodes[n.inputs[k]], env),
     turn: () => ({ ...env, cells: inner(env.cells, c => ({ ...c, turned: !c.turned })) }),
@@ -245,7 +258,7 @@ function run(graph, st, id, env){
          run. where: which run of a repeated arrow; tail: which inner position, where it is run at each. */
       const p = nodeAt(graph, f.input), takes = p && p.op === 'param' && typeof p.type.value === 'string' && p.type.value !== 'any?' ? p.type.value : null, out = takes ? broken(takes, values) : null;
       if (out) throw { broke: { code: 'type', note: NOT_HELD('in', takes, out.key + tail, out.value === Infinity ? 'inf' : out.value === -Infinity ? '-inf' : out.value) + where, node: id } };
-      return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn], scratch: scratch || env.scratch || null }); },
+      return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn], scratch: scratch || env.scratch || null, most: env.most }); },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */
         const from = nodeAt(graph, of), all = from ? run(graph, st, of, { ...env, params: rest }) : new Map(), part = typeof spec === 'string' || !spec.range ? all : passed(all, spec.range);
@@ -270,6 +283,7 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
   const st = stateOf(graph), bkey = binding ? JSON.stringify(binding) : '', kept = under(st.answers, nodeId), akey = maxEntries + '\n' + bkey;
   if (kept.has(akey)) return kept.get(akey);
   const done = answer => { kept.set(akey, answer); return answer; };
+  let brokeIn = () => null;
   try {
     const given = Object.entries((binding && binding.params) || {}).filter(([, spec]) => spec && (typeof spec === 'string' || typeof spec.of === 'string'));
     const needs = [needsOf(graph, st, nodeId), ...given.map(([, spec]) => needsOf(graph, st, typeof spec === 'string' ? spec : spec.of))];
@@ -277,22 +291,25 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
        variable it is worked out from breaks its promise by a value that is here: that variable has no value, so
        neither has this, and it is not the backend's to give. Asked of each such variable on its own, which is
        small enough to be worked out or is deferred itself and says nothing. */
-    const broke = () => { for (const d of needs) for (const v of d.kept || NO_IDS){
+    const broke = (list = needs) => { for (const d of list) for (const v of d.kept || NO_IDS){
       /* one whose values can be read off the graph (a source filled with one known value, entries all typed in) is held to its promise by them at any size, itself included */
       const kn = nodeAt(graph, v), plain = kn && kn.op === 'variable' && typeof kn.holds === 'string' ? plainly(graph, v) : null, out = plain ? broken(kn.holds, plain) : null;
       if (out) return { code: 'type', note: NOT_HELD(kn.name || v, kn.holds, out.key, out.value), node: v };
       if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding }); if (a.error && a.error.code === 'type') return a.error; } } return null; };
+    brokeIn = broke;
     if (needs.some(d => d.most > maxEntries)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, ...(needs.some(d => d.remote) ? { backend: true } : {}) }); }
     const bad = needs.map(d => d.bad).find(Boolean); if (bad) return done({ error: bad });
     if (needs.some(d => d.remote)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, backend: true }); }
-    const env = { params: Object.fromEntries(given.map(([fn, spec]) => [fn, { spec, key: 'given ' + bkey }])), active: [],
+    const env = { params: Object.fromEntries(given.map(([fn, spec]) => [fn, { spec, key: 'given ' + bkey }])), active: [], most: maxEntries,
       cells: ((binding && Array.isArray(binding.cells) && binding.cells) || []).filter(c => c && typeof c === 'object').map(aCell) };
     const values = run(graph, st, nodeId, env), entries = {};
     for (const tail of tailsOf(n.type)) for (let r = 1; r <= n.type.rows; r++) for (let c = 1; c <= n.type.cols; c++){ const v = values.get(c + ',' + r + tail);
       if (v !== null && v !== undefined) entries[c + ',' + r + tail] = v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v; }
     return done({ type: n.type, entries });
   } catch (e){      /* never thrown: a function inside itself is a loop, and anything else is a graph that is not well formed */
-    if (e && e.broke) return done({ error: e.broke });      /* a promise broken by a value, here or in what this is worked out from */
+    if (e && e.broke) return done({ error: e.broke });      /* a promise broken by a value, here or in what this is worked out from; or an error in the side a choose took */
+    if (e && e.later){ let b = null; try { b = brokeIn([e.later]); } catch { b = null; }      /* the side a choose took is too large to work out here, or the backend's: so is this */
+      return done(b ? { error: b } : { type: n.type, deferred: true, ...(e.later.remote ? { backend: true } : {}) }); }
     return done({ error: e === LOOP ? { code: 'loop', note: '', node: nodeId } : { code: 'no-source', note: 'it could not be worked out: ' + (e && e.message ? e.message : String(e)), node: nodeId } });
   }
 }

@@ -21,7 +21,7 @@ const t = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsN
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
 const V = (rows, more = {}) => ({ op: 'variable', inputs: [], type: t(rows[0].length, rows.length), name: 'v', named: true, defined: 'entries', entries: rowsOf(rows), ...more });
 /* a graph written by hand. tiles: [[tile id, the repeat that is its matrix]]: a repeat is always some tile's */
-const G = (nodes, functions = {}, tiles = []) => { const g = { version: 3, nodes, functions, blocks: {},
+const G = (nodes, functions = {}, tiles = []) => { const g = { version: 4, nodes, functions, blocks: {},
     spaces: tiles.length ? { top: { owner: null, pieces: [], arrows: [], tiles: tiles.map(([tile, node]) => ({ tile, blocks: [], arrows: [], node, error: null })) } } : {} };
   assert.deepEqual(validate(g), []); return g; };
 const N = (op, inputs, type, more = {}) => ({ op, inputs, type, ...more });
@@ -552,4 +552,73 @@ test('a product entry\'s terms are looked at together: ∞ − ∞ among them is
   for (const row of [['inf', NONE, '-inf'], [NONE, 'inf', '-inf'], ['inf', '-inf', NONE], ['inf', null, '-inf'], [null, 'inf', '-inf'], ['inf', '-inf', null], [null, NONE, 'inf', '-inf']]) assert.equal(at(row, row.map(() => 1)), 'error', JSON.stringify(row));
   assert.equal(at([null, NONE, 2], [1, 1, 1]), 'unknown'); assert.equal(at([NONE, null, 2], [1, 1, 1]), 'unknown'); assert.equal(at([NONE, 2, 3], [1, 1, 1]), 'None'); assert.equal(at([1, 2, 3], [1, 1, 1]), 6);
   assert.equal(at([NONE, 'inf', 5], [1, 0, 1]), 'error');      /* a term that is itself an error: 0 × ∞ */
+});
+
+/* ---- conditions (phase 9B): choose, and the source that holds None ---- */
+const NOTHING = { none: true }, CH = (c, a, b, type = t(2, 2)) => N('choose', [c, a, b], type);
+const sides = { a: V([[1, 2], [3, 4]]), b: V([[-1, -2], [-3, -4]]) }, A2 = rowsOf([[1, 2], [3, 4]]), B2 = rowsOf([[-1, -2], [-3, -4]]);
+test('choose: a true condition gives the first side, a false one the second, and None is false', () => {
+  const g = G({ ...sides, yes: V([[true]]), one: V([[1]]), no: V([[false]]), zero: V([[0]]), nil: V([[NOTHING]]),
+    t: CH('yes', 'a', 'b'), t1: CH('one', 'a', 'b'), f: CH('no', 'a', 'b'), f0: CH('zero', 'a', 'b'), n: CH('nil', 'a', 'b') });
+  for (const id of ['t', 't1']) assert.deepEqual(worked(g, id), A2);
+  for (const id of ['f', 'f0', 'n']) assert.deepEqual(worked(g, id), B2);
+});
+test('choose: a condition of any size counts by its truth as a whole matrix: one true entry, or every entry zero or None', () => {
+  const g = G({ ...sides, some: V([[0, 0, 5], [NOTHING, false, 0]]), none: V([[0, NOTHING], [false, 0]]), allNone: V([[NOTHING, NOTHING]]), half: V([[0, { n: 1, d: 2, k: 0 }]]), inf: V([['-inf']]),
+    s: CH('some', 'a', 'b'), z: CH('none', 'a', 'b'), n: CH('allNone', 'a', 'b'), h: CH('half', 'a', 'b'), i: CH('inf', 'a', 'b') });
+  assert.deepEqual(worked(g, 's'), A2); assert.deepEqual(worked(g, 'h'), A2); assert.deepEqual(worked(g, 'i'), A2);
+  assert.deepEqual(worked(g, 'z'), B2); assert.deepEqual(worked(g, 'n'), B2);
+});
+test('choose: a condition that is not known leaves every entry unknown, with its type; one true entry settles it beside an unknown one or an error', () => {
+  const g = G({ ...sides, open: V([[null]]), part: V([[0, null]]), lost: V([[0, { err: 'divide by zero' }]]), settled: V([[null, 1]]), settledToo: V([[{ err: 'divide by zero' }, true]]),
+    u: CH('open', 'a', 'b'), p: CH('part', 'a', 'b'), e: CH('lost', 'a', 'b'), s: CH('settled', 'a', 'b'), s2: CH('settledToo', 'a', 'b') });
+  for (const id of ['u', 'p', 'e']) assert.deepEqual(evaluate(g, id), { type: t(2, 2), entries: {} });
+  assert.deepEqual(worked(g, 's'), A2); assert.deepEqual(worked(g, 's2'), A2);
+});
+test('choose: a condition that is an error is that error', () => {
+  const g = G({ ...sides, bad: V([[1]], { error: { code: 'loop', note: '' } }), c: CH('bad', 'a', 'b') });
+  assert.deepEqual(evaluate(g, 'c'), { error: { code: 'loop', note: '', node: 'bad' } });
+});
+test('choose: only the chosen side is worked out: an error, a side too large and a side only the backend has do no harm where they are not chosen', () => {
+  const g = G({ ...sides, yes: V([[true]]), no: V([[false]]), bad: V([[1, 1], [1, 1]], { error: { code: 'size', note: '5 × 6 ≠ 2 × 2' } }),
+    wide: N('source', [], t(70, 70), { kind: 'ones' }), cut: N('slice', ['wide'], t(2, 2), { range: { col: 0, row: 0, cols: 2, rows: 2 } }),
+    nz: N('noise', [], t(2, 2), { seed: 1, dist: 'uniform', key: 'nz' }),
+    tb: CH('yes', 'a', 'bad'), fb: CH('no', 'a', 'bad'), bt: CH('no', 'bad', 'b'), tw: CH('yes', 'a', 'cut'), fw: CH('no', 'a', 'cut'), wt: CH('no', 'cut', 'b'), tn: CH('yes', 'a', 'nz'), fn: CH('no', 'a', 'nz'),
+    after: N('add', ['tb', 'tw', 'tn'], t(2, 2)), afterBad: N('add', ['fb', 'a'], t(2, 2)), afterWide: N('add', ['a', 'fw'], t(2, 2)) });
+  for (const id of ['tb', 'tw', 'tn']) assert.deepEqual(worked(g, id), A2, id);
+  assert.deepEqual(worked(g, 'bt'), B2); assert.deepEqual(worked(g, 'wt'), B2);
+  assert.deepEqual(worked(g, 'after'), rowsOf([[3, 6], [9, 12]]));      /* and what is made of such a choose goes on */
+  /* chosen, each is what it would be of any node: the variable's error, deferred, and deferred to the backend */
+  assert.deepEqual(evaluate(g, 'fb'), { error: { code: 'size', note: '5 × 6 ≠ 2 × 2', node: 'bad' } }); assert.deepEqual(evaluate(g, 'afterBad'), evaluate(g, 'fb'));
+  assert.deepEqual(evaluate(g, 'fw'), { type: t(2, 2), deferred: true }); assert.deepEqual(evaluate(g, 'afterWide'), { type: t(2, 2), deferred: true });
+  assert.deepEqual(evaluate(g, 'fn'), { type: t(2, 2), deferred: true, backend: true });
+  assert.deepEqual(worked(g, 'fw', { maxEntries: 5000 }), rowsOf([[1, 1], [1, 1]]));      /* with room for it, it is worked out */
+});
+test('choose: the side not chosen is never asked for', () => {
+  /* a side that would take long: a 20 by 20 product of products of fractions, never run */
+  const big = Array.from({ length: 20 }, (_, r) => Array.from({ length: 20 }, (_, c) => ({ n: 1, d: c + 2 * r + 2, k: 0 })));
+  const g = G({ m: V(big), p: N('matmul', ['m', 'm'], t(20, 20)), q: N('matmul', ['p', 'p'], t(20, 20)), small: V(big.map(() => big[0].map(() => 1))), no: V([[0]]), c: CH('no', 'q', 'small', t(20, 20)) });
+  const before = performance.now(), got = evaluate(g, 'c'), took = performance.now() - before; assert.equal(got.entries['20,20'], 1);
+  const then = performance.now(); assert.ok(evaluate(g, 'q').entries); const other = performance.now() - then;      /* the other side, asked for on its own, takes many times as long */
+  assert.ok(took * 4 < other, `only the small side was worked out: ${took} ms against ${other} ms`);
+});
+test('choose: a promise broken on the chosen side is the error type; on the other side it is never held', () => {
+  const g = G({ ...sides, yes: V([[true]]), no: V([[false]]), w: V([[1, -3], [2, 2]], { name: 'W', holds: 'natural' }), t: CH('yes', 'a', 'w'), f: CH('no', 'a', 'w') });
+  assert.deepEqual(worked(g, 't'), A2);
+  assert.deepEqual(evaluate(g, 'f'), { error: { code: 'type', note: 'W is not natural: it holds -3 at 2, 1', node: 'w' } });
+});
+test('choose: inner data on its sides and on its condition; inside a function, one value for each thing the function is given', () => {
+  const inner = [{ length: 2, name: null }], ti = { ...t(2, 1), inner }, deep = fill => ({ op: 'variable', inputs: [], type: ti, name: 'v', named: true, defined: 'entries', entries: { '1,1,1': fill, '2,1,1': fill + 1, '1,1,2': fill + 2, '2,1,2': fill + 3 } });
+  const g = G({ ai: deep(10), bi: deep(20), ci: { op: 'variable', inputs: [], type: { ...t(1, 1), inner: [{ length: 3, name: null }] }, name: 'c', named: true, defined: 'entries', entries: { '1,1,1': 0, '1,1,2': NOTHING, '1,1,3': 2 } }, no: V([[false]]),
+    ti: CH('ci', 'ai', 'bi', ti), fi: CH('no', 'ai', 'bi', ti),
+    ...sides, none: N('source', [], t(2, 2), { kind: 'none' }), 'param(f:1)': N('param', [], t(1, 1), { within: ['f:1'] }), body: { ...CH('param(f:1)', 'a', 'none'), within: ['f:1'] },
+    yes: V([[true]]), y1: N('apply', ['yes'], t(2, 2), { fn: 'f:1' }), y0: N('apply', ['no'], t(2, 2), { fn: 'f:1' }) }, { 'f:1': { input: 'param(f:1)', body: 'body' } });
+  assert.deepEqual(worked(g, 'ti'), g.nodes.ai.entries); assert.deepEqual(worked(g, 'fi'), g.nodes.bi.entries);
+  assert.deepEqual(worked(g, 'y1'), A2); assert.deepEqual(worked(g, 'y0'), rowsOf([[NOTHING, NOTHING], [NOTHING, NOTHING]]));
+  assert.deepEqual(worked(g, 'body', { binding: { params: { 'f:1': 'yes' } } }), A2); assert.deepEqual(evaluate(g, 'body'), { type: t(2, 2), entries: {} });      /* given nothing, its condition is not known */
+});
+test('a source of kind none holds None at every entry, at any size and at every inner position; and None with anything is None', () => {
+  const g = G({ e: N('source', [], t(2, 1), { kind: 'none' }), ei: N('source', [], { ...t(1, 1), inner: [{ length: 2, name: null }] }, { kind: 'none' }), a: V([[1, 2]]), sum: N('add', ['e', 'a'], t(2, 1)), big: N('source', [], t(100, 100), { kind: 'none' }) });
+  assert.deepEqual(worked(g, 'e'), { '1,1': NOTHING, '2,1': NOTHING }); assert.deepEqual(worked(g, 'ei'), { '1,1,1': NOTHING, '1,1,2': NOTHING }); assert.deepEqual(worked(g, 'sum'), { '1,1': NOTHING, '2,1': NOTHING });
+  assert.equal(evaluate(g, 'big').deferred, true);
 });

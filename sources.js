@@ -20,7 +20,13 @@
        file        the numbers of a CSV file kept with the project,    csv             { "file": "data/weights.csv" }, or
                    under data/                                                         { "file": null } before one is chosen
 
+   One more is worked out here and is no block's kind: nothing offers it, and no file holds it.
+       none        None ({ none: true }, values.js), at every entry. It is the empty side of a condition: the graph
+                   has it as a source of kind "none" (graph.js), and values and entry answer for it. kept does not
+                   take it: a shape whose file says "source": "none" is an ordinary shape.
+
    SOURCES                       -> [{ kind, label, face }]: the three kinds worked out here, in the order the New menu offers them
+   EMPTY                         -> "none", the kind that holds None at every entry
    DATA                          -> [{ kind, label, face }]: the two the Data in card makes
    DISTS                         -> the distributions of noise: ['uniform', 'normal']
    kept(source)                  -> the source as it is kept where it is one of those, else null: one of the three
@@ -46,8 +52,8 @@
                                     count as backend/data.py's survey: the backend says it when a file is chosen
                                     (POST /data: "small"), and this says it of a file opened with its project
    smallSays(n)                  -> the sentence for that in the file block's panel, or null where n is 0
-   entry(kind, column, row)      -> that entry: 0 or 1. undefined where kind is none of the three, or the place is
-                                    not a whole column and row from 1
+   entry(kind, column, row)      -> that entry: 0 or 1, or None for the empty kind. undefined where kind is none of
+                                    those four, or the place is not a whole column and row from 1
    values(kind, cols, rows, inner) -> a Map from "column,row" to every entry of a source that size; empty for noise and
                                     for a file. The same Map is given for the same question: it is not to be changed.
                                     inner: the lengths of the inner axes of a source whose entries hold inner data
@@ -65,6 +71,8 @@
 export const SOURCES = [{ kind: 'zeros', label: 'Zeros', face: '0' }, { kind: 'ones', label: 'Ones', face: '1' }, { kind: 'identity', label: 'Identity', face: 'I' }];
 export const DATA = [{ kind: 'noise', label: 'Noise', face: '~' }, { kind: 'file', label: 'File', face: 'csv' }];
 export const DISTS = ['uniform', 'normal'];
+export const EMPTY = 'none';
+const NOTHING = Object.freeze({ none: true }), ruled = kind => byKind.has(kind) || kind === EMPTY;      /* what is worked out here by rule */
 const byKind = new Map(SOURCES.map(s => [s.kind, s])), byData = new Map(DATA.map(s => [s.kind, s]));
 const PATH = /^data\/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv$/;
 export const dataPath = path => typeof path === 'string' && PATH.test(path) && !path.includes('..') ? path : null;
@@ -96,10 +104,10 @@ export function seedOf(value){
   return Number.isSafeInteger(value) ? { seed: value } : { refused: 'A seed is a whole number' };
 }
 const place = n => Number.isInteger(n) && n >= 1;
-export const entry = (kind, column, row) => !byKind.has(kind) || !place(column) || !place(row) ? undefined : kind === 'zeros' ? 0 : kind === 'ones' ? 1 : column === row ? 1 : 0;
+export const entry = (kind, column, row) => !ruled(kind) || !place(column) || !place(row) ? undefined : kind === EMPTY ? NOTHING : kind === 'zeros' ? 0 : kind === 'ones' ? 1 : column === row ? 1 : 0;
 const made = new Map();                         /* "kind cols rows" -> its Map: a source is asked for its entries often, and they never differ */
 export function values(kind, cols, rows, inner = []){
-  if (!byKind.has(kind) || !place(cols) || !place(rows) || !Array.isArray(inner) || !inner.every(place)) return new Map();
+  if (!ruled(kind) || !place(cols) || !place(rows) || !Array.isArray(inner) || !inner.every(place)) return new Map();
   const key = kind + ' ' + [cols, rows, ...inner].join(' ');
   if (!made.has(key)){ if (made.size > 200) made.clear();
     let tails = ['']; for (const n of inner) tails = tails.flatMap(t => Array.from({ length: n }, (_, k) => t + ',' + (k + 1)));      /* every inner position, the first axis slowest */

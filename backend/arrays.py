@@ -26,6 +26,7 @@ place and put give back what was set into, which is a Held once a None has been 
 Making them
     number(x)                        one number
     full(rows, cols, x, inner)       every entry x
+    empty(rows, cols, inner)         every entry None
     identity(rows, cols, inner)      1 where the column is the row, else 0, at every inner position
     blank(rows, cols, inner)         every entry without a value, to be set into (place, put)
     table(text, skip)                the numbers of a CSV already seen to be one (data.py: inspect), skip lines passed over
@@ -63,6 +64,9 @@ Putting them together
     join(parts, inner)               and matrices, one for each inner position in order, joined into one array
 Reading them
     outside(a, space, none)          the first entry that lies outside a number space, or None (see the function)
+    truth(a)                         whether a whole matrix counts as true (values.js: truthOf): True where any
+                                     entry is a number other than 0; False where every entry is 0 or None; None
+                                     where neither is so, which is where an entry has no value and none is true
     shape(a) -> (rows, cols);  inner(a) -> the lengths of its inner axes;  size(a) -> how many bytes it takes
     item(a, r, c, ks) -> one entry as a Python float (from 0; ks: its inner position, from 0)
     summary(a) -> (least, most, mean) of the entries that have a value and are not None, as Python floats, or
@@ -158,6 +162,11 @@ def number(x):
 
 def full(rows, cols, x, inner=()):
     return np.full(tuple(inner) + (rows, cols), x, dtype=F)
+
+
+def empty(rows, cols, inner=()):
+    to = tuple(inner) + (rows, cols)
+    return Held(np.zeros(to, dtype=F), np.ones(to, dtype=bool))
 
 
 def identity(rows, cols, inner=()):
@@ -396,6 +405,15 @@ def is_none(a, r, c, ks=()):
 def nones(a):
     none = _split(a)[1]
     return 0 if none is None else int(none.sum())
+
+
+def truth(a):
+    values, none = _split(a)
+    lost = np.isnan(values)
+    yes = ~lost & (values != 0)
+    if none is not None:
+        yes &= ~none
+    return True if bool(yes.any()) else None if bool(lost.any()) else False
 
 
 def summary(a):

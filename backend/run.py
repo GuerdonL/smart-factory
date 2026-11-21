@@ -1,7 +1,7 @@
 """One request answered: plain data in, plain data out. No sockets here (service.py has those).
 
     run(body, root=None)                  -> what POST /run answers, for the bytes it was sent:
-                                             { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean } },
+                                             { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean, truth } },
                                                "errors":  { key: "why" } }
                                              and, only where a promise is broken by a number worked out here
                                              (a variable's holds, what a function's input promises to take),
@@ -16,7 +16,7 @@
                                              with the request as a whole is under the key "*".
     upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" } (and "small" where it has numbers too small for 32 bits); raises
                                              data.Refused(why)
-    health()                              -> { "ok": true, "version": 3 }: the graph version (check.py: VERSION)
+    health()                              -> { "ok": true, "version": 4 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
@@ -30,7 +30,10 @@ The request to /run:
       "project": "<name>" }               the project whose data/ a file source reads; may be left out where there is none
 A value is a number; "inf" or "-inf"; or { "err": "that has no value" } for an entry that has none (a division by
 zero, ∞ − ∞); or { "none": true } for an entry that is None. min, max and mean are of the entries that have a
-value and are not None, written the same way (null where none has).
+value and are not None, written the same way (null where none has). truth is whether the whole matrix counts as
+true, every entry of it and not only those asked for (values.js: truthOf): true where any entry is a number other
+than 0; false where every entry is 0 or None; null where neither is so (an entry has no value, and none is true).
+The page draws a shape that is false sunk, and has only this to go by where it does not hold the numbers.
 
 Nothing in a request is executed: the graph is data, a formula is read by formula.py, and a file's path is
 resolved inside the named project's data/ directory by data.py."""
@@ -41,7 +44,7 @@ import sys
 from . import arrays as A
 from .check import VERSION, is_int, is_obj, lengths, validate
 from .data import NAME, Refused, inspect, read_text, take
-from .evaluate import Broken, Run, Trouble
+from .evaluate import Broken, Run, Trouble, too_many
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
 NO_VALUE = 'that has no value'
@@ -167,9 +170,7 @@ def one(work, graph, w):
             raise Trouble('it has no entry %s: it is %s' % (json.dumps(c)[:40], said))
     need = work.needs(node)
     if need['most'] > MAX_ENTRIES:
-        at = graph['nodes'][need['where']]['type']
-        raise Trouble('%s %s%s, more than the %s that are worked out' % (' × '.join(format(int(x), ',') for x in (at['cols'], at['rows']) + lengths(at)), 'numbers',
-                                                                         '' if need['where'] == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
+        raise Trouble(too_many(graph['nodes'], need, node))
     if need['bad']:
         raise Trouble(need['bad'])
     # refused before anything is made: what it is worked out from, all held at once, and room to work on the largest of it
@@ -184,7 +185,7 @@ def one(work, graph, w):
     out = {'cols': cols, 'rows': rows}
     if inner:
         out['inner'] = list(inner)      # only where it holds inner data: a node that holds none answers as it always did
-    out.update({'cells': [read(c) for c in cells], 'min': written(least), 'max': written(most), 'mean': written(mean)})
+    out.update({'cells': [read(c) for c in cells], 'min': written(least), 'max': written(most), 'mean': written(mean), 'truth': A.truth(value)})
     return out
 
 
