@@ -16,7 +16,10 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 5. Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
+The format is 6. Format 6 adds to format 5 `"choose"` on an arrow (`{ "then", "else" }`: the two frames of its definition
+space a condition chooses between) and a frame file that holds no shapes, the empty side. A format 5 project has neither
+and opens as it is; a program from before conditions refuses a format 6 project rather than strip it.
+Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
 nothing, said outright, which is not the same as an entry never given), and `"holds"` on a shape, the number space it
 promises (`"integer"`, `"natural?"`: see the README). A format 4 project has neither and opens as it is.
 Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its

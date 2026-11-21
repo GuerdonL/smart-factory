@@ -1,6 +1,6 @@
 {
   "format": "smart-factory/shape",
-  "version": 5,
+  "version": 6,
   "id": "babb15h",
   "type": "tensor",
   "name": ".lagoon",

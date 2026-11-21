@@ -207,7 +207,12 @@
    resized: the references that were drawn at another size than their variable's and have been set to it (see
    oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
 
-   The format is 5. Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
+   The format is 6. Format 6 adds to format 5 the field "choose" on an arrow, { then, else }, and with it a frame file
+   that holds no shapes (an empty side of a condition). A format 5 project has neither and is read exactly as it is;
+   saved again it differs only in the format number. The number went up so that a program from before conditions
+   refuses such a project ("saved by a newer version") where it would have opened it, dropped every choose and the
+   empty side's file, and saved it so.
+   Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
    shape: the number space it promises (spaces.js), one of the ten words with a "?" after it where it may hold None
    ("integer?"), or "none" for None alone, left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
    saved again it differs only in the format number. Reading, a holds that is no such word is dropped, and so is one
@@ -277,7 +282,7 @@ import { parse as spaceOf, promise as promiseOf } from './spaces.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 5;
+export const FORMAT = 6;
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
 const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
 const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */

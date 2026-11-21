@@ -1,13 +1,13 @@
 {
   "format": "smart-factory/frame",
-  "version": 5,
+  "version": 6,
   "id": "gcde003",
   "name": "false",
   "named": true,
   "shapes": [
     {
       "format": "smart-factory/shape",
-      "version": 5,
+      "version": 6,
       "id": "bcdn003",
       "type": "tensor",
       "name": "No",

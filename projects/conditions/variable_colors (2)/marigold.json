@@ -1,6 +1,6 @@
 {
   "format": "smart-factory/shape",
-  "version": 5,
+  "version": 6,
   "id": "b7azx00",
   "type": "tensor",
   "name": ".marigold",

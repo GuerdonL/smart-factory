@@ -1,13 +1,13 @@
 {
   "format": "smart-factory/frame",
-  "version": 5,
+  "version": 6,
   "id": "gcdt001",
   "name": "true",
   "named": true,
   "shapes": [
     {
       "format": "smart-factory/shape",
-      "version": 5,
+      "version": 6,
       "id": "bcdk001",
       "type": "tensor",
       "name": "Keys",
@@ -39,7 +39,7 @@
     },
     {
       "format": "smart-factory/shape",
-      "version": 5,
+      "version": 6,
       "id": "bcdw001",
       "type": "tensor",
       "name": "Weights",
