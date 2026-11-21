@@ -63,7 +63,11 @@
    admits(holds, value)        -> whether a value lies in a written space: true, false, or null where it cannot be
                                   told. Exact: it asks values.js, so a symbolic value is told from 0 and 1 as any
                                   comparison is, and one the solver cannot compare exactly (tanh(20) against 1) is
-                                  null: not shown to lie in the space, and not shown to lie outside it. Unknown
+                                  null: not shown to lie in the space, and not shown to lie outside it. So it is
+                                  for every space: a symbolic value is asked whether it is the whole number it
+                                  comes nearest to (ln(8)/ln(2) is 3, and is integer and natural; 1+√2 is no whole
+                                  number, and is not), and where that cannot be told, or the space is rational and
+                                  the value no whole number, the answer is null. Unknown
                                   and an error are not asked (true): they are no values to break a promise.
    broken(holds, entries)      -> the first entry (by row, then column) that lies outside the space:
                                   { key, value }, or null. entries: a Map or an object keyed "column,row". An
@@ -73,7 +77,7 @@
                                -> the two sentences: "W is not natural: it holds -3 at 2, 1" and
                                   "W cannot be shown to be natural: it is worked out as integer"
    said(written)               -> a written space in words for the panel: "integer", "integer or None" */
-import { combine, written as valueText, isError, isNone } from './values.js';
+import { combine, nearest, written as valueText, isError, isNone } from './values.js';
 
 export const SPACES = ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'extended', 'any'];
 export const INSIDE = { boolean: ['whole', 'ternary', 'probability'], ternary: ['integer'], natural: ['whole'], whole: ['integer'], integer: ['rational'], rational: ['real'], probability: ['real'], real: ['extended'], extended: ['any'], any: [] };
@@ -208,13 +212,21 @@ export function formula(tree, name = () => undefined){
 /* ---- a promise against values ---- */
 /* a comparison the solver cannot decide (values.js: "cannot be compared exactly") is neither yes nor no: null */
 const told = (op, a, b) => { const r = combine(op, a, b); return r === true ? true : r === false ? false : null; };
+/* A symbolic value not written in digits (ln(8)/ln(2), which is 3) is asked of the solver as any comparison is: the
+   whole number it comes nearest to is found (values.js: nearest), and whether it is that number is an exact
+   comparison. -> that whole number; false where it is shown to be none; null where it cannot be told. */
+const spelled = v => !!v && typeof v === 'object' && typeof v.sym === 'string' && !INT.test(v.sym) && !FRACTION.test(v.sym);
+function wholeOf(v){ const n = nearest(v); if (n === null) return null; const is = told('==', v, n); return is === true ? n : is; }
+/* a space of whole numbers: such a value is in it where the whole number it is shown to be is, and out where it is shown to be no whole number or one outside it */
+const counted = holds => v => { if (!spelled(v)) return holds(v); const n = wholeOf(v); return n === null || n === false ? n : holds(n); };
 const HOLDS = {
-  boolean: v => typeof v === 'boolean' || v === 0 || v === 1,
-  ternary: v => typeof v === 'boolean' || v === 0 || v === 1 || v === -1,
-  natural: v => (Number.isInteger(v) && v >= 1) || v === true || bigWhole(v) > 0,
-  whole: v => (Number.isInteger(v) && v >= 0) || typeof v === 'boolean' || bigWhole(v) > 0,
-  integer: v => Number.isInteger(v) || typeof v === 'boolean' || bigWhole(v) !== 0,
-  rational: v => HOLDS.integer(v) || (!!v && typeof v === 'object' && ((Number.isInteger(v.n) && v.k === 0) || (typeof v.sym === 'string' && FRACTION.test(v.sym)))),
+  boolean: counted(v => typeof v === 'boolean' || v === 0 || v === 1),
+  ternary: counted(v => typeof v === 'boolean' || v === 0 || v === 1 || v === -1),
+  natural: counted(v => (Number.isInteger(v) && v >= 1) || v === true || bigWhole(v) > 0),
+  whole: counted(v => (Number.isInteger(v) && v >= 0) || typeof v === 'boolean' || bigWhole(v) > 0),
+  integer: counted(v => Number.isInteger(v) || typeof v === 'boolean' || bigWhole(v) !== 0),
+  /* a ratio: a value that is shown to be a whole number is one; of any other symbolic value nothing is known (that it is no whole number does not make it no ratio) */
+  rational: v => spelled(v) ? (typeof wholeOf(v) === 'number' ? true : null) : HOLDS.integer(v) || (!!v && typeof v === 'object' && ((Number.isInteger(v.n) && v.k === 0) || (typeof v.sym === 'string' && FRACTION.test(v.sym)))),
   probability: v => { if (infinite(v)) return false; const low = told('>=', v, 0), high = told('<=', v, 1); return low === false || high === false ? false : low === null || high === null ? null : true; },
   real: v => !infinite(v),
   extended: () => true,

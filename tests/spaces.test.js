@@ -233,6 +233,23 @@ test('a value the solver cannot compare exactly breaks no promise: it is not sho
   assert.ok(evaluate(g, 'v:E4').entries); assert.deepEqual(promiseOf(g, 'v:E4'), { holds: 'probability', inferred: 'real', state: 'unproven', note: 'E4 cannot be shown to be probability: it is worked out as real' });
   assert.equal(evaluate(g, 'v:E5').error.note, 'E5 is not probability: it holds 3 at 2, 1');      /* and a value that is told to lie outside still breaks it */
 });
+test('a whole or rational value the solver leaves symbolic breaks no promise: it is asked whether it is the whole number it is nearest, and is neither in nor out where that cannot be told', () => {
+  const three = evaluateText('ln(8)/ln(2)'), one = evaluateText('ln(2)+ln(3)-ln(6)+1');
+  assert.equal(typeof three.sym, 'string'); assert.equal(typeof one.sym, 'string');      /* the solver leaves them as they are written, and cannot reduce their difference from 3 and from 1 to 0 */
+  for (const s of ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational']){ assert.notEqual(admits(s, three), false, s); assert.notEqual(admits(s, one), false, s); assert.equal(broken(s, { '1,1': three, '2,1': 1 }), null, s); }
+  assert.equal(admits('probability', three), false); assert.equal(admits('real', three), true);      /* and what can be told is: 3 is above 1 */
+  /* one that is shown to be no whole number is outside every space of whole numbers, and is not said to be no ratio */
+  for (const text of ['1+sqrt(2)', 'exp(-1)', 'exp(1)/3', '2^(1/3)']){ const v = evaluateText(text);
+    for (const s of ['boolean', 'ternary', 'natural', 'whole', 'integer']) assert.equal(admits(s, v), false, text + ' ' + s);
+    assert.equal(admits('rational', v), null, text); assert.equal(broken('rational', { '1,1': v }), null); assert.deepEqual(untoldIn('rational', { '1,1': v }), { key: '1,1', value: v }); }
+  /* a value written in digits is told as before, whatever its length */
+  assert.equal(admits('rational', evaluateText('(2^80+1)/3')), true); assert.equal(admits('integer', evaluateText('(2^80+1)/3')), false); assert.equal(admits('natural', evaluateText('2^80+1')), true);
+  const g = made(snap([B('S', 0, 0, 2, 1, { entries: { '1,1': { expr: 'ln(8)/ln(2)' }, '2,1': 3 }, holds: 'integer' }), B('Nt', 5, 0, 1, 1, { entries: { '1,1': { expr: 'ln(2)+ln(3)-ln(6)+1' } }, holds: 'natural' }),
+    B('Q', 10, 0, 1, 1, { entries: { '1,1': { expr: 'ln(8)/ln(2)' } }, holds: 'rational' }), B('I', 15, 0, 2, 1, { entries: { '1,1': { expr: 'ln(8)/ln(2)' }, '2,1': { expr: '1+sqrt(2)' } }, holds: 'integer' })]));
+  for (const id of ['v:S', 'v:Nt', 'v:Q']){ const a = evaluate(g, id), p = promiseOf(g, id); assert.ok(a.entries, id); assert.notEqual(p.state, 'broken', id);      /* the shape keeps its value, and the row warns at most */
+    if (p.state === 'unproven') assert.match(p.note, /cannot be shown to be/); }
+  assert.equal(evaluate(g, 'v:I').error.note, 'I is not integer: it holds 1+√2 at 2, 1');
+});
 test('evaluate: what is worked out from a shape whose promise a value breaks has no value, also where it would be the backend\'s to give', () => {
   const g = made(snap([B('W', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [-3, 4]]), holds: 'natural' }), B('Nz', 2, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } }),
     B('K', 0, 10, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]), holds: 'natural' }), B('Nk', 2, 10, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } } }),
