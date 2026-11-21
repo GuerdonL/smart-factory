@@ -1,7 +1,7 @@
 """Number spaces: which numbers a shape may hold. spaces.js written again for the backend, from the same tables.
 
-spaces.js is the reference and sets the nine spaces out: boolean, ternary, natural, whole, integer, rational,
-probability, real and any, written as the word with "?" after it where None is admitted ("integer?"). They are not
+spaces.js is the reference and sets the ten spaces out: boolean, ternary, natural, whole, integer, rational,
+probability, real, extended (the reals with ∞ and -∞) and any, written as the word with "?" after it where None is admitted ("integer?"). They are not
 one chain; INSIDE says which lies directly inside which, and BINARY and UNARY hold one list of clauses for each
 operation. Everything here is worked from those tables, as it is there, and backend/fixtures/spaces.json (made by
 spaces.js) holds what they come to for every pair of spaces and every operation: tests/test_spaces.py holds this
@@ -22,25 +22,25 @@ works out: whether a promise is kept by them is not the backend's to say yet."""
 import math
 import re
 
-SPACES = ('boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'any')
+SPACES = ('boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'extended', 'any')
 INSIDE = {'boolean': ('whole', 'ternary', 'probability'), 'ternary': ('integer',), 'natural': ('whole',), 'whole': ('integer',), 'integer': ('rational',),
-          'rational': ('real',), 'probability': ('real',), 'real': ('any',), 'any': ()}
-B, T, N, W, Z, Q, P, R, A = SPACES
+          'rational': ('real',), 'probability': ('real',), 'real': ('extended',), 'extended': ('any',), 'any': ()}
+B, T, N, W, Z, Q, P, R, X, A = SPACES      # X: extended, the reals with ∞ and -∞
 BINARY = {
-    '+': ((N, W, N), (W, N, N), (W, W, W), (Z, Z, Z), (Q, Q, Q), (R, R, R)),
-    '-': ((B, B, T), (Z, Z, Z), (Q, Q, Q), (R, R, R)),
-    '*': ((B, B, B), (T, T, T), (N, N, N), (W, W, W), (Z, Z, Z), (P, P, P), (Q, Q, Q), (R, R, R)),
-    '/': ((Q, Q, Q), (R, R, R)),
-    '^': ((B, N, B), (T, N, T), (N, N, N), (W, N, W), (Z, N, Z), (P, N, P), (Q, N, Q), (R, R, R)),
+    '+': ((N, W, N), (W, N, N), (W, W, W), (Z, Z, Z), (Q, Q, Q), (R, R, R), (X, X, X)),
+    '-': ((B, B, T), (Z, Z, Z), (Q, Q, Q), (R, R, R), (X, X, X)),
+    '*': ((B, B, B), (T, T, T), (N, N, N), (W, W, W), (Z, Z, Z), (P, P, P), (Q, Q, Q), (R, R, R), (X, X, X)),
+    '/': ((Q, Q, Q), (R, X, R), (X, X, X)),
+    '^': ((B, N, B), (T, N, T), (N, N, N), (W, N, W), (Z, N, Z), (P, N, P), (Q, N, Q), (R, R, R), (X, X, X)),
 }
 UNARY = {
-    'neg': ((B, T), (T, T), (Z, Z), (Q, Q), (R, R)),
-    'abs': ((T, B), (N, N), (Z, W), (P, P), (Q, Q), (R, R)),
-    'sqrt': ((B, B), (P, P), (R, R)),
-    'exp': ((R, R),),
-    'ln': ((N, R),),
-    'tanh': ((W, P), (P, P), (R, R)),
-    'erf': ((W, P), (P, P), (R, R)),
+    'neg': ((B, T), (T, T), (Z, Z), (Q, Q), (R, R), (X, X)),
+    'abs': ((T, B), (N, N), (Z, W), (P, P), (Q, Q), (R, R), (X, X)),
+    'sqrt': ((B, B), (P, P), (R, R), (X, X)),
+    'exp': ((R, R), (X, X)),
+    'ln': ((N, R), (X, X)),
+    'tanh': ((W, P), (P, P), (X, R)),
+    'erf': ((W, P), (P, P), (X, R)),
 }
 COMPARES = ('==', '!=', '<', '>', '<=', '>=')
 LOGIC = ('&&', '||')
@@ -112,7 +112,7 @@ def both(a, b):
 
 def _wholes(n):
     """The spaces a whole number lies in. n: -2 for anything below -1, 2 for anything above 1."""
-    return SPACES if n == 1 else (B, T, W, Z, Q, P, R, A) if n == 0 else (T, Z, Q, R, A) if n == -1 else (N, W, Z, Q, R, A) if n > 1 else (Z, Q, R, A)
+    return SPACES if n == 1 else (B, T, W, Z, Q, P, R, X, A) if n == 0 else (T, Z, Q, R, X, A) if n == -1 else (N, W, Z, Q, R, X, A) if n > 1 else (Z, Q, R, X, A)
 
 
 def _clamp(n):
@@ -145,10 +145,10 @@ def _lies(v):
     if isinstance(v, bool):
         return (SPACES, False)
     if v == 'inf' or v == '-inf':
-        return ((A,), False) if isinstance(v, str) else None
+        return ((X, A), False) if isinstance(v, str) else None
     if isinstance(v, (int, float)):
         if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
-            return ((A,), False) if math.isinf(v) else None
+            return ((X, A), False) if math.isinf(v) else None
         return (_wholes(_clamp(v)), False) if v == int(v) else None
     if not isinstance(v, dict):
         return None
@@ -162,19 +162,19 @@ def _lies(v):
         unit = 0 <= n <= d
         if not k and d == 1:
             return (_wholes(_clamp(n)), False)
-        return (((P, R, A) if unit else (R, A)) if k else (Q, P, R, A) if unit else (Q, R, A), False)
+        return (((P, R, X, A) if unit else (R, X, A)) if k else (Q, P, R, X, A) if unit else (Q, R, X, A), False)
     if isinstance(v.get('sym'), str):
         text = v['sym']
         if INT.fullmatch(text):
             return (_wholes(_sign_and_size(text)), False)
         m = FRACTION.fullmatch(text)
         if m and m.group(3).strip('0'):
-            return ((Q, P, R, A) if not m.group(1) and not _more(m.group(2), m.group(3)) else (Q, R, A), False)
-        return ((R, A), False)
+            return ((Q, P, R, X, A) if not m.group(1) and not _more(m.group(2), m.group(3)) else (Q, R, X, A), False)
+        return ((R, X, A), False)
     return None
 
 
-FIRST = (B, T, N, W, Z, P, Q, R, A)      # a smaller space before any it lies inside; and which of two smallest comes first (spaces.js)
+FIRST = (B, T, N, W, Z, P, Q, R, X, A)      # a smaller space before any it lies inside; and which of two smallest comes first (spaces.js)
 
 
 def _smallest(values, more=()):
@@ -265,7 +265,7 @@ def product(a, b, terms):
     return _write(_total(_binary('*', _read(a), _read(b)), terms))
 
 
-WORDS = {'inf': (A, False), 'infinity': (A, False), 'true': (B, False), 'false': (B, False), 'none': (None, True)}
+WORDS = {'inf': (X, False), 'infinity': (X, False), 'true': (B, False), 'false': (B, False), 'none': (None, True)}
 
 
 def _number(node):
@@ -273,7 +273,7 @@ def _number(node):
     if len(node) > 3 and node[3]:
         return (R, False)
     if node[2] is None:
-        return (A, False) if math.isinf(node[1]) else (R, False)
+        return (X, False) if math.isinf(node[1]) else (R, False)
     f = node[2]
     return (next(x for x in FIRST if x in _wholes(_clamp(f.numerator))), False) if f.denominator == 1 else (P if 0 <= f <= 1 else Q, False)
 

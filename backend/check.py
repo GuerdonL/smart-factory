@@ -115,7 +115,7 @@ def ok_type(t):
     return (is_obj(t) and whole1(t.get('cols')) and whole1(t.get('rows')) and 'colsName' in t and 'rowsName' in t
             and (t['colsName'] is None or isinstance(t['colsName'], str)) and (t['rowsName'] is None or isinstance(t['rowsName'], str))
             and ('inner' not in t or (isinstance(t['inner'], list) and 1 <= len(t['inner']) <= AXES and all(ok_axis(a) for a in t['inner'])))
-            and ('value' not in t or S.parse(t['value']) is not None)      # its number space, where it is said: one of the nine words, "?" after it where None is admitted
+            and ('value' not in t or S.parse(t['value']) is not None)      # its number space, where it is said: one of the ten words, "?" after it where None is admitted
             and all(k in TYPE_KEYS for k in t))
 
 
@@ -880,7 +880,7 @@ def check(graph):
             bad.append('%s: its input %s is not in the graph' % (i, gone[0]))
             continue
         if not ok_type(n.get('type')):
-            bad.append('%s: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to %d of { length, name }, where it holds inner data, and value, one of the nine number spaces (with ? after it where None is admitted), where its space is said' % (i, AXES))
+            bad.append('%s: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to %d of { length, name }, where it holds inner data, and value, one of the ten number spaces (with ? after it where None is admitted), where its space is said' % (i, AXES))
             continue
         w = n.get('within', MISSING)
         if w is not MISSING and not (isinstance(w, list) and w and all(isinstance(x, str) and x[:2] in ('f:', 't:') for x in w) and len(set(w)) == len(w)):

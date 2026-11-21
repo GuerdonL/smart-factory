@@ -55,7 +55,7 @@
          "definition": "Keys/",                  the directory holding its definition space, if it has one with anything in it
          "order": 3,                             its place among the shapes of its space, back to front
          "holds": "integer?",                    the number space it promises to hold (spaces.js): one of boolean, ternary,
-                                                 natural, whole, integer, rational, probability, real, any, with "?"
+                                                 natural, whole, integer, rational, probability, real, extended, any, with "?"
                                                  where it may hold None too. Left out where it promises nothing; what
                                                  is no such word (complex is reserved, and not built) is not read. On
                                                  a function's in block it is what the arrow takes, and on the block
@@ -202,7 +202,7 @@
    oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
 
    The format is 5. Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
-   shape: the number space it promises (spaces.js), one of the nine words with a "?" after it where it may hold None
+   shape: the number space it promises (spaces.js), one of the ten words with a "?" after it where it may hold None
    ("integer?"), left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
    saved again it differs only in the format number. Reading, a holds that is no such word is dropped, and so is one
    written only on a reference (a promise is its variable's, said on the shape the variable was made as) or on a

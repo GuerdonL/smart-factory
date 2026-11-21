@@ -21,12 +21,12 @@ class SameAsSpacesJs(unittest.TestCase):
 
     def test_the_nine_spaces_and_which_lies_inside_which(self):
         self.assertEqual(list(S.SPACES), self.table['spaces'])
-        self.assertEqual(len(self.table['inside']), 81)
+        self.assertEqual(len(self.table['inside']), 100)
         for key, yes in self.table['inside'].items():
             self.assertEqual(S.inside(*pair(key)), yes, key)
 
     def test_the_space_of_both_for_every_pair(self):
-        self.assertEqual(len(self.table['both']), 18 * 18)
+        self.assertEqual(len(self.table['both']), 20 * 20)
         for key, word in self.table['both'].items():
             self.assertEqual(S.both(*pair(key)), word, key)
         for key, yes in self.table['within'].items():
@@ -38,7 +38,7 @@ class SameAsSpacesJs(unittest.TestCase):
         seen = 0
         self.assertEqual(sorted(self.table['binary']), sorted(['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min']))
         for op, by in self.table['binary'].items():
-            self.assertEqual(len(by), 18 * 18)
+            self.assertEqual(len(by), 20 * 20)
             for key, word in by.items():
                 self.assertEqual(S.binary(op, *pair(key)), word, '%s %s' % (op, key))
                 seen += 1
@@ -120,7 +120,7 @@ class InAGraph(unittest.TestCase):
         for sym, value in ((nines, 'natural'), ('-' + nines, 'integer'), ('1/' + nines, 'probability'), (nines + '/7', 'rational'), (nines + '/' + nines, 'probability'), ('0' * 4400, 'boolean'), ('0' * 4400 + '1', 'boolean')):
             self.assertEqual(S.of({'sym': sym}), value, sym[:12])
             self.assertEqual(validate(g(sym, value)), [], sym[:12])
-        self.assertRegex(validate(g('1+sqrt(2)', 'complex'))[0], r'^v: its type is not .*and value, one of the nine number spaces')
+        self.assertRegex(validate(g('1+sqrt(2)', 'complex'))[0], r'^v: its type is not .*and value, one of the ten number spaces')
 
     def test_a_type_that_says_none_is_not_checked(self):
         g = self.graph()

@@ -137,7 +137,7 @@
    the two it is is settled from the snapshot alone before anything is built, so it is the same whichever shape
    comes first.
 
-   Number spaces. A type also has value, the number space its numbers lie in (spaces.js): one of nine words, with
+   Number spaces. A type also has value, the number space its numbers lie in (spaces.js): one of ten words, with
    "?" after it where None is admitted, "integer?". It follows from the node's inputs by its operation's rule, as
    the size does, and validate checks it so; a type that says none (every graph before version 3) is not checked,
    and is taken as "any?" by what reads it. A variable may carry holds, a promise in the same words: its value is
@@ -1239,7 +1239,7 @@ function check(graph){
     const rule = own(OPS, n.op) ? OPS[n.op] : null; if (!rule){ bad.push(`${id}: "${n.op}" is no operation`); continue; }
     if (!Array.isArray(n.inputs) || n.inputs.length < rule.inputs[0] || n.inputs.length > rule.inputs[1]){ bad.push(`${id}: ${n.op} does not take ${Array.isArray(n.inputs) ? n.inputs.length : 'no'} inputs`); continue; }
     const gone = n.inputs.filter(i => !has(i)); if (gone.length){ bad.push(`${id}: its input ${gone[0]} is not in the graph`); continue; }
-    if (!okType(n.type)){ bad.push(`${id}: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to ${AXES} of { length, name }, where it holds inner data, and value, one of the nine number spaces (with ? after it where None is admitted), where its space is said`); continue; }
+    if (!okType(n.type)){ bad.push(`${id}: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to ${AXES} of { length, name }, where it holds inner data, and value, one of the ten number spaces (with ? after it where None is admitted), where its space is said`); continue; }
     if (n.within !== undefined && !(Array.isArray(n.within) && n.within.length && n.within.every(w => typeof w === 'string' && /^[ft]:/.test(w)) && new Set(n.within).size === n.within.length)){ bad.push(`${id}: within is not a list of functions and tiles`); continue; }
     const wrong = rule.fields(n); if (wrong.length){ bad.push(...wrong.map(w => `${id}: ${w}`)); continue; }
     sound.add(id);

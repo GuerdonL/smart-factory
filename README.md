@@ -648,11 +648,13 @@ decimal, is no part of it.
 | `integer` | the wholes and their negatives | `rational` |
 | `rational` | a ratio of integers | `real` |
 | `probability` | a real from 0 to 1, both ends included | `real` |
-| `real` | any number on the line (no infinity) | `any` |
+| `real` | any number on the line (no infinity) | `extended` |
+| `extended` | the reals and the two infinities, ∞ and -∞ | `any` |
 | `any` | nothing promised | |
 
 A space is written as its word, with `?` after it where None is admitted too (`integer?`). Select a shape and the
-panel has a row **Holds**: a list of the nine words and a box **or None**.
+panel has a row **Holds**: a list of the ten words and a box **or None**. After them the list has `complex (not built)`:
+the word is kept back, and choosing it is refused with a sentence.
 
 - With nothing chosen the row is greyed and says what the shape is worked out as: `natural (from its entries)`. The
   space of some values is the smallest that holds them all (0 and 1 are boolean, 2 is natural, -1 ternary, -2

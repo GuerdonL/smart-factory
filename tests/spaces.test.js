@@ -1,4 +1,4 @@
-/* spaces.js: the nine number spaces, the space of both, what each operation gives, and a promise against values.
+/* spaces.js: the ten number spaces, the space of both, what each operation gives, and a promise against values.
    The rules are held to the arithmetic itself: for every operation and every pair of spaces, values of those spaces
    are combined by values.js and each result has to lie in the space the rule gave. Then the graph: a type's value
    follows by each operation's rule, both ways of a promise (kept, broken by a value, not provable), and what the
@@ -15,13 +15,13 @@ import { evaluate, promiseOf, judged } from '../evaluate.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), NONE = { none: true }, sym = text => ({ sym: text });
 
-test('nine spaces, in one table: what each lies inside', () => {
-  assert.deepEqual(SPACES, ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'any']);
-  assert.deepEqual(INSIDE, { boolean: ['whole', 'ternary', 'probability'], ternary: ['integer'], natural: ['whole'], whole: ['integer'], integer: ['rational'], rational: ['real'], probability: ['real'], real: ['any'], any: [] });
+test('ten spaces, in one table: what each lies inside', () => {
+  assert.deepEqual(SPACES, ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'extended', 'any']);
+  assert.deepEqual(INSIDE, { boolean: ['whole', 'ternary', 'probability'], ternary: ['integer'], natural: ['whole'], whole: ['integer'], integer: ['rational'], rational: ['real'], probability: ['real'], real: ['extended'], extended: ['any'], any: [] });
   for (const s of SPACES){ assert.ok(inside(s, s)); assert.ok(inside(s, 'any')); }
-  for (const [a, b] of [['boolean', 'integer'], ['boolean', 'real'], ['natural', 'rational'], ['ternary', 'real'], ['probability', 'any']]) assert.ok(inside(a, b), a + ' in ' + b);
+  for (const [a, b] of [['boolean', 'integer'], ['boolean', 'real'], ['natural', 'rational'], ['ternary', 'real'], ['probability', 'any'], ['real', 'extended'], ['boolean', 'extended'], ['extended', 'any']]) assert.ok(inside(a, b), a + ' in ' + b);
   /* not one chain: rational and probability overlap, neither inside the other; nor is boolean inside natural, or ternary inside whole */
-  for (const [a, b] of [['rational', 'probability'], ['probability', 'rational'], ['boolean', 'natural'], ['natural', 'boolean'], ['ternary', 'whole'], ['whole', 'ternary'], ['natural', 'ternary'], ['integer', 'probability'], ['real', 'rational'], ['any', 'real']]) assert.ok(!inside(a, b), a + ' not in ' + b);
+  for (const [a, b] of [['rational', 'probability'], ['probability', 'rational'], ['boolean', 'natural'], ['natural', 'boolean'], ['ternary', 'whole'], ['whole', 'ternary'], ['natural', 'ternary'], ['integer', 'probability'], ['real', 'rational'], ['any', 'real'], ['extended', 'real'], ['any', 'extended']]) assert.ok(!inside(a, b), a + ' not in ' + b);
   for (const a of SPACES) for (const b of SPACES) for (const c of SPACES) if (inside(a, b) && inside(b, c)) assert.ok(inside(a, c));
 });
 test('the space of both is the smallest listed space that holds the two, and there is exactly one for every pair', () => {
@@ -37,7 +37,7 @@ test('a space is written as its word, with ? where None is admitted; complex is 
   for (const no of ['', '?', 'Integer', 'integer ?', 'integer??', 'complex', 'irrational', 'fraction', 'root', 'number', 'decimal', null, undefined, 7, {}]) assert.equal(parse(no), null, String(no));
   assert.deepEqual(promise(' Natural? '), { holds: 'natural?' }); assert.deepEqual(promise('any'), { holds: 'any' });
   assert.equal(promise('complex').refused, 'complex numbers are not built: a shape holds numbers on the line'); assert.ok(promise('complex?').refused.includes('not built'));
-  assert.match(promise('decimal').refused, /decimal is no number space: a shape holds one of boolean, ternary, natural, whole, integer, rational, probability, real, any/);
+  assert.match(promise('decimal').refused, /decimal is no number space: a shape holds one of boolean, ternary, natural, whole, integer, rational, probability, real, extended, any/);
   assert.equal(said('integer?'), 'integer or None'); assert.equal(said('real'), 'real');
   assert.ok(within('natural', 'integer?')); assert.ok(!within('natural?', 'integer')); assert.ok(within('boolean?', 'probability?')); assert.ok(!within('rational', 'probability'));
 });
@@ -45,10 +45,10 @@ test('the space a value lies in is the smallest that holds it', () => {
   const is = (v, s) => assert.equal(of(v), s, JSON.stringify(v));
   is(0, 'boolean'); is(1, 'boolean'); is(true, 'boolean'); is(false, 'boolean'); is(2, 'natural'); is(-1, 'ternary'); is(-2, 'integer'); is(q(1, 2), 'probability'); is(q(3, 2), 'rational'); is(q(-1, 2), 'rational'); is(q(2, 1, 1), 'real');
   is(q(1, 2, 1), 'probability');      /* √(1/2) is a real from 0 to 1 */
-  is(q(-2, 1, 1), 'real'); is(Infinity, 'any'); is(-Infinity, 'any'); is('inf', 'any'); is('-inf', 'any');      /* an infinity lies only in any */
+  is(q(-2, 1, 1), 'real'); is(Infinity, 'extended'); is(-Infinity, 'extended'); is('inf', 'extended'); is('-inf', 'extended');      /* an infinity is no real: the smallest space that holds it is extended */
   is(NONE, 'boolean?');      /* no number, and None */
   is(sym('1+sqrt(2)'), 'real'); is(sym('1208925819614629174706176'), 'natural'); is(sym('-1208925819614629174706176'), 'integer'); is(sym('1/1208925819614629174706176'), 'probability');
-  is({ f: 0.5 }, 'probability'); is({ f: 2 }, 'real'); is({ f: Infinity }, 'any');      /* a decimal is not said to be whole or a ratio */
+  is({ f: 0.5 }, 'probability'); is({ f: 2 }, 'real'); is({ f: Infinity }, 'extended');      /* a decimal is not said to be whole or a ratio */
   for (const none of [null, undefined, { err: 'x' }, NaN, 'x', {}]) assert.equal(of(none), null);      /* unknown and an error are no spaces */
   assert.equal(ofAll([1, 2, 3]), 'natural'); assert.equal(ofAll([1, 2, NONE]), 'natural?'); assert.equal(ofAll([0, 5]), 'whole'); assert.equal(ofAll([1, -1, null]), 'ternary'); assert.equal(ofAll([2, q(1, 2)]), 'rational'); assert.equal(ofAll([1]), 'boolean'); assert.equal(ofAll([1, 1, 2]), 'natural'); assert.equal(ofAll([0, q(1, 2)]), 'probability'); assert.equal(ofAll([q(1, 2), q(1, 3)]), 'probability'); assert.equal(ofAll([q(1, 2), q(2, 1, 1)]), 'real'); assert.equal(ofAll([1], ['natural']), 'natural');
   assert.equal(ofAll([null, { err: 'x' }]), 'boolean'); assert.equal(ofAll([]), 'boolean'); assert.equal(ofAll([NONE]), 'boolean?'); assert.equal(ofAll([2], ['integer?']), 'integer?');
@@ -62,7 +62,11 @@ test('what each operation gives, as the rules are stated', () => {
   is('/', 'integer', 'integer', 'rational'); is('/', 'natural', 'boolean', 'rational'); is('/', 'rational', 'integer', 'rational'); is('/', 'real', 'integer', 'real'); is('/', 'probability', 'natural', 'real');
   for (const op of ['==', '!=', '<', '>', '<=', '>=', '&&', '||']) is(op, 'real', 'any', 'boolean');
   one('!', 'any', 'boolean'); for (const fn of ['exp', 'tanh', 'erf', 'sqrt']) one(fn, 'real', 'real');
-  one('ln', 'natural', 'real'); one('ln', 'whole', 'any'); one('ln', 'real', 'any');      /* ln(0) is -∞, which is no real */
+  one('ln', 'natural', 'real'); one('ln', 'whole', 'extended'); one('ln', 'real', 'extended'); one('ln', 'extended', 'extended'); one('ln', 'any', 'any');      /* ln(0) is -∞, which is no real: it is extended */
+  /* extended, the reals with ∞ and -∞, is closed under + − and × (∞ − ∞ and 0 × ∞ are errors, no values); a number over an infinity is real */
+  for (const op of ['+', '-', '*', '^']){ is(op, 'extended', 'extended', 'extended'); is(op, 'natural', 'extended', 'extended'); is(op, 'extended', 'any', 'any'); }
+  is('/', 'real', 'extended', 'real'); is('/', 'natural', 'extended', 'real'); is('/', 'extended', 'real', 'extended'); is('/', 'extended', 'extended', 'extended');
+  one('exp', 'extended', 'extended'); one('sqrt', 'extended', 'extended'); one('neg', 'extended', 'extended'); one('abs', 'extended', 'extended'); one('tanh', 'extended', 'real'); one('erf', 'extended', 'real'); one('tanh', 'any', 'any');
   is('^', 'integer', 'natural', 'integer'); is('^', 'rational', 'natural', 'rational'); is('^', 'natural', 'natural', 'natural'); is('^', 'integer', 'integer', 'real'); is('^', 'rational', 'rational', 'real'); is('^', 'natural', 'boolean', 'real');
   assert.equal(choice('natural', 'ternary'), 'integer'); assert.equal(choice('boolean', 'boolean?'), 'boolean?');
   one('abs', 'ternary', 'boolean'); one('abs', 'integer', 'whole'); one('abs', 'natural', 'natural'); one('abs', 'probability', 'probability'); one('abs', 'rational', 'rational'); one('abs', 'any', 'any');
@@ -82,7 +86,7 @@ test('with None admitted on any input the result admits None, but for select, !,
 });
 /* values of each space, to hold the rules to the arithmetic */
 const SAMPLES = { boolean: [0, 1, true, false], ternary: [-1, 0, 1], natural: [1, 2, 5], whole: [0, 1, 3], integer: [-3, -1, 0, 2], rational: [q(1, 2), q(-3, 2), q(2, 3), 4, 0, -2],
-  probability: [0, 1, q(1, 2), q(1, 2, 1), q(1, 3)], real: [q(2, 1, 1), q(-2, 1, 1), q(3, 2), 0, -1, 7, q(1, 3, 2)], any: [Infinity, -Infinity, 0, 5, q(-1, 2), 1] };
+  probability: [0, 1, q(1, 2), q(1, 2, 1), q(1, 3)], real: [q(2, 1, 1), q(-2, 1, 1), q(3, 2), 0, -1, 7, q(1, 3, 2)], extended: [Infinity, -Infinity, 0, 5, -3, q(-1, 2), q(2, 1, 1), 1], any: [Infinity, -Infinity, 0, 5, q(-1, 2), 1] };
 test('every rule is sound: for every operation and every pair of spaces, what values.js makes of their values lies in the space the rule gives', () => {
   let held = 0;
   /* (a symbolic result that the solver cannot tell from 0 or 1, erf(5) against 1, is no answer either way: it must not be said to lie outside the space) */
@@ -102,8 +106,8 @@ test('every rule is sound: for every operation and every pair of spaces, what va
 });
 test('a formula\'s space is read off its tree', () => {
   const names = { $1: 'natural', $2: 'integer?', $3: 'probability', x: 'rational' }, is = (text, s) => assert.equal(formula(treeOf(text), n => names[n]), s, text);
-  is('1', 'boolean'); is('2', 'natural'); is('0.5', 'probability'); is('1.5', 'rational'); is('-1', 'ternary'); is('inf', 'any'); is('true', 'boolean'); is('none', 'boolean?');
-  is('$1 + $1', 'natural'); is('$1 - $1', 'integer'); is('$1 * $2', 'integer?'); is('$1 / $1', 'rational'); is('$1 ^ 2', 'natural'); is('$1 ^ $2', 'real?'); is('exp($1)', 'real'); is('ln($1)', 'real'); is('ln($3)', 'any');
+  is('1', 'boolean'); is('2', 'natural'); is('0.5', 'probability'); is('1.5', 'rational'); is('-1', 'ternary'); is('inf', 'extended'); is('ln($2)', 'extended?'); is('1 / inf', 'real'); is('true', 'boolean'); is('none', 'boolean?');
+  is('$1 + $1', 'natural'); is('$1 - $1', 'integer'); is('$1 * $2', 'integer?'); is('$1 / $1', 'rational'); is('$1 ^ 2', 'natural'); is('$1 ^ $2', 'real?'); is('exp($1)', 'real'); is('ln($1)', 'real'); is('ln($3)', 'extended');
   is('select($2, $1, $3)', 'real'); is('select($1 > 2, none, $1)', 'natural?'); is('$2 == none', 'boolean'); is('$2 < 1', 'boolean?'); is('!$2', 'boolean'); is('max($1, 0)', 'whole'); is('x * 2', 'rational');
   is('tanh($1)', 'probability'); is('sqrt($3)', 'probability'); is('1 - $3', 'real'); is('unknownName + 1', 'any?'); is('1' + '0'.repeat(45), 'real');
 });
@@ -114,6 +118,8 @@ test('a promise against values: what lies in a space, and the first entry that d
   assert.ok(admits('rational', q(-3, 2))); assert.ok(!admits('rational', q(2, 1, 1))); assert.ok(admits('probability', q(1, 2, 1))); assert.ok(admits('probability', 1)); assert.ok(!admits('probability', q(3, 2))); assert.ok(!admits('probability', -1));
   assert.ok(admits('probability', sym('e^(-1)'))); assert.ok(!admits('probability', sym('1+sqrt(2)')));      /* a symbolic value is told from 0 and 1 as any comparison is */
   assert.ok(admits('real', q(2, 1, 1))); assert.ok(admits('real', sym('1+sqrt(2)'))); assert.ok(!admits('real', Infinity)); assert.ok(!admits('real', '-inf')); assert.ok(admits('any', -Infinity));      /* real admits no infinity */
+  assert.ok(admits('extended', Infinity)); assert.ok(admits('extended', '-inf')); assert.ok(admits('extended', q(2, 1, 1))); assert.ok(admits('extended', { f: -Infinity })); assert.ok(!admits('extended', NONE)); assert.ok(admits('extended?', NONE));      /* the reals and the two infinities */
+  assert.deepEqual(promise('extended?'), { holds: 'extended?' });
   assert.ok(!admits('integer', NONE)); assert.ok(admits('integer?', NONE)); assert.ok(admits('integer?', 4)); assert.ok(!admits('any', NONE)); assert.ok(admits('any?', NONE));
   for (const s of SPACES){ assert.ok(admits(s, null)); assert.ok(admits(s, { err: 'divide by zero' })); }      /* unknown and an error are not asked */
   assert.ok(admits('natural', sym('1208925819614629174706176'))); assert.ok(!admits('natural', sym('-1208925819614629174706176'))); assert.ok(admits('integer', sym('-1208925819614629174706176')));
@@ -166,7 +172,7 @@ test('graph: a promise is the variable\'s value, whatever defines it; a function
   assert.equal(g.nodes['v:Cx'].holds, undefined); assert.equal(valueOf(g, 'v:Cx'), 'natural'); assert.equal(g.nodes['v:Odd'].holds, undefined);      /* what is no space is no promise */
   assert.equal(inferred(g, 'matmul(v:X,v:Wf)'), undefined); assert.equal(inferred(g, 'nothing'), undefined);
 });
-test('validate: a value is one of the nine words, follows from the inputs, and a type has no other new key; a type that says none is not checked', () => {
+test('validate: a value is one of the ten words, follows from the inputs, and a type has no other new key; a type that says none is not checked', () => {
   const good = () => made(snap([B('A', 0, 0, 2, 1, { entries: rowsOf([[1, 2]]), holds: 'whole' }), B('C', 0, 1, 2, 1, { entries: rowsOf([[1, -1]]) })]));
   const refused = (change, what) => { const g = good(); change(g); assert.ok(validate(g).length > 0, what); };
   for (const v of ['complex', 'number', 'decimal', 'fraction', 'Integer', 'integer ?', '', '?', 7, null, true, ['real'], {}]) refused(g => { g.nodes['v:C'].type.value = v; }, 'value ' + JSON.stringify(v));
@@ -187,7 +193,7 @@ test('validate: a symbolic value never spells None or an infinity, and a whole n
   const nines = '9'.repeat(4301);      /* past what Python will read as a number: the backend says the same (test_spaces.py) */
   for (const [sym, value] of [[nines, 'natural'], ['-' + nines, 'integer'], ['1/' + nines, 'probability'], [nines + '/7', 'rational'], [nines + '/' + nines, 'probability'], ['0'.repeat(4400), 'boolean'], ['0'.repeat(4400) + '1', 'boolean']]){
     assert.equal(of({ sym }), value, sym.slice(0, 12)); assert.deepEqual(validate(g(sym, value)), [], sym.slice(0, 12)); }
-  assert.match(validate({ ...g('1+sqrt(2)', 'complex') })[0], /^v: its type is not .*and value, one of the nine number spaces/);      /* and a value that is no space is refused with a reason that names value */
+  assert.match(validate({ ...g('1+sqrt(2)', 'complex') })[0], /^v: its type is not .*and value, one of the ten number spaces/);      /* and a value that is no space is refused with a reason that names value */
 });
 test('evaluate: a promise that is kept; one broken by a value is the error type, naming the entry, for the variable and what is made of it', () => {
   const g = made(snap([B('W', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [-3, 4]]), holds: 'natural' }), B('V', 2, 0, 1, 2, { entries: rowsOf([[1], [1]]) }),

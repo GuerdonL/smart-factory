@@ -1,7 +1,7 @@
 /* Number spaces: which numbers a shape may hold. No drawing here: words and values in, words out.
 
    A type is a number space: a set of numbers. How a number is held (exactly, or as the backend's decimal) is no
-   part of it. There are nine, and they are not one chain:
+   part of it. There are ten, and they are not one chain:
 
        boolean        0, 1 (and true, false, which count as 1 and 0)     inside whole, ternary, probability
        ternary        -1, 0, 1                                           inside integer
@@ -10,8 +10,9 @@
        integer        the wholes and their negatives                     inside rational
        rational       a ratio of integers                                inside real
        probability    a real from 0 to 1, both ends included             inside real
-       real           any number on the line (no infinity)               inside any
-       any            nothing promised (an infinity lies only here)
+       real           any number on the line (no infinity)               inside extended
+       extended       the reals and the two infinities, ∞ and -∞         inside any
+       any            nothing promised
 
    A space is written as its word, with "?" after it where None is admitted too: "integer?". Unknown and error are
    no spaces: any shape may have an entry not yet given, and an error is of no type. complex is a reserved word: it
@@ -22,7 +23,7 @@
    backend/fixtures/spaces.json, made from this file, holds what they come to for every pair of spaces and every
    operation, so that the two cannot drift apart (tests/fixtures.test.js, backend/tests/test_spaces.py).
 
-   SPACES                      the nine words, smallest first where one lies inside another
+   SPACES                      the ten words, smallest first where one lies inside another
    INSIDE                      { word: [the spaces it lies directly inside] }
    BINARY, UNARY               the clauses: for + - * / ^, [[left, right, result], …]; for a function of one value,
                                [[of, result], …]. The first clause both sides lie inside gives the result; where
@@ -35,7 +36,7 @@
                                   and "natural?" is not within "integer"
    both(a, b)                  -> the space of both: the smallest listed space that holds the two, written
    of(value)                   -> the smallest space a value lies in, written: 0 and 1 are boolean, 2 natural, -1
-                                  ternary, -2 integer, 1/2 probability, 3/2 rational, √2 real, ±∞ any; None is
+                                  ternary, -2 integer, 1/2 probability, 3/2 rational, √2 real, ±∞ extended; None is
                                   "boolean?" (no number, and None); null for unknown and for an error. A value as
                                   the graph writes it or as values.js holds it. A symbolic value is real (or, where
                                   it is a whole number or a fraction too long for plain numbers, what that is):
@@ -67,25 +68,26 @@
    said(written)               -> a written space in words for the panel: "integer", "integer or None" */
 import { combine, written as valueText, isError, isNone } from './values.js';
 
-export const SPACES = ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'any'];
-export const INSIDE = { boolean: ['whole', 'ternary', 'probability'], ternary: ['integer'], natural: ['whole'], whole: ['integer'], integer: ['rational'], rational: ['real'], probability: ['real'], real: ['any'], any: [] };
+export const SPACES = ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'extended', 'any'];
+export const INSIDE = { boolean: ['whole', 'ternary', 'probability'], ternary: ['integer'], natural: ['whole'], whole: ['integer'], integer: ['rational'], rational: ['real'], probability: ['real'], real: ['extended'], extended: ['any'], any: [] };
 export const RESERVED = { complex: 'complex numbers are not built: a shape holds numbers on the line' };
-const B = 'boolean', T = 'ternary', N = 'natural', W = 'whole', Z = 'integer', Q = 'rational', P = 'probability', R = 'real', A = 'any';
+const B = 'boolean', T = 'ternary', N = 'natural', W = 'whole', Z = 'integer', Q = 'rational', P = 'probability', R = 'real', X = 'extended', A = 'any';
 export const BINARY = {
-  '+': [[N, W, N], [W, N, N], [W, W, W], [Z, Z, Z], [Q, Q, Q], [R, R, R]],      /* naturals: natural; wholes and booleans: whole; probabilities: real */
-  '-': [[B, B, T], [Z, Z, Z], [Q, Q, Q], [R, R, R]],                            /* a difference of naturals or wholes is an integer */
-  '*': [[B, B, B], [T, T, T], [N, N, N], [W, W, W], [Z, Z, Z], [P, P, P], [Q, Q, Q], [R, R, R]],      /* closed for every space */
-  '/': [[Q, Q, Q], [R, R, R]],                                                  /* a quotient of integers is rational, of anything wider real */
-  '^': [[B, N, B], [T, N, T], [N, N, N], [W, N, W], [Z, N, Z], [P, N, P], [Q, N, Q], [R, R, R]],      /* a natural power keeps its space; any other is real */
+  /* (with the infinities: ∞ − ∞ and 0 × ∞ are errors, no values, so extended is closed under + − and ×) */
+  '+': [[N, W, N], [W, N, N], [W, W, W], [Z, Z, Z], [Q, Q, Q], [R, R, R], [X, X, X]],      /* naturals: natural; wholes and booleans: whole; probabilities: real */
+  '-': [[B, B, T], [Z, Z, Z], [Q, Q, Q], [R, R, R], [X, X, X]],                 /* a difference of naturals or wholes is an integer */
+  '*': [[B, B, B], [T, T, T], [N, N, N], [W, W, W], [Z, Z, Z], [P, P, P], [Q, Q, Q], [R, R, R], [X, X, X]],      /* closed for every space */
+  '/': [[Q, Q, Q], [R, X, R], [X, X, X]],                                       /* a quotient of integers is rational, of anything wider real; by an infinity it is 0, and an infinity over a number is one still */
+  '^': [[B, N, B], [T, N, T], [N, N, N], [W, N, W], [Z, N, Z], [P, N, P], [Q, N, Q], [R, R, R], [X, X, X]],      /* a natural power keeps its space; any other is real; 2 ^ ∞ is ∞ */
 };
 export const UNARY = {
-  neg: [[B, T], [T, T], [Z, Z], [Q, Q], [R, R]],
-  abs: [[T, B], [N, N], [Z, W], [P, P], [Q, Q], [R, R]],
-  sqrt: [[B, B], [P, P], [R, R]],
-  exp: [[R, R]],
-  ln: [[N, R]],                                 /* ln(0) is -∞, which is no real: only what cannot be 0 has a real logarithm */
-  tanh: [[W, P], [P, P], [R, R]],
-  erf: [[W, P], [P, P], [R, R]],
+  neg: [[B, T], [T, T], [Z, Z], [Q, Q], [R, R], [X, X]],
+  abs: [[T, B], [N, N], [Z, W], [P, P], [Q, Q], [R, R], [X, X]],
+  sqrt: [[B, B], [P, P], [R, R], [X, X]],
+  exp: [[R, R], [X, X]],                        /* exp(∞) is ∞ (and exp(-∞) is 0) */
+  ln: [[N, R], [X, X]],                         /* ln(0) is -∞, which is no real: only what cannot be 0 has a real logarithm, and any other is extended */
+  tanh: [[W, P], [P, P], [X, R]],               /* tanh and erf of an infinity are 1 and -1 */
+  erf: [[W, P], [P, P], [X, R]],
 };
 const COMPARES = ['==', '!=', '<', '>', '<=', '>='], LOGIC = ['&&', '||'];
 
@@ -117,26 +119,26 @@ export const said = text => { const p = parse(text); return p ? p.space + (p.non
    FIRST, which has a smaller space before any it lies inside, so that the first is a smallest. Where two smallest
    ones hold them all, FIRST says which: 1 alone is boolean before it is natural, and 1/2 a probability before it
    is rational. */
-const FIRST = [B, T, N, W, Z, P, Q, R, A];
+const FIRST = [B, T, N, W, Z, P, Q, R, X, A];
 const INT = /^-?\d+$/, FRACTION = /^(-?)(\d+)\/(\d+)$/;
-const wholes = n => n === 1 ? SPACES : n === 0 ? [B, T, W, Z, Q, P, R, A] : n === -1 ? [T, Z, Q, R, A] : n > 1 ? [N, W, Z, Q, R, A] : [Z, Q, R, A];      /* n: -2 for anything below -1, 2 for anything above 1 */
+const wholes = n => n === 1 ? SPACES : n === 0 ? [B, T, W, Z, Q, P, R, X, A] : n === -1 ? [T, Z, Q, R, X, A] : n > 1 ? [N, W, Z, Q, R, X, A] : [Z, Q, R, X, A];      /* n: -2 for anything below -1, 2 for anything above 1 */
 const clamp = n => n > 1 ? 2 : n < -1 ? -2 : Number(n);
 /* a value as [the spaces it lies in, whether it is None], or undefined for what is no value (unknown, an error) */
 function lies(v){
   if (v === null || v === undefined) return undefined;
   if (typeof v === 'boolean') return [SPACES, false];
-  if (v === 'inf' || v === '-inf' || v === Infinity || v === -Infinity) return [[A], false];
+  if (v === 'inf' || v === '-inf' || v === Infinity || v === -Infinity) return [[X, A], false];
   if (typeof v === 'number') return Number.isInteger(v) ? [wholes(clamp(v)), false] : undefined;
   if (typeof v !== 'object') return undefined;
   if (typeof v.err === 'string') return undefined;
   if (v.none === true) return [SPACES, true];      /* no number at all: it is in the way of none */
   if (Number.isInteger(v.n) && Number.isInteger(v.k)){ const d = v.d === undefined ? 1 : v.d, unit = v.n >= 0 && v.n <= d;      /* n over d under k roots: from 0 to 1 where n is, and no more than d */
     if (!v.k && d === 1) return [wholes(clamp(v.n)), false];
-    return [v.k ? (unit ? [P, R, A] : [R, A]) : unit ? [Q, P, R, A] : [Q, R, A], false]; }
+    return [v.k ? (unit ? [P, R, X, A] : [R, X, A]) : unit ? [Q, P, R, X, A] : [Q, R, X, A], false]; }
   if (typeof v.sym === 'string'){ if (INT.test(v.sym)) return [wholes(clamp(BigInt(v.sym))), false];
-    const m = v.sym.match(FRACTION); if (m && !/^0+$/.test(m[3])) return [!m[1] && BigInt(m[2]) <= BigInt(m[3]) ? [Q, P, R, A] : [Q, R, A], false];
-    return [[R, A], false]; }
-  if (typeof v.f === 'number') return Number.isNaN(v.f) ? undefined : [v.f >= 0 && v.f <= 1 ? [P, R, A] : Number.isFinite(v.f) ? [R, A] : [A], false];      /* a decimal is the backend's nearest number: it is not said to be whole or a ratio */
+    const m = v.sym.match(FRACTION); if (m && !/^0+$/.test(m[3])) return [!m[1] && BigInt(m[2]) <= BigInt(m[3]) ? [Q, P, R, X, A] : [Q, R, X, A], false];
+    return [[R, X, A], false]; }
+  if (typeof v.f === 'number') return Number.isNaN(v.f) ? undefined : [v.f >= 0 && v.f <= 1 ? [P, R, X, A] : Number.isFinite(v.f) ? [R, X, A] : [X, A], false];      /* a decimal is the backend's nearest number: it is not said to be whole or a ratio */
   return undefined;
 }
 /* the first listed space that holds every one of the values and has every one of the written spaces inside it */
@@ -177,7 +179,7 @@ export const product = (a, b, terms) => write(sumOf(binaryOf('*', read(a), read(
 /* a formula's space from its tree: { num } | { name } | { ref } | { op, a, b } | { fn, args } (expression.js). Walked
    with a list of its own, since a long sum is a deep tree. A number longer than 40 characters is real, whatever it
    is (the backend reads such a number as a float alone). */
-const WORDS = { inf: [A, false], infinity: [A, false], true: [B, false], false: [B, false], none: [null, true] };
+const WORDS = { inf: [X, false], infinity: [X, false], true: [B, false], false: [B, false], none: [null, true] };
 export function formula(tree, name = () => undefined){
   const out = [], todo = [[tree, false]];
   while (todo.length){ const [n, ready] = todo.pop();
@@ -203,6 +205,7 @@ const HOLDS = {
   rational: v => HOLDS.integer(v) || (!!v && typeof v === 'object' && ((Number.isInteger(v.n) && v.k === 0) || (typeof v.sym === 'string' && FRACTION.test(v.sym)))),
   probability: v => { if (infinite(v)) return false; const low = told('>=', v, 0), high = told('<=', v, 1); return low === false || high === false ? false : low === null || high === null ? null : true; },
   real: v => !infinite(v),
+  extended: () => true,
   any: () => true,
 };
 const infinite = v => v === Infinity || v === -Infinity || v === 'inf' || v === '-inf' || (!!v && typeof v === 'object' && typeof v.f === 'number' && !Number.isFinite(v.f));
@@ -212,7 +215,7 @@ export function admits(holds, v){
   if (v === null || v === undefined || isError(v)) return true;
   if (isNone(v)) return p.none;
   if (v === 'inf') v = Infinity; else if (v === '-inf') v = -Infinity;
-  if (typeof v === 'object' && typeof v.f === 'number') return p.space === A || (Number.isFinite(v.f) && (p.space === R || (p.space === P && v.f >= 0 && v.f <= 1)));      /* a decimal is asked only whether it is on the line, and from 0 to 1 */
+  if (typeof v === 'object' && typeof v.f === 'number') return p.space === A || p.space === X || (Number.isFinite(v.f) && (p.space === R || (p.space === P && v.f >= 0 && v.f <= 1)));      /* a decimal is asked only whether it is on the line (or an infinity), and from 0 to 1 */
   return HOLDS[p.space](v);
 }
 function firstThat(holds, entries, answer){
