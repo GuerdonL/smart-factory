@@ -93,6 +93,13 @@
                                 characters can be given by its first ten), then the longest measure. A name no
                                 variable has, or a measure the variable has not, is refused.
 
+   nameable(name) -> { ok: true } | { refused: why }
+                                whether something can be called that. `none` is the word for the value None, so no
+                                shape, attribute, side or inner axis is called it, however it is capitalised and
+                                whether or not the name is commented out (// none). A name that only has it in it
+                                (none_1, nonesuch) is a name like any other, and so, today, is every other word of
+                                the language. Every way a name is given asks here (smart-factory.js).
+
    guard() -> working(key, work): works out things that may depend on one another. working(key, work) gives work(),
        unless key is already being worked out further up, in which case the thing depends on itself and what it
        gives is the error "depends on itself". */
@@ -283,6 +290,8 @@ export function bound(text, variables, { matrices = false } = {}){
   }
   return { text: out };
 }
+
+export const nameable = name => /^\s*(\/\/\s*)?none\s*$/i.test(String(name ?? '')) ? { refused: 'none is the word for no value, so nothing can be called it' } : { ok: true };
 
 export function guard(){
   const open = new Set();

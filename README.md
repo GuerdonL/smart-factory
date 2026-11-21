@@ -616,8 +616,11 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
 ## None, and number spaces
 
 **None.** Type `none` (or `∅`) into an entry and it holds None: nothing, said outright. It is written `∅`, and saved
-as `{ "none": true }`. It is not an entry never given, which stays a symbol, and it is not zero. None counts as false,
-and in arithmetic None with anything is None:
+as `{ "none": true }`. It is not an entry never given, which stays a symbol, and it is not zero. Since `none` is that
+word, nothing is called it: typed, sent or pasted as the name of a shape, an attribute, a side, an inner axis or an
+arrow's gap, however it is capitalised, it is refused with "none is the word for no value, so nothing can be called
+it", and nothing changes. A name that only has it in it (`none_1`, `nonesuch`) is a name like any other, and a
+project saved before the rule opens as it is. None counts as false, and in arithmetic None with anything is None:
 
 | | |
 | --- | --- |

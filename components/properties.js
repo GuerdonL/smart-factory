@@ -143,7 +143,7 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
   el.addEventListener('pointerdown', e => { const c = e.target.closest?.('[data-k]'); want = c && !c.matches(':focus') ? c.dataset.k : null; e.stopPropagation(); });
   el.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
   add.addEventListener('click', () => onAdd());
-  name.addEventListener('click', () => { if (name.isContentEditable) return; const was = name.textContent; editText(name, text => { if (text && text !== was) onName(text); else name.textContent = was; }); });
+  name.addEventListener('click', () => { if (name.isContentEditable) return; const was = name.textContent; editText(name, text => { if (text && text !== was){ showing = ''; onName(text); } else name.textContent = was; }); });      /* drawn afresh whatever comes of it: a name that is refused is not left written there */
   name.addEventListener('keydown', e => { if (e.key === 'Enter' && !name.isContentEditable){ e.preventDefault(); name.click(); } });
   /* a label: plain text, typed over in place */
   function typed(cell, text, keep){

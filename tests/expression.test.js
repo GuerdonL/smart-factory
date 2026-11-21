@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate, written, entered, typed, refs, parts, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard, namesIn } from '../expression.js';
+import { evaluate, written, entered, typed, refs, parts, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard, namesIn, nameable } from '../expression.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), sym = text => ({ sym: text }), E = why => ({ err: why });
 const is = (text, expected, lookup, options) => assert.deepEqual(evaluate(text, lookup, options), { value: expected }, text);
@@ -342,4 +342,11 @@ test('a + b + c and a * b * c are one sum and one product: an error two terms ma
   /* with no None and nothing unknown it is worked out sign by sign, as it always was */
   assert.equal(says('1 - 2 + 3'), 2); assert.equal(says('10 - (2 - 3)'), 11); assert.equal(says('2 * 3 * 4'), 24); assert.equal(says('2 * (3 * 4) * 5'), 120); assert.equal(says('1 - (2 + (3 - (4 - 5)))'), -5);
   assert.equal(says(Array.from({ length: 5000 }, () => '1').join('+')), 5000); assert.equal(says('none+' + Array.from({ length: 5000 }, () => '1').join('+')), 'None');      /* a long one is not gone down with the stack */
+});
+
+test('nothing is called none, and every other name is free', () => {
+  const why = { refused: 'none is the word for no value, so nothing can be called it' };
+  for (const name of ['none', 'None', 'NONE', 'nOnE', ' none ', '\tnone\n', '// none', '//None', '  //  NONE  ']) assert.deepEqual(nameable(name), why, JSON.stringify(name));
+  /* a name that only has the word in it, and every other word of the language, is a name */
+  for (const name of ['none_1', 'nonesuch', 'none 1', 'anone', 'no ne', 'none.x', '∅', 'true', 'false', 'inf', 'infinity', 'pi', 'e', 'index', 'select', 'Shape 1', 'Keys', '// Keys', '//', '', ' ', null, undefined, 0]) assert.deepEqual(nameable(name), { ok: true }, JSON.stringify(name));
 });

@@ -7,7 +7,7 @@ import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
 import { createWarning } from './components/warning.js';
 import { createFormula } from './components/formula.js';
-import { evaluate, entered, typed as typedText, bound, guard, refs, refersTo, repoint, label, wholeOf } from './expression.js';
+import { evaluate, entered, typed as typedText, bound, guard, refs, refersTo, repoint, label, wholeOf, nameable } from './expression.js';
 import { createBlock } from './components/block.js';
 import { createArrow } from './components/arrow.js';
 import { createMeasure, sides } from './components/measure.js';
@@ -129,6 +129,11 @@ for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, 
 const isOff = b => /^\s*\/\//.test(b.name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');                  /* a name without its comment mark */
 const isNamed = b => !/^Shape \d+$/.test(bare(b.name));
+/* Whether something can be called that is expression.js's to say (nameable): none is the word for the value None. Every
+   way a name is given asks here first, typed, sent as a message or pasted, and where it cannot be, the readout says why
+   and nothing changes. A project saved before the rule opens as it is. */
+const unnameable = (...names) => { for (const name of names) if (name !== null && name !== undefined && nameable(name).refused){ hud.say(nameable(name).refused); return true; } return false; };
+const namesOf = pics => (pics || []).flatMap(p => [p.name, p.sides?.w, p.sides?.h, p.arrow?.gapName, ...(p.inner || []).map(a => a.name), ...(p.attrs || []).map(a => a.name), ...namesOf(p.inside), ...namesOf((p.members || []).map(m => m.pic))]);      /* every name in what was copied, however deep */
 const PALETTE = SLOTS;                          /* the six places a named shape's colour is kept; what colour each is, is .variable_colors' to say (system.js) */
 function someColour(not){                        /* one this space is not using, while there is one; never the one it has */
   const used = new Set(space.blocks.map(b => b.shape.color)), free = PALETTE.filter(c => !used.has(c) && c !== not);
@@ -755,6 +760,7 @@ function typedNow(b, dim, text){
   if (b.seat && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is seated: its size is the output's`);
   if (b.from?.index && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is the index of its block: it is that block's size`);
   const read = readSide(text), name = read.name; let n = read.length;      /* algebra.js: a number is a length only apart from the name, so "d2" is a name */
+  if (unnameable(name)) return;
   if (n === undefined){ hud.say(`${String(text).trim()}: only a whole number can be a side's length`); return; }      /* never rounded: nothing changes */
   /* a part of another shape is the size of that part: a length typed on it is not taken, nor a name that is another length already */
   if (rangedOf(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
@@ -1394,6 +1400,7 @@ function foldable(list){
   return { blocks: list, box, type: type && !type.error ? type : { cols: box.w / u, rows: box.h / u, colsName: null, rowsName: null } };
 }
 function fold({ blocks: inside, type, box }, name, color = someColour()){
+  if (unnameable(name)) return shown();
   const u = view.unit, fixed = fixedIn(inside, 'folded away');
   if (fixed){ hud.say(fixed); return shown(); }
   const made = makeBlock({ ...typeNamed('tensor'), color },
@@ -2350,6 +2357,7 @@ function addArrow({ input, side, start = 1, span = 1, gap = 2, of = null, builti
 }
 function setArrow({ id, ...patch }){
   const a = blockOf(id); if (!a || !isArrow(a)) return;
+  if ('gapName' in patch && unnameable(patch.gapName)) return shown();
   const input = sized(inputOf(a)), n = side => input ? (along(side) === 'rows' ? input.rows : input.cols) : null, geo = {};
   for (const k of ['side', 'start', 'span', 'gap', 'output']) if (k in patch) geo[k] = patch[k];
   if (a.arrow.input.as === 'tile' && tiles.spanned(a.arrow, geo).refused){ hud.say(tiles.spanned(a.arrow, geo).refused); return shown(); }
@@ -2921,7 +2929,7 @@ bus.on('source.set', ({ id, seed, dist, file, cols, rows }) => { const b = block
   if (kind === 'file' && Number.isInteger(cols) && Number.isInteger(rows) && cols >= 1 && rows >= 1){ const u = view.unit, o = originOf(b), over = turned(o);
     o.set({ ...o.rect, w: (over ? rows : cols) * u, h: (over ? cols : rows) * u }); agree(o); hud.say(`${bare(b.name)} reads ${next.file}: ${cols} wide × ${rows} tall`); }
   shown(); }, changes);
-bus.on('add', ({ type, rect, name, source = null }) => { const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
+bus.on('add', ({ type, rect, name, source = null }) => { if (unnameable(name)) return shown(); const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 /* place { rects, axes }: where blocks go, and how big: the end of a move or a resize. axes, where a side that was
    pulled carries the name of an inner axis: [{ id, index, length }], that axis of that block's variable at its new
    length. Every length the gesture changed is in the message, so that a step back puts every one of them back.
@@ -2940,11 +2948,12 @@ bus.on('cut', going(cut), changes); bus.on('delete', going(remove), changes);
 bus.on('transpose', chosen(transpose), changes);
 /* the boolean tool: the new blocks' ids are made in the handler, from the project's own source, so the same message makes the same ids again */
 bus.on('difference', chosen(differenceOf), changes); bus.on('intersect', chosen(intersectOf), changes); bus.on('revert', going(revert), changes);
-bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
+bus.on('paste', ({ at, pasted }) => { if (unnameable(...namesOf(pasted))) return shown(); paste(at, pasted); }, changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return;
   if (b.in){ hud.say('in is the function\'s input: that is its name'); b.call('in'); return shown(); }
+  if (unnameable(name)) return shown();
   /* an arrow keeps the function colour whatever it is called. A use of a function by name, given another name, is an arrow of its own from then on, with the formula it had */
   if (isUse(b) && bare(name).trim() !== bare(b.name).trim()){ b.fn = { formula: fnOf(b).formula }; b.ref = false; }
   b.call(name); renamed(b, isArrow(b) ? null : color); }, changes);
@@ -3021,7 +3030,7 @@ bus.on('holds.set', ({ id, holds = null }) => { const b = blockOf(id); if (!b) r
   if (got.holds) attrsOf(b).holds = got.holds; else delete attrsOf(b).holds;
   write(); shown(); }, changes);
 bus.on('attr.add', ({ id }) => { const b = blockOf(id); if (b){ const list = attrsOf(b); let n = list.length + 1; while (list.some(a => a.name === 'attribute' + n)) n++; list.push({ name: 'attribute' + n, text: '' }); } shown(); }, changes);
-bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b && attrsOf(b)[index]; if (a){ if (name !== undefined) a.name = name;
+bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b && attrsOf(b)[index]; if (a && unnameable(name)) return shown(); if (a){ if (name !== undefined) a.name = name;
     if (text !== undefined){ const t = bound(text, reachList()); if (t.refused) hud.say(`Not kept: ${t.refused}`); else a.text = t.text; }      /* a name typed out after an @ is bound to its capsule */
     if (!a.name.trim() && !a.text.trim()) attrsOf(b).splice(index, 1); }      /* with neither a name nor a value, it is gone */
   shown(); }, changes);
@@ -3042,6 +3051,7 @@ bus.on('inner.count', ({ id, count }) => { const b = blockOf(id), o = b && origi
   write(); shown(); }, changes);
 bus.on('inner.set', ({ id, index, length, name }) => { const b = blockOf(id), a = b && axesOf(b)[index];
   if (!a){ if (b) hud.say(`${bare(b.name)} has no such axis of its own to change`); return shown(); }
+  if (unnameable(name)) return shown();
   keepTouching(() => {
     if (length !== undefined){ const can = nesting.lengthOk(length); if (can.refused){ hud.say(can.refused); return; } a.length = length; }
     if (name !== undefined){ const called = String(name).trim();
@@ -3125,7 +3135,7 @@ bus.on('fold', ({ ids, name, color, product = false }) => { const list = ids.map
 bus.on('use', ({ id, at, transposed = false }) => { const v = blockOf(id); if (v) useShape(v, at, transposed); }, changes);
 bus.on('slot', ({ into, id, cx, cy }) => { const a = blockOf(into), v = blockOf(id); if (a && v) slotIn(a, v, cx, cy); }, changes);
 bus.on('summon', ({ name, key, group: all, at }) => { summon({ name, key, group: all }, at); shown(); }, changes);
-bus.on('length.add', ({ name, units, at, of = null, side = null }) => { const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
+bus.on('length.add', ({ name, units, at, of = null, side = null }) => { if (unnameable(name)) return shown(); const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
   const src = of ? blockOf(of) : null;      /* from the list: not a copy of the length but the length itself, the source's colour and always what the source's side is */
   const b = makeBlock({ ...typeNamed('tensor'), color: src ? src.shape.color : someColour() }, { x: on(at.x - u / 2), y: on(at.y - u / 2), w: u, h: u }, name);
   if (src){ b.from = { id: src.id, side: side === 'y' || side === 'm' ? side : 'x' }; b.ref = true; } else { b.values.set('1,1', units); touched(b.values); }
