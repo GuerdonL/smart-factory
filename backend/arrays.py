@@ -201,37 +201,8 @@ def grid(rows, cols):
     return np.arange(1, cols + 1, dtype=F)[None, :], np.arange(1, rows + 1, dtype=F)[:, None]
 
 
-def _count(x, y):
-    """How many terms of each entry of a product both of two flags hold at."""
-    return np.matmul(x.astype(F), y.astype(F))
-
-
-def _wrong(a, ma, b, mb):
-    """Which entries of a product have no value, told from the terms neither side of which is None: a term with no
-    value of its own; 0 × ∞; or ∞ − ∞ among them. Asked only where a None meets an infinity, whose product as
-    numbers (0 × ∞) would otherwise be taken for an entry with no value.
-
-    Only a term one side of which is an infinity can be 0 × ∞ or ±∞, and such a term lies at a place along the
-    joined axis (a column of the one, a row of the other) where some infinity is. So the terms are counted over
-    those places alone: one infinity in a product of 4000 by 4000 costs products one place long, not ten of the
-    whole. Where infinities lie at every place the whole is counted, which is ten products."""
-    lost = np.isnan(a).any(axis=-1, keepdims=True) | np.isnan(b).any(axis=-2, keepdims=True)
-    ia, ib = np.isinf(a), np.isinf(b)
-    at = ia.any(axis=tuple(range(ia.ndim - 1))) | ib.any(axis=tuple(k for k in range(ib.ndim) if k != ib.ndim - 2))      # the places an infinity is at
-    if not at.all():
-        a, b, ia, ib = a[..., at], b[..., at, :], ia[..., at], ib[..., at, :]
-        ma, mb = (None if ma is None else ma[..., at]), (None if mb is None else mb[..., at, :])
-    za, zb = (a == 0), (b == 0)
-    if ma is not None:
-        za &= ~ma
-    if mb is not None:
-        zb &= ~mb
-    zero = (_count(za, ib) + _count(ia, zb)) > 0
-    del za, zb
-    pa, na, pb, nb = a > 0, a < 0, b > 0, b < 0
-    up = _count(pa, pb) - _count(pa & ~ia, pb & ~ib) + _count(na, nb) - _count(na & ~ia, nb & ~ib)      # the terms that are ∞
-    down = _count(pa, nb) - _count(pa & ~ia, nb & ~ib) + _count(na, pb) - _count(na & ~ia, pb & ~ib)      # and those that are -∞
-    return lost | zero | ((up > 0) & (down > 0))
+EPS = F(2.0 ** -60)      # what stands for a None while a product is asked which of its terms are infinite: see _told
+ERR, UP, DOWN = 1, 2, 4      # what the terms of an entry that are not None come to: no value; some of them ∞; some of them -∞
 
 
 def _along(flags, axis):
@@ -239,35 +210,115 @@ def _along(flags, axis):
     return flags.any(axis=tuple(k for k in range(flags.ndim) if k != flags.ndim + axis))
 
 
+def _told(a, ma, b, mb, s, none, lone, keep=True):
+    """What the terms of each entry of a product that are not None come to, for the infinities of one sign s (1: ∞,
+    -1: -∞): the product made with them, and a byte an entry of ERR, UP and DOWN.
+
+    A None is held as 0, and 0 × ∞ is no number: so the product as it stands cannot say, of an entry one of whose
+    None terms meets an infinity, whether the terms that are not None have a value. Two products can. In both a None
+    is a number so small that it adds nothing to speak of (EPS, and then -EPS), and the infinities of the other sign
+    are 1 or -1, so that every infinity left has the sign s. What a None makes against an infinity is then an
+    infinity of the sign s in the first product and of the other sign in the second, and the two answers together
+    say what was there without it:
+
+        first, second      the terms that are not None
+        a number, any      none of them infinite
+        -s∞, any           some -s∞, none s∞
+        s∞, -s∞            none infinite (both infinities are the None's)
+        s∞, s∞ or none     some s∞, none -s∞
+        none, -s∞          some -s∞, none s∞
+        none, none         no value: 0 × ∞, ∞ − ∞ or an error among them
+
+    An entry none of whose terms is None is told by the first alone. The second is asked only for the rows and the
+    columns where the first leaves a doubt, which with one None and one infinity is one row and one column.
+    lone: there are no infinities of the other sign at all, so only ERR is wanted of an entry with a None term, and
+    the first product is the product itself at every other entry. keep: whether the first product is wanted back
+    (it is let go before the second is made where it is not). Each product is one result of room, and the bytes a
+    quarter of one."""
+    other, big, small = F(-s * math.inf), F(s * math.inf), F(-s * math.inf)
+    up, down = (UP, DOWN) if s > 0 else (DOWN, UP)
+
+    def side(x, m):
+        swap = x == other
+        mine = bool(swap.any())
+        if mine:
+            x = np.where(swap, F(-s), x)
+        del swap
+        if m is not None:
+            if mine:
+                np.copyto(x, EPS, where=m)
+            else:
+                x = np.where(m, EPS, x)
+        return x
+
+    a2, b2 = side(a, ma), side(b, mb)
+    first = np.matmul(a2, b2)
+    code = np.isnan(first).astype(np.uint8)      # ERR is 1
+    code[first == big] = up
+    code[first == small] = down
+    need = none & ((code & (ERR if lone else ERR | up)) != 0)
+    if not keep:
+        first = None
+    if not need.any():
+        return first, code
+    rows, cols = np.flatnonzero(_along(need, -2)), np.flatnonzero(_along(need, -1))
+    every, each = rows.size == need.shape[-2], cols.size == need.shape[-1]
+    whole = rows.size * cols.size * 4 >= need.shape[-2] * need.shape[-1]      # a part that is a quarter of the whole or more is asked whole: picking rows and columns out copies them, and that room is then better spent on the product
+    if ma is not None:
+        np.copyto(a2, -EPS, where=ma)
+    if mb is not None:
+        np.copyto(b2, -EPS, where=mb)
+    second = np.matmul(a2 if whole or every else a2[..., rows, :], b2 if whole or each else b2[..., :, cols])
+    del a2, b2
+    lost, low = np.isnan(second), second == small
+    del second
+    at = (Ellipsis, rows[:, None], cols)
+    sub, need = (code, need) if whole else (code[at], need[at])
+    was_lost = need & ((sub & ERR) != 0)
+    was_big = need & ((sub & up) != 0)
+    np.copyto(sub, lost.astype(np.uint8) | np.where(low, np.uint8(down), np.uint8(0)), where=was_lost)
+    np.copyto(sub, np.where(low, np.uint8(0), np.uint8(up)), where=was_big)
+    if not whole:
+        code[at] = sub
+    return first, code
+
+
 def matmul(a, b):
     a, ma = _split(a)
     b, mb = _split(b)
     with quiet():
-        out = np.matmul(a, b)
         if ma is None and mb is None:
-            return out
+            return np.matmul(a, b)
         # an entry is None where a term of it is: a None anywhere in its row of the one, or its column of the other
-        none = np.broadcast_to((ma.any(axis=-1, keepdims=True) if ma is not None else False) | (mb.any(axis=-2, keepdims=True) if mb is not None else False), out.shape)
+        shape = np.broadcast_shapes(a.shape[:-2], b.shape[:-2]) + (a.shape[-2], b.shape[-1])
+        none = np.broadcast_to((ma.any(axis=-1, keepdims=True) if ma is not None else False) | (mb.any(axis=-2, keepdims=True) if mb is not None else False), shape)
         # An entry with no value stays one, None term or no. As numbers that is told by the product itself, but for
-        # one case: a None (held as 0) set against an infinity is 0 × ∞, which is no term at all. That can only be
-        # at an entry whose row of the one has a None at a place where the other has an infinity in its column (or
-        # the same with the two changed about). Those rows against those columns alone are counted term by term
-        # (_wrong), and nothing is where no None meets an infinity.
-        wrong = np.isnan(out)
-        ia, ib = np.isinf(a), np.isinf(b)
-        for mask, inf, on_a in ((ma, ib, True), (mb, ia, False)):
-            if mask is None or not inf.any():
-                continue
-            # the rows of the one and the columns of the other between which a None of mask can meet an infinity of inf
-            if on_a:
-                rows, cols = _along(mask & _along(inf, -2), -2), _along(inf & _along(mask, -1)[:, None], -1)
-            else:
-                rows, cols = _along(inf & _along(mask, -2), -2), _along(mask & _along(inf, -1)[:, None], -1)
-            r, c = np.flatnonzero(rows), np.flatnonzero(cols)
-            if r.size and c.size:
-                wrong[..., r[:, None], c] = _wrong(a[..., r, :], None if ma is None else ma[..., r, :], b[..., :, c], None if mb is None else mb[..., :, c])
-        out = np.where(none & wrong, NAN, out).astype(F)
-        return _held(out, none & ~wrong)
+        # one case: a None (held as 0) set against an infinity is 0 × ∞, which is no term at all. Where no None of
+        # the one lies at a place along the joined axis where the other has an infinity, that cannot be, and the
+        # product is asked once. Otherwise it is asked twice for each sign of infinity there is (_told): at most
+        # four products, whatever is in them and however much of it, and never more than five results of room.
+        meets = (ma is not None and bool((ma & _along(np.isinf(b), -2)).any())) or (mb is not None and bool((mb & _along(np.isinf(a), -1)[:, None]).any()))
+        signs = [s for s in (1, -1) if bool((a == F(s * math.inf)).any()) or bool((b == F(s * math.inf)).any())] if meets else []
+        if not signs:
+            out = np.matmul(a, b)
+            wrong = none & np.isnan(out)
+        elif len(signs) == 1:
+            out, code = _told(a, ma, b, mb, signs[0], none, True)
+            wrong = none & ((code & ERR) != 0)
+            del code
+        else:
+            out, code = _told(a, ma, b, mb, 1, none, False)      # (out is the product with every -∞ taken as -1 or 1: right wherever no term is infinite)
+            code |= _told(a, ma, b, mb, -1, none, False, False)[1]
+            wrong = ((code & ERR) != 0) | (code >= (UP | DOWN))      # ∞ − ∞ among the terms: no value
+            np.putmask(out, code == UP, F(math.inf))
+            np.putmask(out, code == DOWN, F(-math.inf))
+            del code
+            np.putmask(out, wrong, NAN)
+            wrong &= none
+        keep = none & ~wrong
+        np.putmask(out, wrong, NAN)
+        np.putmask(out, keep, F(0))
+        return Held(out, keep) if keep.any() else out
 
 
 def transpose(a):
