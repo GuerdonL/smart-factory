@@ -243,6 +243,15 @@ test('on the page, only what draws reads the backend\'s numbers', () => {
   for (const exact of ['answerOf', 'valuesOf', 'evaluated', 'held', 'scalarOf', 'rootSide', 'sideLength', 'measured', 'lookupFor', 'attrValue', 'cells', 'gather', 'derived', 'rangeValues']) assert.doesNotMatch(body(exact), /laid|backend\./i, exact);
 });
 
+/* A sunk block keeps exactly the rectangle it has: the sinking is drawn inside its box (components/block.js), so that
+   whatever is placed by that rectangle is where it is for a raised one. Held by reading the stylesheet: the rule for
+   a sunk block moves and resizes nothing. */
+test('a sunk block is drawn inside its own box: its rule moves nothing', () => {
+  const css = readFileSync(new URL('../components/block.js', import.meta.url), 'utf8'), rules = [...css.matchAll(/^\.block\.sunk[^{\n]*\{([^}]*)\}/gm)].map(m => [m[0].split('{')[0].trim(), m[1]]);
+  assert.ok(rules.length >= 3 && rules.some(([sel]) => sel === '.block.sunk'));
+  for (const [sel, body] of rules) if (!/>/.test(sel)) assert.doesNotMatch(body, /margin|transform|translate|(?:^|[;\s])(?:top|left|right|bottom|inset|width|height|border|padding)\s*:/, sel);      /* (a rule for something inside it may place that within the box) */
+  assert.match(rules.find(([sel]) => sel === '.block.sunk')[1], /--cast: transparent/); assert.match(rules.find(([sel]) => sel === '.block.sunk')[1], /--lit: var\(--raise-dark\); --shade: var\(--raise-light\)/);
+});
 /* ---- phase 8: inner data ---- */
 test('inner data: the drawn entries are asked for at every inner position, and an answer is keyed by all but its value', async () => {
   const { drawn, merged, MOST_ASKED } = await import('../decimals.js');
