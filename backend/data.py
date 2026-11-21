@@ -10,22 +10,27 @@ So no request can read or write outside a project's own data/ directory.
     where(project, path, root)       -> the file's full path; raises Refused(why)
     read_text(project, path, root)   -> the file's text; raises Refused
     keep(project, path, body, root)  -> writes an uploaded file there (bytes) once it is seen to be a numeric CSV, and
-                                        gives (cols, rows); raises Refused. Only into a project that has been saved
+                                        gives (cols, rows); raises Refused. take(…) is the same, and gives
+                                        (cols, rows, small) (see survey). Only into a project that has been saved
                                         (its project.json is there); never over a file that is there already and
                                         holds something else (the same bytes again are taken as said); and only
                                         while the project's data/ holds no more than MAX_DATA_FILES files and
                                         MAX_DATA_BYTES bytes in all. Written beside it first, then moved in.
     inspect(text)                    -> (skip, cols, rows): how many lines at its head are a header (0 or 1), and the
                                         table's size; raises Refused where it is not a table of numbers
+    survey(text)                     -> (skip, cols, rows, small): the same, and how many of its numbers are written
+                                        as other than nought and are too small for a 32-bit float, so are read as 0
 
 A numeric CSV: lines of numbers with commas between them, every line as many as the first; an optional first line
 of names (a header: a first line of which no cell is a number; one that mixes numbers with anything else is a row
 with a mistake in it, and is refused, naming the cell); blank lines at the end are passed over. A number is digits
 with an optional point, sign and exponent (1, -2.5, .5, 3e-4), which may stand in double quotes. An empty cell, a
 word, "nan" or "inf" is refused: a missing number is never taken as zero. So is a number too large for a 32-bit
-float (past 3.4e38), which would be an infinity. One too small for it (1e-60) is read as 0."""
+float (past 3.4e38), which would be an infinity. One too small for it (1e-60) is read as 0, and is counted
+(survey), so that whoever chose the file can be told: a nought the file does not hold is never passed off in silence."""
 import os
 import re
+import struct
 import tempfile
 
 from .check import data_path
@@ -39,6 +44,13 @@ LINE = re.compile(r'%s(?:,%s)*' % (CELL, CELL), re.ASCII)
 ONE = re.compile(CELL, re.ASCII)
 LARGE = re.compile(r'[eE]|\d{39}', re.ASCII)      # a line that may hold a number past what 32 bits hold: only such a line is read number by number
 FLOAT_MAX = 3.4028235677973366e38      # what rounds to the largest 32-bit float; past it a number would be an infinity
+WRITTEN = re.compile(r'[1-9]', re.ASCII)      # a digit that makes a number other than nought, in what stands before its exponent
+
+
+def lost(cell):
+    """Whether a number as it is written is not nought, and is nought as a 32-bit float (1e-60; and 1e-400, which is
+    nought as soon as it is read at all)."""
+    return struct.unpack('f', struct.pack('f', float(cell)))[0] == 0 and bool(WRITTEN.search(re.split('[eE]', cell)[0]))
 
 
 class Refused(ValueError):
@@ -95,7 +107,12 @@ def lines_of(text):
 
 
 def inspect(text):
+    return survey(text)[:3]
+
+
+def survey(text):
     lines = lines_of(text)
+    small = 0
     if not lines:
         raise Refused('the file is empty')
     skip = 0
@@ -124,7 +141,8 @@ def inspect(text):
             for n, cell in enumerate(line.split(',')):
                 if abs(float(cell.strip(' \t"'))) >= FLOAT_MAX:
                     raise Refused('line %d, number %d is too large for a 32-bit float: %s' % (k + 1, n + 1, shown(cell.strip())))
-    return skip, cols, rows
+                small += lost(cell.strip(' \t"'))
+    return skip, cols, rows, small
 
 
 def shown(line):
@@ -132,17 +150,21 @@ def shown(line):
 
 
 def keep(project, path, body, root=None):
+    return take(project, path, body, root)[:2]
+
+
+def take(project, path, body, root=None):
     full = where(project, path, root)
     home = os.path.dirname(os.path.dirname(full))
     if not os.path.isfile(os.path.join(home, 'project.json')):
         raise Refused('there is no saved project called %s: save the project under a name first, and its data files are kept with it' % project)
-    _, cols, rows = inspect(decode(body, path))
+    _, cols, rows, small = survey(decode(body, path))
     folder = os.path.dirname(full)
     try:
         if os.path.lexists(full):      # never over what is there: the same file again is the file that is there
             with open(full, 'rb') as f:
                 if os.path.getsize(full) == len(body) and f.read() == body:
-                    return cols, rows
+                    return cols, rows, small
             raise Refused('%s is already a file of %s, and holds something else: a data file is not replaced' % (path, project))
         there = [os.path.join(folder, n) for n in os.listdir(folder)] if os.path.isdir(folder) else []
         if len(there) >= MAX_DATA_FILES:
@@ -165,4 +187,4 @@ def keep(project, path, body, root=None):
                 os.unlink(fresh)
     except OSError as e:
         raise Refused('%s could not be kept (%s)' % (path, e.strerror or 'the directory cannot be written'))
-    return cols, rows
+    return cols, rows, small

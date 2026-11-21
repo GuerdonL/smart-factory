@@ -146,6 +146,13 @@
                                     in: the tile it is then in (home), or null; holds: the tiles that are then in
                                     it. held: how many blocks inside rect belong to a tile that is neither: such a
                                     block cannot be taken from its tile by drawing round it.
+   copied(inTiles, whole)        -> which of the tiles a block is in go with it when it is copied. inTiles: their
+                                    ids, innermost first; whole(id): whether every block of that tile is copied
+                                    with it. One rule, whether the tile lies in another or not: a tile goes with
+                                    what is copied only where the whole of it is copied, so one block of several
+                                    is pasted as that block and no tile, and a block that is all its tile holds
+                                    takes that tile. A tile goes only with every tile inside it that the block
+                                    is in. To copy a tile without filling the selection, the tile is selected.
    enterable(host, held, fits)   -> { ok: true } | { refused }: whether blocks let go on a frame go into it. Where
                                     the frame is a tile, or is in one (host), and the blocks are all of another
                                     tile's (held), that tile goes in whole: only where it lies wholly inside the
@@ -379,6 +386,7 @@ export function makable(rect, list = [], held = 0){
   return { ok: true, in: made.in, holds };
 }
 
+export const copied = (inTiles, whole = () => false) => { const n = inTiles.findIndex(id => !whole(id)); return n < 0 ? [...inTiles] : inTiles.slice(0, n); };
 export const enterable = (host, held, fits = false) => host && held && !fits ? { refused: 'A tile goes inside another only where it lies wholly inside that tile\'s pattern: move it there by its frame' } : { ok: true };
 
 export const index = (repeat, offset, c, r, cx = 1, cy = 1) => ({ x: (cx - 1) * repeat.cols + offset.x + c, y: (cy - 1) * repeat.rows + offset.y + r });

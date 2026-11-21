@@ -449,6 +449,21 @@ test('validate refuses a graph that is not one', () => {
   const inf = good(); inf.nodes['v:A'].entries['1,1'] = Infinity; assert.ok(validate(inf).length > 0);      /* an infinity is written "inf" */
   const undef = good(); undef.nodes['v:A'].entries['1,1'] = undefined; assert.ok(validate(undef).length > 0);
 });
+test('validate refuses a product whose first side has not as many columns as the second has rows, a single entry included', () => {
+  /* A is 3 by 2, W is 4 by 3, s is 1 by 1. A product with s in W's place is 3 columns against 1 row: a scale is another node */
+  const g = JSON.parse(JSON.stringify(good())), s = g.nodes['v:s'], A = g.nodes['v:A'];
+  assert.deepEqual([s.type.cols, s.type.rows, A.type.cols, A.type.rows], [1, 1, 3, 2]);
+  const p = (inputs, type) => { const h = JSON.parse(JSON.stringify(g)); h.nodes.p = { ...h.nodes['matmul(v:A,v:W)'], inputs, type: { ...h.nodes['matmul(v:A,v:W)'].type, ...type } }; return validate(h); };
+  assert.deepEqual(p(['v:A', 'v:W'], {}), []);
+  assert.deepEqual(p(['v:A', 'v:s'], { cols: 3, rows: 2 }), ['p: a product of 3 columns and 1 rows: a single entry against a matrix is a scale']);
+  assert.deepEqual(p(['v:s', 'v:A'], { cols: 3, rows: 2 }), ['p: a product of 1 columns and 2 rows: a single entry against a matrix is a scale']);
+  assert.deepEqual(p(['v:W', 'v:A'], { cols: 3, rows: 3 }), ['p: a product of 4 columns and 2 rows']);
+  /* against a single row or a single column a single entry is a product like any other */
+  assert.deepEqual(p(['v:s', 'v:s'], { cols: 1, rows: 1, colsName: null, rowsName: null }), []);
+  const row = JSON.parse(JSON.stringify(g)); row.nodes['v:r'] = { ...row.nodes['v:W'], name: 'r', type: { cols: 4, rows: 1, colsName: null, rowsName: null }, entries: {} };
+  row.nodes.p = { ...row.nodes['matmul(v:A,v:W)'], inputs: ['v:s', 'v:r'], type: { cols: 4, rows: 1, colsName: null, rowsName: null } };
+  assert.deepEqual(validate(row), []);
+});
 test('validate refuses an input that is not there, an operation it does not know, and a cycle', () => {
   assert.match(refused(g => { g.nodes['matmul(v:A,v:W)'].inputs[1] = 'v:nothing'; }, 'a missing input')[0], /not in the graph/);
   refused(g => { g.nodes['v:C'].op = 'conv'; }, 'an unknown operation');

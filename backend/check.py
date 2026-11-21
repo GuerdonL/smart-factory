@@ -394,13 +394,13 @@ def variable_type(n, ins, g):
 
 def matmul_type(n, ins, g):
     a, b = ins[0]['type'], ins[1]['type']
-    why = 'a product of %s columns and %s rows' % (a['cols'], b['rows'])
     scalar = one(a) or one(b)
-    if not scalar and a['cols'] != b['rows']:
+    why = 'a product of %s columns and %s rows' % (a['cols'], b['rows']) + (': a single entry against a matrix is a scale' if scalar else '')
+    if a['cols'] != b['rows']:      # a single entry is no exception: against a single row or column it is a product, against anything else a scale, which is another node (graph.js says the same, in the same words)
         return why      # a type holds real lengths: sides that carry one name are still to be one length
     if not scalar and a['colsName'] and b['rowsName'] and a['colsName'] != b['rowsName']:
         return why
-    # the first one's rows and the last one's columns; single entries only scale, and say nothing of the size
+    # the first one's rows and the last one's columns; a single entry against a single row or column says nothing of the size
     inner = nested(inner_of(a), inner_of(b))      # one product at each inner position; an input with no inner data is used at every one
     if inner is None:
         return 'a product of shapes whose inner data does not agree'

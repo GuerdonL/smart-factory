@@ -85,7 +85,12 @@ class Validate(unittest.TestCase):
     def test_a_one_by_one_that_holds_inner_data_is_no_scalar(self):
         g = lambda a, b, out: graph_of({'a': deep(a, lambda *at: None), 'b': deep(b, lambda *at: None), 'p': N('matmul', ['a', 'b'], out)})
         self.bad(g(T(1, 1, [2]), T(3, 3), T(3, 3, [2])), 'passed over by size in a product')
-        self.ok(g(T(1, 1), T(3, 3), T(3, 3)))
+        self.bad(g(T(1, 1), T(3, 3), T(3, 3)), 'a single entry against a matrix is a scale, another node: 1 column against 3 rows is no product')
+        self.assertEqual(validate(g(T(1, 1), T(3, 3), T(3, 3))), ['p: a product of 1 columns and 3 rows: a single entry against a matrix is a scale'])
+        self.assertEqual(validate(g(T(3, 3), T(1, 1), T(3, 3))), ['p: a product of 3 columns and 1 rows: a single entry against a matrix is a scale'])
+        self.ok(g(T(1, 1), T(3, 1), T(3, 1)))      # a single entry against a single row: 1 column against 1 row
+        self.ok(g(T(1, 3), T(1, 1), T(1, 3)))      # a single column against a single entry
+        self.ok(g(T(1, 1), T(1, 1), T(1, 1)))
         self.ok(g(T(1, 1, [2]), T(3, 1), T(3, 1, [2])))      # it is a 1 by 1 matrix: 1 column against 1 row
         scale = lambda s, m, out: graph_of({'s': deep(s, lambda *at: None), 'm': deep(m, lambda *at: None), 'p': N('scale', ['s', 'm'], out)})
         self.ok(scale(T(1, 1), T(3, 2, [2, 4]), T(3, 2, [2, 4])))

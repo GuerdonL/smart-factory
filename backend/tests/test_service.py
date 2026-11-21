@@ -177,6 +177,10 @@ class Service(unittest.TestCase):
         self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/w.csv', b'a,b\n1,2\n3,4\n'), (200, {'path': 'data/w.csv', 'cols': 2, 'rows': 2}))
         with open(os.path.join(self.root, 'my project', 'data', 'w.csv')) as f:
             self.assertEqual(f.read(), 'a,b\n1,2\n3,4\n')
+        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/tiny.csv', b'1e-60,2\n-1e-50,1e-45\n'), (200, {'path': 'data/tiny.csv', 'cols': 2, 'rows': 2, 'small': 2}))      # too small for 32 bits: taken, read as 0, and counted
+        tiny = graph_of({'f': {'op': 'source', 'inputs': [], 'type': T(2, 2), 'kind': 'file', 'path': 'data/tiny.csv'}})
+        status, out = self.run_graph(tiny, [{'node': 'f', 'cells': [[1, 1], [1, 2]]}], project='my project')
+        self.assertEqual([c[2] for c in out['results']['f']['cells']], [0.0, -0.0])
         g = graph_of({'f': {'op': 'source', 'inputs': [], 'type': T(2, 2), 'kind': 'file', 'path': 'data/w.csv'}})
         self.assertEqual(self.run_graph(g, [{'node': 'f', 'cells': [[2, 2]]}], project='my project')[1]['results']['f']['cells'], [[2, 2, 4.0]])
         for query, why in [('project=my%20project&path=../w.csv', 'a data file is at data/'), ('project=..&path=data/w.csv', 'a project name is'), ('project=my%20project&path=data/..%2F..%2Fx.csv', 'a data file is at data/'),
@@ -195,7 +199,7 @@ class Service(unittest.TestCase):
         status, out = self.request('POST', '/data?project=my%20project&path=data/bad.csv', b'1,2\n3,oops\n')
         self.assertEqual((status, out['error'][:21]), (200, 'line 2 is not numbers'))
         self.assertEqual(sorted(os.listdir(self.root)), ['my project'])
-        self.assertEqual(os.listdir(os.path.join(self.root, 'my project', 'data')), ['w.csv'])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.root, 'my project', 'data'))), ['tiny.csv', 'w.csv'])
 
     def test_a_file_is_read_in_a_worker_under_the_same_time_as_a_run(self):
         """The server itself reads no file: one that takes too long to read is stopped as a run is, and the server goes on."""

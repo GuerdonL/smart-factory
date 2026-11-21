@@ -55,6 +55,11 @@ of its stacks is fused into one joined shape on the way in, so it comes to what 
 were fused. Shapes that met at a corner, or stood directly under a shape in a product, did not touch in format 2 and
 do now: they are not moved, and the readout says how many pieces read differently. Saved again, it is format 4.
 
+A reference is the size of its variable (the shape of the same `"variable"` number without `"reference"`), with its
+`cols` and `rows` the other way round where one of the two is `"transposed"` and the other is not, and for a use
+with `"axes"` the two axes its order draws. A file written by hand that gives a reference another size is opened
+with that reference set to its variable's size, and the readout says so.
+
 ## Saving and opening
 
 Run `python3 server.py` in the repository and open the page it serves. Right-click the canvas:

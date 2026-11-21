@@ -54,10 +54,14 @@
                                  worked out here that holds a functional entry is exact until its decimals come, and
                                  merged then. One not worked out here (deferred) has nothing to show without the
                                  backend, and says so in place of its values, never silently: with no backend, NEEDS
-                                 where it is made of noise or of a data file (one that is only too large stays as the
-                                 browser has it, symbols, as it was before there was a backend); with one, its answer,
+                                 where it is made of noise or of a data file; one that is only too large keeps what
+                                 the browser has of it, its symbols, and carries NEEDS as a mark (marked), so that
+                                 the canvas says numbers are to be had; with one, its answer,
                                  or why there is none, or ASKING while the first answer is waited for.
                                  exact is never changed, and what is given back is for drawing only.
+   marked(exact, mark)        -> a Map with exact's entries that carries a mark: a few words matrix.js writes small
+                                 beside a matrix on the canvas, whose entries are written as ever. The same Map for
+                                 the same exact and mark; exact itself is not changed.
    NEEDS, ASKING              -> 'needs the backend'; 'asking the backend'
    keyOf(values)              -> what tells one such Map from another, for a component that redraws only when what
                                  it shows has changed: its entries, its note and whether it is stale */
@@ -102,10 +106,12 @@ export function merged(answer, exact, result, stale = false){
 export function laid(answer, exact, { there = null, got = null, why = null } = {}){
   if (!wanted(answer)) return exact;
   if (!answer.deferred) return got ? merged(answer, exact, got.result, got.stale) : exact;
-  if (there === false) return answer.backend ? noted(NEEDS) : exact;
+  if (there === false) return answer.backend ? noted(NEEDS) : marked(exact, NEEDS);
   if (got) return merged(answer, exact, got.result, got.stale);
   return why ? noted(why) : there ? noted(ASKING) : exact;
 }
 const notes = new Map();
 export function noted(note){ if (!notes.has(note)){ if (notes.size > 200) notes.clear(); notes.set(note, Object.assign(new Map(), { note })); } return notes.get(note); }
-export const keyOf = values => values ? [values.note || '', values.stale ? 1 : 0, ...values] : [];
+const marks = new WeakMap();
+export function marked(exact, mark){ const of = marks.get(exact) || new Map(); marks.set(exact, of); if (!of.has(mark)) of.set(mark, Object.assign(new Map(exact), { mark })); return of.get(mark); }
+export const keyOf = values => values ? [(values.note || '') + (values.mark ? '\u0001' + values.mark : ''), values.stale ? 1 : 0, ...values] : [];

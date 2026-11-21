@@ -1,7 +1,7 @@
 /* sources.js: blocks that have values at any size without storing them. Run with: node --test */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SOURCES, DATA, DISTS, kept, kindOf, remote, labelOf, faceOf, noise, seedOf, dataPath, dataName, entry, values, typable, holds } from '../sources.js';
+import { SOURCES, DATA, DISTS, kept, kindOf, remote, labelOf, faceOf, noise, seedOf, dataPath, dataName, tooSmall, smallSays, entry, values, typable, holds, sizable } from '../sources.js';
 
 const rows = (kind, cols, rows_) => Array.from({ length: rows_ }, (_, r) => Array.from({ length: cols }, (_, c) => values(kind, cols, rows_).get((c + 1) + ',' + (r + 1))).join(' '));
 
@@ -84,9 +84,26 @@ test('a data file is at data/ and one .csv name, and nowhere else', () => {
   assert.deepEqual(kept({ file: '../../etc/passwd' }), { file: null });      /* a file source still, with no file chosen */
   assert.deepEqual(kept({ file: null }), { file: null });
 });
+test('the numbers of a file too small for 32 bits are counted, as the backend counts them', () => {
+  /* the cases of backend/tests/test_data.py: written as other than nought, and nought in 32 bits */
+  assert.equal(tooSmall('3.4e38,-3.4e38\n1e-60,' + '9'.repeat(38) + '\n'), 1);
+  assert.equal(tooSmall('a,b,c\n1e-46, "-7e-46" ,1e-400\n0e-99,0.0,1.5e-45\n0.' + '0'.repeat(50) + '1,-0,7.1e-46\n'), 4);
+  assert.equal(tooSmall('1,2\r\n3,4\r\n'), 0); assert.equal(tooSmall(''), 0); assert.equal(tooSmall(null), 0);
+  assert.equal(tooSmall('1e-60\r\n1E-99\r2e-50'), 3);
+  assert.equal(smallSays(0), null); assert.equal(smallSays(undefined), null);
+  assert.equal(smallSays(1), '1 number too small for 32 bits was read as 0');
+  assert.equal(smallSays(3), '3 numbers too small for 32 bits were read as 0');
+  assert.equal(smallSays(1234), '1,234 numbers too small for 32 bits were read as 0');
+});
 test('a chosen file is given a path of its own under data/', () => {
   assert.equal(dataName('weights.csv'), 'data/weights.csv'); assert.equal(dataName('My Weights.CSV'), 'data/My Weights.csv');
   assert.equal(dataName('../../etc/passwd'), 'data/etc-passwd.csv'); assert.equal(dataName(''), 'data/data.csv'); assert.equal(dataName('...'), 'data/data.csv');
   assert.equal(dataName('a.csv', new Set(['data/a.csv'])), 'data/a-2.csv'); assert.equal(dataName('a.csv', new Set(['data/a.csv', 'data/a-2.csv'])), 'data/a-3.csv');
   for (const name of ['x'.repeat(300), 'ü.csv', 'a/b\\c.csv', '\0.csv', '..', '.hidden']) assert.equal(dataPath(dataName(name)), dataName(name), name);      /* whatever it was called, the path is one a project may hold */
+});
+
+test('a block that reads a file is the file\'s size and no other; before a file is chosen, and any other source, is any size', () => {
+  assert.equal(sizable({ file: 'data/weights.csv' }, 'Weights').refused, 'Weights reads data/weights.csv: its size is the file\'s. Choose another CSV file to change it');
+  assert.match(sizable({ file: 'data/a b.csv' }).refused, /^It reads data\/a b\.csv/);
+  for (const free of [{ file: null }, { file: '../etc/passwd' }, { noise: { seed: 3, dist: 'normal' } }, 'zeros', 'ones', 'identity', null, undefined, 'file', {}]) assert.deepEqual(sizable(free, 'Keys'), { ok: true });
 });

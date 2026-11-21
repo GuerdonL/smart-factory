@@ -406,11 +406,12 @@ New, then Data in, draws a noise block; resting on Data in offers Noise and File
 | Kind | Its entries | On its face | In its panel |
 | --- | --- | --- | --- |
 | Noise | Numbers drawn from its distribution. They follow from its seed, the id of the block the variable was made as, and each entry's column and row, and from nothing else: moving it or resizing it changes no entry that still exists, every reference shows the same numbers, and the same project shows the same numbers on any machine. In a tile every cell holds other numbers, and the first cell holds what the block would hold outside the tile | `~` | seed (a whole number, 0 at first) and distribution (`uniform`, from 0 up to 1, at first; or `normal`, mean 0 and deviation 1) |
-| File | The numbers of a CSV file: numbers with commas between them, every row as many, with or without a first row of names. The file is sent to the backend, which checks it, and the block takes its size. It is kept in the project's directory under `data/` and saved with the project | `csv` | Choose a CSV file… |
+| File | The numbers of a CSV file: numbers with commas between them, every row as many, with or without a first row of names. The file is sent to the backend, which checks it, and the block takes its size. From then on the block is the file's size: a length typed on it, a pull on its edge and a side name of another length are refused, and another file is how it comes to another size. It is kept in the project's directory under `data/` and saved with the project | `csv` | Choose a CSV file… |
 
 A file is chosen once the project has been saved under a name, since that is where it is kept: until the project
 is on the server under the name it has, choosing is refused, and nothing is written. A file that is not a table of
-numbers is refused with the line that is wrong, and an empty cell is never taken as zero. A file is never written
+numbers is refused with the line that is wrong, and an empty cell is never taken as zero. A number too large for
+32 bits is refused; one too small for them (`1e-60`) is read as 0, and the block's panel says how many were. A file is never written
 over: a second file of the same name is kept under a name of its own (`weights-2.csv`). A save keeps the files
 some block reads and those an undo or a redo can still come back to, so a step back never finds its file gone;
 a file nothing can come back to any more is let go at the next save after the project is opened again.
@@ -632,6 +633,10 @@ of the model that anything else is to read: the backend (see "The backend"), an 
   then `"column,row,k1,k2,…"`. The rules stay two-dimensional: the evaluator runs each once for every inner
   position. `stack` puts matrices into the entries of one, `entry` takes one out, and a `transpose` with `order`
   turns the axes. The graph's `version` is 2; a version 1 graph holds none of this and is still accepted.
+- A `matmul`'s first input has as many columns as its second has rows, a single entry included: a single entry
+  against a single row or column is a product, and against anything else it is a `scale`, which is another node.
+  `validate` and the backend's check refuse any other product in the same words ("a product of 1 columns and 3
+  rows: a single entry against a matrix is a scale").
 - A node's id says what it is, never where it sits: `matmul(v:b1,v:b2)`. The same product in two places is one
   node, and moving a block without changing what it touches leaves the graph exactly as it was.
 - `spaces` says what each canvas comes to (each piece, each arrow and each tile, with its node or its error), and
@@ -751,8 +756,9 @@ showing and for nothing else, and is never mixed up with an exact number:
 - it is never saved, and is no entry of any block: results are asked for again when the project is opened.
 
 With no backend, whatever is made of noise or of a data file says "needs the backend" where its numbers would be,
-on the canvas and in its panel, whether it is one block, a piece of several or an arrow's output; nothing else
-changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
+on the canvas and in its panel, whether it is one block, a piece of several or an arrow's output. A result that is
+only too large to work out in the browser keeps its symbols, with "needs the backend" written small under its matrix
+on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
 **What it answers.** `GET /health` gives `{ "ok": true, "version": 2 }` (the version of graph it reads; it still takes a version 1 graph). `POST /run` takes
@@ -760,7 +766,8 @@ Keys", "asking the backend" while the first answer is waited for) and in the rea
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
 and each answer is `[c, r, k1, …, value]`; it holds every array with rows and columns as its last two axes);
-`POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`.
+`POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`, and
+`"small"` where some of its numbers are too small for 32 bits and are read as 0: how many.
 `backend/run.py` has each in full.
 
 **Its rules.**
@@ -795,7 +802,8 @@ A result that would not come out as a whole number is left in algebraic form, ne
 a scalar holding 2 is `√2u`, not `1.41u`; of 12, `2√3u`; of 9, `3u`. Roots are the only case so far, but this is the
 rule for anything worked out later.
 
-A scalar can hold a value of any kind. Typing `3/2` as its side gives it a mass of
+A scalar can hold a value of any kind. One that holds true or false has the sides of 1 or of 0, as a boolean
+counts in all arithmetic, on the page and in the backend alike. Typing `3/2` as its side gives it a mass of
 `9/4`; typing `2^(1/2)` (or `√2`) gives it a mass of 2. Only a matrix's sides have to be whole, because a matrix is
 drawn on the grid.
 
@@ -818,12 +826,19 @@ What comes out of the list on the right is never a copy.
 - A named frame dragged from the list is made again with each named shape in it a reference to the original.
 
 Copy and paste (Ctrl/Cmd+C, Ctrl/Cmd+V, or the menu) is how a separate thing is made: a paste is a variable of its
-own, with its own entries, and takes a new colour every time.
+own, with its own entries, and takes a new colour every time. A copied block takes with it the frames it is in. It
+takes a tile it is in only where every block of that tile is copied, whether the tile lies in another or not: one
+block of several is pasted as that block, in no tile, and a block that is all its tile holds takes the tile. A tile
+selected by its edge or its name is copied whole (Ctrl/Cmd+C), with what is in it and without the tiles it is in.
 
 Deleting a reference removes only that reference. Deleting a source removes everything that refers to it, in any
 space; before it does, a warning lists the variables and how many instances of each would go, and the deletion can be
 cancelled. In a project file a reference carries `"reference": true`, and a length taken from a shape carries
 `"from": { "id": …, "side": "x" | "y" }`.
+
+Every use of a variable is one size: its variable's, the other way round where it is transposed, and for a turned
+use the two axes it draws. No page saves anything else. Where a project's files hold a reference drawn at another
+size, opening sets it to its variable's size where it stands, and the readout names it and gives both sizes.
 
 ## The maths solver
 

@@ -388,8 +388,11 @@ export const OPS = {
       return out; } },
   matmul: { inputs: [2, 2], fields: () => [], id: n => plain(n),
     /* a type holds real lengths: sides that carry one name are still to be one length */
-    type: (n, [a, b]) => (!one(a.type) && !one(b.type) && a.type.cols !== b.type.rows ? null : lone([rectOf(a.type, 0, 0), rectOf(b.type, a.type.cols, 0)]))
-      || (!nested(innerOf(a.type), innerOf(b.type)).ok ? 'a product of shapes whose inner data does not agree: ' + nested(innerOf(a.type), innerOf(b.type)).note : `a product of ${a.type.cols} columns and ${b.type.rows} rows`),
+    /* a single entry is no exception: against a single row or column it is a product like any other, and against anything
+       else it is a scale, which is another node. The backend's check.py says the same, in the same words */
+    type: (n, [a, b]) => (a.type.cols !== b.type.rows ? null : lone([rectOf(a.type, 0, 0), rectOf(b.type, a.type.cols, 0)]))
+      || (a.type.cols === b.type.rows && !nested(innerOf(a.type), innerOf(b.type)).ok ? 'a product of shapes whose inner data does not agree: ' + nested(innerOf(a.type), innerOf(b.type)).note
+        : `a product of ${a.type.cols} columns and ${b.type.rows} rows` + (one(a.type) || one(b.type) ? ': a single entry against a matrix is a scale' : '')),
     /* entry c,r is the sum over k of left k,r times right c,k. An unknown term makes the entry unknown, even against
        a known zero: what two values come to is combine's to say, for every pair */
     value(n, at){ const a = at.type(0), b = at.type(1), L = at.get(0), R = at.get(1), K = a.cols, out = new Map();

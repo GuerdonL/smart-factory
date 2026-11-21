@@ -190,7 +190,9 @@
                                                                     dataPath) is neither written nor read
 
    read's project also carries converted: how many old stacks were fused on the way in, and changed: how many other
-   pieces of an old project now read differently (see below for both); each 0 for a project of this format.
+   pieces of an old project now read differently (see below for both); each 0 for a project of this format. And
+   resized: the references that were drawn at another size than their variable's and have been set to it (see
+   oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
 
    The format is 4. Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
    that go with it, from.entry, and a use's "axes". A format 3 project has none of them and is read exactly as it is: no field is
@@ -417,7 +419,32 @@ export function read(files){
   const arrows = new Set(every.filter(d => d.arrow && d.id).map(d => d.id)), known = new Set(every.map(d => d.id).filter(Boolean));
   for (const d of every) if (d.seat && !(typeof d.seat === 'string' ? arrows.has(d.seat) : d.seat.hollow.every(id => known.has(id)))) d.seat = null;
   const old = (meta.version || 1) < 3 ? fuseStacks(project.top) : { fused: 0, changed: 0 };
-  return { ...project, converted: old.fused, changed: old.changed };
+  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top) };
+}
+
+/* Every use of a variable is one size: the size of the shape the variable was made as, the other way round where one
+   of the two is transposed and the other is not, and for a turned use the two axes its order draws. No page saves
+   anything else, but a file may hold it, and then a product was checked by the rectangle drawn while its node carried
+   the variable's size. So a reference drawn at another size is set to its variable's, in place, and what was done is
+   given back: [{ name, cols, rows, was: { cols, rows } }], in the order met, empty for every project a page saved.
+   Only what is plainly a reference to one known shape is touched: an arrow (its rectangle is a gap), a measure or a
+   part (its size is its source's to say), a seated block, a function's input and a fused shape are left as they are,
+   and so is every use of a variable that has no one shape it was made as, or more than one. A definition is read
+   once for a variable, from the first use that carries it, as the page reads it: what another use carries is a copy. */
+function oneSize(top){
+  const uses = new Map(), read = new Set(), out = [];
+  const walk = s => { const one = d => { if (d.variable != null && !d.arrow) uses.set(d.variable, [...(uses.get(d.variable) || []), d]);
+      if (d.inside && !(d.variable != null && read.has(d.variable))){ if (d.variable != null) read.add(d.variable); walk(d.inside); }
+      for (const j of d.joined || []) one(j.shape); };
+    s.shapes.forEach(one); for (const o of s.operations || []) o.sources.forEach(one); };
+  walk(top);
+  for (const list of uses.values()){ const made = list.filter(d => !d.reference); if (made.length !== 1) continue;
+    const src = made[0], over = src.transposed && !src.joined, own = [over ? src.rows : src.cols, over ? src.cols : src.rows, ...(src.inner || []).map(a => a.length)];
+    for (const d of list){ if (d === src || d.from || d.seat || d.in || d.joined || (d.axes && d.transposed)) continue;
+      const swap = !!d.transposed !== !!src.transposed, want = d.axes ? (d.axes.length === own.length ? [own[d.axes[0]], own[d.axes[1]]] : null) : swap ? [src.rows, src.cols] : [src.cols, src.rows];
+      if (!want || (d.cols === want[0] && d.rows === want[1])) continue;
+      out.push({ name: d.name, cols: want[0], rows: want[1], was: { cols: d.cols, rows: d.rows } }); d.cols = want[0]; d.rows = want[1]; } }
+  return out;
 }
 
 /* Fuses every stack of a space read from format 2 or lower, and of every space below it, in place. Gives

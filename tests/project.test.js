@@ -6,12 +6,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { write, read, isNamed, FORMAT } from '../project.js';
 import { pieces } from '../algebra.js';
+import { build, validate } from '../graph.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null, inner: null,
   entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
-const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently */
+const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, resized: [], ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently; resized: the references it set to their variable's size */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 const paths = files => files.map(f => f.path).sort();
 const file = (path, body) => ({ path, text: JSON.stringify(body) });
@@ -769,4 +770,56 @@ test('after review: writing a shape costs what its entries cost, never its size;
   /* full is counted over the keys that are its own */
   const as = entries => json(write(project(space([shape('S', { cols: 2, rows: 1, inner: [{ length: 2, name: null }], entries })]))), 'S.json').value.as;
   assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '2,1,2': 1 }), 'resolved'); assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '3,1,2': 1 }), 'variable'); assert.equal(as({ '1,1,1': 1, '2,1,1': 1, '1,1,2': 1, '2,1,2': 1, '9,9': 1 }), 'resolved');
+});
+
+/* ---- every use of a variable is one size ---- */
+test('a reference drawn at another size than its variable is set to its variable\'s size when the project is read, and read says which', () => {
+  /* s is one entry; a second use of it is drawn 3 by 3 beside A, 2 wide and 3 tall: by its rectangle a product, and the node carried s's own size */
+  const s = shape('s', { id: 'bs', cols: 1, rows: 1, variable: 1, entries: { '1,1': 2 } }), A = shape('A', { id: 'bA', x: 13, y: 0, cols: 2, rows: 3, variable: 2 });
+  const use = shape('s', { id: 'bu', x: 10, y: 0, cols: 3, rows: 3, variable: 1, reference: true });
+  const damaged = project(space([s, A, use])), g = build(damaged);
+  /* (the builder no longer writes such a product: a product of 1 column and 3 rows is no node, so the piece is a mismatch by the variable's size, though the rectangles agree) */
+  assert.deepEqual(g.spaces.top.pieces.find(x => x.blocks.includes('bu')).error, { code: 'mismatch', note: '1 ≠ 3' }); assert.deepEqual(validate(g), []);
+  const p = read(write(damaged));
+  assert.deepEqual(p.resized, [{ name: 's', cols: 1, rows: 1, was: { cols: 3, rows: 3 } }]);
+  assert.deepEqual(p.top.shapes.map(d => [d.id, d.cols, d.rows, d.x, d.y]), [['bs', 1, 1, 0, 0], ['bA', 2, 3, 13, 0], ['bu', 1, 1, 10, 0]]);      /* it keeps its corner */
+  const h = build(p), piece = h.spaces.top.pieces.find(x => x.blocks.includes('bu')); assert.deepEqual(validate(h), []);
+  assert.equal(piece.error, null); assert.deepEqual(piece.blocks, ['bu']);      /* it keeps its corner, so it no longer reaches A: a piece of its own, and no product that is none */
+  assert.deepEqual(read(write(p)).resized, []);      /* saved again, it is a project like any other */
+});
+test('the one size is the variable\'s as each use lies: transposed the other way round, turned the two axes its order draws; what has a size of its own is left', () => {
+  const made = (more = {}) => shape('K', { id: 'bk', cols: 4, rows: 6, variable: 3, ...more }), use = (id, more = {}) => shape('K', { id, variable: 3, reference: true, ...more });
+  const sizes = p => p.top.shapes.map(d => [d.cols, d.rows]);
+  /* as it should be: nothing is touched */
+  let p = read(write(project(space([made(), use('u1', { cols: 4, rows: 6 }), use('u2', { cols: 6, rows: 4, transposed: true })]))));
+  assert.deepEqual(p.resized, []); assert.deepEqual(sizes(p), [[4, 6], [4, 6], [6, 4]]);
+  /* a transposed use of it, and a use of a variable that is itself transposed */
+  p = read(write(project(space([made(), use('u1', { cols: 4, rows: 6, transposed: true }), use('u2', { cols: 9, rows: 9 })]))));
+  assert.deepEqual(p.resized.map(r => [r.cols, r.rows]), [[6, 4], [4, 6]]); assert.deepEqual(sizes(p), [[4, 6], [6, 4], [4, 6]]);
+  p = read(write(project(space([made({ transposed: true }), use('u1', { cols: 4, rows: 6 }), use('u2', { cols: 4, rows: 6, transposed: true })]))));
+  assert.deepEqual(sizes(p), [[4, 6], [6, 4], [4, 6]]); assert.equal(p.resized.length, 1);
+  /* a turned use draws two of its variable's axes: here its first inner axis as its columns */
+  const inner = [{ length: 5, name: null }];
+  p = read(write(project(space([made({ inner }), use('u1', { cols: 5, rows: 6, inner, axes: [2, 1, 0] }), use('u2', { cols: 4, rows: 6, inner, axes: [2, 1, 0] })]))));
+  assert.deepEqual(sizes(p), [[4, 6], [5, 6], [5, 6]]); assert.deepEqual(p.resized, [{ name: 'K', cols: 5, rows: 6, was: { cols: 4, rows: 6 } }]);
+  /* left as they are: a measure, a part, a seated block, a function's input, a fused shape, an arrow; and every use where no one shape is the variable's own */
+  const own = [use('m', { cols: 1, rows: 1, from: { id: 'bk', side: 'x' } }), use('r', { cols: 2, rows: 2, from: { id: 'bk', range: { col: 0, row: 0, cols: 2, rows: 2, toEnd: { cols: false, rows: false } } } }),
+    use('i', { cols: 2, rows: 2, in: true }), use('j', { cols: 8, rows: 6, joined: [{ fx: 0, fy: 0, fw: 0.5, fh: 1, shape: shape('L', { cols: 4, rows: 6 }) }, { fx: 0.5, fy: 0, fw: 0.5, fh: 1, shape: shape('R', { cols: 4, rows: 6 }) }] })];
+  p = read(write(project(space([made(), ...own]))));
+  assert.deepEqual(p.resized, []); assert.deepEqual(sizes(p), [[4, 6], [1, 1], [2, 2], [2, 2], [8, 6]]);
+  p = read(write(project(space([use('u1', { cols: 4, rows: 6 }), use('u2', { cols: 9, rows: 9 })]))));      /* no shape it was made as */
+  assert.deepEqual(p.resized, []);
+  p = read(write(project(space([made(), made({ id: 'bk2', cols: 9, rows: 9 }), use('u2', { cols: 7, rows: 7 })]))));      /* two of them */
+  assert.deepEqual(p.resized, []);
+  /* a definition is read once for a variable: the copy another use carries is not a second shape the variable in it was made as */
+  const def = () => space([shape('D', { id: 'bd', variable: 5, cols: 2, rows: 2 }), shape('D', { id: 'bd2', variable: 5, reference: true, x: 9, cols: 3, rows: 3 })]);
+  p = read(write(project(space([shape('O', { id: 'bo', variable: 4, inside: def() }), shape('O', { id: 'bo2', variable: 4, reference: true, x: 30, inside: def() })]))));
+  assert.deepEqual(p.resized.map(r => [r.name, r.cols, r.rows]), [['D', 2, 2]]);
+});
+test('no project that comes with the repository holds a use of another size than its variable', () => {
+  const root = fileURLToPath(new URL('../projects/', import.meta.url));
+  const files = (dir, base = '') => readdirSync(dir).flatMap(n => { const at = join(dir, n); return statSync(at).isDirectory() ? files(at, base + n + '/') : [{ path: base + n, text: readFileSync(at, 'utf8') }]; });
+  let references = 0; const count = s => { for (const d of s.shapes){ if (d.reference) references++; if (d.inside) count(d.inside); } };
+  for (const name of readdirSync(root)){ if (!statSync(join(root, name)).isDirectory()) continue; const p = read(files(join(root, name))); assert.deepEqual(p.resized, [], name); count(p.top); }
+  assert.ok(references > 10);      /* and they do hold references */
 });
