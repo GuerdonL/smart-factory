@@ -279,3 +279,25 @@ the arrow, and its panel writes it out, `≈2.71828175`, with `exp(1)`, the exac
 
 In a file, a noise block has `"source": { "noise": { "seed": 0, "dist": "uniform" } }`, a file block
 `"source": { "file": "data/weights.csv" }`, and neither has entries: nothing the backend worked out is ever saved.
+
+## none-and-spaces/
+
+None and the number spaces, beside a copy of the default Menu's `.config`.
+
+`W` holds 1, `∅`, 3 and 4: the second entry was typed `none`. Select `W` and its **Holds** row reads `natural`, with
+**or None** ticked: it promises natural numbers or None, and keeps the promise. Untick the box and the row turns to
+the warning colour and says which entry breaks it.
+
+`Pick` holds the formula `select(none, 2, 3)` and shows 3: None counts as false, so `select` takes its other side.
+Its Holds row is greyed, `natural (from its entries)`: it promises nothing, and that is what it is worked out as.
+`V`, holding 1 and 2, reads the same.
+
+`Bad` holds 2 and -3 and promises `natural`. Its row says "Bad is not natural: it holds -3 at 2, 1", and anything
+made of it has no value until the promise is changed or the entry is.
+
+At the bottom, `X` is read by the arrow `linear`, whose function multiplies its input by `Wf`, and `Out` is seated
+on the output. Select the arrow: **Takes** is `natural`, what the function's `in` block promises, held against what
+`X` gives it; **Gives** is `whole`, what `Out` promises. Type -4 into `X` and both rows say what breaks them.
+
+In a file, `W` has `"holds": "natural?"` and the entry `"2,1": { "none": true }`; a shape that promises nothing has
+no `holds`.

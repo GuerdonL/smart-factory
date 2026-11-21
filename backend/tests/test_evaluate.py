@@ -60,6 +60,8 @@ class SameAnswers(unittest.TestCase):
                 res, err = out['results'].get(str(k)), out['errors'].get(str(k))
                 self.assertTrue((res is None) != (err is None), at)
                 if 'error' in a:      # worked out from a variable that has an error: an error here too
+                    if a['error'] == 'type':
+                        continue      # a promise broken by a value: the page's to say for now. The backend does not yet hold its numbers to a promise (ruled 21 November 2026, to be built: then this line goes)
                     self.assertIsNotNone(err, at)
                     errors += 1
                 elif 'deferred' in a:

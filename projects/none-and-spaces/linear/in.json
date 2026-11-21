@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bnsi001",
+  "type": "tensor",
+  "name": "in",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": -9,
+    "y": 0
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 0,
+  "holds": "natural",
+  "in": true
+}

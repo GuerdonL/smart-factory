@@ -1,0 +1,41 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bnsf001",
+  "type": "arrow",
+  "name": "linear",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -28,
+    "y": -3
+  },
+  "size": {
+    "cols": 3,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "linear/",
+  "order": 8,
+  "arrow": {
+    "input": {
+      "id": "bnsx001",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 2,
+    "gap": 3,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}

@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { write, read, isNamed, FORMAT } from '../project.js';
 import { pieces } from '../algebra.js';
+import './solver.js';
 import { build, validate } from '../graph.js';
+import { evaluate, promiseOf } from '../evaluate.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null, inner: null,
@@ -752,8 +754,24 @@ test('every project that comes with the repository opens and saves as it did bef
   for (const name of readdirSync(root)){ if (!statSync(join(root, name)).isDirectory()) continue; seen++;
     const p = read(shipped(name)), files = write(p);
     assert.deepEqual(write(read(files)), files, name); assert.deepEqual(read(files), read(write(read(files))), name);
-    for (const f of files){ assert.ok(!/"holds"|"none"/.test(f.text), name + '/' + f.path); if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path); } }
-  assert.ok(seen >= 11);
+    for (const f of files){ assert.ok(name === 'none-and-spaces' || !/"holds"|"none"/.test(f.text), name + '/' + f.path); if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path); } }      /* (none-and-spaces is the one made for format 5: it has both) */
+  assert.ok(seen >= 12);
+});
+test('projects/none-and-spaces holds a None, a select that None decides, a promise kept, one broken with its sentence, and an arrow that takes and gives', () => {
+  const files = shipped('none-and-spaces'), p = read(files), by = name => p.top.shapes.find(d => d.name === name);
+  assert.deepEqual(p.unheld, []); assert.deepEqual(p.resized, []); assert.equal(JSON.parse(files.find(f => f.path === 'project.json').text).version, FORMAT);
+  assert.deepEqual(by('W').entries['2,1'], { none: true }); assert.equal(by('W').holds, 'natural?'); assert.deepEqual(by('Pick').entries['1,1'], { expr: 'select(none, 2, 3)' });
+  assert.ok(!('holds' in by('V'))); assert.equal(by('Bad').holds, 'natural'); assert.equal(by('Out').holds, 'whole'); assert.equal(by('Out').seat, by('linear').id);
+  assert.equal(by('linear').inside.shapes.find(d => d.in).holds, 'natural');
+  const g = build(p); assert.deepEqual(validate(g), []);
+  const node = name => g.blocks[by(name).id], says = name => promiseOf(g, node(name));
+  assert.deepEqual(evaluate(g, node('W')).entries, { '1,1': 1, '2,1': { none: true }, '1,2': 3, '2,2': 4 }); assert.equal(says('W').state, 'kept');
+  assert.deepEqual(evaluate(g, node('Pick')).entries, { '1,1': 3 });      /* None is false: select takes its other side */
+  assert.deepEqual(says('V'), { holds: null, inferred: 'natural', state: 'inferred', note: '' });
+  assert.deepEqual(says('Bad'), { holds: 'natural', inferred: 'integer', state: 'broken', note: 'Bad is not natural: it holds -3 at 2, 1' });
+  assert.deepEqual(evaluate(g, node('Out')).entries, { '1,1': 5, '1,2': 11 }); assert.equal(says('Out').state, 'kept');
+  const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
+  assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(paths(write(p)), paths(files));      /* saved again it is the files that are shipped */
 });
 test('a format 4 project opens: its entries and shapes are read as they are, and saved it is format 5', () => {
   const p = project(space([shape('A', { id: 'b00000a', cols: 2, rows: 1, entries: { '1,1': 3, '2,1': { n: 1, d: 2, k: 0 } } })])), files = write(p);
