@@ -1261,7 +1261,7 @@ function paint(){
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
   const strays = new Set(straysIn(space));      /* in a condition's space, what lies in neither side takes no part */
   for (const b of space.blocks){ const v = scalarOf(b), f = v === null ? faceLaid(b) : null; b.face(b.source ? faceOf(b.source) : f ? f.text : v === null ? null : asText(v), f ? { decimal: true, stale: f.stale } : {});      /* a source says what it is on its face: 0, 1 or I; a number that is the backend's is marked as one */
-    b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b) || strays.has(b)); b.sit(!!b.seat); b.given(!!b.in); b.nest(dataOf(b).length);      /* one outline behind it for each inner axis */      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
+    b.warn(isArrow(b) ? !!outputOf(b).warn || strays.has(b) : lost(b) || strays.has(b)); b.sit(!!b.seat); b.given(!!b.in); b.nest(dataOf(b).length);      /* one outline behind it for each inner axis */      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
     b.sink(sunkLaid(b));      /* truth as height: a shape that is false is drawn sunk */
     if (isArrow(b)){ b.el.classList.toggle('anon', !isNamed(b)); b.mark(fnOf(b).choose && !fnOf(b).formula ? '?' : ''); } }      /* a condition carries a small ? on its triangle */
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
@@ -1295,7 +1295,7 @@ function paint(){
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
-      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(strays.has(one) ? ['It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(strays.has(one) ? [acrossNote(space, one) || 'It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values: once(values, all, quiet), transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
@@ -2355,8 +2355,10 @@ function definedBy(a, input){
 function conditionCome(def){
   const c = conditionIn(def); if (sidesIn(def).length < 2) return { error: 'a side of its condition is gone' };
   const alg = algebraIn(def);
-  return chosenType([c.then, c.else].map(g => endsOf(def, alg, g)), originOf(def.owner).arrow.output);
+  return chosenType([c.then, c.else].map(g => endsOf(def, alg, g)), originOf(def.owner).arrow.output, [c.then, c.else].map(g => acrossIn(def, alg, g).length > 0));
 }
+/* the pieces of a condition's space that lie across the edge of one of its frames: some of their blocks in it, some not (graph.js: chosen) */
+const acrossIn = (s, alg, g) => alg.all.filter(p => { const n = p.members.filter(m => chain(alg.active[m], s).includes(g)).length; return n > 0 && n < p.members.length; });
 /* whether a conditional arrow's condition is not known: what it is given is worked out here, and is neither true nor false */
 function conditionOpen(a){
   return steadily(() => { const g = graphNow(), e = findIn(g).arrows.get(a.id), n = e && e.node && g.nodes[e.node]; if (!n || n.op !== 'apply') return false;
@@ -2364,7 +2366,10 @@ function conditionOpen(a){
     return !!r.entries && truthAt(g, n.inputs[0], options) === null; });
 }
 /* the blocks of a condition's space that lie in neither of its sides, the input block apart: they take no part */
-const straysIn = s => { const sides = sidesIn(s); return conditionIn(s) ? s.blocks.filter(b => !b.in && !isOff(b) && !inConfig(b, s) && !chain(b, s).some(g => sides.includes(g))) : []; };
+const acrossNote = (s, b) => { const alg = algebraIn(s), k = sidesIn(s).findIndex(g => acrossIn(s, alg, g).some(p => p.members.some(m => alg.active[m] === b)));
+  return k < 0 ? null : `Its piece lies across the edge of the ${s.groupNames.get(sidesIn(s)[k])} side, so the condition comes to no matrix: move its blocks wholly into that frame, or wholly out of it`; };
+const straysIn = s => { const sides = sidesIn(s); if (!conditionIn(s)) return []; const alg = algebraIn(s);      /* and the blocks of a piece that lies across a side's edge: it is neither side's */
+  return [...new Set([...s.blocks.filter(b => !b.in && !isOff(b) && !inConfig(b, s) && !chain(b, s).some(g => sides.includes(g))), ...sides.flatMap(g => acrossIn(s, alg, g)).flatMap(p => p.members.map(m => alg.active[m]))])]; };
 /* the block called in takes the size and the side names of the covered part of the input of the arrow the function
    was made as (every use of a named arrow has to fit that, so it is theirs too). It does not depend on which arrow
    the space was opened through: going into a space never changes the project. Gives whether it changed. */

@@ -203,7 +203,7 @@ import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isN
 import { ROOTS, together } from './values.js';
 import { parts as textParts, evaluate as work, namesIn, refs, treeOf } from './expression.js';
 import * as S from './spaces.js';
-import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES } from './arrows.js';
+import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES, ACROSS } from './arrows.js';
 import * as tiles from './tiles.js';
 import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS, EMPTY } from './sources.js';
 import { FUNCTIONS, CONFIG } from './system.js';
@@ -1012,11 +1012,15 @@ export function build(snapshot){
   /* A conditional arrow (its arrow carries choose: { then, else }, two frames of its definition space): its function
      is choose(its input, what the then frame comes to, what the else frame comes to). A frame holds one piece or
      nothing: an empty one is None at the other's size (both empty: at the size the arrow promises, else one by
-     one); several pieces in one are the error pieces. What lies in neither frame takes no part. A frame that is
-     gone leaves the arrow no-source; two sides of two sizes are the error size. */
+     one); several pieces in one are the error pieces, and so is a piece that lies across a frame's edge, some of
+     its blocks in the frame and some not (arrows.js: ACROSS). What lies wholly in neither frame takes no part. A
+     frame that is gone leaves the arrow no-source; two sides of two sizes are the error size. */
   const conditionOf = A => A && A.choose && typeof A.choose === 'object' && typeof A.choose.then === 'string' && typeof A.choose.else === 'string' ? A.choose : null;
   function chosen(ctx, sides){
     const frames = [ctx.groups.get(sides.then), ctx.groups.get(sides.else)]; if (frames.some(f => !f) || frames[0] === frames[1]) return { error: E('no-source', 'a side of its condition is gone') };
+    /* a piece with blocks in a frame and blocks out of it is neither side's: it is said, and not left out (a side is None only where its frame holds nothing) */
+    const R = read(ctx), over = frames.findIndex(f => R.ps.some(p => { const n = p.members.filter(m => chain(R.active[m]).includes(f)).length; return n > 0 && n < p.members.length; }));
+    if (over >= 0) return { error: E('pieces', ACROSS(over)) };
     const fid = spaceKey(ctx), param = paramOf(ctx), came = frames.map(f => comesTo(ctx, null, f)), lost = came.find(c => c.error); if (lost) return { error: lost.error };
     const out = ctx.owner.arrow.output, full = came.find(c => c.node), size = full ? typeOf(full.node) : out && whole1(out.cols) && whole1(out.rows) ? T(out.cols, out.rows) : T(1, 1);
     const [a, b] = came.map(c => c.node || N('source', [], { kind: EMPTY }, T(size.cols, size.rows, null, null, unnamed(size))));

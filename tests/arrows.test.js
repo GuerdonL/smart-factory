@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES } from '../arrows.js';
+import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES, ACROSS } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -501,6 +501,10 @@ test('chosenType: the size of a condition\'s two sides, which have to be one siz
   for (const [a, b] of [[t(2, 3), t(3, 2)], [t(2, 3), t(2, 4)], [t(2, 3, 'key'), t(2, 3, 'query')], [t(2, 3, null, 'r'), t(2, 3, null, 's')], [t(2, 3, null, null, [{ length: 2, name: null }]), t(2, 3)], [t(2, 3, null, null, [{ length: 2, name: null }]), t(2, 3, null, null, [{ length: 3, name: null }])]])
     assert.deepEqual(chosenType([[e(a)], [e(b)]]), { error: TWO_SIZES }, JSON.stringify([a, b]));
   assert.equal(TWO_SIZES, 'its two sides are not one size');
+  /* a piece across a frame's edge: said before anything else, naming the side */
+  assert.deepEqual(chosenType([[], [e(t(2, 2))]], null, [true, false]), { error: ACROSS(0) }); assert.deepEqual(chosenType([[e(t(2, 2))], [e(t(1, 1)), e(t(1, 1))]], null, [false, true]), { error: ACROSS(1) });
+  assert.deepEqual(chosenType([[e(t(2, 2))], []], null, [false, false]), t(2, 2));
+  assert.equal(ACROSS(0), 'a piece lies across the edge of its true side: move its blocks wholly into that frame, or wholly out of it'); assert.match(ACROSS(1), /its false side/);
   const deep = [{ length: 2, name: 'head' }]; assert.deepEqual(chosenType([[e(t(2, 1, null, null, deep))], [e(t(2, 1, null, null, deep))]]), t(2, 1, null, null, deep)); assert.deepEqual(chosenType([[], [e(t(2, 1, null, null, deep))]]), t(2, 1, null, null, [{ length: 2, name: null }]));
   assert.deepEqual(chosenType([[e(t(2, 2)), e(t(2, 2))], []]), { error: '2 pieces' }); assert.deepEqual(chosenType([[e(t(2, 2))], [e(t(1, 1)), e(t(1, 1)), e(t(1, 1))]]), { error: '3 pieces' });
   assert.deepEqual(chosenType([[e({ error: '4 ≠ 3' })], [e(t(2, 2))]]), { error: '4 ≠ 3' }); assert.deepEqual(chosenType([[e(t(2, 2))], [{ type: null }]]), { error: 'no value' });

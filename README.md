@@ -733,8 +733,12 @@ the entry is true; make it false and the output is None (`∅`) at the same size
   `in`, which shows the condition. Each frame holds one piece or nothing. An empty frame is None at the other
   side's size, and is still drawn, so that a shape can be dragged into it. The side that is not chosen is faded;
   neither is while the truth is not known. A shape in neither frame takes no part, and is drawn in the warning
-  colour.
+  colour, block or arrow.
 - The two sides have to be one size ("its two sides are not one size"); two pieces in one frame are "2 pieces".
+  A piece that lies across a frame's edge, some of its blocks in the frame and one that touches them outside it,
+  belongs to neither side: the arrow and those blocks are drawn in the warning colour, and the arrow says "a piece
+  lies across the edge of its true side: move its blocks wholly into that frame, or wholly out of it". A side is
+  None only where its frame holds nothing.
   The frames cannot be unframed or renamed.
 - Only the chosen side is worked out, in the browser and in the backend: an error on the other side, or a side too
   large to work out, does no harm.

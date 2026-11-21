@@ -912,6 +912,12 @@ test('a conditional arrow: sides of two sizes, two pieces on one side, and a fra
   assert.deepEqual(err(condition([B('T', -6, 0, 2, 1)], [1], null)), { code: 'no-source', note: 'a side of its condition is gone' });
   assert.deepEqual(err(condition([B('T', -6, 0, 2, 1)], null, [1])), { code: 'no-source', note: 'a side of its condition is gone' });
   assert.deepEqual(err(condition([B('T', -6, 0, 3, 2), B('U', -3, 0, 4, 2)], [1, 2], [])), { code: 'mismatch', note: '3 ≠ 2' });      /* a side that is an error is the arrow's */
+  /* a piece that lies across a side's edge: a block that touches the true side's from outside every frame, or from the other frame. It is not left out, which would make the side None */
+  const ACROSS = k => ({ code: 'pieces', note: `a piece lies across the edge of its ${k ? 'false' : 'true'} side: move its blocks wholly into that frame, or wholly out of it` });
+  assert.deepEqual(err(condition([B('P', -8, 0, 2, 2), B('Q', -6, 0, 2, 2), B('V', -8, 2, 2, 2)], [1, 2], [])), ACROSS(0));
+  assert.deepEqual(err(condition([B('P', -8, 0, 2, 2), B('Q', -6, 0, 2, 2), B('V', -8, 2, 2, 2)], [1, 2], [3])), ACROSS(0));
+  assert.deepEqual(err(condition([B('P', -8, 0, 2, 2), B('V', -8, 2, 2, 2)], [], [2])), ACROSS(1));
+  assert.deepEqual(make(condition([B('P', -8, 0, 2, 2), B('V', -8, 2, 2, 2), B('E', -8, 20, 2, 2)], [1, 2], [3])).spaces.top.arrows[0].error, null);      /* wholly in: one piece of that side */
   /* what it comes to against what it promises, as any arrow */
   assert.deepEqual(err(condition([B('T', -6, 0, 2, 1)], [1], [], { output: { cols: 3, rows: 3 } }), 1), { code: 'size', note: '2 × 1 ≠ 3 × 3' });
 });

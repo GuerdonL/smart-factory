@@ -174,13 +174,17 @@
                                    of those are selected, error: why it comes to no matrix, or null }]; fixed: why
                                    one of the blocks cannot be folded away (an arrow, a function's input, a seated
                                    block), or null. It takes exactly one piece, whole, that comes to a matrix.
-   chosenType(sides, promise)   -> what a conditional arrow comes to: a type, or { error }. sides: for the then frame
+   chosenType(sides, promise, across) -> what a conditional arrow comes to: a type, or { error }. sides: for the then frame
                                    and the else frame, the ends that lie wholly in it ([{ type }], as ends gives
                                    them); promise: the arrow's output, { cols, rows } or null. Several ends in one
                                    frame are { error: 'n pieces' }; an end that is an error is that error; two sides
                                    that are not one size (drawn sides, inner axes, or a side under two names) are
                                    { error: TWO_SIZES }. The type is the then side's; with that side empty, the else
                                    side's size under no names; with both empty, the promise, else one by one.
+                                   across: for each frame, whether some piece has blocks in it and blocks out of it.
+                                   Such a piece belongs to neither: it is { error: ACROSS(0 | 1) }, a sentence that
+                                   names the side, before anything else is asked. A side is None only where its
+                                   frame holds nothing.
    emptySide(which, other, size) -> where an empty frame of a condition is drawn, a rect in units: which is 'then' or
                                    'else', other the box of the other frame's blocks (null where that is empty
                                    too), size { cols, rows }. The two stand one above the other, then on top, three
@@ -380,7 +384,9 @@ export function conditionable({ blocks = 0, pieces = [], fixed = null } = {}){
   if (pieces[0].error) return { refused: `That piece comes to no one matrix (${pieces[0].error}): there is nothing to choose` };
   return { ok: true };
 }
-export function chosenType(sides, promise = null){
+export const ACROSS = k => `a piece lies across the edge of its ${k ? 'false' : 'true'} side: move its blocks wholly into that frame, or wholly out of it`;
+export function chosenType(sides, promise = null, across = null){
+  const over = Array.isArray(across) ? across.findIndex(Boolean) : -1; if (over >= 0) return { error: ACROSS(over) };
   const came = [0, 1].map(k => { const es = (sides && sides[k]) || []; return es.length > 1 ? { error: es.length + ' pieces' } : es.length ? es[0].type || { error: 'no value' } : null; });
   const bad = came.find(c => c && c.error); if (bad) return { error: bad.error };
   const [a, b] = came, inner = t => (Array.isArray(t.inner) ? t.inner : []);
