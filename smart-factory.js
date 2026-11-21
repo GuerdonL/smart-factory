@@ -7,7 +7,7 @@ import { createHud } from './components/hud.js';
 import { createProperties } from './components/properties.js';
 import { createWarning } from './components/warning.js';
 import { createFormula } from './components/formula.js';
-import { evaluate, entered, typed as typedText, bound, guard, refs, refersTo, repoint, label, wholeOf } from './expression.js';
+import { evaluate, entered, typed as typedText, bound, guard, refs, refersTo, repoint, label, wholeOf, nameable } from './expression.js';
 import { createBlock } from './components/block.js';
 import { createArrow } from './components/arrow.js';
 import { createMeasure, sides } from './components/measure.js';
@@ -21,9 +21,11 @@ import { createJoin } from './components/join.js';
 import { createResult } from './components/result.js';
 import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
-import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isWhole, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
-import { build as buildGraph, indexAt } from './graph.js';
-import { evaluate as workOut, carry, toMap, tooLarge, MOST as MOST_HERE } from './evaluate.js';
+import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
+import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION } from './graph.js';
+import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, MOST as MOST_HERE } from './evaluate.js';
+import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
+const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -32,8 +34,8 @@ import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColou
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
-import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
-import { createBackend } from './backend.js';
+import { wanted, laid, noted, drawn as cellsDrawn, level as levelOf } from './decimals.js';
+import { createBackend, OLDER as OLDER_BACKEND } from './backend.js';
 import { squares } from './components/matrix.js';
 import * as nesting from './inner.js';
 
@@ -127,6 +129,11 @@ for (const type of ['mousedown', 'mouseup', 'auxclick']) addEventListener(type, 
 const isOff = b => /^\s*\/\//.test(b.name);
 const bare = name => name.replace(/^\s*\/\/\s*/, '');                  /* a name without its comment mark */
 const isNamed = b => !/^Shape \d+$/.test(bare(b.name));
+/* Whether something can be called that is expression.js's to say (nameable): none is the word for the value None. Every
+   way a name is given asks here first, typed, sent as a message or pasted, and where it cannot be, the readout says why
+   and nothing changes. A project saved before the rule opens as it is. */
+const unnameable = (...names) => { for (const name of names) if (name !== null && name !== undefined && nameable(name).refused){ hud.say(nameable(name).refused); return true; } return false; };
+const namesOf = pics => (pics || []).flatMap(p => [p.name, p.sides?.w, p.sides?.h, p.arrow?.gapName, ...(p.inner || []).map(a => a.name), ...(p.attrs || []).map(a => a.name), ...namesOf(p.inside), ...namesOf((p.members || []).map(m => m.pic))]);      /* every name in what was copied, however deep */
 const PALETTE = SLOTS;                          /* the six places a named shape's colour is kept; what colour each is, is .variable_colors' to say (system.js) */
 function someColour(not){                        /* one this space is not using, while there is one; never the one it has */
   const used = new Set(space.blocks.map(b => b.shape.color)), free = PALETTE.filter(c => !used.has(c) && c !== not);
@@ -351,7 +358,7 @@ function answerOf(node, binding = null){
    their place, and in the readout when the reason arrives. Whether there is one is asked again after a failure and
    every quarter of a minute, so one started or stopped later is noticed. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
-  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null),
+  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null), version: GRAPH_VERSION,
   told: why => hud.say((/^the backend /.test(why[0]) ? cap(why[0]) : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
 const laidKept = new WeakMap();                /* an evaluator's answer -> what was last laid over it, and from what */
 const slotAt = (slot, binding) => slot + (binding && binding.cells ? ' ' + binding.cells.map(c => c.cx + ',' + c.cy).join(' ') : '');      /* what is drawn in one place, in one cell: the previous numbers there are dimmed while the new are waited for */
@@ -367,11 +374,20 @@ const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), nod
    none, or (for one that is only too large) that it is; null where its numbers are shown, or it has an error of its own */
 function unshown(node, binding = null, slot = null){
   if (!node) return null;
-  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined); if (!wanted(r)) return null;
+  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined);
+  if (r.error && r.error.code === 'type' && r.error.node !== node) return 'It has no value: ' + r.error.note;      /* worked out from a shape whose promise a value breaks (that shape says so itself, in its Holds row) */
+  if (!wanted(r)) return null;
+  if (backend.available() === false && backend.older()) return r.backend || r.deferred ? cap(OLDER_BACKEND) : null;      /* one is running, and reads an older graph than this page writes: said on each result that needs it */
   if (backend.available() === false) return r.backend ? 'It needs the backend: its numbers are made there, and none is running (README: The backend)' : r.deferred ? tooLarge(r.type) : null;
-  const why = backend.problem(g, node, binding); if (why) return 'The backend gave no numbers: ' + why;
+  const why = backend.problem(g, node, binding), far = why ? backend.broke(g, node, binding) : null;
+  if (far && far.node === node) return null;      /* its own promise, broken by a number the backend worked out: the shape says so itself, in its Holds row */
+  if (why) return (far ? 'It has no value: ' : 'The backend gave no numbers: ') + why;      /* (a promise its numbers break, found by the backend: the sentence is the page's own) */
   return r.deferred && !backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)) ? (backend.available() ? 'Waiting for the backend' : r.backend ? null : tooLarge(r.type)) : null;
 }
+/* In the panel a sentence is said once. A matrix with no numbers carries why in place of its entries (decimals.js:
+   noted), and the notes beneath it say the same in full ("It has no value: in is not natural: …"): where they do,
+   the matrix says only that it has no value. values: what the panel draws; laidOut: what was laid, which has the note. */
+const once = (values, laidOut, said) => laidOut && laidOut.note && typeof said === 'string' && said !== laidOut.note && said.endsWith(laidOut.note) ? noted('no value') : values;
 /* a block's entries as they are drawn: the evaluator's, with the backend's laid over them. For drawing only. */
 function laidOf(b, plain = false){
   if (isArrow(b)) return new Map();
@@ -569,7 +585,7 @@ const variables = createVariables({
     if (item.kind === 'system') return bus.send('summon', { name: item.name, key: item.key || null, group: !!item.group, at });
     if (item.kind === 'frame') return bus.send('replicate', { frame: item.id, at });
     const target = reach(x, y);
-    if (target && !isWhole(item.units)) return hud.say(`${item.name} is ${item.label}, not a whole number: it cannot be a side's length`);      /* only whole numbers are side lengths */
+    if (target && !isInteger(item.units)) return hud.say(`${item.name} is ${item.label}, not a whole number: it cannot be a side's length`);      /* only whole numbers are side lengths */
     return target ? bus.send('side.set', { id: target.b.id, dim: target.dim, text: item.name }) : bus.send('length.add', { name: item.name, units: item.units, at, of: item.of || null, side: item.side || null }); },      /* on the canvas: an entry that is that length, a root left as a root */
   onEnd: () => bus.send('variable.end'),
 });
@@ -748,6 +764,7 @@ function typedNow(b, dim, text){
   if (b.seat && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is seated: its size is the output's`);
   if (b.from?.index && /\d\s*u?$/i.test(text)) return hud.say(`${bare(b.name)} is the index of its block: it is that block's size`);
   const read = readSide(text), name = read.name; let n = read.length;      /* algebra.js: a number is a length only apart from the name, so "d2" is a name */
+  if (unnameable(name)) return;
   if (n === undefined){ hud.say(`${String(text).trim()}: only a whole number can be a side's length`); return; }      /* never rounded: nothing changes */
   /* a part of another shape is the size of that part: a length typed on it is not taken, nor a name that is another length already */
   if (rangedOf(b)){ const has = name && name !== '-' && name !== autoSide(b, dim) ? lengthCalled(name, space, b) : undefined;
@@ -1015,7 +1032,7 @@ const rootOf = b => { const r = rootSide(b); if (r === null && unset(b)){ const 
    number. Only a whole number of units can be a side's length, with no exceptions and no rounding: where the root is
    not whole, this is null, and no side can take it. */
 const sideLength = (b, dim) => { if (unset(b)) return null;      /* no number yet: no length to give */
-  if (dim === 'm'){ const v = scalarOf(b); return isWhole(v) && v >= 1 ? v * view.unit : null; } if (dim[0] === 'k') return lenOf(b, dim); const r = rootSide(b); return r === null ? b.rect[dim] : isWhole(r) && r >= 1 ? r * view.unit : null; };
+  if (dim === 'm'){ const v = scalarOf(b); return isInteger(v) && v >= 1 ? v * view.unit : null; } if (dim[0] === 'k') return lenOf(b, dim); const r = rootSide(b); return r === null ? b.rect[dim] : isInteger(r) && r >= 1 ? r * view.unit : null; };
 /* ---- attributes ----
    Everything a variable has, together, as the properties panel shows it: the lengths of its two sides (x and y),
    a scalar's mass (the number it holds), and whatever attributes have been added to it by hand. Each has a value
@@ -1023,6 +1040,45 @@ const sideLength = (b, dim) => { if (unset(b)) return null;      /* no number ye
    arithmetic (expression.js, which hands the working out to a maths solver), in which the variable's other attributes can be used by name: x, y, mass, and the
    added ones. Added attributes belong to the variable: every reference to it has the same ones. */
 const attrsOf = b => (b.attrs ||= []);
+/* ---- number spaces: what a shape promises to hold (spaces.js) ----
+   A promise is the variable's, as its attributes are: it is kept on the list of them (attrs.holds), which every use
+   of the variable shares, so that every reference promises the same. "integer?", or nothing. */
+const holdsOf = b => attrsOf(b).holds || null;
+/* the row of the panel that says what a block holds: its promise, or what it is worked out as; and where a promise
+   is broken by a value or cannot be shown to be kept, the sentence (evaluate.js: promiseOf) */
+function holdsRow(b, key = 'holds', label = 'Holds'){
+  return steadily(() => { const g = graphNow(), holds = holdsOf(b), use = g.blocks[b.id]; let id = use, n = id && g.nodes[id]; if (n && n.op === 'transpose'){ id = n.inputs[0]; n = g.nodes[id]; }
+    /* the sentence names the entry as it is drawn on the use being looked at: a transposed use's columns are the variable's rows, and one turned through its inner axes has its own */
+    const here = note => note && use !== id ? seenFrom(g, use, { code: 'type', note, node: id }) : note;
+    if (!n || n.op === 'param') return { key, label, holds, inferred: n && !holds ? 'any?' : null, from: n ? 'whatever it is given' : '', note: null };
+    const binding = bindingOf([b], spaceWith(b)), p = promiseOf(g, id, { binding }), bare = n.defined === 'entries' && !Object.keys(n.entries).length;
+    /* where its numbers are the backend's, the backend holds them to the promise, and what it found is this row's to say */
+    const far = holds && p && p.state !== 'broken' ? [[use, binding], [use, null], [id, binding], [id, null]].find(([node, at]) => { const c = backend.broke(g, node, at); return c && c.node === id; }) : null;
+    if (far) return { key, label, holds, inferred: null, from: '', note: here(backend.problem(g, far[0], far[1])) };
+    return { key, label, holds, inferred: !p || bare ? null : p.inferred, from: bare ? '' : n.defined === 'entries' ? 'from its entries' : n.defined === 'seat' ? 'from the arrow' : n.defined === 'source' ? 'from its source' : 'from what defines it', note: p && p.note ? (p.state === 'broken' ? here(p.note) : p.note) : holds ? here(brokenInTile(b, g, id)) : null }; });
+}
+/* a block of a tile holds its promise in every cell, not the first alone: the tile's matrix is every cell worked
+   out, so where that has no value because this block breaks its promise in some cell, the sentence (which names
+   the cell) is this block's to show. The outermost tile's matrix, which has every cell of the tiles inside it. */
+function brokenInTile(b, g, id){
+  const s = spaceWith(b), t = s ? tileOf(b, s) : undefined; if (t === undefined) return null;
+  const top = [t, ...tilesAbove(s, t)].pop(), node = findIn(g).tiles.get('t:' + top)?.node, a = node ? workOut(g, node) : null;
+  return a && a.error && a.error.code === 'type' && a.error.node === id ? a.error.note : null;
+}
+/* and an arrow's two: what it takes is the promise of its function's in block, held against what the arrow gives it
+   (what it takes of its input, a run at a time where it is repeated in a tile: evaluate.js, judged);
+   what it gives is the promise of the block seated on its output. With no block seated there is nothing to hold
+   that promise, and the row says only what the output is worked out as. */
+function arrowHolds(a){
+  return steadily(() => { const g = graphNow(), s = spaceWith(a), e = findIn(g).arrows.get(a.id), out = e && e.node, n = out && g.nodes[out], inner = inOf(a), seat = seatOn(a, s);
+    const given = n ? (n.op === 'apply' || n.op === 'map' || n.op === 'mapalong' ? n.inputs[0] : out) : null, binding = n ? bindingOf(readBy(a, s), s, false, a) : null;
+    const runs = n && n.op === 'mapalong' ? { axis: n.axis, start: n.start, span: n.span, count: n.count } : null;      /* repeated in a tile: it takes its input a run at a time, and no more of it than its runs cover */
+    const took = given ? judged(g, given, inner ? holdsOf(inner) : null, 'in', { ...(binding ? { binding } : {}), ...(runs ? { runs } : {}) }) : null;
+    return [{ key: 'takes', label: 'Takes', holds: inner ? holdsOf(inner) : null, inferred: took ? took.inferred : null, from: took ? 'from its input' : '', note: took && took.note ? took.note : null, fixed: !inner },
+      seat ? holdsRow(seat, 'gives', 'Gives') : { key: 'gives', label: 'Gives', holds: null, inferred: n ? n.type.value || null : null, from: n ? 'from the arrow' : '', hint: n ? 'Seat a block on its output to promise what it gives' : null, note: null, fixed: true }]; });
+}
+/* the in block of an arrow's function: in its own definition space, or in that of the arrow its function is shared with */
+const inOf = a => { for (const k of [a, ...(kin.get(a) || [])]){ const def = spaceOf.get(k), inner = def && def.blocks.find(x => x.in); if (inner) return inner; } return null; };
 /* what an attribute comes to: a value of any kind, null where nothing is typed */
 const attrValue = (b, a) => working(originOf(b).id + ' a ' + a.name.trim().toLowerCase(), () => evaluate(a.text, lookupFor(b)).value ?? null);
 /* one measure of a variable as a value: its width or height (x, y) the variable's own way round, a scalar's mass
@@ -1103,6 +1159,8 @@ const properties = createProperties({ ...fields,
     const b = [...selected][0]; if (b) bus.send('rename', { id: b.id, name: text, color: isNamed(b) ? null : someColour() }); },
   onAdd: () => { const b = [...selected][0]; if (!b) return; properties.focus('a' + attrsOf(b).length + '.label'); bus.send('attr.add', { id: b.id }); },
   onLabel: (key, text) => { const b = [...selected][0]; if (b) bus.send('attr.set', { id: b.id, index: +key.slice(1), name: text }); },
+  /* a number space chosen in the panel: a block's own promise; of an arrow, its in block's (Takes) or its seated block's (Gives) */
+  onHolds: (key, holds) => { const b = [...selected][0], of = !b ? null : key === 'takes' ? inOf(b) : key === 'gives' ? seatOn(b) : b; if (of) bus.send('holds.set', { id: of.id, holds }); },
   onEntry: (key, text) => { const home = entryOfSelected(keyOpened(key)); if (home) bus.send('entry.set', { id: home[0].id, key: home[1], text: text === '' ? null : text }); },
   /* an entry that holds inner data, pressed: it is opened in the panel, one level down; the trail pressed goes back up, and dragged takes the entry out */
   onInto: (c, r) => { const b = [...selected][0]; if (!b) return; opened = { id: b.id, path: [...openPath(b), [c, r]] }; shown(); },
@@ -1194,25 +1252,26 @@ function paint(){
       shape: `tile: a ${r.cols} × ${r.rows} pattern, ${t.across} across × ${t.down} down` + (t.matrix.error ? '' : `. Its matrix is ${t.matrix.cols} wide × ${t.matrix.rows} tall`)
         + (up !== undefined && !t.over ? `. It is inside ${space.groupNames.get(up) || 'a tile'}'s pattern, and is repeated with it` : ''),
       attributes: [{ key: 'cols', label: 'pattern x', text: String(r.cols) }, { key: 'rows', label: 'pattern y', text: String(r.rows) }, row('across'), row('down')],
-      notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(t.over ? [cap(t.over) + '. It has no matrix while it lies so'] : read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : [])], matrix: null }); }
+      notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(t.over ? [cap(t.over) + '. It has no matrix while it lies so'] : read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : []),
+        ...(steadily(() => { const g = graphNow(), node = findIn(g).tiles.get('t:' + pickedTile)?.node, a = node ? workOut(g, node) : null; return a && a.error && a.error.code === 'type' ? ['Its matrix has no value: ' + a.error.note] : []; }) || [])], matrix: null }); }
   else if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), laidOut = o.asDrawn, wrong = [...(laidOut || [])].filter(([, v]) => isError(v));
     const data = t?.inner || [], path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path), says = t ? nesting.described(t.cols, t.rows, data) : null;      /* its output's entries are opened as a block's are */
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar: false, plain: true, fixed: true,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
-      shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn),
+      shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn), spaces: arrowHolds(one), words: SPACES, reserved: Object.keys(RESERVED),
       notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
-      matrix: t ? { letter: initials((seat || one).name), values: path.length ? nesting.opened(laidOut || new Map(), path, data.length) : laidOut || new Map(), ...(path.length ? {} : { colsName: t.colsName, rowsName: t.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } : null }); }
+      matrix: t ? { letter: initials((seat || one).name), values: once(path.length ? nesting.opened(laidOut || new Map(), path, data.length) : laidOut || new Map(), laidOut, o.note ? cap(o.note) : null), ...(path.length ? {} : { colsName: t.colsName, rowsName: t.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit), data = dataOf(one), path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path);      /* at: what the panel shows: the shape, or the entry of it that is opened */
     const all = laidOf(one), values = path.length ? nesting.opened(all, path, data.length) : all, scalar = cols === 1 && rows === 1 && !one.members && !data.length, wrong = scalar ? [] : [...all].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
     const says = nesting.described(cols, rows, data), sized = `${cols} wide × ${rows} tall` + (says ? ` · ${says}` : '');      /* what it is, and never a count of dimensions */
     const kind = sourceKind(one.source), node = steadily(() => graphNow().blocks[one.id]), quiet = node ? steadily(() => unshown(node, bindingOf([one], spaceWith(one)), 'b ' + one.id)) : null;
-    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar, attributes: attributesOf(one), fixed: !!one.source,
+    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar, attributes: attributesOf(one), spaces: [holdsRow(one)], words: SPACES, reserved: Object.keys(RESERVED), fixed: !!one.source,
       shape: one.source ? `${[...SOURCES, ...DATA].find(s => s.kind === kind).label.toLowerCase()}${kind === 'file' ? ' (' + (one.source.file || 'no file chosen') + ')' : ''}: ${sized}` : data.length ? sized : undefined,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
       notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
-      matrix: { letter: initials(one.name), values, transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
+      matrix: { letter: initials(one.name), values: once(values, all, quiet), transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
   else measure?.el.remove();
@@ -1345,6 +1404,7 @@ function foldable(list){
   return { blocks: list, box, type: type && !type.error ? type : { cols: box.w / u, rows: box.h / u, colsName: null, rowsName: null } };
 }
 function fold({ blocks: inside, type, box }, name, color = someColour()){
+  if (unnameable(name)) return shown();
   const u = view.unit, fixed = fixedIn(inside, 'folded away');
   if (fixed){ hud.say(fixed); return shown(); }
   const made = makeBlock({ ...typeNamed('tensor'), color },
@@ -1381,7 +1441,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
 const picture = (b, s, goes = null) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
-  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, inner: dataOf(b).map(a => ({ ...a })), attrs: attrsOf(b).map(a => ({ ...a })), values: orderOf(b) ? [...reordered(b.values, orderOf(b))] : measures(b) || indexedOf(b) || takenOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
+  seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, inner: dataOf(b).map(a => ({ ...a })), attrs: attrsOf(b).map(a => ({ ...a })), holds: holdsOf(b), values: orderOf(b) ? [...reordered(b.values, orderOf(b))] : measures(b) || indexedOf(b) || takenOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
   groups: chain(b, s).filter(g => !goes || goes(g)).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
  
   inside: spaceOf.has(b) ? spaceOf.get(b).blocks.map(o => picture(o, spaceOf.get(b))) : null,
@@ -1404,7 +1464,7 @@ function develop(pictures, s, dx, dy){
     const r = { ...pic.rect, x: pic.rect.x + dx, y: pic.rect.y + dy };
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
-    const b = pic.arrow ? makeArrow(name) : makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.inner = nesting.kept(pic.inner); b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); if (pic.source) b.source = pic.source; b.turn(pic.t); if (pic.standing && s !== space) b.standing = true;
+    const b = pic.arrow ? makeArrow(name) : makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.inner = nesting.kept(pic.inner); b.attrs = (pic.attrs || []).map(a => ({ ...a })); if (pic.holds) b.attrs.holds = pic.holds; b.values = new Map(pic.values); if (pic.source) b.source = pic.source; b.turn(pic.t); if (pic.standing && s !== space) b.standing = true;
     if (pic.arrow){ const { formula, ...geo } = pic.arrow; b.set(r); b.arrow = { ...geo, input: { ...geo.input }, output: geo.output ? { ...geo.output } : null }; b.fn = { formula }; if (pic.use) b.ref = true; }
     if (pic.seat) b.seat = typeof pic.seat === 'string' ? pic.seat : { hollow: [...pic.seat.hollow] };
     if (pic.in && s.owner && isArrow(s.owner) && !s.blocks.some(k => k.in)) b.in = true;      /* a function's input, copied with its function */
@@ -1429,7 +1489,7 @@ function develop(pictures, s, dx, dy){
 }
 /* a block made from a picture but put in no space: one of those a joined shape was joined from */
 function hidden(pic, s){
-  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.inner = nesting.kept(pic.inner); b.attrs = (pic.attrs || []).map(a => ({ ...a })); b.values = new Map(pic.values); if (pic.source) b.source = pic.source; b.turn(pic.t);
+  const b = makeBlock(pic.shape, { ...pic.rect }, pic.name); b.sides = { ...pic.sides }; b.inner = nesting.kept(pic.inner); b.attrs = (pic.attrs || []).map(a => ({ ...a })); if (pic.holds) b.attrs.holds = pic.holds; b.values = new Map(pic.values); if (pic.source) b.source = pic.source; b.turn(pic.t);
   if (pic.members) b.members = pic.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, block: hidden(m.pic, s) }));
   if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
   return b;
@@ -1597,8 +1657,29 @@ function fuse(){
   const made = makeBlock({ ...typeNamed('tensor') }, box, freeName());
   made.members = list.map(b => ({ block: b, fx: (b.rect.x - box.x) / box.w, fy: (b.rect.y - box.y) / box.h, fw: b.rect.w / box.w, fh: b.rect.h / box.h }));
   space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
+  /* a promise is shown and taken off on a shape's own panel, and a fused shape's members have none: a member's
+     promise would live on unseen, and break the fused shape under a name that is no longer on the canvas. So it is
+     taken off, and said; the fused shape is promised like any shape. (One whose variable has another use still in
+     a space keeps it: it is that use's to show.) Undo puts everything back as it was. */
+  const let_go = unpromised();
   tidy(); select([made]);
+  if (let_go.length) hud.say(`${let_go.join(', ')} ${let_go.length === 1 ? 'promises' : 'promise'} nothing now: a fused shape holds what its shapes hold together, and is promised on its own`);
 }
+/* No promise lives where it cannot be seen. A promise is its variable's, shown and taken off on the panel of a use
+   of it that lies in a space. Where no use does any more, though the variable is kept (its shapes are fused into
+   another, or a cut or an intersection has taken them off the canvas and keeps them), the promise is taken off:
+   it would break what is made of the shape under a name that is nowhere to be seen, at a place that is not the
+   made shape's. Gives the names of the variables that let theirs go, for whoever did it to say. Undo puts each
+   back; Revert gives the shapes back without it.
+   (The other ways a shape leaves the canvas leave it in a space, where it is selected and its panel shows the
+   promise: a folded selection lies in the definition space, a seated block on its arrow's output, where the
+   arrow's Gives row is its promise, and a standing shape in its entry.) */
+function unpromised(){
+  const seen = new Set(everyBlock()), names = [];
+  for (const b of everyKnown()) if (holdsOf(b) && ![...kinOf(b)].some(k => seen.has(k))){ delete attrsOf(b).holds; names.push(bare(originOf(b).name)); }
+  return [...new Set(names)];
+}
+const UNSEEN = names => `${names.join(', ')} ${names.length === 1 ? 'promises' : 'promise'} nothing now: ${names.length === 1 ? 'it is' : 'they are'} kept off the canvas, where a promise can be neither seen nor taken off. A shape made of ${names.length === 1 ? 'it' : 'them'} is promised on its own`;
 /* puts the kept blocks of operations back among the blocks of s where each was: at its old place in the order (so
    what was drawn over what still is) and in the frames it was in, a frame that has gone since being made again */
 function putBack(s, pairs){
@@ -1624,7 +1705,10 @@ function operate(op, sources, parts){
     for (const [dim, side] of [['w', 'cols'], ['h', 'rows']]) if (wholeSide(b.from.range, side) && src.sides[dim]) b.sides[dim] = src.sides[dim];      /* a whole side keeps its name */
     space.blocks.push(b); view.world.append(b.el); if (held !== undefined) space.groupOf.set(b, held);
     made.push(b); record.results.push(b.id); }
-  space.ops.push(record); tidy(); select(made);
+  space.ops.push(record);
+  const let_go = unpromised();      /* a source's promise does not live on where it cannot be seen */
+  tidy(); select(made);
+  if (let_go.length) hud.say(UNSEEN(let_go));
 }
 /* puts back the shapes these fused shapes were fused from, where they now fall in each and at the size they now are there; gives them */
 function unfuse(list){
@@ -1704,6 +1788,8 @@ function discard(blocks){
     for (const b of o.sources) if (going.has(b)) forget(b); }
   for (const s of dirty) tidy(s);
   pruneOps();                                  /* a cut whose shapes have all gone is gone too */
+  const let_go = unpromised();                 /* the last use in a space of a variable a cut still keeps has gone: so has its promise */
+  if (let_go.length) hud.say(UNSEEN(let_go));
 }
 /* ---- references ----
    What comes out of the list is never a copy. A shape from the list is a reference to its variable: the same entries,
@@ -2294,6 +2380,7 @@ function addArrow({ input, side, start = 1, span = 1, gap = 2, of = null, builti
 }
 function setArrow({ id, ...patch }){
   const a = blockOf(id); if (!a || !isArrow(a)) return;
+  if ('gapName' in patch && unnameable(patch.gapName)) return shown();
   const input = sized(inputOf(a)), n = side => input ? (along(side) === 'rows' ? input.rows : input.cols) : null, geo = {};
   for (const k of ['side', 'start', 'span', 'gap', 'output']) if (k in patch) geo[k] = patch[k];
   if (a.arrow.input.as === 'tile' && tiles.spanned(a.arrow, geo).refused){ hud.say(tiles.spanned(a.arrow, geo).refused); return shown(); }
@@ -2389,7 +2476,7 @@ function arrowTyped(a, key, text){
   if (key === 'output'){ const m = t.match(/^(\d+)\s*(?:[x×*,]|by)\s*(\d+)$/i);
     if (t && !m){ hud.say('An output size is written columns × rows, or left empty for no promise'); return shown(); }
     return bus.send('arrow.set', { id: a.id, output: m ? { cols: +m[1], rows: +m[2] } : null }); }
-  const got = readTyped(a, t), n = got.refused ? got : isWhole(got.value) && got.value >= 1 ? { length: got.value } : { refused: `it is a whole number, at least 1, and that comes to ${isError(got.value) ? 'an error (' + got.value.err + ')' : got.value === null ? 'nothing yet' : valueText(got.value)}` };
+  const got = readTyped(a, t), n = got.refused ? got : isInteger(got.value) && got.value >= 1 ? { length: got.value } : { refused: `it is a whole number, at least 1, and that comes to ${isError(got.value) ? 'an error (' + got.value.err + ')' : got.value === null ? 'nothing yet' : valueText(got.value)}` };
   if (n.refused){ hud.say(`${key[0].toUpperCase() + key.slice(1)}: ${n.refused}`); return shown(); }
   bus.send('arrow.set', { id: a.id, [key]: n.length });
 }
@@ -2412,7 +2499,7 @@ function gather(light = false){      /* light: each block's entries as their sta
   const written = new Set(), once = s => !written.has(s) && !!written.add(s);
   const one = b => ({ id: b.id, type: b.shape.name || 'tensor', name: b.name, color: b.shape.color, x: b.rect.x / u, y: b.rect.y / u, cols: b.rect.w / u, rows: b.rect.h / u,
     colsName: b.sides.w, rowsName: b.sides.h, inner: dataOf(b).length ? dataOf(b).map(a => ({ length: a.length, name: a.name || null })) : null, entries: b.members || b.source ? {} : light === true ? { stamp: stampOf(b.values) } : light === 'kept' ? entriesOut(b.values) : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
-    ...(orderOf(b) ? { axes: [...b.axes] } : {}), standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), reference: !!b.ref, from: fromOf(b.from),
+    ...(orderOf(b) ? { axes: [...b.axes] } : {}), standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), ...(holdsOf(b) ? { holds: holdsOf(b) } : {}), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
     arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
     seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in,
@@ -2494,7 +2581,7 @@ function rebuild(data){
     if (d.arrow){ const { formula, ...use } = d.arrow; b.arrow = { ...use, input: { ...use.input }, output: use.output ? { ...use.output } : null }; b.fn = { formula: formula || null }; }
     if (d.seat) b.seat = typeof d.seat === 'string' ? d.seat : { hollow: [...d.seat.hollow] };
     if (d.in) b.in = true;
-    b.sides = { w: d.colsName, h: d.rowsName }; b.inner = d.arrow ? [] : nesting.kept(d.inner); b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (sourceKept(d.source)) b.source = sourceKept(d.source); if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); b.turn(d.transposed); if (Array.isArray(d.axes) && d.reference) b.axes = [...d.axes]; b.id = d.id || ids.id('b');      /* the id it was saved with */
+    b.sides = { w: d.colsName, h: d.rowsName }; b.inner = d.arrow ? [] : nesting.kept(d.inner); b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (sourceKept(d.source)) b.source = sourceKept(d.source); if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); if (d.holds) b.attrs.holds = d.holds; b.turn(d.transposed); if (Array.isArray(d.axes) && d.reference) b.axes = [...d.axes]; b.id = d.id || ids.id('b');      /* the id it was saved with */
     if (d.joined) b.members = d.joined.map(j => ({ fx: j.fx, fy: j.fy, fw: j.fw, fh: j.fh, block: build(j.shape, s) }));
     const first = d.variable != null && uses.get(d.variable)?.[0];
     if (d.variable != null) uses.set(d.variable, [...(uses.get(d.variable) || []), b]);
@@ -2567,6 +2654,8 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
     + (data.changed ? `. ${data.changed === 1 ? '1 piece reads' : data.changed + ' pieces read'} differently now: shapes that meet at a corner, or stand under one in a product, touch` : '')
     /* a use that the files drew at another size than its variable's: project.js has set it to its variable's, and says which (no page saves one) */
+    /* a promise that could not be kept as the files wrote it (no number space, or written where no promise is kept): project.js has dropped it, and says which */
+    + (data.unheld && data.unheld.length ? `. ${data.unheld.slice(0, 3).map(u => `${bare(u.name)}'s promise "${u.holds}" is not kept: ${u.why}`).join('; ')}${data.unheld.length > 3 ? `; and ${data.unheld.length - 3} more` : ''}` : '')
     + (data.resized && data.resized.length ? `. ${data.resized.slice(0, 3).map(r => `${bare(r.name)} was drawn ${r.was.cols} × ${r.was.rows} and its variable is ${r.cols} × ${r.rows}`).join('; ')}${data.resized.length > 3 ? `; and ${data.resized.length - 3} more` : ''}: every use of a variable is its size, so ${data.resized.length === 1 ? 'it has' : 'they have'} been set to it` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
@@ -2863,7 +2952,7 @@ bus.on('source.set', ({ id, seed, dist, file, cols, rows }) => { const b = block
   if (kind === 'file' && Number.isInteger(cols) && Number.isInteger(rows) && cols >= 1 && rows >= 1){ const u = view.unit, o = originOf(b), over = turned(o);
     o.set({ ...o.rect, w: (over ? rows : cols) * u, h: (over ? cols : rows) * u }); agree(o); hud.say(`${bare(b.name)} reads ${next.file}: ${cols} wide × ${rows} tall`); }
   shown(); }, changes);
-bus.on('add', ({ type, rect, name, source = null }) => { const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
+bus.on('add', ({ type, rect, name, source = null }) => { if (unnameable(name)) return shown(); const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 /* place { rects, axes }: where blocks go, and how big: the end of a move or a resize. axes, where a side that was
    pulled carries the name of an inner axis: [{ id, index, length }], that axis of that block's variable at its new
    length. Every length the gesture changed is in the message, so that a step back puts every one of them back.
@@ -2882,11 +2971,12 @@ bus.on('cut', going(cut), changes); bus.on('delete', going(remove), changes);
 bus.on('transpose', chosen(transpose), changes);
 /* the boolean tool: the new blocks' ids are made in the handler, from the project's own source, so the same message makes the same ids again */
 bus.on('difference', chosen(differenceOf), changes); bus.on('intersect', chosen(intersectOf), changes); bus.on('revert', going(revert), changes);
-bus.on('paste', ({ at, pasted }) => paste(at, pasted), changes);
+bus.on('paste', ({ at, pasted }) => { if (unnameable(...namesOf(pasted))) return shown(); paste(at, pasted); }, changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return;
   if (b.in){ hud.say('in is the function\'s input: that is its name'); b.call('in'); return shown(); }
+  if (unnameable(name)) return shown();
   /* an arrow keeps the function colour whatever it is called. A use of a function by name, given another name, is an arrow of its own from then on, with the formula it had */
   if (isUse(b) && bare(name).trim() !== bare(b.name).trim()){ b.fn = { formula: fnOf(b).formula }; b.ref = false; }
   b.call(name); renamed(b, isArrow(b) ? null : color); }, changes);
@@ -2954,8 +3044,16 @@ bus.on('entry.set', ({ id, key, text = null, settle = false }) => { const o = bl
     else { if (got.clear) o.values.delete(key); else o.values.set(key, got.value); touched(o.values);
       keepTouching(() => { for (const k of kinOf(o)) agree(k); }); } }      /* a single entry's number is its sides' length: whatever shares their names follows */
   write(); shown(); }, changes);
+/* holds.set { id, holds }: what a block's variable promises to hold: a number space as it is written, "integer?", or
+   null for no promise. A word that is no space is refused, with why (complex is reserved, and not built). */
+bus.on('holds.set', ({ id, holds = null }) => { const b = blockOf(id); if (!b) return;
+  if (isArrow(b)){ hud.say('An arrow holds nothing: what it takes is its in block\'s to promise, and what it gives the block\'s seated on its output'); return shown(); }
+  const got = holds === null || holds === '' ? { holds: null } : promiseRead(holds);
+  if (got.refused){ hud.say(`Not kept: ${got.refused}`); return shown(); }
+  if (got.holds) attrsOf(b).holds = got.holds; else delete attrsOf(b).holds;
+  write(); shown(); }, changes);
 bus.on('attr.add', ({ id }) => { const b = blockOf(id); if (b){ const list = attrsOf(b); let n = list.length + 1; while (list.some(a => a.name === 'attribute' + n)) n++; list.push({ name: 'attribute' + n, text: '' }); } shown(); }, changes);
-bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b && attrsOf(b)[index]; if (a){ if (name !== undefined) a.name = name;
+bus.on('attr.set', ({ id, index, name, text }) => { const b = blockOf(id), a = b && attrsOf(b)[index]; if (a && unnameable(name)) return shown(); if (a){ if (name !== undefined) a.name = name;
     if (text !== undefined){ const t = bound(text, reachList()); if (t.refused) hud.say(`Not kept: ${t.refused}`); else a.text = t.text; }      /* a name typed out after an @ is bound to its capsule */
     if (!a.name.trim() && !a.text.trim()) attrsOf(b).splice(index, 1); }      /* with neither a name nor a value, it is gone */
   shown(); }, changes);
@@ -2976,6 +3074,7 @@ bus.on('inner.count', ({ id, count }) => { const b = blockOf(id), o = b && origi
   write(); shown(); }, changes);
 bus.on('inner.set', ({ id, index, length, name }) => { const b = blockOf(id), a = b && axesOf(b)[index];
   if (!a){ if (b) hud.say(`${bare(b.name)} has no such axis of its own to change`); return shown(); }
+  if (unnameable(name)) return shown();
   keepTouching(() => {
     if (length !== undefined){ const can = nesting.lengthOk(length); if (can.refused){ hud.say(can.refused); return; } a.length = length; }
     if (name !== undefined){ const called = String(name).trim();
@@ -3059,7 +3158,7 @@ bus.on('fold', ({ ids, name, color, product = false }) => { const list = ids.map
 bus.on('use', ({ id, at, transposed = false }) => { const v = blockOf(id); if (v) useShape(v, at, transposed); }, changes);
 bus.on('slot', ({ into, id, cx, cy }) => { const a = blockOf(into), v = blockOf(id); if (a && v) slotIn(a, v, cx, cy); }, changes);
 bus.on('summon', ({ name, key, group: all, at }) => { summon({ name, key, group: all }, at); shown(); }, changes);
-bus.on('length.add', ({ name, units, at, of = null, side = null }) => { const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
+bus.on('length.add', ({ name, units, at, of = null, side = null }) => { if (unnameable(name)) return shown(); const u = view.unit, on = v => Math.round(v / u) * u;      /* a named length set down on the canvas: a single entry of that name, holding the length */
   const src = of ? blockOf(of) : null;      /* from the list: not a copy of the length but the length itself, the source's colour and always what the source's side is */
   const b = makeBlock({ ...typeNamed('tensor'), color: src ? src.shape.color : someColour() }, { x: on(at.x - u / 2), y: on(at.y - u / 2), w: u, h: u }, name);
   if (src){ b.from = { id: src.id, side: side === 'y' || side === 'm' ? side : 'x' }; b.ref = true; } else { b.values.set('1,1', units); touched(b.values); }

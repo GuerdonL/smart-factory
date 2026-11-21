@@ -13,7 +13,7 @@ map's and a mapalong's formula, an attribute's. From what binds loosest to what 
     a ^ b                     a power, right to left
     √a  ∜a                    a square or fourth root of the number, name or bracket that follows
     numbers, brackets, names, and select(c, a, b), max(a, b), min(a, b), abs(a), sqrt(a), exp(a), ln(a), tanh(a),
-    erf(a), inf, infinity, ∞, true, false
+    erf(a), inf, infinity, ∞, true, false, and none or ∅: None (values.js), which evaluate asks ops.nothing() for
 
 A name is a letter or _ and then letters, digits, _ and dots (index.x), or $ and digits ($1: an input of the node).
 What a name stands for is the caller's to say. A capsule (@[…]) is refused: a graph's formula holds none.
@@ -30,7 +30,9 @@ the tree is walked with a list of its own, so a long sum is no deeper than a sho
                                    of the entry: INNER), or (arrow) x, i or j
     axis_of(name)               -> 'x' | 'y' for index.x and index.y, else None
     evaluate(tree, leaf, ops)   -> what it comes to. leaf(name) gives a name's value; ops does the arithmetic:
-                                   ops.number(float), ops.binary(op, a, b) for + - * / ^ == != < > <= >= && ||,
+                                   ops.number(float), ops.binary(op, a, b) for + - * / ^ == != < > <= >= && ||
+                                   (and, where ops has it, ops.step(op, a, b, (a is a step of it, b is)) for
+                                   + - and *, each a step of a sum or a product of several terms: arrays.py),
                                    ops.call(fn, [args]) for neg ! select max min abs sqrt exp ln tanh erf, and
                                    ops.root(a, p, q) for a to the power p/q where the exponent is written in the
                                    formula as a fraction with an odd number under the line ((0-8)^(1/3), x^0.2):
@@ -42,7 +44,8 @@ the tree is walked with a list of its own, so a long sum is no deeper than a sho
                                    solver writes it: the same grammar, with log for ln and the names e and pi
     SYMBOLIC                    -> { 'e': …, 'pi': … }
 
-A tree is ('num', float, Fraction | None) | ('name', text) | ('op', sign, a, b) | ('fn', name, [trees])."""
+A tree is ('num', float, Fraction | None) | ('name', text) | ('op', sign, a, b) | ('fn', name, [trees]). A number
+typed with more than 40 characters has no Fraction and is ('num', float, None, True): spaces.py tells it so from ∞."""
 import math
 import re
 from fractions import Fraction
@@ -55,7 +58,8 @@ class Wrong(ValueError):
 
 
 ARITY = {'select': 3, 'max': 2, 'min': 2, 'abs': 1, 'sqrt': 1, 'exp': 1, 'ln': 1, 'tanh': 1, 'erf': 1}
-CONSTANT = {'inf': math.inf, 'infinity': math.inf, 'true': 1.0, 'false': 0.0}
+NOTHING = object()      # what the word none stands for, until ops makes a value of it
+CONSTANT = {'inf': math.inf, 'infinity': math.inf, 'true': 1.0, 'false': 0.0, 'none': NOTHING}
 SYMBOLIC = {'e': math.e, 'pi': math.pi}
 SIGN = {'×': '*', '·': '*', '∙': '*', '÷': '/', '−': '-', '–': '-', '≠': '!=', '≤': '<=', '≥': '>='}
 SPACE = set('\t\n\v\f\r                  　﻿​')
@@ -66,11 +70,11 @@ DOLLAR = re.compile(r'\$([1-9]\d*)', re.ASCII)
 AXIS = re.compile(r'index\.(x|y)')
 INNER = re.compile(r'[kK]([1-6])')      # k1 to k6: the inner position of the entry being worked out (graph.js: INNER)
 TWO = ('==', '!=', '<=', '>=', '&&', '||')
-ONE = set('+-*/^(),<>!√∜∞')
+ONE = set('+-*/^(),<>!√∜∞∅')
 UNREAD = 'that cannot be read as arithmetic'
 # what binds how tightly, loosest first; all of them group from the left
 LEVEL = {'||': 1, '&&': 2, '==': 3, '!=': 3, '<': 3, '>': 3, '<=': 3, '>=': 3, '+': 4, '-': 4, '*': 5, '/': 5}
-STARTS = ('name', '(', '√', '∜', '∞')      # what, set straight against a number or a bracket, multiplies it
+STARTS = ('name', '(', '√', '∜', '∞', '∅')      # what, set straight against a number or a bracket, multiplies it
 
 
 def tokens(text):
@@ -87,7 +91,7 @@ def tokens(text):
             raise Wrong('a capsule, which a formula of the graph does not hold')
         m = NUMBER.match(text, i)
         if m:
-            out.append(('num', (float(m.group()), Fraction(m.group()) if len(m.group()) <= 40 else None)))      # as a float, and exactly as it was typed (0.2 is 1/5)
+            out.append(('num', (float(m.group()), Fraction(m.group()) if len(m.group()) <= 40 else None, len(m.group()) > 40)))      # as a float, exactly as it was typed (0.2 is 1/5), and whether it is typed long
             i = m.end()
             continue
         m = NAME.match(text, i)
@@ -139,9 +143,11 @@ def _parse(text, arity):
         t, v = ts[at[0]]
         at[0] += 1
         if t == 'num':
-            return ('num', v[0], v[1])
+            return ('num', v[0], v[1], True) if v[2] else ('num', v[0], v[1])
         if t == '∞':
             return ('num', math.inf, None)
+        if t == '∅':
+            return ('name', 'none')
         if t == '(':
             deeper()
             e = binary(1)
@@ -277,7 +283,7 @@ def formula_ok(text, most, arrow=False, empty=False):
     for name in names:
         m = DOLLAR.fullmatch(name)
         if m:
-            if int(m.group(1)) > most:
+            if len(m.group(1)) > 9 or int(m.group(1)) > most:      # (never more digits made a number than a graph can have inputs: Python reads no more than 4,300)
                 return False
         elif axis_of(name) is None and not INNER.fullmatch(name) and not (arrow and name.lower() in ('x', 'i', 'j')):
             return False
@@ -327,6 +333,12 @@ def odd_root(tree):
     return (r.numerator, r.denominator) if r is not None and r.denominator != 1 and r.denominator % 2 == 1 else None
 
 
+def family(node):
+    """'+' for a sum or a difference, '*' for a product, None for anything else: a run of one family, brackets and
+    all, is one sum or one product, whose terms are looked at together whatever their order."""
+    return ('+' if node[1] in ('+', '-') else '*' if node[1] == '*' else None) if node[0] == 'op' else None
+
+
 def evaluate(tree, leaf, ops):
     out, todo = [], [(tree, False)]
     while todo:
@@ -336,7 +348,7 @@ def evaluate(tree, leaf, ops):
             out.append(ops.number(node[1]))
         elif kind == 'name':
             fixed = CONSTANT.get(node[1].lower())
-            out.append(ops.number(fixed) if fixed is not None else leaf(node[1]))
+            out.append(ops.nothing() if fixed is NOTHING else ops.number(fixed) if fixed is not None else leaf(node[1]))
         elif not ready:
             todo.append((node, True))
             for child in reversed((node[2], node[3]) if kind == 'op' else node[2]):
@@ -345,7 +357,11 @@ def evaluate(tree, leaf, ops):
             b = out.pop()
             a = out.pop()
             odd = odd_root(node[3]) if node[1] == '^' else None      # read off the formula as it is written, never off a float
-            out.append(ops.root(a, odd[0], odd[1]) if odd else ops.binary(node[1], a, b))
+            of = family(node)
+            if of and hasattr(ops, 'step'):      # a + b + c, a * b * c: one sum, one product, its terms looked at together (expression.js); a pair on its own is a sum of two
+                out.append(ops.step(node[1], a, b, (family(node[2]) == of, family(node[3]) == of)))
+            else:
+                out.append(ops.root(a, odd[0], odd[1]) if odd else ops.binary(node[1], a, b))
         else:
             n = len(node[2])
             args = out[len(out) - n:]

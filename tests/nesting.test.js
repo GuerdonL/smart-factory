@@ -38,7 +38,7 @@ test('raising the count adds axes of length 1 at the end and keeps every number;
 test('an axis\'s row is typed as a side is: a length, a name, both, or - to take the name off', () => {
   assert.deepEqual(inner.axisTyped('4'), { name: undefined, length: 4 }); assert.deepEqual(inner.axisTyped('embed'), { name: 'embed', length: undefined });
   assert.deepEqual(inner.axisTyped('embed 4'), { name: 'embed', length: 4 }); assert.deepEqual(inner.axisTyped('-'), { name: null, length: undefined }); assert.deepEqual(inner.axisTyped('d2'), { name: 'd2', length: undefined });
-  for (const text of ['2.5', '0', 'embed 0', '']) assert.ok(inner.axisTyped(text).refused, text);
+  for (const text of ['2.5', '0', 'embed 0', '', 'none', '∅', 'None']) assert.ok(inner.axisTyped(text).refused, text);
 });
 test('the panel says what the shape is and never counts dimensions; the measurement and the bracket give the sizes', () => {
   assert.equal(inner.described(3, 1, [ax(2, 'key'), ax(4, 'embed')]), 'vector of 2 × 4 matrices');

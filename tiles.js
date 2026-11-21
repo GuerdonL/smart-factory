@@ -228,7 +228,7 @@
                                     of all running past the input is the warning.
    startIn(arrow, k)             -> the arrow's start in cell k, from 1 */
 import { evaluate, entered, refs } from './expression.js';
-import { isWhole, isError, valueText, nested } from './algebra.js';
+import { isInteger, isError, valueText, nested } from './algebra.js';
 
 export const LIMIT = 64, DEPTH = 8;
 export const NO_INDEX = { err: 'not in a tile: there is no index' };
@@ -248,7 +248,7 @@ export function circular(tile, reads, next){
   while (todo.length){ const id = todo.pop(); if (id === tile) return true; if (seen.has(id)) continue; seen.add(id); todo.push(...next(id)); }
   return false;
 }
-const WORDS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf', 'inf', 'infinity', 'true', 'false']);
+const WORDS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf', 'inf', 'infinity', 'true', 'false', 'none']);
 const NOT_SETTLED = 'a count comes from what is settled before anything is worked out: a width, a height, or the mass of a scalar that holds a number or a formula of those; not ';
 export function settled(text, entryOf = () => undefined, depth = 0, inner = false){
   if (depth > 16) return { refused: NOT_SETTLED + 'a mass that depends on itself' };
@@ -270,7 +270,7 @@ export function count(stored, lookup = () => undefined, { loops = false, entryOf
   const from = settled(stored.expr, entryOf); if (from.refused) return from;
   const got = evaluate(stored.expr, lookup);
   if (got.empty) return { refused: 'nothing was typed' };
-  return whole1(got.value) && isWhole(got.value) ? { count: got.value, formula: true } : { refused: NOT(got.value) };
+  return whole1(got.value) && isInteger(got.value) ? { count: got.value, formula: true } : { refused: NOT(got.value) };
 }
 export function typed(text, lookup = () => undefined, options = {}){
   const got = entered(text, lookup, { settle: true });

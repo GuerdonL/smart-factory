@@ -29,7 +29,8 @@
    level(f)                   -> how light a decimal's square is, from 0 (black) to 1 (white): f itself, held to
                                  that range. What has no number (NaN) is 0.
    fromBackend(v)             -> a value in the backend's answer as a value here: a number as { f }, "inf" and
-                                 "-inf" as { f: ±Infinity }, { err } as that error; anything else is unknown (null)
+                                 "-inf" as { f: ±Infinity }, { err } as that error, { none: true } as None; anything
+                                 else is unknown (null)
    functional(v)              -> whether a value is symbolic and holds exp, ln, tanh or erf (as the solver writes
                                  them: e^2, e, log(2), tanh(1), erf(1)): the only exact values a decimal is shown for
    wanted(answer)             -> whether the backend is asked for an evaluator's answer (evaluate.js): one that is
@@ -81,7 +82,7 @@ export function drawn(type){
 }
 export const level = f => !(f > 0) ? 0 : f >= 1 ? 1 : f;
 export const fromBackend = v => typeof v === 'number' && Number.isFinite(v) ? { f: v } : v === 'inf' ? { f: Infinity } : v === '-inf' ? { f: -Infinity }
-  : v && typeof v === 'object' && typeof v.err === 'string' ? { err: v.err } : null;
+  : v && typeof v === 'object' && typeof v.err === 'string' ? { err: v.err } : v && typeof v === 'object' && v.none === true ? { none: true } : null;      /* an entry the backend says is None is None: written ∅, and no decimal */
 /* exp, ln, tanh and erf as the solver writes them: a call of exp, log, ln, tanh or erf, or the number e standing alone or raised (e^2) */
 const FUNCTION = /(^|[^\w.])(?:(?:exp|log|ln|tanh|erf)\(|e(?![\w.(]))/;
 export const functional = v => !!v && typeof v === 'object' && typeof v.sym === 'string' && FUNCTION.test(v.sym);

@@ -1,7 +1,7 @@
 /* The properties of what is selected: a small panel that comes up in the corner while one shape is selected, with
    every attribute of the variable together, each of them editable.
 
-   createProperties({ onName(text), onValue(key, text), onLabel(key, text), onAdd(), onAction(key), onEntry(key, text), textOf(key), onInto(c, r), onUp(), onTake(x, y), onTurn(from, to), look, reach, onOpen, onClose }) -> { el, show(what), focus(k) }
+   createProperties({ onName(text), onValue(key, text), onLabel(key, text), onAdd(), onAction(key), onEntry(key, text), textOf(key), onInto(c, r), onUp(), onTake(x, y), onTurn(from, to), onHolds(key, holds), look, reach, onOpen, onClose }) -> { el, show(what), focus(k) }
      show   takes what to put up, or null to take the panel down:
               { id, name, color, cols, rows, scalar, matrix, attributes, notes, shape, plain, fixed }
               id           whatever tells one shape from another: the panel is kept as it is while this stays the same
@@ -19,6 +19,20 @@
                              result  what the formula comes to, written after it ("= 12"); null for none
                              error   why it has no value, written in its place in the warning colour
                              matrices   the field takes a whole matrix (an arrow's entry formula)
+              spaces       [{ key, label, holds, inferred, from, note, fixed }], a row each after the attributes: the
+                           number space the shape holds ("Holds"; of an arrow, what it "Takes" and "Gives").
+                             holds     what it promises, "integer?" (spaces.js), or null: then inferred is written
+                                       in its place, greyed, with from after it: "integer (from its entries)"
+                             note      where the promise is not met, or cannot be shown to be: the sentence, in
+                                       the warning colour, the promise's word in that colour too
+                             fixed     the row can only be read (there is no block to hold the promise)
+                             hint      a sentence written after the list: what to do to promise it
+                           A row is a list of the ten words and None, the space of None alone (the first choice is no promise), and an "or None" box,
+                           which is ticked only where the promise admits None: with no promise it is unticked, whatever is inferred;
+                           a choice is handed on as onHolds(key, "integer?"), and no promise as onHolds(key, null).
+                           words: the ten, in order. reserved: words kept back for what is not built
+                           (complex), listed after them as "complex (not built)"; choosing one is handed on like
+                           any other, for whoever is told to refuse with its sentence.
               matrix       what createMatrix takes, less its cell: the value (null: none is drawn). A long side is cut short there, to its
                            first three entries, dots, and its last. Click an entry to type a value over it: the
                            field opens holding textOf("c,r"), what the entry holds as it would be typed, and what
@@ -67,8 +81,14 @@ style('properties', `
 .properties [contenteditable="true"]:focus { background: var(--bg); box-shadow: 0 0 0 2px var(--select-halo); }
 .properties-rows .typed:empty::before { content: "–"; color: var(--muted); }
 .properties-notes { color: var(--warn); font: 12px/1.35 var(--font-ui); }
+.properties-rows .space { font: inherit; color: inherit; background: none; border: 1px solid var(--line); border-radius: 4px; padding: 0 2px; max-width: 100%; }
+.properties-rows .space.inferred { color: var(--muted); }
+.properties-rows .space.unmet { color: var(--warn); }
+.properties-rows .space-none { display: inline-flex; align-items: baseline; gap: 3px; color: var(--muted); white-space: nowrap; font-family: var(--font-ui); font-size: 12px; }
+.properties-rows .value.spaced { flex-wrap: wrap; }
 .properties-rows .outcome { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .properties-rows .outcome.error { color: var(--warn); white-space: normal; font-family: var(--font-ui); font-size: 12px; }
+.properties-rows .outcome.hint { white-space: normal; font-family: var(--font-ui); font-size: 12px; }
 .properties-add { all: unset; box-sizing: border-box; align-self: flex-start; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font: 15px/20px var(--font-ui); text-align: center; cursor: pointer; }
 .properties-add:hover { color: var(--fg); background: var(--hover); }
 .properties-add:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -97,7 +117,7 @@ style('properties', `
 
 const CELL = 26;
 
-export function createProperties({ onName = () => {}, onValue = () => {}, onLabel = () => {}, onAdd = () => {}, onAction = () => {}, onEntry = () => {}, textOf = () => '', onInto = () => {}, onUp = () => {}, onTake = () => {}, onTurn = () => {}, look = () => null, reach = () => [], onOpen = () => {}, onClose = () => {} } = {}){
+export function createProperties({ onName = () => {}, onValue = () => {}, onLabel = () => {}, onAdd = () => {}, onAction = () => {}, onEntry = () => {}, textOf = () => '', onInto = () => {}, onUp = () => {}, onTake = () => {}, onTurn = () => {}, onHolds = () => {}, look = () => null, reach = () => [], onOpen = () => {}, onClose = () => {} } = {}){
   const el = html`<div class="properties" aria-label="Properties" hidden><div class="properties-name" tabindex="0"></div><div class="properties-shape"></div><div class="properties-rows"></div><button type="button" class="properties-add" aria-label="Add an attribute" title="Add an attribute">+</button><div class="properties-actions" hidden></div><div class="properties-axes" aria-label="Axes: drag one to turn the shape" title="The axes of this use: those before the bar are drawn. Drag one to another place to turn it" hidden></div><button type="button" class="properties-trail" title="Back up one level (Escape). Drag it onto the canvas to take the entry out as a block" hidden></button><div class="properties-value"></div><div class="properties-notes" hidden></div></div>`;
   const [name, shape, rows, add, actions, axes, trail, value, notes] = el.children;
   /* an axis held and let go over another: it takes that place (the pointer is followed on the window) */
@@ -123,7 +143,7 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
   el.addEventListener('pointerdown', e => { const c = e.target.closest?.('[data-k]'); want = c && !c.matches(':focus') ? c.dataset.k : null; e.stopPropagation(); });
   el.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
   add.addEventListener('click', () => onAdd());
-  name.addEventListener('click', () => { if (name.isContentEditable) return; const was = name.textContent; editText(name, text => { if (text && text !== was) onName(text); else name.textContent = was; }); });
+  name.addEventListener('click', () => { if (name.isContentEditable) return; const was = name.textContent; editText(name, text => { if (text && text !== was){ showing = ''; onName(text); } else name.textContent = was; }); });      /* drawn afresh whatever comes of it: a name that is refused is not left written there */
   name.addEventListener('keydown', e => { if (e.key === 'Enter' && !name.isContentEditable){ e.preventDefault(); name.click(); } });
   /* a label: plain text, typed over in place */
   function typed(cell, text, keep){
@@ -143,7 +163,7 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
   const self = { el, focus(k){ want = k; },
     show(what){
       if (!what){ el.hidden = true; showing = ''; held = null; return; }
-      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.notes, what.shape, what.plain, what.fixed, what.actions, what.trail, what.axes, what.matrix && { ...what.matrix, values: valuesKey(what.matrix.values) }]);
+      const key = JSON.stringify([what.id, what.name, what.color, what.cols, what.rows, what.scalar, what.attributes, what.spaces, what.notes, what.shape, what.plain, what.fixed, what.actions, what.trail, what.axes, what.matrix && { ...what.matrix, values: valuesKey(what.matrix.values) }]);
       if (key === showing && !want) return;
       if (el.contains(document.activeElement) && document.activeElement.isContentEditable && what.id === shownId){ held = what; return; }      /* being typed in: drawn again when that is done */
       showing = key; held = null; shownId = what.id;
@@ -156,6 +176,23 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
         t.classList.add('typed'); t.dataset.k = a.key + '.value'; cellV.append(t);
         if (a.error){ const r = html`<span class="outcome error"></span>`; r.textContent = a.error; cellV.append(r); }
         else if (a.result != null){ const r = html`<span class="outcome"></span>`; r.textContent = '= ' + a.result; cellV.append(r); }
+        rows.append(label, cellV); }
+      /* the number space it holds: a promise chosen from the ten words, with "or None"; or, greyed, what it is worked out as */
+      for (const sp of what.spaces || []){
+        const label = html`<span class="label"></span>`, cellV = html`<span class="value spaced"></span>`, pick = html`<select class="space"></select>`, box = html`<label class="space-none"><input type="checkbox"> or None</label>`, tick = box.firstElementChild;
+        const word = sp.holds ? sp.holds.replace(/\?$/, '') : '', none = !!sp.holds && sp.holds.endsWith('?'), said = sp.inferred === 'none' ? 'None' : sp.inferred ? sp.inferred.replace(/\?$/, '') + (sp.inferred.endsWith('?') ? ' or None' : '') : 'not known yet';      /* (none: the space of None alone, spaces.js) */
+        label.textContent = sp.label; pick.dataset.k = sp.key + '.space'; pick.setAttribute('aria-label', sp.label + ': the number space'); tick.dataset.k = sp.key + '.none';
+        const free = html`<option value=""></option>`; free.textContent = said + (sp.from ? ` (${sp.from})` : ''); pick.append(free);
+        for (const w of what.words || []){ const o = html`<option></option>`; o.value = w; o.textContent = w === 'none' ? 'None' : w; pick.append(o); }
+        /* a word that is kept back for what is not built: listed, so that it is seen to be none of the spaces, and choosing it is refused with its sentence by whoever is told (the list goes back to what it showed) */
+        for (const w of what.reserved || []){ const o = html`<option class="reserved"></option>`; o.value = w; o.textContent = w + ' (not built)'; pick.append(o); }
+        pick.value = word; pick.classList.toggle('inferred', !word); pick.classList.toggle('unmet', !!sp.note); tick.checked = none; pick.disabled = !!sp.fixed; tick.disabled = !!sp.fixed || !word || word === 'none';      /* (None alone admits None already: there is nothing to tick) */
+        /* choosing a word promises that word alone: the box is unticked when a promise is made, whatever the entries hold, and ticking it admits None. A promise whose word is changed keeps the box as it was ticked */
+        const tell = () => { showing = ''; onHolds(sp.key, pick.value ? pick.value + (word && tick.checked && pick.value !== 'none' ? '?' : '') : null); };
+        pick.addEventListener('change', tell); tick.addEventListener('change', tell);
+        cellV.append(pick, box);
+        if (sp.note){ const r = html`<span class="outcome error"></span>`; r.textContent = sp.note; cellV.append(r); }
+        if (sp.hint){ const r = html`<span class="outcome hint"></span>`; r.textContent = sp.hint; cellV.append(r); }      /* what to do to promise it, where the row can only be read: beside the list, never inside it, where it was cut short */
         rows.append(label, cellV); }
       trail.hidden = !what.trail; trail.textContent = what.trail || '';
       axes.hidden = !what.axes; axes.replaceChildren();

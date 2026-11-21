@@ -10,7 +10,8 @@
                    what evaluate.js makes of every node. An answer is
                        { rows: [[value, …], …] }    worked out: each entry as a number near what it is exactly (a
                                                     64-bit float), "inf", "-inf", "err" for an entry that is an
-                                                    error, or null for one that is unknown
+                                                    error, "none" for one that is None, or null for one that
+                                                    is unknown
                      | { inner: [2, 4], rows: … }   worked out, of a node whose entries hold inner data: inner is
                                                     the lengths of its inner axes, and rows is nested once more
                                                     for each of them, outermost first, so the entry at
@@ -25,6 +26,11 @@
                    Most are changed at random (the same every time); TYPES, below, adds changes to what a type and
                    an entry's key may be, for every node that holds inner data.
 
+   spaces.json     what spaces.js makes of the number spaces: for every pair of the nine, whether one lies inside the
+                   other and the space of both; for every pair of written spaces (each with and without "?") and every
+                   operation, what the operation gives; the smallest space of some values; and the space of some
+                   formulas. backend/spaces.py has to say the same of every one (backend/tests/test_spaces.py).
+
    tests/fixtures.test.js runs this with --check, so the files cannot fall behind the code they were made from. */
 import '../../tests/solver.js';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
@@ -33,6 +39,8 @@ import { fileURLToPath } from 'node:url';
 import { build, validate, tailsOf, VERSION } from '../../graph.js';
 import { evaluate } from '../../evaluate.js';
 import { read } from '../../project.js';
+import * as S from '../../spaces.js';
+import { treeOf } from '../../expression.js';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..');
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -43,7 +51,7 @@ const snap = (shapes, groups = []) => ({ top: space(shapes, groups) });
 const arrow = (id, input, more = {}, shapeMore = {}) => B(id, 0, 0, 1, 1, { type: 'arrow', name: 'Shape 9', arrow: { input, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: null, formula: null, ...more }, ...shapeMore });
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
 const tile = (id, members, repeat, groups = []) => ({ id, name: null, members, groups, repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 1, down: 1, ...repeat } });
-const half = { n: 1, d: 2, k: 0 }, root2 = { n: 2, k: 1 }, f = expr => ({ expr });
+const half = { n: 1, d: 2, k: 0 }, root2 = { n: 2, k: 1 }, f = expr => ({ expr }), NONE = { none: true };
 /* inner data: axes as a snapshot gives them, and every number of a shape that holds them, from fill(c, r, k1, …) (null: not given) */
 const ax = (length, name = null) => ({ length, name });
 const filled = (cols, rows, inner, fill) => { const out = {};
@@ -144,6 +152,52 @@ const CASES = {
     I('Z', 0, 80, 2, 2, [ax(3)], (c, r, k) => c * r - k), arrow('all', { id: 'Z', as: 'block' }, { span: 2 }, { x: 50, y: 80, name: 'whole', inside: space([I('in3', -9, 0, 2, 2, [ax(3)], null, { in: true }), I('Wg', -7, 0, 1, 2, [ax(3)], (c, r, k) => r + k)]) }),      /* it holds the same: applied once */
     I('T', 0, 100, 1, 1, [ax(2)], (c, r, k) => k === 1 ? f('index.x * 10 + k1') : f('index.y - k1')), arrow('out', { id: 't1', as: 'tile' })],
     [tile('t1', [11], { y: 100, cols: 1, rows: 1, across: 3, down: 2 })]),
+  /* ---- None (phase 9): every row of the table that can arise where every number is a float ---- */
+  'None': snap([B('Nn', 0, 0, 4, 2, { entries: rowsOf([[NONE, 1, 0, NONE], [2, NONE, 'inf', 3]]) }), B('Np', 0, 2, 4, 2, { entries: rowsOf([[1, NONE, 5, NONE], [f('1/0'), 2, 3, f('none')]]) }),      /* a sum: None + 1, None + None, and an error against a number */
+    B('Pa', 10, 0, 2, 2, { entries: rowsOf([[0, NONE], [1, 2]]) }), B('Pb', 12, 0, 2, 2, { entries: rowsOf([[NONE, 1], ['inf', 4]]) }),      /* a product: an entry with one None term is None, also where the None meets an infinity or a zero */
+    B('Pc', 20, 0, 2, 1, { entries: rowsOf([[0, NONE]]) }), B('Pd', 22, 0, 1, 2, { entries: rowsOf([['inf'], [1]]) }),      /* 0 × ∞ beside a None term: the error comes first */
+    B('Pe', 25, 0, 3, 1, { entries: rowsOf([['inf', NONE, '-inf']]) }), B('Pf', 28, 0, 1, 3, { entries: rowsOf([[1], [0], [1]]) }),      /* ∞ − ∞ beside a None term likewise */
+    B('Ea', 30, 2, 3, 1, { entries: rowsOf([[NONE, 4, 0]]) }), B('Eb', 33, 3, 3, 1, { entries: rowsOf([[2, NONE, NONE]]) }),      /* over: None / 2, 4 / None and 0 / None are None, never a division by zero */
+    B('Ec', 40, 2, 2, 1, { entries: rowsOf([[NONE, 3]]) }), B('Ed', 42, 1, 2, 1, { entries: rowsOf([[0, NONE]]) }),      /* times: None × 0 */
+    B('Vn', 50, 0, 7, 3, { entries: rowsOf([[f('none + 1'), f('none * 0'), f('none == 0'), f('none == false'), f('none == none'), f('none < 1'), f('max(none, 3)')],
+      [f('1/none'), f('exp(none)'), f('ln(none)'), f('select(none, 1, 2)'), f('!none'), f('none && 1'), f('none || 2')],
+      [f('none || 0'), f('none + 1/0'), f('none != 0'), f('select(1, none, 3)'), f('-∅'), f('none ^ 2'), f('none ^ (1/3)')]]) }),
+    arrow('fill', { id: 'Nn', as: 'block' }, { side: 's', span: 4, formula: 'select(x == none, 0, x + 1)' }), arrow('twice', { id: 'Nn', as: 'block' }, { side: 'n', span: 4, formula: 'select(x > 1, @[Sn:m], min(x * 2, 5))' }),
+    arrow('root', { id: 'Nn', as: 'block' }, { side: 'w', span: 2, formula: 'tanh(sqrt(abs(x))) + erf(x) * 0' }),
+    B('Sn', 60, 0, 1, 1, { entries: { '1,1': NONE } }), B('ns', 62, 0, 1, 1, { name: 'Shape 20', from: { id: 'Sn', side: 'x' } }), B('nm', 64, 0, 1, 1, { name: 'Shape 21', from: { id: 'Sn', side: 'm' } }),      /* the side of None is None, as its mass is */
+    B('reads', 66, 0, 2, 1, { entries: rowsOf([[f('@[Sn:m] + 1'), f('select(@[Sn:m], 1, 2)')]]) }),
+    B('Sc', 70, 0, 1, 1, { entries: { '1,1': NONE } }), B('Sm', 71, 0, 2, 2, { entries: rowsOf([[1, 2], [3, f('1/0')]]) }),      /* a scale by None: None everywhere but where there is no value */
+    B('Nt', 80, 0, 2, 4, { name: 'Nn', variable: 1, reference: true, transposed: true }),
+    B('part', 90, 0, 2, 1, { name: 'Shape 22', from: { id: 'Nn', range: { col: 2, row: 0, cols: 2, rows: 1, toEnd: whole } } }),
+    B('Jn', 100, 0, 2, 1, { name: 'Shape 23', joined: [{ fx: 0, fy: 0, fw: .5, fh: 1, shape: B('Jl', 100, 0, 1, 1, { entries: { '1,1': NONE } }) }, { fx: .5, fy: 0, fw: .5, fh: 1, shape: B('Jr', 101, 0, 1, 1, { entries: { '1,1': 7 } }) }] }),
+    B('Tn', 0, 40, 2, 1, { entries: rowsOf([[NONE, f('index.x')]]) }), arrow('out', { id: 't1', as: 'tile' })].map((d, i) => i === 0 ? { ...d, variable: 1 } : d),
+    [tile('t1', [25], { y: 40, cols: 2, rows: 1, across: 2, down: 2 })]),
+  /* ---- several terms of one sum or product, whatever their order (ruled 21 November 2026): an error two of them make comes before None ---- */
+  'several terms, whatever their order': snap([
+    B('Ka', 0, 0, 2, 2, { entries: rowsOf([[NONE, 0], ['inf', NONE]]) }), B('Kb', 2, -2, 2, 2, { entries: rowsOf([['inf', NONE], [0, 2]]) }), B('Kc', 4, -4, 2, 2, { entries: rowsOf([[0, 'inf'], [NONE, 3]]) }),      /* times, three of them */
+    B('Sa', 20, 0, 2, 2, { entries: rowsOf([[NONE, 'inf'], ['inf', NONE]]) }), B('Sb', 20, 2, 2, 2, { entries: rowsOf([['inf', '-inf'], [NONE, 1]]) }), B('Sc', 20, 4, 2, 2, { entries: rowsOf([['-inf', NONE], ['-inf', 2]]) }),      /* a sum of three */
+    B('Fo', 40, 0, 4, 2, { entries: rowsOf([[f('none + inf - inf'), f('inf + none - inf'), f('none * 0 * inf'), f('0 * none * inf')], [f('none + 1 + 2'), f('inf - (none + inf)'), f('2 * none * 3'), f('(none + inf) * 0')]]) }),
+    B('Pa', 60, 0, 3, 1, { entries: rowsOf([['inf', NONE, '-inf']]) }), B('Pb', 63, 0, 1, 3, { entries: rowsOf([[1], [1], [1]]) })]),      /* a product entry: ∞ − ∞ beside a None term */
+  /* ---- promises broken by a value (ruled 21 November 2026: an error, on the page and in the backend, in the same sentence) ---- */
+  'promises broken by a value': snap([B('Wb', 0, 0, 3, 1, { entries: rowsOf([[1, 2, -3]]), holds: 'natural' }), B('Wu', 3, 0, 1, 3, { entries: rowsOf([[1], [1], [1]]) }),      /* and the product made of it */
+    B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, -4]]) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) }),
+    B('Out', 5, 20, 1, 2, { seat: 'lin' }),
+    B('N', 0, 40, 2, 4, { entries: rowsOf([[1, 2], [3, 4], [5, -6], [7, 8]]) }),
+    arrow('g', { id: 'N', as: 'block' }, { side: 'e', span: 2 }, { x: 2, y: 40, inside: space([B('in2', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wg', -7, 0, 1, 2, { entries: rowsOf([[1], [10]]) })]) })],
+    [tile('t2', [6], { x: 2, y: 40, cols: 1, rows: 2, down: 2 })]),
+  /* ---- number spaces (phase 9): promises that are kept, on shapes and on a function's input and output ---- */
+  'number spaces': snap([B('Wn', 0, 0, 3, 1, { entries: rowsOf([[1, 2, 3]]), holds: 'natural' }), B('Wz', 0, 1, 3, 1, { entries: rowsOf([[-2, 0, NONE]]), holds: 'integer?' }),      /* a sum of a natural and an integer or None */
+    B('Pp', 10, 0, 2, 2, { entries: rowsOf([[half, 1], [0, { n: 1, d: 2, k: 1 }]]) }), B('Pq', 12, 0, 2, 2, { entries: rowsOf([[1, 0], [0, 1]]), holds: 'boolean' }),      /* a product of probabilities and booleans */
+    B('Fm', 20, 0, 4, 1, { entries: rowsOf([[f('@[Wn:x] + 1'), f('1/3'), f('exp(1)'), f('select(2 > 1, none, -1)')]]) }),
+    B('Any', 30, 0, 2, 1, { entries: rowsOf([['inf', 2]]), holds: 'any' }), B('Cx', 40, 0, 1, 1, { entries: { '1,1': 2 }, holds: 'complex' }),      /* complex is no space: the promise is not read */
+    B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) }),
+    B('Out', 5, 20, 1, 2, { seat: 'lin', holds: 'whole' }),
+    arrow('sq', { id: 'X', as: 'block' }, { side: 's', span: 2, formula: 'x ^ 2 - i' }), arrow('rt', { id: 'X', as: 'block' }, { side: 'n', span: 2, formula: 'tanh(sqrt(x)) > 1/2' }),
+    B('Ns', 60, 0, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } }, holds: 'probability' }), B('Id', 70, 0, 2, 2, { source: 'identity' })]),
+  'None: inner data': snap([I('X', 0, 0, 2, 1, [ax(2)], (c, r, k) => c === k ? NONE : c + k), B('W', 2, 0, 1, 2, { entries: rowsOf([[1], [2]]) }),      /* a product repeated at each inner position, a None in each */
+    I('A', 10, 0, 2, 1, [ax(2)], (c, r, k) => k === 2 && c === 1 ? NONE : c * k), I('Bn', 10, 1, 2, 1, [ax(2)], (c, r, k) => k === 1 && c === 2 ? NONE : 10)]),
 };
 
 /* ---- graphs written by hand: what a backend may be sent that no canvas makes yet ---- */
@@ -173,7 +227,7 @@ const HAND = {
 
 const files = (dir, at = '') => readdirSync(join(dir, at)).sort().flatMap(n => statSync(join(dir, at, n)).isDirectory() ? files(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const near = v => v === null || v === undefined ? null : v === 'inf' || v === '-inf' ? v : typeof v === 'boolean' ? +v : typeof v === 'number' ? v
-  : typeof v.err === 'string' ? 'err' : typeof v.sym === 'string' ? Number(globalThis.nerdamer(v.sym).evaluate().text('decimals', 30)) : Math.sign(v.n) * Math.pow(Math.abs(v.n) / (v.d || 1), 1 / 2 ** v.k);
+  : typeof v.err === 'string' ? 'err' : v.none === true ? 'none' : typeof v.sym === 'string' ? Number(globalThis.nerdamer(v.sym).evaluate().text('decimals', 30)) : Math.sign(v.n) * Math.pow(Math.abs(v.n) / (v.d || 1), 1 / 2 ** v.k);
 function answer(r){
   if (r.error) return { error: r.error.code };
   if (r.deferred) return { deferred: true };
@@ -216,7 +270,7 @@ function mutations(graphs){
   const get = (g, path) => path.reduce((v, k) => v[k], g);
   const apply = (g, m) => { const h = JSON.parse(JSON.stringify(g)), last = m.path[m.path.length - 1], host = get(h, m.path.slice(0, -1));
     if (m.drop){ if (Array.isArray(host)) host.splice(+last, 1); else delete host[last]; } else host[last] = m.set; return h; };
-  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv'];
+  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { none: true }, { none: 1 }, { none: true, sym: 'x' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, { sym: 'none' }, { sym: '∅' }, { sym: 'none + 1' }, { sym: 'inf' }, { sym: '2 * Infinity' }, { sym: '∞' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv'];
   graphs.forEach((g, gi) => { const all = paths(g), ids = Object.keys(g.nodes), tried = new Set();
     const push = m => { const key = JSON.stringify(m); if (tried.has(key)) return; tried.add(key); out.push({ graph: gi, ...m, valid: validate(apply(g, m)).length === 0 }); };
     for (let n = 0; n < Math.min(260, all.length * 2); n++){ const path = all[rnd(all.length)], was = get(g, path), kind = rnd(6);
@@ -232,12 +286,40 @@ function mutations(graphs){
       push({ path: [...at, 'axes'], set: 2 }); push({ path: [...at, 'depth'], set: null }); push({ path: [...at, 'inner', '0', 'name'], set: 'named' }); push({ path: [...at, 'inner', '0', 'name'], set: '' });
       if (n.op === 'variable'){ const tail = inner.map(() => ',1').join('');
         for (const key of ['1,1', '1,1' + tail + ',1', '1,1' + tail.slice(2), '1,1' + inner.map(a => ',' + (a.length + 1)).join(''), '1,1' + tail.replace(/1$/, '0'), '1,1' + tail.replace(/1$/, '01'), '1,1' + tail]) push({ path: ['nodes', id, 'entries', key], set: 7 }); } }
-    if (g.version !== undefined) for (const v of [1, 2, 3, 0, '2']) push({ path: ['version'], set: v }); });
+    /* what a type's value and a variable's promise may be: each a change in one place */
+    const WORDS = ['any?', 'any', 'boolean', 'natural', 'natural?', 'integer?', 'real', 'complex', 'Integer', 'integer ?', '', '?', 7, null, true, ['real']];
+    for (const id of [...ids.filter(id => g.nodes[id].type.value !== undefined).slice(0, 3), ...ids.filter(id => g.nodes[id].op !== 'variable' && g.nodes[id].type.value !== undefined).slice(0, 3)]){ const at = ['nodes', id, 'type', 'value'];
+      for (const set of WORDS) push({ path: at, set }); push({ path: at, drop: true }); }
+    for (const id of ids.filter(id => g.nodes[id].op === 'variable').slice(0, 3)){ for (const set of [...WORDS, ...(g.nodes[id].type.value !== undefined ? [g.nodes[id].type.value] : [])]) push({ path: ['nodes', id, 'holds'], set }); if (g.nodes[id].holds !== undefined) push({ path: ['nodes', id, 'holds'], drop: true }); }
+    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }
 
+/* ---- the number spaces, as spaces.js has them ---- */
+const VALUES = [0, 1, 2, -1, -2, 7, -7, true, false, 'inf', '-inf', half, root2, { n: 3, d: 2, k: 0 }, { n: -1, d: 2, k: 0 }, { n: 1, d: 2, k: 1 }, { n: -2, k: 1 }, { n: 5, d: 4, k: 2 }, { none: true }, { err: 'no' },
+  { sym: '1+sqrt(2)' }, { sym: 'e^(-1)' }, { sym: '1208925819614629174706176' }, { sym: '-1208925819614629174706176' }, { sym: '1/1208925819614629174706176' }, { sym: '-1/1208925819614629174706176' }, { sym: '1208925819614629174706177/1208925819614629174706176' }, { sym: '(1208925819614629174706177/1)^(1/2)' },
+  /* whole numbers and fractions past the 4,300 digits Python will read as a number: told from their digits, as BigInt tells them */
+  { sym: '9'.repeat(4301) }, { sym: '-' + '9'.repeat(4301) }, { sym: '0'.repeat(4400) }, { sym: '0'.repeat(4400) + '1' }, { sym: '-' + '0'.repeat(4400) + '1' }, { sym: '1/' + '9'.repeat(4301) }, { sym: '9'.repeat(4301) + '/7' }, { sym: '9'.repeat(4301) + '/' + '9'.repeat(4301) },
+  { sym: '8' + '9'.repeat(4300) + '/' + '9'.repeat(4301) }, { sym: '-1/' + '9'.repeat(4301) }, { sym: '5/' + '0'.repeat(4400) }];
+const FORMULAS = ['1', '0', '2', '0.5', '1.5', '1.0', '5.', '.25', '123456789012345678901234567890', '0.' + '1'.repeat(38), '1' + '0'.repeat(45), '0.' + '0'.repeat(45) + '1', '9'.repeat(400), '∞', 'inf', '-inf', 'none', '∅', 'true', 'false && $1',
+  '$1 + $2', '$1 - $2', '$1 * $2', '$1 / $2', '$1 ^ 2', '$1 ^ $2', '2 ^ $1', '$1 ^ 0', '$1 ^ (1/3)', '-$1', '!$1', 'abs($1)', 'sqrt($1)', '√$1', '∜$1', 'exp($1)', 'ln($1)', 'tanh($1)', 'erf($1)', 'max($1, $2)', 'min($1, 0)',
+  'select($1, $2, $3)', 'select($1 > 0, none, $2)', 'select(none, $1, $2)', '$1 == $2', '$1 != none', '$1 < $2', '$1 >= none', '$1 && $2', '$1 || none', 'none + $1', 'none == none', 'index.x + index.y', 'k1 * 2', 'x + i * j', 'x / i', 'X ^ J',
+  '$4', '$1 + unknown', '2x', '2(3+1)', '1/0', '(-8)^(1/3)', '($1 + $2) * ($3 - 1) / 2 ^ 2', 'exp(-($1 ^ 2))', 'tanh(abs($1))', '1 - $3', 'abs($1 - $2)', 'max(1, $1)', 'ln($1 + 1)', 'ln(2)', 'sqrt(4)', '-1', '-(1)', '+$1', '2 - 1'];
+export function spaceTable(){
+  const words = [...S.SPACES.flatMap(s => [s, s + '?']), S.NONE], pairs = fn => Object.fromEntries(words.flatMap(a => words.map(b => [a + ' ' + b, fn(a, b)])));
+  const named = ['natural', 'integer?', 'probability'], lookup = arrow => name => { const m = name.match(/^\$(\d+)$/); if (m) return named[+m[1] - 1]; if (/^index\.[xy]$/i.test(name) || /^k[1-6]$/i.test(name)) return 'natural';
+    const k = name.toLowerCase(); return !arrow ? undefined : k === 'x' ? 'rational' : k === 'i' || k === 'j' ? 'natural' : undefined; };
+  return { spaces: S.SPACES, inside: Object.fromEntries(S.SPACES.flatMap(a => S.SPACES.map(b => [a + ' ' + b, S.inside(a, b)]))), within: pairs(S.within), both: pairs(S.both), choice: pairs(S.choice),
+    binary: Object.fromEntries(['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min'].map(op => [op, pairs((a, b) => S.binary(op, a, b))])),
+    unary: Object.fromEntries(['neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf'].map(fn => [fn, Object.fromEntries(words.map(a => [a, S.unary(fn, a)]))])),
+    sum: Object.fromEntries(words.flatMap(a => [1, 2, 3, 5].map(n => [a + ' ' + n, S.sum(a, n)]))), product: Object.fromEntries([1, 2, 4].map(n => [n, pairs((a, b) => S.product(a, b, n))])),
+    parse: ['integer', 'integer?', 'any?', 'complex', 'Integer', 'integer ?', '', '?', 'whole?', 'number', 'decimal', 'fraction', 'root', 'irrational', 'none', 'none?', 'None'].map(w => [w, S.parse(w) ? [S.parse(w).space, S.parse(w).none] : null]),
+    of: VALUES.map(v => [v, S.of(v)]), ofAll: [[], [1, 2], [0, 1], [1, -1], [2, half], [{ none: true }], [{ none: true }, 2, 3], [2, 'inf'], [{ err: 'x' }, -5], [half, root2], [true, { n: 3, d: 2, k: 0 }]].map(vs => [vs, S.ofAll(vs)]),
+    formulas: FORMULAS.flatMap(text => [false, true].map(arrow => [text, arrow, S.formula(treeOf(text), lookup(arrow))])) };
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]){
-  const made = fixtures(), texts = { 'graphs.json': JSON.stringify(made.graphs) + '\n', 'mutations.json': '[\n' + made.mutations.map(m => JSON.stringify(m)).join(',\n') + '\n]\n' };
+  const made = fixtures(), texts = { 'graphs.json': JSON.stringify(made.graphs) + '\n', 'mutations.json': '[\n' + made.mutations.map(m => JSON.stringify(m)).join(',\n') + '\n]\n', 'spaces.json': JSON.stringify(spaceTable()) + '\n' };
   if (process.argv.includes('--check')){ const stale = Object.keys(texts).filter(f => { try { return readFileSync(join(here, f), 'utf8') !== texts[f]; } catch { return true; } });
     console.log(stale.length ? 'out of date: ' + stale.join(', ') : 'up to date'); process.exit(stale.length ? 1 : 0); }
   for (const [f, t] of Object.entries(texts)) writeFileSync(join(here, f), t);

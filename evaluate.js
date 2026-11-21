@@ -13,6 +13,9 @@
                                                times its rows times every inner length)
         | { error: { code, note, node } }      its value is worked out from a variable that has an error; node is
                                                that variable's id. (Also for an id the graph has not got: no-source.)
+                                               A variable that promises a number space (holds) and has a value
+                                               outside it is such a variable: the code is type, and the note names
+                                               the entry. It is found here, where the values are, not by build.
         | { type, deferred: true, backend: true }   it is worked out from noise or from a data file, whose numbers
                                                only the backend has (backend/): nothing here can say them
    It never throws, for a well-formed graph (graph.js: validate) or any other, and it finishes: a function that
@@ -24,6 +27,12 @@
                                                node is, so such a node has the value it had. (Only what was worked
                                                out under no binding is taken: what a function's body came to for one
                                                input says nothing once the input has changed.) Gives how many nodes.
+   judged(graph, id, holds, name, options)     a promise held against any node's values (what a function's input
+                                               block promises, against what it is given): see the function
+   seenFrom(graph, use, error)                 a broken promise's sentence with the entry's place as one use of the
+                                               variable draws it (a transposed use, one turned through inner axes)
+   promiseOf(graph, id, options)               what a variable promises to hold (its number space, spaces.js) and
+                                               whether its values keep the promise: see the function
    MOST                                        4096, the default maxEntries: the most numbers the browser works out
    tooLarge(type, most)                        the sentence that says so of a result that size
    toMap(entries)                              an answer's entries as the page keeps them: a Map, infinities as numbers
@@ -79,8 +88,10 @@
                            the function is applied to
        at.keyOf(k)         a key for input k's entries as they are under this env
        at.given(node)      the entries a function's input has been given, none where it has been given nothing
+       at.rest(k)          what input k, a sum or a product of several, set aside at each entry (graph.js: RESTS), or null
        at.ks               where the rule is being repeated over inner data, the inner position of this run */
-import { OPS, readsIndex, tailsOf } from './graph.js';
+import { OPS, RESTS, readsIndex, tailsOf, inferred } from './graph.js';
+import { broken, untold, within, NOT_HELD, UNPROVEN } from './spaces.js';
 import { passed } from './arrows.js';
 import { numbers } from './algebra.js';
 
@@ -115,7 +126,8 @@ function keyFor(graph, st, id, n, env){
   const inCells = env.cells.length > 0 && follows(graph, st, id), fns = fnsOf(n);
   return fns.length || inCells ? '|' + fns.map(f => env.params[f] ? env.params[f].key : '').join('|') + (inCells ? '|' + cellsKey(env.cells) : '') : '';
 }
-/* the most entries of anything a node's value is worked out from, and the first variable among them that has an error */
+const NO_IDS = Object.freeze([]);
+/* the most entries of anything a node's value is worked out from, the first variable among them that has an error, and the variables among them that promise a number space */
 function needsOf(graph, st, id, open = new Set()){
   if (st.needs.has(id)) return st.needs.get(id);
   const n = nodeAt(graph, id);
@@ -123,17 +135,19 @@ function needsOf(graph, st, id, open = new Set()){
   let most = numbers(n.type), bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
   let remote = n.op === 'noise' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
   let bound = fnsOf(n).length ? most : 0;       /* the most numbers of anything it is worked out from that follows a function's input: that is worked out again for each thing the function is applied to */
-  if (open.has(id)) return { most, bound, bad: bad || { code: 'loop', note: '', node: id }, remote };
+  let kept = (n.op === 'variable' && typeof n.holds === 'string') || ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined) ? [id] : NO_IDS;      /* the variables among them, itself included, that promise a number space, and the functions applied, whose input may promise one */
+  if (open.has(id)) return { most, bound, bad: bad || { code: 'loop', note: '', node: id }, remote, kept };
   open.add(id);
   const ins = n.inputs.map(i => nodeAt(graph, i)), rule = OPS[n.op];
   const read = ins.every(Boolean) ? (rule.needs ? rule.needs(n, ins) : n.inputs.map((_, k) => k)).map(k => n.inputs[k]) : n.inputs;
   const applies = (n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined, body = applies ? fnAt(graph, n.fn) : null;
   for (const dep of body ? [...read, body.body] : read){ const d = needsOf(graph, st, dep, open); most = Math.max(most, d.most); bound = Math.max(bound, d.bound || 0); bad = bad || d.bad; remote = remote || !!d.remote;
+    if (d.kept && d.kept.length) kept = kept.length ? [...new Set([...kept, ...d.kept])] : d.kept;
     /* a function run at each inner position of what it is given (its input block holds none) is its body worked out that many times: that is counted before it is run */
     if (body && dep === body.body && ins[0] && hasInner(ins[0].type) && !hasInner((nodeAt(graph, body.input) || n).type)) most = Math.max(most, (d.bound || 0) * tailsCount(n.op === 'mapalong' ? { inner: ins[0].type.inner } : ins[0].type) * (n.op === 'mapalong' ? n.count || 1 : 1)); }
   if (applies && !body) bad = bad || { code: 'no-source', note: 'no such function', node: id };
   open.delete(id);
-  const out = { most, bound, bad, remote }; st.needs.set(id, out); return out;
+  const out = { most, bound, bad, remote, kept }; st.needs.set(id, out); return out;
 }
 /* The tiles each block's node is itself in, and which tiles each repeat is the matrix of, read off the graph's spaces.
    homes: node id -> Set of tile ids, for every node that stands for a block listed in a space (in a piece or in a
@@ -155,6 +169,20 @@ function homesOf(graph, st){
       for (const a of list(s.arrows)){ const n = a && typeof a.node === 'string' ? nodeAt(graph, a.node) : null; if (n && n.op === 'map' && add(a.node, inTiles('arrows', a.arrow))) again = true; }
       for (const t of tiles) if (typeof t.node === 'string'){ if (!repeats.has(t.node)) repeats.set(t.node, []); if (!repeats.get(t.node).includes(t.tile)) repeats.get(t.node).push(t.tile); } } }
   st.homes = homes; st.repeats = repeats; return st;
+}
+/* What a variable holds, where that can be read off the graph without working anything out, at any size: its own
+   entries where every one of them is a value typed in (no formula among them); or, where it is a source filled with
+   known values, one entry for each value there is in it (zeros: 0; ones: 1; an identity: 1, and 0 off its diagonal),
+   keyed where the first such entry lies. -> { key: value }, or null where it has to be worked out. For holding a
+   promise against a shape too large to be worked out here. */
+function plainly(graph, id){
+  let n = nodeAt(graph, id);
+  for (let k = 0; n && k < 64 && n.op === 'variable' && n.defined !== 'entries' && !n.error && n.inputs.length === 1; k++) n = nodeAt(graph, n.inputs[0]);
+  if (!n) return null;
+  if (n.op === 'variable') return n.defined === 'entries' && !n.error && n.entries && typeof n.entries === 'object' && !Object.values(n.entries).some(v => v && typeof v === 'object' && 'expr' in v) ? n.entries : null;
+  if (n.op !== 'source') return null;
+  const t = hasInner(n.type) ? tailsOf(n.type)[0] : '';      /* with inner data the first such entry is at the first inner position, and its place is said with it: "at 1, 1, 1" */
+  return n.kind === 'zeros' ? { ['1,1' + t]: 0 } : n.kind === 'ones' ? { ['1,1' + t]: 1 } : n.kind === 'identity' ? { ['1,1' + t]: 1, ...(n.type.cols > 1 ? { ['2,1' + t]: 0 } : n.type.rows > 1 ? { ['1,2' + t]: 0 } : {}) } : null;
 }
 const inner = (cells, change) => cells.length ? [...cells.slice(0, -1), change(cells[cells.length - 1])] : cells;
 
@@ -178,15 +206,19 @@ function split(values){
 const flatType = t => { const { inner: _, ...rest } = t; return rest; };
 const flatNode = n => { if (!flats.has(n)) flats.set(n, hasInner(n.type) ? { ...n, type: flatType(n.type) } : n); return flats.get(n); };
 function repeated(rule, n, at, types){
-  const out = new Map(), lead = types.find(hasInner), flat = flatNode(n), applies = n.fn !== undefined;
+  const out = new Map(), lead = types.find(hasInner), flat = flatNode(n), applies = n.fn !== undefined; let rests = null;      /* (rests: what a sum or product set aside, graph.js: RESTS, kept by the long keys) */
   for (const tail of tailsOf(lead)){
     /* a function's body at one position is of no use at the next: what it comes to there is kept only while that position is worked out */
     const scratch = applies ? new Map() : null;
-    const here = { ...at, ks: tail.slice(1).split(',').map(Number), ...(applies ? { call: (fn, values, k) => at.call(fn, values, k, scratch) } : {}),
+    const here = { ...at, ks: tail.slice(1).split(',').map(Number), ...(applies ? { call: (fn, values, k, _, where = '') => at.call(fn, values, k, scratch, where, tail) } : {}),
       type: k => hasInner(types[k]) ? flatType(types[k]) : types[k],
       get: (k, e) => hasInner(types[k]) ? split(at.get(k, e)).get(tail) || EMPTY : at.get(k, e),
+      rest: k => { const kept = at.rest(k); return kept && hasInner(types[k]) ? { get: key => kept.get(key + tail) } : kept; },
       keyOf: k => at.keyOf(k) + (hasInner(types[k]) ? '#k' + tail : '') };
-    for (const [key, v] of rule.value(flat, here)) out.set(key + tail, v); }
+    const made = rule.value(flat, here), rest = RESTS.get(made);
+    for (const [key, v] of made) out.set(key + tail, v);
+    if (rest){ if (!rests) rests = { op: rest.op, at: new Map() }; for (const [key, v] of rest.at) rests.at.set(key + tail, v); } }
+  if (rests) RESTS.set(out, rests);
   return out;
 }
 
@@ -198,16 +230,22 @@ function run(graph, st, id, env){
   /* a part of the pattern met again below its tile (an arrow there reads it): it is at its own place, not the reader's */
   if (last && last.at && own(last.at, id)){ const p = last.at[id]; if (last.dx !== p.col || last.dy !== p.row || last.turned) env = { ...env, cells: inner(env.cells, c => ({ ...c, dx: p.col, dy: p.row, turned: false })) }; }
   const key = keyFor(graph, st, id, n, env), mine = under(env.scratch && key ? env.scratch : st.values, id);      /* (what follows a function's input, under a run that keeps nothing: in that run's own store) */
-  if (mine.has(key)) return mine.get(key);
+  if (mine.has(key)){ const was = mine.get(key); if (was && was.broke) throw was; return was; }      /* (a promise it was found to break: found once) */
   const at = { id, graph, env, cells: env.cells,
     type: k => graph.nodes[n.inputs[k]].type,
     get: (k, e = env) => run(graph, st, n.inputs[k], e),
+    rest: k => { const kept = RESTS.get(run(graph, st, n.inputs[k], env)); return kept ? kept.at : null; },
     keyOf: k => n.inputs[k] + keyFor(graph, st, n.inputs[k], graph.nodes[n.inputs[k]], env),
     turn: () => ({ ...env, cells: inner(env.cells, c => ({ ...c, turned: !c.turned })) }),
     shift: (dx, dy) => ({ ...env, cells: inner(env.cells, c => c.turned ? { ...c, dx: c.dx + dy, dy: c.dy + dx } : { ...c, dx: c.dx + dx, dy: c.dy + dy }) }),
     cell: c => ({ ...env, cells: [...env.cells, aCell({ ...c, of: homesOf(graph, st).repeats.get(id) || null })] }),
-    call(fn, values, k, scratch = null){ const f = fnAt(graph, fn); if (!f) return new Map();
+    call(fn, values, k, scratch = null, where = '', tail = ''){ const f = fnAt(graph, fn); if (!f) return new Map();
       if (env.active.includes(fn)) throw LOOP;      /* a function inside itself: validate refuses the graph, and this stops it */
+      /* what the function's input block promises to take is held against what it is given, here, where the values
+         are: one that lies outside it is the error type, as a shape's own broken promise is, and the function is not
+         run. where: which run of a repeated arrow; tail: which inner position, where it is run at each. */
+      const p = nodeAt(graph, f.input), takes = p && p.op === 'param' && typeof p.type.value === 'string' && p.type.value !== 'any?' ? p.type.value : null, out = takes ? broken(takes, values) : null;
+      if (out) throw { broke: { code: 'type', note: NOT_HELD('in', takes, out.key + tail, out.value === Infinity ? 'inf' : out.value === -Infinity ? '-inf' : out.value) + where, node: id } };
       return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn], scratch: scratch || env.scratch || null }); },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */
@@ -218,6 +256,12 @@ function run(graph, st, id, env){
   const rule = OPS[n.op], types = n.inputs.map((_, k) => at.type(k));
   const deep = !types.some(hasInner) || (typeof rule.deep === 'function' ? rule.deep(n, { node: i => nodeAt(graph, i), fn: f => fnAt(graph, f) }) : !!rule.deep);
   const value = deep ? rule.value(n, at) : repeated(rule, n, at, types);
+  /* a variable that promises a number space is held to it here, where its values are: one that lies outside it
+     is the error type, said with the entry, for the variable and for everything worked out from it */
+  if (n.op === 'variable' && typeof n.holds === 'string'){ const out = broken(n.holds, value);
+    if (out){ const inCells = env.cells.length > 0 && follows(graph, st, id);      /* one whose value follows its cell says which cell it is broken in: innermost first */
+      const where = inCells ? ' in cell ' + env.cells.slice().reverse().map(c => c.cx + ', ' + c.cy).join(' of cell ') : '';
+      const failed = { broke: { code: 'type', note: NOT_HELD(n.name || id, n.holds, out.key, out.value === Infinity ? 'inf' : out.value === -Infinity ? '-inf' : out.value) + where, node: id } }; mine.set(key, failed); throw failed; } }
   mine.set(key, value); return value;
 }
 
@@ -230,9 +274,18 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
   try {
     const given = Object.entries((binding && binding.params) || {}).filter(([, spec]) => spec && (typeof spec === 'string' || typeof spec.of === 'string'));
     const needs = [needsOf(graph, st, nodeId), ...given.map(([, spec]) => needsOf(graph, st, typeof spec === 'string' ? spec : spec.of))];
-    if (needs.some(d => d.most > maxEntries)) return done({ type: n.type, deferred: true, ...(needs.some(d => d.remote) ? { backend: true } : {}) });
+    /* a result that is not worked out here (too large, or made of noise or of a data file) is still nothing where a
+       variable it is worked out from breaks its promise by a value that is here: that variable has no value, so
+       neither has this, and it is not the backend's to give. Asked of each such variable on its own, which is
+       small enough to be worked out or is deferred itself and says nothing. */
+    const broke = () => { for (const d of needs) for (const v of d.kept || NO_IDS){
+      /* one whose values can be read off the graph (a source filled with one known value, entries all typed in) is held to its promise by them at any size, itself included */
+      const kn = nodeAt(graph, v), plain = kn && kn.op === 'variable' && typeof kn.holds === 'string' ? plainly(graph, v) : null, out = plain ? broken(kn.holds, plain) : null;
+      if (out) return { code: 'type', note: NOT_HELD(kn.name || v, kn.holds, out.key, out.value), node: v };
+      if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding }); if (a.error && a.error.code === 'type') return a.error; } } return null; };
+    if (needs.some(d => d.most > maxEntries)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, ...(needs.some(d => d.remote) ? { backend: true } : {}) }); }
     const bad = needs.map(d => d.bad).find(Boolean); if (bad) return done({ error: bad });
-    if (needs.some(d => d.remote)) return done({ type: n.type, deferred: true, backend: true });
+    if (needs.some(d => d.remote)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, backend: true }); }
     const env = { params: Object.fromEntries(given.map(([fn, spec]) => [fn, { spec, key: 'given ' + bkey }])), active: [],
       cells: ((binding && Array.isArray(binding.cells) && binding.cells) || []).filter(c => c && typeof c === 'object').map(aCell) };
     const values = run(graph, st, nodeId, env), entries = {};
@@ -240,8 +293,77 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
       if (v !== null && v !== undefined) entries[c + ',' + r + tail] = v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v; }
     return done({ type: n.type, entries });
   } catch (e){      /* never thrown: a function inside itself is a loop, and anything else is a graph that is not well formed */
+    if (e && e.broke) return done({ error: e.broke });      /* a promise broken by a value, here or in what this is worked out from */
     return done({ error: e === LOOP ? { code: 'loop', note: '', node: nodeId } : { code: 'no-source', note: 'it could not be worked out: ' + (e && e.message ? e.message : String(e)), node: nodeId } });
   }
+}
+
+/* What a variable promises to hold, and how that stands. -> null for what is no variable, else
+   { holds, inferred, state, note }: holds is its promise ("integer?") or null; inferred the space it would have with
+   none (graph.js: inferred); state is
+       'inferred'   it promises nothing: its space is the inferred one
+       'kept'       its values are here and all lie in the space, or it is worked out as a space inside its promise
+       'broken'     a value lies outside it: note is the error's, "W is not natural: it holds -3 at 2, 1". The
+                    variable has then no value (evaluate answers with the error type)
+                    A shape too large to be worked out here whose values can be read off the graph (a source
+                    filled with one known value, entries all typed in) is held to its promise by them all the
+                    same, at any size: kept or broken, never unproven.
+       'unproven'   its values are not here (too large, noise, a data file), or one of them cannot be compared
+                    exactly with the space's ends (tanh(20) against 1), and what it is worked out as is not
+                    inside its promise: note says so, "W cannot be shown to be natural: it is worked out as
+                    integer". A warning: the variable keeps its value. */
+export function promiseOf(graph, id, options = {}){
+  const n = graph && typeof graph === 'object' && typeof id === 'string' ? nodeAt(graph, id) : null; if (!n || n.op !== 'variable') return null;
+  const was = inferred(graph, id), holds = typeof n.holds === 'string' ? n.holds : null;
+  if (!holds) return { holds, inferred: was, state: 'inferred', note: '' };
+  const a = evaluate(graph, id, options);
+  if (a.error && a.error.code === 'type' && a.error.node === id) return { holds, inferred: was, state: 'broken', note: a.error.note };
+  const plain = a.deferred ? plainly(graph, id) : null;      /* too large to work out, and its values can be read off the graph all the same: they were held to the promise (evaluate), and keep it */
+  if (((a.deferred && !(plain && !untold(holds, plain))) || (a.entries && untold(holds, a.entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
+  return { holds, inferred: was, state: 'kept', note: '' };
+}
+
+/* A promise held against any node's values, for what is no variable of its own: what a function's input block
+   promises to take, against what an arrow gives it. -> null for what is no node, else { holds, inferred, state,
+   note } as promiseOf gives, inferred being the node's own space. Nothing in the graph is changed by it: it is a
+   sentence for whoever draws, and the node keeps its value. name: what the sentence calls it. options.runs: where
+   an arrow repeated in a tile takes the node a run at a time ({ axis, start, span, count }, a mapalong's own), it is
+   held to the promise run by run, the part no run covers left out, and the sentence says which run:
+   "in is not natural: it holds -4 at 1, 1 in run 2". */
+export function judged(graph, id, holds, name, options = {}){
+  const n = graph && typeof graph === 'object' && typeof id === 'string' ? nodeAt(graph, id) : null; if (!n) return null;
+  const was = typeof n.type.value === 'string' ? n.type.value : 'any?';
+  if (!holds) return { holds: null, inferred: was, state: 'inferred', note: '' };
+  const a = evaluate(graph, id, options), runs = options.runs && typeof options.runs === 'object' ? options.runs : null;
+  const parts = !a.entries ? [] : runs ? byRun(a.entries, runs) : [[0, a.entries]];
+  for (const [run, entries] of parts){ const out = broken(holds, entries);
+    if (out) return { holds, inferred: was, state: 'broken', note: NOT_HELD(name, holds, out.key, out.value) + (run && runs.count > 1 ? ' in run ' + run : '') }; }
+  if ((a.deferred || parts.some(([, entries]) => untold(holds, entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(name, holds, was) };
+  return { holds, inferred: was, state: 'kept', note: '' };
+}
+/* a node's entries as a repeated arrow takes them: one run at a time, each keyed as the function's input has it
+   (from 1, 1), and nothing of what lies outside every run. runs: { axis: 'rows' | 'cols', start, span, count }, as a
+   mapalong node says them. -> [[run from 1, { key: value }], …], the runs in order, those with no entry left out. */
+function byRun(entries, { axis, start, span, count }){
+  const out = new Map(), rows = axis === 'rows';
+  for (const [key, v] of Object.entries(entries)){ const p = key.split(','), at = Number(p[rows ? 1 : 0]) - start; if (!(at >= 0 && at < span * count)) continue;
+    const run = Math.floor(at / span) + 1; p[rows ? 1 : 0] = String(at % span + 1); if (!out.has(run)) out.set(run, {}); out.get(run)[p.join(',')] = v; }
+  return [...out].sort((x, y) => x[0] - y[0]);
+}
+
+/* A broken promise's sentence as it reads on one use of the variable. The sentence names the entry by the variable's
+   own columns, rows and inner positions; a use that is transposed, or turned through its inner axes, draws that
+   entry somewhere else, and whoever is looking at that use is told the place as it is drawn there.
+   use: the use's node (a transpose of the variable, with its order where it is turned); error: evaluate's.
+   -> the note, with the place moved; the note as it is for any other node. */
+export function seenFrom(graph, use, error){
+  const n = graph && typeof graph === 'object' && typeof use === 'string' ? nodeAt(graph, use) : null, note = error && typeof error.note === 'string' ? error.note : '';
+  if (!n || n.op !== 'transpose' || !error || error.code !== 'type' || n.inputs[0] !== error.node) return note;
+  const m = note.match(/^([^]* at )(\d+(?:, \d+)+)([^]*)$/); if (!m) return note;
+  const p = m[2].split(', '), order = Array.isArray(n.order) && n.order.length === p.length ? n.order : null;
+  if (!order && (n.order || p.length < 2)) return note;
+  /* axis k of the use is axis order[k] of the variable (graph.js: transpose): the entry at p is drawn where each of the use's axes reads its own */
+  return m[1] + (order ? order.map(i => p[i]) : [p[1], p[0], ...p.slice(2)]).join(', ') + m[3];
 }
 
 const texts = new WeakMap();

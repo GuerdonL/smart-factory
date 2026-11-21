@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate, written, entered, typed, refs, parts, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard, namesIn } from '../expression.js';
+import { evaluate, written, entered, typed, refs, parts, refersTo, repoint, capsuleText, label, measuresOf, offers, wholeOf, bound, guard, namesIn, nameable } from '../expression.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), sym = text => ({ sym: text }), E = why => ({ err: why });
 const is = (text, expected, lookup, options) => assert.deepEqual(evaluate(text, lookup, options), { value: expected }, text);
@@ -106,12 +106,12 @@ test('no other function is taken, and a function\'s name alone is only a name', 
 });
 
 test('names stand for their values, of any kind', () => {
-  const names = { x: 3, y: q(1, 2), mass: q(2, 1, 1), 'Keys.x': 4, odd: sym('1+sqrt(2)'), none: null, bad: E('missing variable'), up: Infinity, yes: true };
+  const names = { x: 3, y: q(1, 2), mass: q(2, 1, 1), 'Keys.x': 4, odd: sym('1+sqrt(2)'), nil: null, bad: E('missing variable'), up: Infinity, yes: true };
   const lookup = n => names[n];
   is('x + 1', 4, lookup); is('2x', 6, lookup); is('x * y', q(3, 2), lookup); is('mass^2', 2, lookup);
   is('√x', q(3, 1, 1), lookup); is('Keys.x * 2', 8, lookup); is('x - 5', -2, lookup); is('1/√(Keys.x)', q(1, 2), lookup);
   is('odd - 1', q(2, 1, 1), lookup); is('odd + 1', sym('2+sqrt(2)'), lookup);
-  is('none + 1', null, lookup); is('none * 0', null, lookup); is('bad + none', E('missing variable'), lookup); is('up - x', Infinity, lookup); is('yes + x', 4, lookup);
+  is('nil + 1', null, lookup); is('nil * 0', null, lookup); is('bad + nil', E('missing variable'), lookup); is('up - x', Infinity, lookup); is('yes + x', 4, lookup);
   unread('z', 'unknown name: z', lookup);
   is('a^2', 4, n => ({ a: -2 })[n]); is('a * 3', -6, n => ({ a: -2 })[n]);      /* a negative name keeps its sign under a power */
 });
@@ -299,4 +299,57 @@ test('after review (phase 7): a sum of five thousand terms is read and worked ou
   assert.deepEqual(evaluate(long, n => n === '$1' ? 2 : undefined).value, 7500);
   assert.deepEqual(evaluate(Array.from({ length: 3000 }, () => '2').join(' - ')).value, -5996);      /* and grouped from the left, as ever */
   assert.deepEqual(evaluate('1 - 2 - 3 * 4 - 5').value, -18);
+});
+
+/* ---- None (phase 9) ---- */
+const NONE = { none: true };
+test('none and ∅ are None, a constant of the language like inf and true', () => {
+  is('none', NONE); is('None', NONE); is('∅', NONE); is('none + 1', NONE); is('none * 0', NONE); is('1/none', NONE); is('exp(none)', NONE); is('ln(none)', NONE); is('max(none, 3)', NONE); is('none < 1', NONE); is('-none', NONE); is('√∅', NONE); is('∜∅', NONE); is('√none', NONE); is('2∅', NONE);      /* the sign is read under a root and against a number, as ∞ is */
+  is('none == 0', false); is('none == false', false); is('none == none', true); is('none != 0', true);
+  is('!none', true); is('none && 1', false); is('none || 2', true); is('none || 0', false);
+  assert.equal(written(NONE), '∅');
+  assert.deepEqual(namesIn('none + $1').names, ['$1']);      /* a word of the language, not a name */
+});
+test('select(None, a, b) is b, and only b is worked out', () => {
+  is('select(none, 1/0, 5)', 5); is('select(none, 1, none)', NONE); is('select(1, none, 1/0)', NONE);
+  is('select(c, 1, 2)', 2, n => ({ c: NONE })[n]);
+  is('select(u, 1, 2)', null, n => ({ u: null })[n]);      /* unknown is still unknown, not false */
+});
+test('a name that holds None gives None, and None against an unknown name is unknown', () => {
+  const lookup = n => ({ b: NONE, u: null, e: E('missing variable') })[n];
+  is('b + 1', NONE, lookup); is('b + u', null, lookup); is('b + e', E('missing variable'), lookup); is('select(b, 1, 2x)', null, n => ({ b: NONE, x: null })[n]);
+});
+test('none typed into an entry is kept as the value None, and is typed over as none', () => {
+  assert.deepEqual(entered('none'), { value: NONE }); assert.deepEqual(entered(' None '), { value: NONE }); assert.deepEqual(entered('∅'), { value: NONE });
+  assert.deepEqual(entered('none + 1'), { value: { expr: 'none + 1' } });      /* a formula is kept as its text, whatever it comes to */
+  assert.equal(typed(NONE), 'none'); assert.deepEqual(entered(typed(NONE)), { value: NONE });
+});
+
+/* ruled 21 November 2026 */
+test('x != none tests that a value is present: true for a number, false for None, in a formula and in a select', () => {
+  const at = x => name => name === 'x' ? x : undefined, NONE = { none: true };
+  assert.equal(evaluate('x != none', at(3)).value, true); assert.equal(evaluate('x != none', at(0)).value, true); assert.equal(evaluate('x != none', at(NONE)).value, false);
+  assert.equal(evaluate('none != none').value, false); assert.equal(evaluate('none != 0').value, true); assert.equal(evaluate('x == none', at(NONE)).value, true);
+  assert.equal(evaluate('select(x != none, x, 0)', at(NONE)).value, 0); assert.equal(evaluate('select(x != none, x, 0)', at(7)).value, 7);
+  assert.equal(evaluate('x != none', at(null)).value, null);      /* an entry not given is not known to be present or not */
+});
+test('a + b + c and a * b * c are one sum and one product: an error two terms make comes before unknown and None, wherever the None stands', () => {
+  const says = (text, names = {}) => { const v = evaluate(text, n => (n in names ? names[n] : undefined)).value; return v === null ? 'unknown' : v && v.err ? 'error' : v && v.none ? 'None' : v; };
+  for (const text of ['none + inf - inf', 'inf + none - inf', 'inf - inf + none', 'none - inf + inf', 'inf - (none + inf)', '(inf + none) + (0 - inf)', 'none * 0 * inf', '0 * none * inf', 'inf * 0 * none', 'none * (0 * inf)', '0(none)(inf)']) assert.equal(says(text), 'error', text);
+  for (const text of ['none + 1 + 2', '1 + none + 2', '1 + 2 + none', 'none + inf + inf', 'inf - none + inf', '2 * none * 3', 'none * 0 * 0', '(none + inf) * 0', '(none * inf) + 1 - 1', 'none + inf', 'none * 0']) assert.equal(says(text), 'None', text);
+  for (const text of ['u + inf - inf', 'inf + u - inf', 'none + u + inf - inf', 'u * 0 * inf']) assert.equal(says(text, { u: null }), 'error', text);
+  for (const text of ['u + none + 1', 'none + u + 1', '1 + none + u', 'u * none * 2']) assert.equal(says(text, { u: null }), 'unknown', text);
+  /* with no None and nothing unknown it is worked out sign by sign, as it always was */
+  assert.equal(says('1 - 2 + 3'), 2); assert.equal(says('10 - (2 - 3)'), 11); assert.equal(says('2 * 3 * 4'), 24); assert.equal(says('2 * (3 * 4) * 5'), 120); assert.equal(says('1 - (2 + (3 - (4 - 5)))'), -5);
+  assert.equal(says(Array.from({ length: 5000 }, () => '1').join('+')), 5000); assert.equal(says('none+' + Array.from({ length: 5000 }, () => '1').join('+')), 'None');      /* a long one is not gone down with the stack */
+});
+
+test('nothing is called none, and every other name is free', () => {
+  const why = { refused: 'none is the word for no value, so nothing can be called it' };
+  for (const name of ['none', 'None', 'NONE', 'nOnE', ' none ', '\tnone\n', '// none', '//None', '  //  NONE  ']) assert.deepEqual(nameable(name), why, JSON.stringify(name));
+  /* whatever the formula language reads as None, by any spelling: the tokenizer is asked */
+  for (const name of ['∅', ' ∅ ', '// ∅', 'none\u200b', '\u200bnone', 'none\u200b\u200b', '\u200b∅\u200b', '// // none', '////none', '// //  ∅', '//\u200bnone']){
+    assert.deepEqual(nameable(name), why, JSON.stringify(name)); assert.deepEqual(evaluate(name.replace(/^(\s*\/\/)+/, '')).value, { none: true }, JSON.stringify(name)); }
+  /* a name that only has the word in it, and every other word of the language, is a name */
+  for (const name of ['none_1', 'nonesuch', 'none 1', 'anone', 'no ne', 'none.x', '∅∅', '∅ 1', 'none none', '(none)', '-none', 'no\u200bne', '@', '#none', 'none //', 'true', 'false', 'inf', 'infinity', 'pi', 'e', 'index', 'select', 'Shape 1', 'Keys', '// Keys', '//', '', ' ', null, undefined, 0]) assert.deepEqual(nameable(name), { ok: true }, JSON.stringify(name));
 });

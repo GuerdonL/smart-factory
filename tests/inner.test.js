@@ -346,7 +346,11 @@ test('evaluate: looked at from inside a function that is run at each inner posit
 });
 
 /* ---- what the builder makes of a canvas that holds inner data ---- */
-import { build } from '../graph.js';
+import { build as valued } from '../graph.js';
+/* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
+   without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
+   tests/graph.test.js); a type with no value is a type still (graph.js: Number spaces). */
+const build = snapshot => { const g = valued(snapshot); for (const n of Object.values(g.nodes)){ const { value, ...size } = n.type; n.type = size; } return g; };
 import { ends, came } from '../arrows.js';
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
 const space = (shapes, groups = [], operations = []) => ({ shapes, groups, operations });

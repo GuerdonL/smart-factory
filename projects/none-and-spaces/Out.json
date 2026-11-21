@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bnso001",
+  "type": "tensor",
+  "name": "Out",
+  "named": true,
+  "commented": false,
+  "color": "variable-1",
+  "position": {
+    "x": -25,
+    "y": -3
+  },
+  "size": {
+    "cols": 1,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 10,
+  "holds": "whole",
+  "seat": "bnsf001"
+}

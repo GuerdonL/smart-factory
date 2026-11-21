@@ -60,8 +60,11 @@ who can reach the port can read and overwrite the projects.
   the number of data dimensions as it is typed, what an entry opened holds, and how it is all said); no drawing.
 - `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
-- `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
+- `values.js`, `expression.js`: what a value is (nine kinds, None among them) and how two combine; and a formula as it is typed, read
   and worked out. No drawing. `algebra.js` gives `combine` and the value helpers from `values.js` too.
+- `spaces.js`: the number spaces a shape may hold (boolean, ternary, natural, whole, integer, rational, probability,
+  real, any), which lies inside which, what each operation gives, and a promise held against values. No drawing.
+  `backend/spaces.py` is the same tables again, held to this one by `backend/fixtures/spaces.json`.
 - `graph.js`, `evaluate.js`: a whole project as one graph of matrix operations, plain JSON, and that graph worked
   out exactly. No drawing. Every exact number the page shows comes from these two: see "The graph and the evaluator".
 - `decimals.js`, `backend.js`: the backend's numbers on the page (which entries are asked for, what is drawn of an
@@ -83,7 +86,7 @@ who can reach the port can read and overwrite the projects.
 
 ## Tests
 
-    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, inner data, graph, evaluate, project, bus, history, ids, zip
+    node --test                                # the JavaScript: values, expression, spaces, algebra, arrows, sources, tiles, inner data, graph, evaluate, project, bus, history, ids, zip
     python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, the PIN, and what it passes on to the backend
     backend/.venv/bin/python -B -m unittest discover -s backend/tests -t .      # the backend, with NumPy (see "The backend" for the environment)
 
@@ -610,6 +613,104 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
 
 `projects/inner-data` shows these.
 
+## None, and number spaces
+
+**None.** Type `none` (or `∅`) into an entry and it holds None: nothing, said outright. It is written `∅`, and saved
+as `{ "none": true }`. It is not an entry never given, which stays a symbol, and it is not zero. Since `none` is that
+word, nothing is called it: typed, sent or pasted as the name of a shape, an attribute, a side, an inner axis or an
+arrow's gap, however it is capitalised, it is refused with "none is the word for no value, so nothing can be called
+it", and nothing changes. So is `∅`, and so is either behind comment marks or beside a blank a formula passes over:
+a name is refused where a formula would read the whole of it as None. A name that only has it in it (`none_1`, `nonesuch`) is a name like any other, and a
+project saved before the rule opens as it is. None counts as false, and in arithmetic None with anything is None:
+
+| | |
+| --- | --- |
+| `none + 1`, `none * 0`, `1 / none`, `exp(none)`, `max(none, 3)`, `none < 1` | None |
+| `none == none` | true |
+| `none == 0`, `none == false` | false (and `!=` the other way round) |
+| `!none` | true |
+| `none && x` | false |
+| `none \|\| x` | whether `x` is true |
+| `select(none, a, b)` | `b`, and only `b` is worked out |
+| `x != none` | whether `x` holds a value: `!=` is the opposite of `==`, and never None |
+| a product entry with one None term | None |
+| None against an entry not given | not known |
+| None against an error | the error |
+| `none + inf - inf`, `none * 0 * inf`, in any order | an error: see below |
+
+The terms of one sum, or of one product, are looked at all together, so that what they come to does not turn on
+their order: an error among them, or one that two of them make between them (`inf - inf`, `0 * inf`), comes first,
+then an entry not given, then None. That holds for `a + b + c` and `a * b * c` in a formula, for a sum or a times
+of several shapes, and for the terms of a matrix product's entry, on the page and in the backend.
+
+So an optional bias is `select(b, x + b, x)`. The side of a single entry that holds None is None, as its mass is, and
+no side takes that length; a count, a span, a start and an axis's length that come to None are refused. The backend
+says which entries of an answer are None, and they are written `∅` among its squares.
+
+**Number spaces.** A shape's type is the space its numbers lie in. How a number is held, exactly or as the backend's
+decimal, is no part of it.
+
+| Space | Values | Lies inside |
+| --- | --- | --- |
+| `boolean` | 0, 1 (and true, false, which count as 1 and 0) | `whole`, `ternary`, `probability` |
+| `ternary` | -1, 0, 1 | `integer` |
+| `natural` | 1, 2, 3, … | `whole` |
+| `whole` | 0 and the naturals | `integer` |
+| `integer` | the wholes and their negatives | `rational` |
+| `rational` | a ratio of integers | `real` |
+| `probability` | a real from 0 to 1, both ends included | `real` |
+| `real` | any number on the line (no infinity) | `extended` |
+| `extended` | the reals and the two infinities, ∞ and -∞ | `any` |
+| `any` | nothing promised | |
+
+A space is written as its word, with `?` after it where None is admitted too (`integer?`). None has a space of its
+own, written `none`: a shape of only None reads "Holds: None", and None joined with a space is that space or None
+(`natural?`). Select a shape and the panel has a row **Holds**: a list of the ten words and **None**, and a box
+**or None**. Choosing a word promises that word alone: the box is unticked until it is ticked, whatever the entries
+hold. After them the list has `complex (not built)`: the word is kept back, and choosing it is refused with a
+sentence.
+
+- With nothing chosen the row is greyed and says what the shape is worked out as: `natural (from its entries)`. The
+  space of some values is the smallest that holds them all (0 and 1 are boolean, 2 is natural, -1 ternary, -2
+  integer, 1/2 a probability, 3/2 rational, √2 real); the space of a result follows from its inputs' by the
+  operation's rule (a sum of naturals is natural, a difference of them an integer, a quotient of integers
+  rational, a comparison boolean, a matrix product a sum of products, and so on: `spaces.js` has every rule, and
+  each gives the wider space where there was doubt).
+- Choose a word and the shape **promises** it. The promise is the variable's: every reference shares it, and it is
+  saved as `"holds": "natural"`. A promise is held against the values wherever the page has them: a value outside
+  it is an error, said with the entry (`W is not natural: it holds -3 at 1, 2`), in the warning colour, and what is
+  worked out from the shape then has no value. An entry not given, and one that is itself an error, break nothing.
+  On a transposed use, and on one turned through its inner axes, the sentence names the entry as that use draws it.
+  A value the solver leaves as it is written (`ln(8)/ln(2)`, which is 3) is asked whether it is the whole number it
+  comes nearest to; where that cannot be told it breaks nothing, and the row warns at most.
+- No promise lives where it cannot be seen. When the last use of a variable that lies in a space is fused into
+  another shape, or taken off the canvas by Difference or Intersect (which keep it), its promise is taken off and
+  the readout says so: the shape made is promised on its own. Undo puts it back; Revert gives the shapes back
+  without it.
+- Where the page has not got the values (a matrix too large for it, noise, a data file), the backend holds its own
+  numbers to the promise, and says so in the same sentence (`Nz is not probability: it holds -0.440393865 at 1, 1`).
+  Until it has, or with none running, the page goes by what the shape is worked out as: if that is not inside the
+  promise the row warns, and the shape keeps its value: `Nz cannot be shown to be probability: it is worked out as
+  real`. A shape whose values can be read off the graph (zeros, ones, an identity, entries all typed in) is held
+  by them at any size, with no backend.
+- A type never says what might be false. The space passed on to what is made of a shape is its promise only where
+  what it is worked out as lies inside the promise (or its entries say nothing yet); otherwise it is what is worked
+  out.
+- An arrow has **Takes** and **Gives**. What it takes is the promise of its function's `in` block, held against what
+  the arrow gives it: a value outside it is an error like a shape's own, the output has no value, and the sentence
+  names the entry (and the run, where the arrow is repeated). What it gives is the promise of the block seated on
+  its output. With no block seated there is nothing to hold that promise, and the row only says what the output is
+  worked out as. Where what an arrow is given is not known to lie in what it takes, nothing is said of its output
+  (`any or None`).
+- `complex` is a reserved word: it is refused with a sentence saying it is not built.
+
+In the graph a node's type carries `"value": "integer?"`, both validators check that it follows from the node's
+inputs, and a variable that promises carries `"holds"`, which is how the promise reaches the backend. Where a number
+it works out breaks one, its answer has, beside that result's error (the sentence), `"codes": { key: { "code":
+"type", "node": id } }`. A graph that says a version too low for what it holds is refused by both validators (None,
+a value and a promise need version 3; inner data needs 2), and a page that finds the backend's `/health` saying an
+older version than its own asks it for no run and says "the backend is older than this page: restart it".
+
 ## The graph and the evaluator
 
 The page does no arithmetic. The whole project is built into a graph (`graph.js`), once for each state of the
@@ -761,7 +862,7 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 2 }` (the version of graph it reads; it still takes a version 1 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 3 }` (the version of graph it reads; it still takes a version 1 or 2 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
