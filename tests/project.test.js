@@ -12,7 +12,7 @@ import { build, validate } from '../graph.js';
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null, inner: null,
   entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
-const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, resized: [], ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently; resized: the references it set to their variable's size */
+const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, resized: [], unheld: [], ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently; resized: the references it set to their variable's size */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 const paths = files => files.map(f => f.path).sort();
 const file = (path, body) => ({ path, text: JSON.stringify(body) });
@@ -860,9 +860,22 @@ test('a holds that is no number space is not read: complex is reserved, and the 
   const files = write(project(space([shape('W', { id: 'b00000w', holds: 'natural' })])));
   for (const word of ['complex', 'complex?', 'decimal', 'fraction', 'root', 'number', 'irrational', 'Integer', 'integer ?', '', 7, null, true, ['real']]){
     const odd = files.map(f => f.path === 'W.json' ? { path: f.path, text: JSON.stringify({ ...JSON.parse(f.text), holds: word }) } : f);
-    assert.ok(!('holds' in read(odd).top.shapes[0]), JSON.stringify(word)); }
+    const got = read(odd); assert.ok(!('holds' in got.top.shapes[0]), JSON.stringify(word));
+    assert.equal(got.unheld.length, 1, JSON.stringify(word)); assert.equal(got.unheld[0].name, 'W'); assert.ok(got.unheld[0].why.length > 10, JSON.stringify(word)); }      /* and it is said, not lost in silence */
+  assert.equal(read(files.map(f => f.path === 'W.json' ? { path: f.path, text: JSON.stringify({ ...JSON.parse(f.text), holds: 'complex' }) } : f)).unheld[0].why, 'complex numbers are not built: a shape holds numbers on the line');
   for (const word of ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'any', 'any?', 'whole?']){
     const good = files.map(f => f.path === 'W.json' ? { path: f.path, text: JSON.stringify({ ...JSON.parse(f.text), holds: word }) } : f);
     assert.equal(read(good).top.shapes[0].holds, word); }
   assert.ok(!('holds' in write(project(space([shape('W', { id: 'b00000w', holds: 'complex' })]))).map(f => f.path === 'W.json' ? JSON.parse(f.text) : {})[0]));      /* nor written */
+});
+test('a promise written only on a reference, or on a shape fused into another, is dropped when a project is read, and said', () => {
+  const two = write(project(space([shape('W', { id: 'b00000w', variable: 0, holds: 'natural' }), shape('W', { id: 'b00000x', variable: 0, reference: true, x: 10 })])));
+  assert.deepEqual(read(two).unheld, []);      /* a reference carries no promise of its own: nothing to drop */
+  const refFile = two.find(f => f.path.endsWith('.json') && JSON.parse(f.text).reference), on = word => two.map(f => f === refFile ? { path: f.path, text: JSON.stringify({ ...JSON.parse(f.text), holds: word }) } : f);
+  let got = read(on('integer')); assert.deepEqual(got.unheld, [{ name: 'W', holds: 'integer', why: 'a promise is its variable\'s, said on the shape the variable was made as' }]);
+  assert.deepEqual(got.top.shapes.map(d => d.holds), ['natural', undefined]); assert.deepEqual(read(write(got)).unheld, []);
+  assert.deepEqual(read(on('natural')).unheld, []);      /* the variable's own promise, said again: nothing is lost */
+  const fused = project(space([shape('J', { id: 'b00000j', joined: [{ fx: 0, fy: 0, fw: 1, fh: 0.5, shape: shape('L', { id: 'b00000l', holds: 'natural' }) }, { fx: 0, fy: 0.5, fw: 1, fh: 0.5, shape: shape('R', { id: 'b00000r' }) }] })]));
+  got = read(write(fused)); assert.deepEqual(got.unheld, [{ name: 'L', holds: 'natural', why: 'it is fused into J, which promises for itself' }]);
+  assert.ok(!('holds' in got.top.shapes[0].joined[0].shape)); assert.deepEqual(read(write(got)).unheld, []);
 });

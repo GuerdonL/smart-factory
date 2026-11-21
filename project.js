@@ -204,7 +204,10 @@
    The format is 5. Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
    shape: the number space it promises (spaces.js), one of the nine words with a "?" after it where it may hold None
    ("integer?"), left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
-   saved again it differs only in the format number. Reading, a holds that is no such word is dropped.
+   saved again it differs only in the format number. Reading, a holds that is no such word is dropped, and so is one
+   written only on a reference (a promise is its variable's, said on the shape the variable was made as) or on a
+   shape fused into another: read's project carries unheld, [{ name, holds, why }], each of them, for whoever
+   opens it to say; empty for every project a page saved.
    Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
    that go with it, from.entry, and a use's "axes". A format 3 project has none of them and is read exactly as it is: no field is
    converted, and saved again it differs only in the format number. Reading, inner is given whole lengths of at least
@@ -263,7 +266,7 @@
               axes: [variable axis, …] only on a use that is turned } */
 
 import { stacks, pieces, isFormula, isSurd, isInteger, storable } from './algebra.js';
-import { parse as spaceOf } from './spaces.js';
+import { parse as spaceOf, promise as promiseOf } from './spaces.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
@@ -373,6 +376,7 @@ export function write(project){
 }
 
 export function read(files){
+  const unheld = [];                            /* the promises that could not be kept as written: [{ name, holds, why }] */
   /* whatever directory project.json is in is the project's; everything is read relative to it */
   const all = files.map(f => ({ path: f.path.replace(/\\/g, '/').replace(/^\/+/, ''), text: f.text }));
   const head = all.filter(f => /(^|\/)project\.json$/.test(f.path)).sort((a, b) => a.path.length - b.path.length)[0];
@@ -402,7 +406,7 @@ export function read(files){
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides, String(c.name ?? 'A shape')),
         entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
-        reference: !!c.reference, from: fromBack(c.from), ...(spaceOf(c.holds) ? { holds: c.holds } : {}),      /* a promise: only where there is one, and only a word that is a number space (complex is none) */
+        reference: !!c.reference, from: fromBack(c.from), ...(spaceOf(c.holds) ? { holds: c.holds } : (c.holds !== undefined && unheld.push({ name: String(c.name ?? 'Shape'), holds: String(c.holds).slice(0, 40), why: (typeof c.holds === 'string' && promiseOf(c.holds).refused) || 'a promise is written as one word, a number space' }), {})),      /* a promise: only where there is one, and only a word that is a number space (complex is none); one that is no such word is dropped, and said (unheld) */
         arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });
@@ -432,7 +436,15 @@ export function read(files){
   const arrows = new Set(every.filter(d => d.arrow && d.id).map(d => d.id)), known = new Set(every.map(d => d.id).filter(Boolean));
   for (const d of every) if (d.seat && !(typeof d.seat === 'string' ? arrows.has(d.seat) : d.seat.hollow.every(id => known.has(id)))) d.seat = null;
   const old = (meta.version || 1) < 3 ? fuseStacks(project.top) : { fused: 0, changed: 0 };
-  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top) };
+  /* a promise is the variable's, said on the shape the variable was made as and shown by every use of it. One written
+     only on a reference, or other than its variable's there, has nowhere to be kept; nor has one on a shape that was
+     fused into another, where it could be neither seen nor taken off. Both are dropped, and said. */
+  const uses = new Map(); for (const d of every) if (d.variable != null && !d.arrow) uses.set(d.variable, [...(uses.get(d.variable) || []), d]);
+  for (const list of uses.values()){ const made = list.filter(d => !d.reference), own = made.length === 1 ? made[0].holds : undefined;
+    for (const d of list) if (d.reference && d.holds !== undefined && made.length === 1 && d.holds !== own){ unheld.push({ name: d.name, holds: d.holds, why: 'a promise is its variable\'s, said on the shape the variable was made as' }); delete d.holds; } }
+  const fusedIn = d => { for (const j of d.joined || []){ if (j.shape.holds !== undefined){ unheld.push({ name: j.shape.name, holds: j.shape.holds, why: `it is fused into ${d.name}, which promises for itself` }); delete j.shape.holds; } fusedIn(j.shape); } };
+  for (const d of every) if (!every.some(o => (o.joined || []).some(j => j.shape === d))) fusedIn(d);
+  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld };
 }
 
 /* Every use of a variable is one size: the size of the shape the variable was made as, the other way round where one

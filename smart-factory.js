@@ -24,7 +24,7 @@ import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText } from './algebra.js';
 import { build as buildGraph, indexAt } from './graph.js';
 import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, MOST as MOST_HERE } from './evaluate.js';
-import { SPACES, promise as promiseRead } from './spaces.js';
+import { SPACES, RESERVED, promise as promiseRead } from './spaces.js';
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
@@ -1056,7 +1056,7 @@ function arrowHolds(a){
     const runs = n && n.op === 'mapalong' ? { axis: n.axis, start: n.start, span: n.span, count: n.count } : null;      /* repeated in a tile: it takes its input a run at a time, and no more of it than its runs cover */
     const took = given ? judged(g, given, inner ? holdsOf(inner) : null, 'in', { ...(binding ? { binding } : {}), ...(runs ? { runs } : {}) }) : null;
     return [{ key: 'takes', label: 'Takes', holds: inner ? holdsOf(inner) : null, inferred: took ? took.inferred : null, from: took ? 'from its input' : '', note: took && took.note ? took.note : null, fixed: !inner },
-      seat ? holdsRow(seat, 'gives', 'Gives') : { key: 'gives', label: 'Gives', holds: null, inferred: n ? n.type.value || null : null, from: n ? 'seat a block on its output to promise it' : '', note: null, fixed: true }]; });
+      seat ? holdsRow(seat, 'gives', 'Gives') : { key: 'gives', label: 'Gives', holds: null, inferred: n ? n.type.value || null : null, from: n ? 'from the arrow' : '', hint: n ? 'Seat a block on its output to promise what it gives' : null, note: null, fixed: true }]; });
 }
 /* the in block of an arrow's function: in its own definition space, or in that of the arrow its function is shared with */
 const inOf = a => { for (const k of [a, ...(kin.get(a) || [])]){ const def = spaceOf.get(k), inner = def && def.blocks.find(x => x.in); if (inner) return inner; } return null; };
@@ -1239,14 +1239,14 @@ function paint(){
     const data = t?.inner || [], path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path), says = t ? nesting.described(t.cols, t.rows, data) : null;      /* its output's entries are opened as a block's are */
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar: false, plain: true, fixed: true,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
-      shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn), spaces: arrowHolds(one), words: SPACES,
+      shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn), spaces: arrowHolds(one), words: SPACES, reserved: Object.keys(RESERVED),
       notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: t ? { letter: initials((seat || one).name), values: path.length ? nesting.opened(laidOut || new Map(), path, data.length) : laidOut || new Map(), ...(path.length ? {} : { colsName: t.colsName, rowsName: t.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit), data = dataOf(one), path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path);      /* at: what the panel shows: the shape, or the entry of it that is opened */
     const all = laidOf(one), values = path.length ? nesting.opened(all, path, data.length) : all, scalar = cols === 1 && rows === 1 && !one.members && !data.length, wrong = scalar ? [] : [...all].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
     const says = nesting.described(cols, rows, data), sized = `${cols} wide × ${rows} tall` + (says ? ` · ${says}` : '');      /* what it is, and never a count of dimensions */
     const kind = sourceKind(one.source), node = steadily(() => graphNow().blocks[one.id]), quiet = node ? steadily(() => unshown(node, bindingOf([one], spaceWith(one)), 'b ' + one.id)) : null;
-    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar, attributes: attributesOf(one), spaces: [holdsRow(one)], words: SPACES, fixed: !!one.source,
+    properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar, attributes: attributesOf(one), spaces: [holdsRow(one)], words: SPACES, reserved: Object.keys(RESERVED), fixed: !!one.source,
       shape: one.source ? `${[...SOURCES, ...DATA].find(s => s.kind === kind).label.toLowerCase()}${kind === 'file' ? ' (' + (one.source.file || 'no file chosen') + ')' : ''}: ${sized}` : data.length ? sized : undefined,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
@@ -1637,7 +1637,14 @@ function fuse(){
   const made = makeBlock({ ...typeNamed('tensor') }, box, freeName());
   made.members = list.map(b => ({ block: b, fx: (b.rect.x - box.x) / box.w, fy: (b.rect.y - box.y) / box.h, fw: b.rect.w / box.w, fh: b.rect.h / box.h }));
   space.blocks.push(made); view.world.append(made.el); if (held !== undefined) space.groupOf.set(made, held);
+  /* a promise is shown and taken off on a shape's own panel, and a fused shape's members have none: a member's
+     promise would live on unseen, and break the fused shape under a name that is no longer on the canvas. So it is
+     taken off, and said; the fused shape is promised like any shape. (One whose variable has another use still on
+     the canvas keeps it: it is that use's to show.) Undo puts everything back as it was. */
+  const let_go = list.filter(b => holdsOf(b) && [...kinOf(b)].every(k => list.includes(k)));
+  for (const b of let_go) delete attrsOf(b).holds;
   tidy(); select([made]);
+  if (let_go.length) hud.say(`${let_go.map(b => bare(b.name)).join(', ')} ${let_go.length === 1 ? 'promises' : 'promise'} nothing now: a fused shape holds what its shapes hold together, and is promised on its own`);
 }
 /* puts the kept blocks of operations back among the blocks of s where each was: at its old place in the order (so
    what was drawn over what still is) and in the frames it was in, a frame that has gone since being made again */
@@ -2607,6 +2614,8 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
     + (data.changed ? `. ${data.changed === 1 ? '1 piece reads' : data.changed + ' pieces read'} differently now: shapes that meet at a corner, or stand under one in a product, touch` : '')
     /* a use that the files drew at another size than its variable's: project.js has set it to its variable's, and says which (no page saves one) */
+    /* a promise that could not be kept as the files wrote it (no number space, or written where no promise is kept): project.js has dropped it, and says which */
+    + (data.unheld && data.unheld.length ? `. ${data.unheld.slice(0, 3).map(u => `${bare(u.name)}'s promise "${u.holds}" is not kept: ${u.why}`).join('; ')}${data.unheld.length > 3 ? `; and ${data.unheld.length - 3} more` : ''}` : '')
     + (data.resized && data.resized.length ? `. ${data.resized.slice(0, 3).map(r => `${bare(r.name)} was drawn ${r.was.cols} × ${r.was.rows} and its variable is ${r.cols} × ${r.rows}`).join('; ')}${data.resized.length > 3 ? `; and ${data.resized.length - 3} more` : ''}: every use of a variable is its size, so ${data.resized.length === 1 ? 'it has' : 'they have'} been set to it` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));

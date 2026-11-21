@@ -26,9 +26,12 @@
                              note      where the promise is not met, or cannot be shown to be: the sentence, in
                                        the warning colour, the promise's word in that colour too
                              fixed     the row can only be read (there is no block to hold the promise)
+                             hint      a sentence written after the list: what to do to promise it
                            A row is a list of the nine words (the first choice is no promise) and an "or None" box;
                            a choice is handed on as onHolds(key, "integer?"), and no promise as onHolds(key, null).
-                           words: the nine, in order.
+                           words: the nine, in order. reserved: words kept back for what is not built
+                           (complex), listed after them as "complex (not built)"; choosing one is handed on like
+                           any other, for whoever is told to refuse with its sentence.
               matrix       what createMatrix takes, less its cell: the value (null: none is drawn). A long side is cut short there, to its
                            first three entries, dots, and its last. Click an entry to type a value over it: the
                            field opens holding textOf("c,r"), what the entry holds as it would be typed, and what
@@ -84,6 +87,7 @@ style('properties', `
 .properties-rows .value.spaced { flex-wrap: wrap; }
 .properties-rows .outcome { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .properties-rows .outcome.error { color: var(--warn); white-space: normal; font-family: var(--font-ui); font-size: 12px; }
+.properties-rows .outcome.hint { white-space: normal; font-family: var(--font-ui); font-size: 12px; }
 .properties-add { all: unset; box-sizing: border-box; align-self: flex-start; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font: 15px/20px var(--font-ui); text-align: center; cursor: pointer; }
 .properties-add:hover { color: var(--fg); background: var(--hover); }
 .properties-add:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -179,11 +183,14 @@ export function createProperties({ onName = () => {}, onValue = () => {}, onLabe
         label.textContent = sp.label; pick.dataset.k = sp.key + '.space'; pick.setAttribute('aria-label', sp.label + ': the number space'); tick.dataset.k = sp.key + '.none';
         const free = html`<option value=""></option>`; free.textContent = said + (sp.from ? ` (${sp.from})` : ''); pick.append(free);
         for (const w of what.words || []){ const o = html`<option></option>`; o.value = w; o.textContent = w; pick.append(o); }
+        /* a word that is kept back for what is not built: listed, so that it is seen to be none of the spaces, and choosing it is refused with its sentence by whoever is told (the list goes back to what it showed) */
+        for (const w of what.reserved || []){ const o = html`<option class="reserved"></option>`; o.value = w; o.textContent = w + ' (not built)'; pick.append(o); }
         pick.value = word; pick.classList.toggle('inferred', !word); pick.classList.toggle('unmet', !!sp.note); tick.checked = none; pick.disabled = !!sp.fixed; tick.disabled = !!sp.fixed || !word;
         const tell = () => { showing = ''; onHolds(sp.key, pick.value ? pick.value + (tick.checked ? '?' : '') : null); };
         pick.addEventListener('change', tell); tick.addEventListener('change', tell);
         cellV.append(pick, box);
         if (sp.note){ const r = html`<span class="outcome error"></span>`; r.textContent = sp.note; cellV.append(r); }
+        if (sp.hint){ const r = html`<span class="outcome hint"></span>`; r.textContent = sp.hint; cellV.append(r); }      /* what to do to promise it, where the row can only be read: beside the list, never inside it, where it was cut short */
         rows.append(label, cellV); }
       trail.hidden = !what.trail; trail.textContent = what.trail || '';
       axes.hidden = !what.axes; axes.replaceChildren();
