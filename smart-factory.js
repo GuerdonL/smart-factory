@@ -31,7 +31,7 @@ import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
-import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, conditionAt } from './arrows.js';
+import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, conditionAt, conditionSaid } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
 import { wanted, laid, noted, drawn as cellsDrawn, level as levelOf } from './decimals.js';
@@ -1284,7 +1284,7 @@ function paint(){
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar: false, plain: true, fixed: true,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       shape: (fn.formula ? 'entry formula' : fn.choose ? 'a condition: its true side, or its false side' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn), spaces: arrowHolds(one), words: SPACES, reserved: Object.keys(RESERVED),
-      notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...(fn.choose && !fn.formula && !o.warn && conditionOpen(one) ? ['Its condition is not known'] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...(fn.choose && !fn.formula && !o.warn && conditionOpen(one) ? [conditionOpen(one)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: t ? { letter: initials((seat || one).name), values: once(path.length ? nesting.opened(laidOut || new Map(), path, data.length) : laidOut || new Map(), laidOut, o.note ? cap(o.note) : null), ...(path.length ? {} : { colsName: t.colsName, rowsName: t.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit), data = dataOf(one), path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path);      /* at: what the panel shows: the shape, or the entry of it that is opened */
     const all = laidOf(one), values = path.length ? nesting.opened(all, path, data.length) : all, scalar = cols === 1 && rows === 1 && !one.members && !data.length, wrong = scalar ? [] : [...all].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
@@ -2377,11 +2377,11 @@ function conditionCome(def){
 }
 /* the pieces of a condition's space that lie across the edge of one of its frames: some of their blocks in it, some not (graph.js: chosen) */
 const acrossIn = (s, alg, g) => alg.all.filter(p => { const n = p.members.filter(m => chain(alg.active[m], s).includes(g)).length; return n > 0 && n < p.members.length; });
-/* whether a conditional arrow's condition is not known: what it is given is worked out here, and is neither true nor false */
+/* what there is to say of a conditional arrow whose condition is not known (what it is given is worked out here, and is neither true nor false): that, or the error that an entry of it is (arrows.js: conditionSaid); null or false where it is known */
 function conditionOpen(a){
   return steadily(() => { const g = graphNow(), e = findIn(g).arrows.get(a.id), n = e && e.node && g.nodes[e.node]; if (!n || n.op !== 'apply') return false;
     const binding = bindingOf(readBy(a, spaceWith(a)), spaceWith(a), false, a), options = binding ? { binding } : undefined, r = workOut(g, n.inputs[0], options);
-    return !!r.entries && truthAt(g, n.inputs[0], options) === null; });
+    return !!r.entries && truthAt(g, n.inputs[0], options) === null ? conditionSaid(r.entries) : null; });
 }
 /* the blocks of a condition's space that lie in neither of its sides, the input block apart: they take no part */
 const acrossNote = (s, b) => { const alg = algebraIn(s), k = sidesIn(s).findIndex(g => acrossIn(s, alg, g).some(p => p.members.some(m => alg.active[m] === b)));

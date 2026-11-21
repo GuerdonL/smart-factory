@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES, ACROSS, conditionAt } from '../arrows.js';
+import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES, ACROSS, conditionAt, conditionSaid } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -495,6 +495,12 @@ test('conditionable: exactly one piece, whole, that comes to a matrix and holds 
   assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], fixed: 'An arrow cannot be made conditional' }).refused, 'An arrow cannot be made conditional');      /* an arrow, a function's input, a seated block: said first */
   assert.equal(conditionable({ blocks: 1, pieces: [], fixed: 'in is the function\'s input: it cannot be made conditional' }).refused, 'in is the function\'s input: it cannot be made conditional');
   assert.equal(conditionable({ blocks: 1, pieces: [] }).refused, 'Make conditional takes exactly one piece, and 0 are selected');
+});
+test('conditionSaid: a condition that is an error says the error and where; one with an entry never given is not known', () => {
+  assert.equal(conditionSaid({ '1,1': { err: 'divide by zero' } }), 'Its condition is an error: divide by zero at 1, 1');
+  assert.equal(conditionSaid({ '1,1': 0, '2,1': { err: 'missing variable' }, '1,2': { err: 'divide by zero' }, '3,1': { err: 'later' } }), 'Its condition is an error: missing variable at 2, 1');      /* the first by row, then column */
+  assert.equal(conditionSaid({ '1,1,2': { err: 'b' }, '1,1,1': { err: 'a' } }), 'Its condition is an error: a at 1, 1, 1');
+  assert.equal(conditionSaid({ '1,1': 0 }), 'Its condition is not known'); assert.equal(conditionSaid({}), 'Its condition is not known'); assert.equal(conditionSaid(null), 'Its condition is not known');
 });
 test('conditionAt: what Make conditional adds lies over nothing that is there, moved left along its line before anywhere else', () => {
   const size = { cols: 2, rows: 1 };

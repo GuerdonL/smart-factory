@@ -192,6 +192,11 @@
                                    Such a piece belongs to neither: it is { error: ACROSS(0 | 1) }, a sentence that
                                    names the side, before anything else is asked. A side is None only where its
                                    frame holds nothing.
+   conditionSaid(entries)       -> what an arrow's panel says of a condition that is neither true nor false. entries:
+                                   the condition's, { "c,r": value }. Where one is an error ({ err }), the first of
+                                   them by row, then column, then inner position: "Its condition is an error: divide
+                                   by zero at 1, 1"; where none is (an entry was never given), "Its condition is
+                                   not known".
    conditionAt(at, size, taken) -> { x, y }: where Make conditional sets its new entry, in units, so that what it
                                    makes lies over nothing that is there. at: where the selection's top left corner
                                    was; size: the output as it is written, { cols, rows }; taken: the rectangles of
@@ -411,6 +416,11 @@ export function chosenType(sides, promise = null, across = null){
   if (a) return { cols: a.cols, rows: a.rows, colsName: a.colsName || null, rowsName: a.rowsName || null, ...(inner(a).length ? { inner: inner(a) } : {}) };
   if (b) return { cols: b.cols, rows: b.rows, colsName: null, rowsName: null, ...(inner(b).length ? { inner: inner(b).map(x => ({ length: x.length, name: null })) } : {}) };
   return promise && whole(promise.cols) && whole(promise.rows) ? { cols: promise.cols, rows: promise.rows, colsName: null, rowsName: null } : { cols: 1, rows: 1, colsName: null, rowsName: null };
+}
+export function conditionSaid(entries){
+  const bad = Object.entries(entries || {}).filter(([, v]) => v && typeof v === 'object' && typeof v.err === 'string').map(([key, v]) => [key.split(',').map(Number), v.err])
+    .sort(([[c, r, ...ks]], [[d, s, ...ls]]) => r - s || c - d || ks.reduce((n, k, i) => n || k - ls[i], 0))[0];
+  return bad ? `Its condition is an error: ${bad[1]} at ${bad[0].join(', ')}` : 'Its condition is not known';
 }
 export function conditionAt(at, size, taken){
   const lies = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;

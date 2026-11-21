@@ -728,7 +728,8 @@ the entry is true; make it false and the output is None (`∅`) at the same size
 
 - The condition is whatever the arrow's base covers: a single `true` or `false`, a formula, or a whole matrix,
   which counts by its truth as above. None is false. Where the truth is not known, the output keeps its size and
-  shows its symbols, and the arrow's panel says "Its condition is not known".
+  shows its symbols, and the arrow's panel says "Its condition is not known"; where an entry of the condition is an
+  error, it says which: "Its condition is an error: divide by zero at 1, 1".
 - Open the arrow (select it, then double-click) for its two sides: two frames called **true** and **false**, and
   `in`, which shows the condition. Each frame holds one piece or nothing. An empty frame is None at the other
   side's size, and is still drawn, so that a shape can be dragged into it. The side that is not chosen is faded;
