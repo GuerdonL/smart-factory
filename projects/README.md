@@ -292,17 +292,17 @@ output, where `Out` is seated, is `Keys · Weights`. Select the arrow and double
 frame `true` holds `Keys` and `Weights`, and the frame `false` is empty. Type `false` into `Go` and `Out` holds `∅`
 in all four entries, None at the true side's size, and inside the arrow the true side is faded.
 
-Under it `Stop` holds `false`, and the same `gate`, used again from the list, gives `∅` there.
+Under it `No` holds `false`, and the same `gate`, used again from the list, gives `∅` there.
 
-`Mask` holds 0, `∅` and 5: a whole matrix for a condition. One true entry makes it true, so its arrow gives `Yes`
-(1, 2); make the 5 a 0 and it gives `No` (7, 8), its false side.
+`Mask` holds 0, `∅` and 5: a whole matrix for a condition. One true entry makes it true, so its arrow gives `Then`
+(1, 2); make the 5 a 0 and it gives `Else` (7, 8), its false side.
 
 `Each` is a column of `true`, `false` and `∅`, and the arrow beside it is in the tile `Rows`, which repeats it down
 the column: three conditions, three outputs, (1, 2), then (-1, -2) twice.
 
 On the right, truth as height. `Zero`, a source of zeros, and `Nothing`, which holds only `∅`, are false, and are
 drawn sunk: no shadow, set down, the light along their bottom edge. `Some` holds a 3 and stands as a block always
-has. `Open` has an entry never given: its truth is not known, and it stands too. `Stop` is sunk, and so is
+has. `Open` has an entry never given: its truth is not known, and it stands too. `No` is sunk, and so is
 `.dark_mode` in the `.config`, which holds 0.
 
 A conditional arrow's file carries `"choose": { "then": "<frame id>", "else": "<frame id>" }` in its `"arrow"`, and

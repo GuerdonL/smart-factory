@@ -1,18 +1,18 @@
 {
   "format": "smart-factory/shape",
-  "version": 6,
-  "id": "bcds001",
+  "version": 5,
+  "id": "ba23egy",
   "type": "tensor",
-  "name": "Stop",
+  "name": ".fanta",
   "named": true,
   "commented": false,
-  "color": "variable-5",
+  "color": "variable-4",
   "position": {
-    "x": -26,
-    "y": -8
+    "x": -4,
+    "y": 0
   },
   "size": {
-    "cols": 1,
+    "cols": 3,
     "rows": 1
   },
   "sides": {
@@ -22,8 +22,11 @@
   "value": {
     "as": "resolved",
     "entries": {
-      "1,1": false
+      "1,1": 255,
+      "2,1": 138,
+      "3,1": 48
     }
   },
-  "order": 6
+  "order": 3,
+  "standing": true
 }

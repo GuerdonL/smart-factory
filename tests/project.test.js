@@ -771,6 +771,9 @@ test('every project that comes with the repository opens and saves as it did bef
 test('projects/none-and-spaces holds a None, a select that None decides, a promise kept, one broken with its sentence, and an arrow that takes and gives', () => {
   const files = shipped('none-and-spaces'), p = read(files), by = name => p.top.shapes.find(d => d.name === name);
   assert.deepEqual(p.unheld, []); assert.deepEqual(p.resized, []); assert.equal(JSON.parse(files.find(f => f.path === 'project.json').text).version, 5);      /* as it was shipped: it is not saved again for a new format */
+  /* its .config gives the shapes their colours, as every example's does: .variable_colors is defined, light and dark, by six colours standing in it */
+  for (const dir of ['variable_colors/', 'variable_colors (2)/']) assert.deepEqual(files.filter(f => f.path.startsWith(dir)).map(f => JSON.parse(f.text).name).sort(), ['.fanta', '.lagoon', '.lavender', '.lazuli', '.marigold', '.watermelon'], dir);
+  assert.equal((files.find(f => f.path === '.config').text.match(/"definition": "variable_colors/g) || []).length, 2);
   assert.deepEqual(by('W').entries['2,1'], { none: true }); assert.equal(by('W').holds, 'natural?'); assert.deepEqual(by('Pick').entries['1,1'], { expr: 'select(none, 2, 3)' });
   assert.ok(!('holds' in by('V'))); assert.equal(by('Bad').holds, 'natural'); assert.equal(by('Out').holds, 'whole'); assert.equal(by('Out').seat, by('linear').id);
   assert.equal(by('linear').inside.shapes.find(d => d.in).holds, 'natural');
@@ -936,13 +939,13 @@ test('projects/conditions holds a condition, the same arrow used again on a fals
   const out = id => { const a = g.spaces.top.arrows.find(a => a.arrow === id); assert.equal(a.error, null, id); return evaluate(g, a.node).entries; }, N = { none: true };
   assert.deepEqual(by('gate').arrow.choose, { then: 'gcdt001', else: 'gcde001' }); assert.deepEqual(by('gate').inside.groups.map(f => [f.name, f.members.length]).sort(), [['false', 0], ['true', 2]]);
   assert.deepEqual(out('bcda001'), { '1,1': 2, '2,1': 1, '1,2': 4, '2,2': 3 });      /* Go is true: Keys · Weights */
-  assert.deepEqual(out('bcda002'), { '1,1': N, '2,1': N, '1,2': N, '2,2': N });      /* Stop is false, and the false side is empty: None, at that size */
+  assert.deepEqual(out('bcda002'), { '1,1': N, '2,1': N, '1,2': N, '2,2': N });      /* No is false, and the false side is empty: None, at that size */
   assert.deepEqual(evaluate(g, g.blocks[by('Out').id]).entries, out('bcda001')); assert.equal(by('Out').seat, 'bcda001');
   assert.deepEqual(out('bcda003'), { '1,1': 1, '2,1': 2 });      /* Mask holds 0, None and 5: one true entry */
   assert.deepEqual(out('bcda004'), { '1,1': 1, '2,1': 2, '1,2': -1, '2,2': -2, '1,3': -1, '2,3': -2 });      /* in a tile, once for each row of Each: true, false, None */
   assert.equal(g.nodes[g.spaces.top.arrows[3].node].op, 'mapalong');
   const truth = name => truthAt(g, g.blocks[by(name).id]);
-  assert.deepEqual(['Go', 'Stop', 'Mask', 'Each', 'Zero', 'Nothing', 'Some', 'Open'].map(truth), [true, false, true, true, false, false, true, null]);      /* what is false is drawn sunk; Open has an entry never given */
+  assert.deepEqual(['Go', 'No', 'Mask', 'Each', 'Zero', 'Nothing', 'Some', 'Open'].map(truth), [true, false, true, true, false, false, true, null]);      /* what is false is drawn sunk; Open has an entry never given */
   const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
   assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(paths(write(p)), paths(files));      /* saved again it is the files that are shipped */
 });
