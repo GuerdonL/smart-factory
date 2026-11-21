@@ -166,6 +166,11 @@ def functions_of(n):
     return [w for w in n.get('within', ()) if w.startswith('f:')]
 
 
+def params_key(params):
+    """What every function round a node was given, as one text (evaluate.js: paramsKey)."""
+    return '|'.join('%s=%s' % (f, params[f]['key']) for f in sorted(params))
+
+
 class Env:
     __slots__ = ('params', 'cells', 'active')
 
@@ -461,7 +466,7 @@ def state_in(run, tile, outer, k, node=None):
     run.homes()
     i = run.loops[tile]
     n = run.nodes[i]
-    key = tile + '|' + '|'.join('%s=%s' % (f, outer.params[f]['key']) for f in sorted(outer.params)) + '|' + ';'.join('%d,%d' % (c['x'], c['y']) for c in outer.cells)
+    key = tile + '|' + params_key(outer.params) + '|' + ';'.join('%d,%d' % (c['x'], c['y']) for c in outer.cells)
     kept = run.stepped.get(key)
     if kept is None or (kept and k not in kept and k < max(kept)):
         kept = run.stepped[key] = {}
@@ -649,7 +654,7 @@ class Run:
         self.room, self._weights, self._masked = room, {}, {}      # room: the bytes its arrays may take in all
         self.read_file, self.files, self.trees = read_file, {}, {}
         self.kept, self.held = OrderedDict(), 0
-        self._needs, self._follows, self._homes, self.repeats = {}, {}, None, {}
+        self._needs, self._follows, self._carries, self._homes, self.repeats = {}, {}, {}, None, {}
         self.loops, self.state_ids, self.stepped, self.stops = {}, {}, {}, {}      # tiles with a step: tile -> the node that says its pattern, state and function; a state block -> { tile: where it lies in the state }; the states kept; where each loop stopped
 
     def tree(self, text):
@@ -685,6 +690,28 @@ class Run:
                 self._follows[k] = any(self._follows.get(d, False) for d in n['inputs'])
             todo.pop()
         return self._follows[i]
+
+    def carries(self, i):
+        """Whether a node's value is worked out from the state of a tile with a step (evaluate.js: carries)."""
+        self.homes()
+        todo, opened = [i], set()
+        while todo:
+            k = todo[-1]
+            if k in self._carries:
+                todo.pop()
+                continue
+            n = self.nodes[k]
+            if k in self.state_ids:
+                self._carries[k] = True
+            else:
+                waiting = [d for d in n['inputs'] if d not in self._carries and d not in opened]
+                if waiting:
+                    opened.add(k)
+                    todo.extend(waiting)
+                    continue
+                self._carries[k] = any(self._carries.get(d, False) for d in n['inputs'])
+            todo.pop()
+        return self._carries[i]
 
     def chosen(self, side):
         """The side a choose has taken, looked at as run.py looks at a node before it is worked out: refused where a
@@ -897,7 +924,11 @@ class Run:
         fns = functions_of(n)
         if not fns and not in_cells:
             return ''
-        return '|' + '|'.join(env.params[f]['key'] if f in env.params else '' for f in fns) + ('|' + ';'.join(cell_key(c) for c in env.cells) if in_cells else '')
+        if in_cells and self.carries(i):      # worked out from a tile's state, in a cell: under all that the state is remembered under (state_in)
+            given = params_key(env.params)
+        else:
+            given = '|'.join(env.params[f]['key'] if f in env.params else '' for f in fns)
+        return '|' + given + ('|' + ';'.join(cell_key(c) for c in env.cells) if in_cells else '')
 
     def work(self, i, env):
         n = self.nodes[i]

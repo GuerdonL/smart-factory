@@ -67,7 +67,9 @@
    to it (carry). A node outside every
    function and every tile has one value. A node the graph marks as within a function has one for each thing that
    function is applied to, and one within a tile has one for each cell: such a node is remembered under its id
-   together with the whole chain of bindings it sits under, never under its id alone. A tile in a tile's pattern
+   together with the whole chain of bindings it sits under, never under its id alone. One worked out from the state
+   of a tile with a step (a state block in a later cell, and whatever reads it there) is remembered under what every
+   function round it was given, whether or not the graph marks it within them: the state is. A tile in a tile's pattern
    adds its cell to the chain, so a node there has a value for each (outer cell, inner cell).
 
    Whose cells a node sits in. A block is in the tiles it is itself in, whoever reads it: read from a tile inside
@@ -137,13 +139,21 @@ const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && O
 const nodeAt = (graph, id) => own(graph.nodes, id) && graph.nodes[id] && typeof graph.nodes[id] === 'object' && own(OPS, graph.nodes[id].op) && Array.isArray(graph.nodes[id].inputs) && graph.nodes[id].type ? graph.nodes[id] : null;
 const fnAt = (graph, id) => own(graph.functions, id) && graph.functions[id] && typeof graph.functions[id] === 'object' ? graph.functions[id] : null;
 const states = new WeakMap();                   /* a graph -> what has been worked out of it: values and answers by node id, then by binding */
-const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map(), stepped: new Map(), stops: new Map() }); return states.get(graph); };
+const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map(), carries: new Map(), stepped: new Map(), stops: new Map() }); return states.get(graph); };
 /* whether a node's value follows the cell it is worked out in: a formula of its own reads the index, or what it is made of does.
    (The graph marks such a node with its tiles; this is asked of the node itself, so that a value is never remembered under too little.) */
 function follows(graph, st, id){
   if (!st.follows.has(id)){ st.follows.set(id, false); const n = nodeAt(graph, id); st.follows.set(id, !!n && (homesOf(graph, st).stateIds.has(id) || readsIndex(n) || n.inputs.some(i => follows(graph, st, i)))); }      /* (a state block of a tile with a step holds what the step made of the cell before) */
   return st.follows.get(id);
 }
+/* whether a node's value is worked out from the state of a tile with a step: it is a state block, or what it is made of
+   is. Such a value depends on everything the state does: what every function round the tile was given, not only the
+   functions the node is itself within. */
+function carries(graph, st, id){
+  if (!st.carries.has(id)){ st.carries.set(id, false); const n = nodeAt(graph, id); st.carries.set(id, !!n && (homesOf(graph, st).stateIds.has(id) || n.inputs.some(i => carries(graph, st, i)))); }
+  return st.carries.get(id);
+}
+const paramsKey = params => Object.keys(params).sort().map(f => f + '=' + params[f].key).join('|');
 const under = (map, id) => { if (!map.has(id)) map.set(id, new Map()); return map.get(id); };
 const fnsOf = n => (Array.isArray(n.within) ? n.within : []).filter(w => typeof w === 'string' && w[0] === 'f');
 const cellKey = c => `${c.x},${c.y},${c.dx},${c.dy}${c.turned ? 't' : ''}@${c.atKey}`;
@@ -152,7 +162,8 @@ const aCell = c => ({ x: Number(c.x) || 0, y: Number(c.y) || 0, dx: Number(c.dx)
 /* what a node's value is remembered under, beside its id: every binding it sits under */
 function keyFor(graph, st, id, n, env){
   const inCells = env.cells.length > 0 && follows(graph, st, id), fns = fnsOf(n);
-  return fns.length || inCells ? '|' + fns.map(f => env.params[f] ? env.params[f].key : '').join('|') + (inCells ? '|' + cellsKey(env.cells) : '') : '';
+  /* (what is worked out from a tile's state, in a cell: under all that the state is remembered under, stateIn) */
+  return fns.length || inCells ? '|' + (inCells && carries(graph, st, id) ? paramsKey(env.params) : fns.map(f => env.params[f] ? env.params[f].key : '').join('|')) + (inCells ? '|' + cellsKey(env.cells) : '') : '';
 }
 const NO_IDS = Object.freeze([]);
 /* the most entries of anything a node's value is worked out from, the first variable among them that has an error, and the variables among them that promise a number space */
@@ -269,7 +280,7 @@ function wholeCell(graph, st, tile, n, outer, j){
 /* the state of cell k (2 or more) of a tile with a step, under what lies round the tile (outer: the env less the
    tile's own cell): what the step made of cell k − 1. Worked out in order from the last cell known, one step each. */
 function stateIn(graph, st, tile, outer, k){
-  const id = st.loops.get(tile), n = graph.nodes[id], key = tile + '|' + Object.keys(outer.params).sort().map(f => f + '=' + outer.params[f].key).join('|') + '|' + outer.cells.map(c => c.x + ',' + c.y).join(';');
+  const id = st.loops.get(tile), n = graph.nodes[id], key = tile + '|' + paramsKey(outer.params) + '|' + outer.cells.map(c => c.x + ',' + c.y).join(';');
   if (!st.stepped.has(key)) st.stepped.set(key, [null, null]);
   const list = st.stepped.get(key), f = fnAt(graph, n.fn); if (!f) throw new Error('no such function');
   while (list.length <= k){ const j = list.length;      /* cell j's state, from cell j − 1 */

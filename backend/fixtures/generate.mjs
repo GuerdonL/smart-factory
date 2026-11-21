@@ -41,7 +41,7 @@ import { evaluate } from '../../evaluate.js';
 import { read } from '../../project.js';
 import * as S from '../../spaces.js';
 import { treeOf } from '../../expression.js';
-import { total, LOOPS } from '../../tests/looping.js';
+import { total, LOOPS, inFunction, inStep } from '../../tests/looping.js';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..');
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -268,6 +268,7 @@ const BY_HAND_LOOPS = {
   'by hand: loop, a count that is an input': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': 4 } } } }),
   'by hand: loop, a count that is no whole number': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': { n: 1, d: 2, k: 0 } } } } }),
   'by hand: loop, None as state': total({ s0: { none: true } }),
+  'by hand: loop, in a function': inFunction(), 'by hand: loop, in a step': inStep(),
 };
 
 const files = (dir, at = '') => readdirSync(join(dir, at)).sort().flatMap(n => statSync(join(dir, at, n)).isDirectory() ? files(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);

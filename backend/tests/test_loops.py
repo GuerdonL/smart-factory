@@ -74,6 +74,23 @@ class Loops(unittest.TestCase):
         g = named('by hand: loop, a count that is no whole number')
         self.assertEqual(whole(g, 'lp'), [[{'err': 'that has no value'}]])      # an entry with no value, as on the page
 
+    def test_a_tile_with_a_step_in_a_function_has_a_state_for_each_thing_the_function_is_given(self):
+        # by hand (tests/looping.js: inFunction): f(x) = 2x, so f(5) = 10, f(7) = 14 and f along [5; 7] is [10; 14], whatever was asked before
+        want = {'fa': [10.0], 'fb': [14.0], 'fx': [10.0, 14.0]}
+        for order in (['fa', 'fb', 'fx'], ['fb', 'fa', 'fx'], ['fx', 'fb', 'fa']):
+            g = named('by hand: loop, in a function')
+            run = E.Run(g)      # one run, so that what the first remembered is there for the next
+            got = {i: [float(E.A.item(run.value(i), r, 0)) for r in range(g['nodes'][i]['type']['rows'])] for i in order}
+            self.assertEqual(got, want, order)
+
+    def test_a_tile_with_a_step_in_a_step_starts_from_what_that_step_was_given(self):
+        # by hand (tests/looping.js: inStep): s' = 2s + c with c = 1, 2, 3: the cells hold 0, 1, 4 and the loop gives 11
+        for order in (['lp', 'rep'], ['rep', 'lp']):
+            g = named('by hand: loop, in a step')
+            run = E.Run(g)
+            got = {i: [[float(E.A.item(run.value(i), r, c)) for c in range(g['nodes'][i]['type']['cols'])] for r in range(g['nodes'][i]['type']['rows'])] for i in order}
+            self.assertEqual(got, {'lp': [[11.0]], 'rep': [[1.0, 2.0, 3.0], [0.0, 1.0, 4.0]]}, order)
+
     def test_no_end_and_no_stop_block_runs_until_stopped(self):
         g = named('loops: no end and no stop block')
         self.assertEqual(whole(g, tile(g)['loop']), 'it runs until stopped: its count is infinite and it has no stop block')

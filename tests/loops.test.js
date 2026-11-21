@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { validate } from '../graph.js';
 import { evaluate, stoppedAt } from '../evaluate.js';
 
-import { total, ty, V } from './looping.js';
+import { total, ty, V, inFunction, inStep } from './looping.js';
 const one = a => a.entries && a.entries['1,1'];
 const cell = (g, id, k, across = 4) => evaluate(g, id, { binding: { cells: [{ x: (k - 1) % across, y: 2 * Math.floor((k - 1) / across), dx: 0, dy: id === 's' ? 1 : 0, cx: (k - 1) % across + 1, cy: Math.floor((k - 1) / across) + 1, of: ['t:T'] }] } });
 
@@ -57,6 +57,18 @@ test('loop: a count that is settled only when it is run', () => {
   assert.deepEqual(evaluate(total({ count: { input: 2 }, across: 'inf', more: n(null) }), 'lp').entries, {});
   assert.match(one(evaluate(total({ count: { input: 2 }, across: 'inf', more: n({ n: 1, d: 2, k: 0 }) }), 'lp')).err, /whole number/);
   assert.match(one(evaluate(total({ count: { input: 2 }, across: 'inf', more: n(0) }), 'lp')).err, /whole number/);
+});
+test('loop: a tile with a step inside a function has a state for each thing the function is given', () => {
+  /* by hand: f(x) = 2x, so 10, 14 and [10; 14], whatever was asked before */
+  for (const order of [['fa', 'fb', 'fx'], ['fb', 'fa', 'fx'], ['fx', 'fb', 'fa']]){ const g = inFunction(); assert.deepEqual(validate(g), []);
+    const got = Object.fromEntries(order.map(id => [id, evaluate(g, id).entries]));
+    assert.deepEqual(got, { fa: { '1,1': 10 }, fb: { '1,1': 14 }, fx: { '1,1': 10, '1,2': 14 } }, order.join(' ')); }
+});
+test('loop: a tile with a step inside a step starts from what that step was given', () => {
+  /* by hand: s' = 2s + c with c = 1, 2, 3: the cells hold 0, 1, 4 and the loop gives 11 */
+  for (const order of [['lp', 'rep'], ['rep', 'lp']]){ const g = inStep(); assert.deepEqual(validate(g), []);
+    const got = Object.fromEntries(order.map(id => [id, evaluate(g, id).entries]));
+    assert.deepEqual(got, { lp: { '1,1': 11 }, rep: { '1,1': 1, '2,1': 2, '3,1': 3, '1,2': 0, '2,2': 1, '3,2': 4 } }, order.join(' ')); }
 });
 test('loop: None as state, and the index is not readable in a step', () => {
   assert.deepEqual(one(evaluate(total({ s0: { none: true } }), 'lp')), { none: true });      /* None with anything is None */

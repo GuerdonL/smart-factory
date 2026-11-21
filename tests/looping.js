@@ -19,6 +19,42 @@ export function total({ count = 4, across = 4, until = null, s0 = 0, more = {}, 
     spaces: { top: { owner: null, pieces: [], arrows: [], tiles: [{ tile: 't:T', blocks: ['c', 's'], arrows: [], node: settled ? 'rep' : null, error: settled ? null : { code: 'size-unknown', note: '' }, step: 'a', loop: 'lp' }] } }, blocks: { c: 'c', s: 's' } };
 }
 
+/* A tile with a step inside a function. f:1(in), in one number: a tile I, 2 across, whose pattern is ic (which is in)
+   over is (the state, from 0), and whose step f:3 adds the two rows; f:1 gives I's loop, so f(x) = 2x. fa is f(5), fb
+   is f(7), and fx is f run along the rows of [5; 7]: by hand 10, 14 and [10; 14], in whatever order they are asked. */
+export function inFunction(){
+  const at = [{ col: 0, row: 0 }, { col: 0, row: 1 }], pattern = { cols: 1, rows: 2 }, state = { col: 0, row: 1, cols: 1, rows: 1 };
+  const part = (p, row, w) => N('slice', [p], ty(1, 1), { range: { col: 0, row, cols: 1, rows: 1 }, within: w });
+  const nodes = { A: V(ty(1, 1), { '1,1': 5 }), B: V(ty(1, 1), { '1,1': 7 }), X: V(ty(1, 2), { '1,1': 5, '1,2': 7 }),
+    'param(f:1)': N('param', [], ty(1, 1), { within: ['f:1'] }),
+    ic: V(ty(1, 1), {}, { defined: 'definition', inputs: ['param(f:1)'], within: ['f:1'] }), is: V(ty(1, 1), { '1,1': 0 }, { within: ['t:I'] }),
+    'param(f:3)': N('param', [], ty(1, 2), { within: ['f:3'] }), itop: part('param(f:3)', 0, ['f:3']), ibot: part('param(f:3)', 1, ['f:3']), ibody: N('add', ['itop', 'ibot'], ty(1, 1), { within: ['f:3'] }),
+    ilp: N('loop', ['ic', 'is'], ty(1, 1), { at, pattern, state, fn: 'f:3', count: 2, until: null, across: 2, within: ['f:1'] }),
+    irep: N('repeat', ['ic', 'is'], ty(2, 2), { at, pattern, across: 2, down: 1, fn: 'f:3', state, within: ['f:1'] }),
+    fa: N('apply', ['A'], ty(1, 1), { fn: 'f:1' }), fb: N('apply', ['B'], ty(1, 1), { fn: 'f:1' }),
+    fx: N('mapalong', ['X'], ty(1, 2), { fn: 'f:1', axis: 'rows', start: 1, span: 1, count: 2 }) };
+  return { version: VERSION, nodes, functions: { 'f:1': { input: 'param(f:1)', body: 'ilp' }, 'f:3': { input: 'param(f:3)', body: 'ibody' } },
+    spaces: { top: { owner: null, pieces: [], arrows: [], tiles: [{ tile: 't:I', blocks: ['ic', 'is'], arrows: [], node: 'irep', error: null, step: 'b', loop: 'ilp' }] } }, blocks: { ic: 'ic', is: 'is' } };
+}
+/* A tile with a step inside a step. T, 3 across: c = index.x over s (the state, from 0). Its step f:1(in) holds a tile
+   I, 2 across, whose pattern is ic (row 2 of in: the outer state) over is (from 0) and whose step f:3 adds its two
+   rows, so I's loop gives 2s; f:1 gives that plus c: s' = 2s + c. By hand the cells hold 0, 1, 4 and the loop gives 11. */
+export function inStep(){
+  const at = [{ col: 0, row: 0 }, { col: 0, row: 1 }], pattern = { cols: 1, rows: 2 }, state = { col: 0, row: 1, cols: 1, rows: 1 };
+  const part = (p, row, w) => N('slice', [p], ty(1, 1), { range: { col: 0, row, cols: 1, rows: 1 }, within: w });
+  const nodes = { c: V(ty(1, 1), { '1,1': { expr: 'index.x' } }, { within: ['t:T'] }), s: V(ty(1, 1), { '1,1': 0 }, { within: ['t:T'] }),
+    'param(f:1)': N('param', [], ty(1, 2), { within: ['f:1'] }), top: part('param(f:1)', 0, ['f:1']), bot: part('param(f:1)', 1, ['f:1']),
+    ic: V(ty(1, 1), {}, { defined: 'definition', inputs: ['bot'], within: ['f:1'] }), is: V(ty(1, 1), { '1,1': 0 }, { within: ['t:I'] }),
+    'param(f:3)': N('param', [], ty(1, 2), { within: ['f:3'] }), itop: part('param(f:3)', 0, ['f:3']), ibot: part('param(f:3)', 1, ['f:3']), ibody: N('add', ['itop', 'ibot'], ty(1, 1), { within: ['f:3'] }),
+    ilp: N('loop', ['ic', 'is'], ty(1, 1), { at, pattern, state, fn: 'f:3', count: 2, until: null, across: 2, within: ['f:1'] }),
+    body: N('add', ['ilp', 'top'], ty(1, 1), { within: ['f:1'] }),
+    lp: N('loop', ['c', 's'], ty(1, 1), { at, pattern, state, fn: 'f:1', count: 3, until: null, across: 3 }),
+    rep: N('repeat', ['c', 's'], ty(3, 2), { at, pattern, across: 3, down: 1, fn: 'f:1', state }) };
+  const tile = (t, blocks, node, loop, step) => ({ tile: t, blocks, arrows: [], node, error: node ? null : { code: 'size-unknown', note: '' }, step, loop });
+  return { version: VERSION, nodes, functions: { 'f:1': { input: 'param(f:1)', body: 'body' }, 'f:3': { input: 'param(f:3)', body: 'ibody' } },
+    spaces: { top: { owner: null, pieces: [], arrows: [], tiles: [tile('t:T', ['c', 's'], 'rep', 'lp', 'a'), tile('t:I', ['ic', 'is'], null, 'ilp', 'b')] } }, blocks: { c: 'c', s: 's', ic: 'ic', is: 'is' } };
+}
+
 /* ---- canvases: snapshots as the page gathers them ---- */
 export const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
 export const space = (shapes, groups = [], operations = []) => ({ shapes, groups, operations });
