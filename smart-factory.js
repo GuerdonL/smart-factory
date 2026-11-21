@@ -1475,7 +1475,7 @@ function conditionableNow(list){
 }
 function makeConditional(list){
   const can = conditionableNow(list); if (can.refused){ hud.say(can.refused); return shown(); }
-  const u = view.unit, { box, type } = foldable(list);
+  const u = view.unit, { box, type } = foldable(list), holder = chain(list[0]).find(c => list.every(b => chain(b).includes(c)));      /* the innermost frame that held all of it: what stands in its place is in that frame still (a side of another condition, a tile) */
   const when = makeBlock({ ...typeNamed('tensor'), color: someColour() }, { x: box.x, y: box.y, w: u, h: u }, conditionName());
   when.values.set('1,1', true); touched(when.values);
   const a = makeArrow(freeName()); a.arrow = { input: { id: when.id, as: 'block' }, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: { cols: type.cols, rows: type.rows } };
@@ -1489,8 +1489,9 @@ function makeConditional(list){
   def.groupNames.set(a.fn.choose.then, 'true'); def.groupNames.set(a.fn.choose.else, 'false');
   /* its input block, the condition, on the left of the true side and clear of it */
   const inner = makeBlock({ ...typeNamed('tensor'), color: 'function' }, { x: box.x + dx - 5 * u, y: box.y + dy, w: u, h: u }, 'in'); inner.in = true; def.blocks.push(inner);
-  tidy();
   space.blocks.push(when, a); view.world.append(when.el, a.el);
+  if (holder !== undefined){ space.groupOf.set(when, holder); space.groupOf.set(a, holder); }
+  tidy();
   select([a]); hud.say(`Made conditional: it is what it was while ${when.name} is true, and None while it is false. Open the arrow for its two sides`);
 }
 /* a name for the entry a condition is made with, that nothing on this canvas has */
