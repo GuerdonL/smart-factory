@@ -41,6 +41,18 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import limits
 
+def graph_version():
+    """check.py's VERSION, read off its text: this process imports nothing of the graph (the workers do), and so the
+    number is written in one place. It is the line that begins "VERSION = "."""
+    import re
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'check.py'), encoding='utf8') as f:
+        found = re.search(r'^VERSION = (\d+)\b', f.read(), re.M)
+    if not found:
+        raise RuntimeError('check.py says no VERSION')
+    return int(found.group(1))
+
+
+GRAPH_VERSION = graph_version()      # what GET /health answers
 STACK = 256 << 20      # bytes of stack a run has: a graph may be 20,000 nodes deep
 SLACK = 1536 << 20     # bytes of address space allowed for Python, NumPy and their threads, beside a worker's arrays and its stack
 HEADER = 'X-Smart-Factory-Token'
@@ -227,7 +239,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return
         if urlsplit(self.path).path == '/health':
-            return self.reply(200, {'ok': True, 'version': 4})      # the graph version: check.py's VERSION, written out so that this process imports nothing of the graph
+            return self.reply(200, {'ok': True, 'version': GRAPH_VERSION})
         self.reply(404, {'error': 'not found'})
 
     def do_POST(self):

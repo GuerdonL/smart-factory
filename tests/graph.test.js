@@ -850,6 +850,16 @@ test('choose: its two sides are one size, whatever size its condition is, and it
   assert.ok(validate(chooseOf(type(2, 3), type(2, 3), type(1, 1), type(3, 2))).length > 0);
   for (const inputs of [['c', 'a'], ['c', 'a', 'b', 'b'], []]){ const g = chooseOf(type(2, 2), type(2, 2)); g.nodes.ch.inputs = inputs; assert.ok(validate(g).length > 0); }
 });
+test('choose and a source of None hold their own fields and no other: a field another operation reads is refused', () => {
+  for (const [k, v] of [['fn', 'mul'], ['formula', 'x'], ['kind', 'zeros'], ['name', 'A']]){ const g = chooseOf(type(2, 2), type(2, 2)); g.nodes.ch[k] = v;
+    assert.deepEqual(validate(g), [`ch: a choose holds no ${k}`]); }
+  const inFn = hand({ p: { op: 'param', inputs: [], type: type(1, 1), within: ['f:1'] }, a: vOf(type(2, 2)), b: vOf(type(2, 2)), ch: { op: 'choose', inputs: ['p', 'a', 'b'], type: type(2, 2), within: ['f:1'] } }, { 'f:1': { input: 'p', body: 'ch' } });
+  assert.deepEqual(validate(inFn), []);      /* within is every node's */
+  const none = more => hand({ e: { op: 'source', inputs: [], type: type(2, 2), kind: 'none', ...more } });
+  assert.deepEqual(validate(none({})), []);
+  for (const [k, v] of [['seed', 1], ['holds', 'any'], ['entries', {}], ['dist', 'uniform']]) assert.deepEqual(validate(none({ [k]: v })), [`e: a source of None holds no ${k}`]);
+  assert.deepEqual(validate(none({ path: 'data/a.csv' })), ['e: only a file has a path']);
+});
 test('choose: its value is the smallest space that holds both sides, with None where either admits it', () => {
   const g = valued(snap([B('yes', 0, 0, 1, 1, { entries: { '1,1': true } }),
     arrow('if', { id: 'yes', as: 'block' }, { choose: { then: 'gt', else: 'ge' } }, { inside: space([B('in', -12, 0, 1, 1, { in: true }), B('T', -6, 0, 1, 1, { entries: { '1,1': 3 } }), B('E', -6, 6, 1, 1, { entries: { '1,1': { n: 3, d: 2, k: 0 } } })], [{ id: 'gt', name: 'true', members: [1], groups: [] }, { id: 'ge', name: 'false', members: [2], groups: [] }]) }),

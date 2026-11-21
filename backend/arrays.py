@@ -458,13 +458,41 @@ def nones(a):
     return 0 if none is None else int(none.sum())
 
 
+TRUTH_AT_ONCE = 1 << 20      # entries looked at together by truth
+
+
+def _pieces(values, none, most):
+    """An array, and what says which of it is None, cut along their first axes into parts of at most so many entries
+    (a part is a view: nothing is copied)."""
+    if values.size <= most or values.ndim == 0:
+        yield values, none
+        return
+    each = values.size // values.shape[0]
+    if each > most:      # one step along this axis is too much: each is cut along the next
+        for k in range(values.shape[0]):
+            yield from _pieces(values[k], None if none is None else none[k], most)
+        return
+    step = most // each
+    for k in range(0, values.shape[0], step):
+        yield values[k:k + step], None if none is None else none[k:k + step]
+
+
 def truth(a):
     values, none = _split(a)
-    lost = np.isnan(values)
-    yes = ~lost & (values != 0)
-    if none is not None:
-        yes &= ~none
-    return True if bool(yes.any()) else None if bool(lost.any()) else False
+    values = np.asarray(values)
+    none = None if none is None else np.broadcast_to(none, values.shape)
+    lost = False
+    for part, gone in _pieces(values, none, TRUTH_AT_ONCE):      # in pieces: the flags made on the way are a few megabytes whatever the size of the matrix
+        nan = np.isnan(part)
+        if gone is not None:
+            nan &= ~gone      # what lies under a None is not looked at: None is false whatever number is held beside it
+        yes = ~nan & (part != 0)
+        if gone is not None:
+            yes &= ~gone
+        if bool(yes.any()):
+            return True
+        lost = lost or bool(nan.any())
+    return None if lost else False
 
 
 def summary(a):

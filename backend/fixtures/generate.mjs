@@ -327,6 +327,9 @@ function mutations(graphs){
     for (const id of [...ids.filter(id => g.nodes[id].type.value !== undefined).slice(0, 3), ...ids.filter(id => g.nodes[id].op !== 'variable' && g.nodes[id].type.value !== undefined).slice(0, 3)]){ const at = ['nodes', id, 'type', 'value'];
       for (const set of WORDS) push({ path: at, set }); push({ path: at, drop: true }); }
     for (const id of ids.filter(id => g.nodes[id].op === 'variable').slice(0, 3)){ for (const set of [...WORDS, ...(g.nodes[id].type.value !== undefined ? [g.nodes[id].type.value] : [])]) push({ path: ['nodes', id, 'holds'], set }); if (g.nodes[id].holds !== undefined) push({ path: ['nodes', id, 'holds'], drop: true }); }
+    /* a choose and a source of None hold their operation's fields and no other */
+    for (const id of ids.filter(id => g.nodes[id].op === 'choose' || (g.nodes[id].op === 'source' && g.nodes[id].kind === 'none')).slice(0, 4))
+      for (const [k, set] of [['fn', 'mul'], ['formula', 'x'], ['kind', 'zeros'], ['seed', 1], ['holds', 'any'], ['entries', {}], ['name', 'A'], ['within', ['f:x']]]) push({ path: ['nodes', id, k], set });
     if (g.version !== undefined) for (const v of [1, 2, 3, 4, 5, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }

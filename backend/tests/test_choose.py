@@ -96,6 +96,18 @@ class Validate(unittest.TestCase):
         g['nodes']['e']['type']['value'] = 'boolean'
         self.assertEqual(validate(g)[0], 'e: its value is boolean and its inputs give none')
 
+    def test_they_hold_their_own_fields_and_no_other(self):
+        for k, v in (('fn', 'mul'), ('formula', 'x'), ('kind', 'zeros'), ('name', 'A')):
+            g = self.of(T(2, 2), T(2, 2))
+            g['nodes']['ch'][k] = v
+            self.assertEqual(validate(g), ['ch: a choose holds no %s' % k])
+        v = lambda t: dict(variable(1, 1, [[None]]), type=t)
+        within = G({'p': {'op': 'param', 'inputs': [], 'type': T(1, 1), 'within': ['f:1']}, 'a': v(T(2, 2)), 'b': v(T(2, 2)), 'ch': {'op': 'choose', 'inputs': ['p', 'a', 'b'], 'type': T(2, 2), 'within': ['f:1']}}, {'f:1': {'input': 'p', 'body': 'ch'}})
+        self.assertEqual(validate(within), [])      # within is every node's
+        none = lambda **more: G({'e': dict({'op': 'source', 'inputs': [], 'type': T(2, 2), 'kind': 'none'}, **more)})
+        for k, v in (('seed', 1), ('holds', 'any'), ('entries', {}), ('dist', 'uniform')):
+            self.assertEqual(validate(none(**{k: v})), ['e: a source of None holds no %s' % k])
+
     def test_a_choose_and_a_source_of_none_need_version_4(self):
         for version in (1, 2, 3):
             self.assertEqual(validate(self.of(T(2, 2), T(2, 2), version=version)), ['ch: it holds a choose, which needs version 4, and the graph says version %d' % version])
@@ -128,6 +140,32 @@ class Truth(unittest.TestCase):
         self.assertIs(ask(big('identity'), [{'node': 's', 'cells': [[2, 1]]}])['results']['s']['truth'], True)      # the entry asked for is 0, and the matrix is true
         lost = dict(variable(2, 1, [[0, None]]), entries={'1,1': 0, '2,1': {'err': 'divide by zero'}})
         self.assertIsNone(ask(G({'v': lost}), [{'node': 'v', 'cells': [[1, 1]]}])['results']['v']['truth'])
+
+    def test_what_lies_under_a_none_is_not_looked_at_and_a_large_matrix_is_read_in_pieces(self):
+        held = A.Held(np.array([[np.nan, 0.0]], dtype=np.float32), np.array([[True, False]]))      # a None whose number, beside it, is not 0
+        self.assertIs(A.truth(held), False)
+        self.assertIs(A.truth(A.Held(np.array([[7.0, 0.0]], dtype=np.float32), np.array([[True, False]]))), False)
+        self.assertIsNone(A.truth(A.Held(np.array([[np.nan, np.nan]], dtype=np.float32), np.array([[True, False]]))))
+        for inner in ((), (3,), (2, 2)):      # and every way an array is cut gives what the whole gives
+            was = A.TRUTH_AT_ONCE
+            try:
+                A.TRUTH_AT_ONCE = 5
+                for last, want in ((0.0, False), (2.0, True), (np.nan, None)):
+                    a = np.zeros(inner + (4, 7), dtype=np.float32)
+                    a[(-1,) * a.ndim] = last
+                    self.assertIs(A.truth(a), want, (inner, last))
+                    self.assertIs(A.truth(A.Held(a, np.zeros(a.shape, dtype=bool))), want, (inner, last))
+                    gone = np.zeros(a.shape, dtype=bool)
+                    gone[(-1,) * a.ndim] = True
+                    self.assertIs(A.truth(A.Held(a, gone)), False, (inner, last))
+            finally:
+                A.TRUTH_AT_ONCE = was
+        big = A.Held(np.zeros((4000, 4000), dtype=np.float32), np.zeros((4000, 4000), dtype=bool))      # the largest there is, with a mask
+        tracemalloc.start()
+        self.assertIs(A.truth(big), False)
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        self.assertLess(peak, 8 << 20)      # (45 MB when its flags were made for the whole of it at once)
 
     def test_empty_is_none_at_every_entry(self):
         e = A.empty(2, 3, (2,))

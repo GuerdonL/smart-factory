@@ -545,11 +545,17 @@ def own_size(n, ins, g):
     return T(n['type']['cols'], n['type']['rows'], None, None, [{'length': a['length'], 'name': None} for a in inner_of(n['type'])])
 
 
+def stray(n, fields, what):
+    """What a node holds beside its operation's own fields (graph.js: stray): said for a choose and a source of None,
+    which hold nothing else."""
+    return ['%s holds no %s' % (what, k) for k in n if k not in ('op', 'inputs', 'type', 'within') + fields][:1]
+
+
 def source_fields(n):
     if n.get('kind') == 'file':
         return [] if data_path(n.get('path')) else ['path is not a file under data/']
     if isinstance(n.get('kind'), str) and n['kind'] in KINDS:
-        return ['only a file has a path'] if 'path' in n else []
+        return ['only a file has a path'] if 'path' in n else stray(n, ('kind',), 'a source of None') if n['kind'] == 'none' else []
     return ['kind is "%s"' % (n.get('kind'),)]
 
 
@@ -750,7 +756,7 @@ RULES = {
     'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g, ins[0]) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
     'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type, 'space': lambda n, ins, g: all_of(ins)},
     'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type, 'space': lambda n, ins, g: value_of(ins[0])},
-    'choose': {'inputs': (3, 3), 'fields': none, 'type': choose_type, 'space': lambda n, ins, g: S.choice(value_of(ins[1]), value_of(ins[2]))},
+    'choose': {'inputs': (3, 3), 'fields': lambda n: stray(n, (), 'a choose'), 'type': choose_type, 'space': lambda n, ins, g: S.choice(value_of(ins[1]), value_of(ins[2]))},
 }
 
 

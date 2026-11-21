@@ -218,6 +218,10 @@ const DEEP = 64;                                /* how deep definitions are read
 const E = (code, note = '') => ({ code, note: String(note) });
 const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 
+/* what a node holds beside its operation's own fields: said for the operations that hold nothing else (a choose, a
+   source of None), so that one cannot carry a field another operation would read */
+const stray = (n, fields, what) => Object.keys(n).filter(k => !['op', 'inputs', 'type', 'within', ...fields].includes(k)).slice(0, 1).map(k => `${what} holds no ${k}`);
+
 /* ---- types ---- */
 /* A type is its two drawn sides, and inner where its entries hold inner data: the axes of what one entry holds, in
    order, each { length, name }. inner is left out where there are none (one spelling), and there are at most AXES. */
@@ -546,7 +550,7 @@ export const OPS = {
     value: (n, at) => passed(at.get(0), n.range) },
   source: { inputs: [0, 0], deep: true, space: n => n.kind === 'file' ? 'real' : n.kind === EMPTY ? S.NONE : 'boolean',      /* zeros, ones and an identity hold 0 and 1; a data file any numbers on the line; and the empty one None alone */
     id: n => `source(${n.kind}${n.kind === 'file' ? ':' + n.path : ''};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
-    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && (n.kind === EMPTY || sourceKept(n.kind)) ? ('path' in n ? ['only a file has a path'] : []) : [`kind is "${n.kind}"`],
+    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && (n.kind === EMPTY || sourceKept(n.kind)) ? ('path' in n ? ['only a file has a path'] : n.kind === EMPTY ? stray(n, ['kind'], 'a source of None') : []) : [`kind is "${n.kind}"`],
     type: n => !okType(n.type) ? 'it has no size of its own' : n.kind === 'file' && innerOf(n.type).length ? 'a data file holds no inner data' : T(n.type.cols, n.type.rows, null, null, unnamed(n.type)),
     value: n => sourceValues(n.kind, n.type.cols, n.type.rows, innerOf(n.type).map(a => a.length)) },      /* (a file's numbers are the backend's: evaluate.js does not ask here for them) */
   noise: { inputs: [0, 0], deep: true, space: n => n.dist === 'uniform' ? 'probability' : 'real', id: n => `noise(${n.seed};${n.dist};${n.key};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
@@ -623,7 +627,7 @@ export const OPS = {
       return out; } },
   /* one of two matrices, by whether a third is true as a whole. The sides are typed and held to one size whether or
      not they are chosen; only the one chosen is worked out (at.pick), so what is wrong with the other does no harm */
-  choose: { inputs: [3, 3], deep: true, fields: () => [], id: n => plain(n), space: (n, [, a, b]) => S.choice(valueOf(a), valueOf(b)),
+  choose: { inputs: [3, 3], deep: true, fields: n => stray(n, [], 'a choose'), id: n => plain(n), space: (n, [, a, b]) => S.choice(valueOf(a), valueOf(b)),
     type: (n, [, a, b]) => !same(a.type, b.type) || !nested(innerOf(a.type), innerOf(b.type), true).ok || ['colsName', 'rowsName'].some(k => a.type[k] && b.type[k] && a.type[k] !== b.type[k]) ? TWO_SIZES
       : T(a.type.cols, a.type.rows, a.type.colsName, a.type.rowsName, a.type.inner),
     needs: () => [0], later: () => [1, 2],
