@@ -106,12 +106,12 @@ test('no other function is taken, and a function\'s name alone is only a name', 
 });
 
 test('names stand for their values, of any kind', () => {
-  const names = { x: 3, y: q(1, 2), mass: q(2, 1, 1), 'Keys.x': 4, odd: sym('1+sqrt(2)'), none: null, bad: E('missing variable'), up: Infinity, yes: true };
+  const names = { x: 3, y: q(1, 2), mass: q(2, 1, 1), 'Keys.x': 4, odd: sym('1+sqrt(2)'), nil: null, bad: E('missing variable'), up: Infinity, yes: true };
   const lookup = n => names[n];
   is('x + 1', 4, lookup); is('2x', 6, lookup); is('x * y', q(3, 2), lookup); is('mass^2', 2, lookup);
   is('√x', q(3, 1, 1), lookup); is('Keys.x * 2', 8, lookup); is('x - 5', -2, lookup); is('1/√(Keys.x)', q(1, 2), lookup);
   is('odd - 1', q(2, 1, 1), lookup); is('odd + 1', sym('2+sqrt(2)'), lookup);
-  is('none + 1', null, lookup); is('none * 0', null, lookup); is('bad + none', E('missing variable'), lookup); is('up - x', Infinity, lookup); is('yes + x', 4, lookup);
+  is('nil + 1', null, lookup); is('nil * 0', null, lookup); is('bad + nil', E('missing variable'), lookup); is('up - x', Infinity, lookup); is('yes + x', 4, lookup);
   unread('z', 'unknown name: z', lookup);
   is('a^2', 4, n => ({ a: -2 })[n]); is('a * 3', -6, n => ({ a: -2 })[n]);      /* a negative name keeps its sign under a power */
 });
@@ -299,4 +299,28 @@ test('after review (phase 7): a sum of five thousand terms is read and worked ou
   assert.deepEqual(evaluate(long, n => n === '$1' ? 2 : undefined).value, 7500);
   assert.deepEqual(evaluate(Array.from({ length: 3000 }, () => '2').join(' - ')).value, -5996);      /* and grouped from the left, as ever */
   assert.deepEqual(evaluate('1 - 2 - 3 * 4 - 5').value, -18);
+});
+
+/* ---- None (phase 9) ---- */
+const NONE = { none: true };
+test('none and ∅ are None, a constant of the language like inf and true', () => {
+  is('none', NONE); is('None', NONE); is('∅', NONE); is('none + 1', NONE); is('none * 0', NONE); is('1/none', NONE); is('exp(none)', NONE); is('ln(none)', NONE); is('max(none, 3)', NONE); is('none < 1', NONE); is('-none', NONE);
+  is('none == 0', false); is('none == false', false); is('none == none', true); is('none != 0', true);
+  is('!none', true); is('none && 1', false); is('none || 2', true); is('none || 0', false);
+  assert.equal(written(NONE), '∅');
+  assert.deepEqual(namesIn('none + $1').names, ['$1']);      /* a word of the language, not a name */
+});
+test('select(None, a, b) is b, and only b is worked out', () => {
+  is('select(none, 1/0, 5)', 5); is('select(none, 1, none)', NONE); is('select(1, none, 1/0)', NONE);
+  is('select(c, 1, 2)', 2, n => ({ c: NONE })[n]);
+  is('select(u, 1, 2)', null, n => ({ u: null })[n]);      /* unknown is still unknown, not false */
+});
+test('a name that holds None gives None, and None against an unknown name is unknown', () => {
+  const lookup = n => ({ b: NONE, u: null, e: E('missing variable') })[n];
+  is('b + 1', NONE, lookup); is('b + u', null, lookup); is('b + e', E('missing variable'), lookup); is('select(b, 1, 2x)', null, n => ({ b: NONE, x: null })[n]);
+});
+test('none typed into an entry is kept as the value None, and is typed over as none', () => {
+  assert.deepEqual(entered('none'), { value: NONE }); assert.deepEqual(entered(' None '), { value: NONE }); assert.deepEqual(entered('∅'), { value: NONE });
+  assert.deepEqual(entered('none + 1'), { value: { expr: 'none + 1' } });      /* a formula is kept as its text, whatever it comes to */
+  assert.equal(typed(NONE), 'none'); assert.deepEqual(entered(typed(NONE)), { value: NONE });
 });

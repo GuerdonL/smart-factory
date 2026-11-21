@@ -371,7 +371,7 @@ export function readSide(text){
 
 /* The kinds of value an entry can come to, and how two combine, are set out in values.js, a pure module beside this
    one. They are given from here too, since this is where the page and the evaluator look for what things mean. */
-export { combine, apply, truth, kind, written as valueText, isInteger, isSurd, isError, isFormula, storable, surd, rootOf, sideOf, exact, held } from './values.js';
+export { combine, apply, truth, truthOf, NONE, isNone, kind, written as valueText, isInteger, isSurd, isError, isFormula, storable, surd, rootOf, sideOf, exact, held } from './values.js';
 
 export function initials(name){
   return (String(name).match(/[A-Za-z]+/g) || []).map(w => w[0].toLowerCase()).join('').slice(0, 3) || 'x';

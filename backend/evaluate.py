@@ -16,6 +16,8 @@ What differs from the browser, by the specification's rule that the backend neve
     node worked out from it. (The browser works out the entries that do not depend on the unknown one. A side
     length is no dependency on the entries: @Keys.x is a number however many of Keys' entries are unknown.)
   - An entry that has no value (a division by zero, ∞ − ∞) is that entry alone, as in the browser: it is NaN here.
+None is the browser's None: an entry given as { "none": true } is None here, and arrays.py carries which entries
+are None beside the numbers, by values.js's rules. It is a value that was given, not an entry that was not.
 Numbers are 32-bit floats. An exact value becomes a float at a leaf, in number_of and nowhere else.
 
 Bindings are evaluate.js's: a node within a function has a value for each thing the function is applied to, and one
@@ -68,6 +70,8 @@ def number_of(v):
         return float(v)
     if 'err' in v:
         return NAN      # the error a formula was found to be when the graph was built: an entry with no value
+    if v.get('none') is True:
+        return None      # None: arrays.py holds it as a mask beside the numbers (arrays.row)
     if 'sym' in v:
         try:
             return A.item(A.spread(work(parse_symbolic(v['sym']), symbol, A), 1, 1), 0, 0)
@@ -219,7 +223,7 @@ def v_variable(n, at):
         if rs is plain[0]:
             numbers_of.append(number_of(v))
     if plain[0]:
-        A.put(out, plain[0], plain[1], A.row(numbers_of), plain[2])
+        out = A.put(out, plain[0], plain[1], A.row(numbers_of), plain[2])
     where = index_at(at.cells)
     for text, (rs, cs, kss) in formulas.items():      # one formula, worked out for every entry that holds it at once
         def index(axis, rs=rs, cs=cs):
@@ -229,7 +233,7 @@ def v_variable(n, at):
             return A.row([x + (r if turned else c) + 1 for r, c in zip(rs, cs)] if axis == 'x' else [y + (c if turned else r) + 1 for r, c in zip(rs, cs)])
         own = {'k%d' % (j + 1): A.row([k + 1 for k in held]) for j, held in enumerate(kss)}      # each entry's inner position
         leaf = at.names(0, (rows, cols, lambda a, rs=rs, cs=cs, kss=kss: A.take(a, rs, cs, kss)), index, own)
-        A.put(out, rs, cs, A.spread(work(at.run.tree(text), leaf, A), 1, len(rs), ()), kss)
+        out = A.put(out, rs, cs, A.spread(work(at.run.tree(text), leaf, A), 1, len(rs), ()), kss)
     return out
 
 
@@ -266,7 +270,7 @@ def v_add(n, at):
 def v_block(n, at):
     out = A.blank(int(n['type']['rows']), int(n['type']['cols']), lengths(n['type']))
     for k, a in enumerate(n['at']):
-        A.place(out, at.get(k, at.shift(int(a['col']), int(a['row']))), int(a['row']), int(a['col']))
+        out = A.place(out, at.get(k, at.shift(int(a['col']), int(a['row']))), int(a['row']), int(a['col']))
     return out
 
 
@@ -303,7 +307,8 @@ def v_measure(n, at):
     if n['side'] == 'm':
         return v
     # a single entry's side is the root of its mass; an infinite mass, or one below 0, has no root to be a side
-    return A.call('select', [A.binary('<', A.call('abs', [v]), A.number(math.inf)), A.call('sqrt', [v]), A.number(NAN)])
+    side = A.call('select', [A.binary('<', A.call('abs', [v]), A.number(math.inf)), A.call('sqrt', [v]), A.number(NAN)])
+    return A.call('select', [A.binary('==', v, A.nothing()), A.nothing(), side])      # and the side of None is None, as its mass is
 
 
 def v_map(n, at):
@@ -322,12 +327,12 @@ def v_repeat(n, at):
         if at.run.follows(i):
             each.append(k)      # a part that follows its cell is worked out once for every cell
         else:
-            A.place(pattern, at.get(k, cell(k, 1, 1)), int(n['at'][k]['row']), int(n['at'][k]['col']))      # and one that does not is the same in all of them
+            pattern = A.place(pattern, at.get(k, cell(k, 1, 1)), int(n['at'][k]['row']), int(n['at'][k]['col']))      # and one that does not is the same in all of them
     out = A.repeat(pattern, down, across)
     for cy in range(1, down + 1):
         for cx in range(1, across + 1):
             for k in each:
-                A.place(out, at.get(k, cell(k, cx, cy)), (cy - 1) * pr + int(n['at'][k]['row']), (cx - 1) * pc + int(n['at'][k]['col']))
+                out = A.place(out, at.get(k, cell(k, cx, cy)), (cy - 1) * pr + int(n['at'][k]['row']), (cx - 1) * pc + int(n['at'][k]['col']))
     return out
 
 
@@ -352,7 +357,7 @@ def v_mapalong(n, at):
             spot = n.get('at')
             where = (int(spot['col']) + (0 if rows else off), int(spot['row']) + (off if rows else 0), False) if spot else None
             got = over_matrix(at, n['formula'], part['rows'], part['cols'], given, 1, lambda: where, lengths(n['type']))
-        A.place(out, got, (k - 1) * each if rows else 0, 0 if rows else (k - 1) * each)
+        out = A.place(out, got, (k - 1) * each if rows else 0, 0 if rows else (k - 1) * each)
     return out
 
 

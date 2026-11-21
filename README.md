@@ -60,7 +60,7 @@ who can reach the port can read and overwrite the projects.
   the number of data dimensions as it is typed, what an entry opened holds, and how it is all said); no drawing.
 - `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
-- `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
+- `values.js`, `expression.js`: what a value is (nine kinds, None among them) and how two combine; and a formula as it is typed, read
   and worked out. No drawing. `algebra.js` gives `combine` and the value helpers from `values.js` too.
 - `graph.js`, `evaluate.js`: a whole project as one graph of matrix operations, plain JSON, and that graph worked
   out exactly. No drawing. Every exact number the page shows comes from these two: see "The graph and the evaluator".
@@ -761,7 +761,7 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 2 }` (the version of graph it reads; it still takes a version 1 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 3 }` (the version of graph it reads; it still takes a version 1 or 2 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,

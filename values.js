@@ -1,6 +1,6 @@
 /* What a value is, and how two values combine. No drawing here: values in, a value out.
 
-   A worked-out value is exactly one of eight kinds. Every piece of code that reads an entry handles all of them.
+   A worked-out value is exactly one of nine kinds. Every piece of code that reads an entry handles all of them.
 
        integer        7                              a JavaScript number that is a safe integer, of either sign
                                                      (called so, not "whole": whole is the space of 0 and up, spaces.js)
@@ -15,11 +15,18 @@
                                                      It is for showing only: the page hands no decimal to combine
                                                      (see "the backend" in smart-factory.js), though combine takes one.
        error          { err: "divide by zero" }      worked out, never typed and never saved
+       None           { none: true }                 nothing, said outright: typed none, written ∅, and saved. It is not
+                                                     unknown (which is nothing said yet), and it is not zero: it
+                                                     counts as false, and in arithmetic None with anything is None
        unknown        null                           an entry not given a value: it stays a symbol, and is not zero
 
    How two combine, in this order:
      an error with anything is that error (the first of two);
      unknown with anything else is unknown: it is never taken as zero or false;
+     None with anything else is None: None + 1, None × 0, 1 / None, None < 1, max(None, 3) and exp(None) are all
+       None. It is false where true or false is wanted, so !None is true, None && x is false and None || x is
+       whether x is true, and select(None, a, b) is b. None == None is true, and None is equal to nothing else:
+       None == 0 and None == false are false (!= is the other way round);
      a decimal with anything else is a decimal (a comparison of decimals is still true or false);
      a boolean in arithmetic counts as 1 or 0, and a number where a boolean is wanted is false when it is 0;
      infinity: ∞ + n = ∞, ∞ + ∞ = ∞, n / ∞ = 0, ∞ × n takes n's sign, ∞ / n likewise; ∞ − ∞, 0 × ∞ and ∞ / ∞ are
@@ -54,20 +61,26 @@
    apply(fn, a)      -> a value      fn is 'neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh' or 'erf'. exp, ln, tanh and
                                      erf stay symbolic unless they come out (exp(0) is 1, ln(1) is 0, and at the
                                      infinities: exp(-∞) = 0, exp(∞) = ∞, ln(0) = -∞, ln(∞) = ∞, tanh(±∞) = erf(±∞) = ±1)
-   truth(v)          -> whether a value counts as true: false for false and 0, true for everything else that is known;
-                        for a symbolic value that cannot be told from 0, the error saying so
+   truth(v)          -> whether a value counts as true: false for false, 0 and None, true for everything else that is
+                        known; for a symbolic value that cannot be told from 0, the error saying so
+   truthOf(values)   -> whether a whole matrix counts as true, from its entries (unknown ones null), three-valued:
+                        true where any known entry is true; false where every entry is known and is zero, false or
+                        None; null otherwise, which is unknown (an entry that is an error, or cannot be told from 0,
+                        is not known). A matrix of no entries is false.
+   NONE, isNone(v)   -> the value None, and whether a value is it
    typedNumber(text) -> digits as typed, with at most one point, as a value: "1.25" is 5/4. Never a decimal.
    digits(f)         -> a decimal's number as text, with exactly 9 significant digits: "2.71828175", "1.00000000"
    written(v)        -> a value as text: "7", "∞", "-∞", "3/4", "√2", "2√3", "T", "F", "1+√2", "exp(2)", "0.437500000"; "!" for an
-                        error (why is v.err), and "" for unknown. The one function that turns a value into text.
-   kind(v)           -> 'integer' | 'infinity' | 'exact' | 'boolean' | 'symbolic' | 'decimal' | 'error' | 'unknown'
+                        error (why is v.err), "∅" for None, and "" for unknown. The one function that turns a value into text.
+   kind(v)           -> 'integer' | 'infinity' | 'exact' | 'boolean' | 'symbolic' | 'decimal' | 'error' | 'none' | 'unknown'
    isInteger(v), isSurd(v), isError(v), isFormula(v)
                      -> whether v is an integer, of either sign; an exact value; an error; a formula, { expr } (which is not a
                         value: it is what an entry holds in place of one, see expression.js)
-   storable(v)       -> whether a value may be kept in an entry or a file: every kind but an error, a decimal and unknown
+   storable(v)       -> whether a value may be kept in an entry or a file: every kind but an error, a decimal and unknown (None is kept)
    surd(n, k, d)     -> n over d under k roots as a value: a plain number where it comes out whole (surd(9, 1) is 3)
    rootOf(v)         -> the square root of a value, itself a value; null where v has none to write (negative,
-                        infinite, an error, unknown). A boolean counts as 1 or 0 here as in all arithmetic, so the
+                        infinite, an error, unknown). The root of None is None: a single entry that holds None has
+                        None for its side as for its mass. A boolean counts as 1 or 0 here as in all arithmetic, so the
                         root of true is 1 and of false 0: the backend, which holds true as 1, says the same
    sideOf(v)         -> { length } | { refused: why }: a value that has to be a matrix's side, which is a whole number
                         of squares, at least 1. Anything else is refused, and the words say why.
@@ -75,7 +88,7 @@
 
 const solver = () => globalThis.nerdamer;
 const err = why => ({ err: why });
-const DIV0 = 'divide by zero', EVEN = 'an even root of a negative number', NONE = 'that has no value', LARGE = 'too large to work out';
+const DIV0 = 'divide by zero', EVEN = 'an even root of a negative number', NOVALUE = 'that has no value', LARGE = 'too large to work out';
 
 export const isInteger = v => typeof v === 'number' && Number.isInteger(v);
 export const isSurd = v => !!v && typeof v === 'object' && Number.isInteger(v.n) && Number.isInteger(v.k);
@@ -84,20 +97,31 @@ export const isFormula = v => !!v && typeof v === 'object' && typeof v.expr === 
 const isSym = v => !!v && typeof v === 'object' && typeof v.sym === 'string';
 const isDec = v => !!v && typeof v === 'object' && typeof v.f === 'number';
 const isInf = v => v === Infinity || v === -Infinity;
+export const NONE = Object.freeze({ none: true });
+export const isNone = v => !!v && typeof v === 'object' && v.none === true;
 export function kind(v){
   if (v === null || v === undefined) return 'unknown';
   if (typeof v === 'boolean') return 'boolean';
   if (typeof v === 'number') return isInf(v) ? 'infinity' : Number.isInteger(v) ? 'integer' : Number.isNaN(v) ? 'error' : 'decimal';
-  return isError(v) ? 'error' : isSurd(v) ? 'exact' : isSym(v) ? 'symbolic' : isDec(v) ? 'decimal' : 'unknown';
+  return isError(v) ? 'error' : isSurd(v) ? 'exact' : isSym(v) ? 'symbolic' : isDec(v) ? 'decimal' : isNone(v) ? 'none' : 'unknown';
 }
 export const storable = v => { const k = kind(v); return k !== 'error' && k !== 'decimal' && k !== 'unknown'; };
 /* whether a value counts as true: false for false and 0. A symbolic value is asked whether it is 0 as any comparison
    is, so one that cannot be told from 0 is the error "cannot be compared exactly", which is what this then gives. */
 export function truth(v){
   if (typeof v === 'boolean') return v;
+  if (isNone(v)) return false;
   if (isDec(v)) return v.f !== 0;
   if (isSym(v)){ const c = compare(v, 0); return isError(c) ? c : c !== 0; }
   return v !== 0 && v !== null && v !== undefined;
+}
+/* whether a whole matrix counts as true, three-valued: one known true entry settles it; false needs every entry known */
+export function truthOf(values){
+  let open = false;
+  for (const v of values){
+    if (v === null || v === undefined || isError(v) || Number.isNaN(v)){ open = true; continue; }
+    const t = truth(v); if (t === true) return true; if (t !== false) open = true; }
+  return open ? null : false;
 }
 
 /* ---- whole numbers, fractions and single roots, exactly ----
@@ -219,7 +243,7 @@ function solveNow(N, typed, single){
     let c = Math.floor(Math.pow(n, 1 / q) + 1e-9); while (c > 1 && n % (c ** q)) c--;
     return c > 1 ? `((${c})^(${p})*(${n / c ** q})^(${p}/${q}))` : all; });
   try { if (finished !== text){ answer = N(finished); text = answer.toString(); }
-    if (!text || /NaN|Infinity/.test(text)) return err(NONE);
+    if (!text || /NaN|Infinity/.test(text)) return err(NOVALUE);
     /* and a third: the root of a square comes back as abs( … ), (1+√2)² under a root as abs(1+sqrt(2)). Its sign can be
        told, so the bars come off: what is inside, or that turned round. Left as it is where the sign cannot be told. */
     for (let m; (m = text.match(/^abs\((.*)\)$/)) && closes(m[1]);){ const n = numeric(N, m[1]); if (!(Math.abs(n) >= 1e-12)) break;
@@ -293,15 +317,15 @@ function infinite(op, a, b){
   if (op === '/') return isInf(a) && isInf(b) ? err('∞ / ∞ has no value') : isInf(b) ? 0 : sb === 0 ? err(DIV0) : INF(sa * sb);
   /* a power. An infinity raised: to more than 0 it is infinite (-∞ only to a whole power, whose evenness gives the sign), to less than 0 it is 0. */
   if (isInf(a) && !isInf(b)){ if (sb === 0) return err('∞^0 has no value'); if (sb < 0) return 0; if (a > 0) return Infinity;
-    return isInteger(b) ? (b % 2 ? -Infinity : Infinity) : err(NONE); }
+    return isInteger(b) ? (b % 2 ? -Infinity : Infinity) : err(NOVALUE); }
   /* raised to an infinity: what is above 1 grows without end and what is between 0 and 1 dies away; 1 and anything below 0 have no value */
   const one = compare(a, 1); if (isError(one)) return one;
-  if (sa < 0 || one === 0) return err(NONE);
+  if (sa < 0 || one === 0) return err(NOVALUE);
   return one > 0 ? (b > 0 ? Infinity : 0) : b > 0 ? 0 : sa === 0 ? err(DIV0) : Infinity;
 }
 /* a value as a floating-point number, for where a decimal is involved */
 const float = v => isDec(v) ? v.f : typeof v === 'boolean' ? +v : typeof v === 'number' ? v : numberOf(v) ? approx(numberOf(v)) : numeric(solver(), v.sym);
-const decimal = f => Number.isNaN(f) ? err(NONE) : { f };
+const decimal = f => Number.isNaN(f) ? err(NOVALUE) : { f };
 const FLOAT = { '+': (x, y) => x + y, '-': (x, y) => x - y, '*': (x, y) => x * y, '^': (x, y) => x ** y, max: Math.max, min: Math.min };
 
 export function combine(op, a, b){
@@ -311,7 +335,8 @@ export function combine(op, a, b){
   }
   if (isError(a)) return a; if (isError(b)) return b;
   if (a === null || a === undefined || b === null || b === undefined) return null;
-  if (Number.isNaN(a) || Number.isNaN(b)) return err(NONE);
+  if (Number.isNaN(a) || Number.isNaN(b)) return err(NOVALUE);
+  if (isNone(a) || isNone(b)){ if (op === '==' || op === '!=') return (isNone(a) && isNone(b)) === (op === '=='); if (op !== '&&' && op !== '||') return NONE; }      /* None with anything is None; it is equal only to None; and it is false */
   if (op === '&&' || op === '||'){ const p = truth(a), q = truth(b); return isError(p) ? p : isError(q) ? q : op === '&&' ? p && q : p || q; }
   if (isDec(a) || isDec(b) || kind(a) === 'decimal' || kind(b) === 'decimal'){ const x = float(a), y = float(b);
     return COMPARE[op] ? COMPARE[op](x < y ? -1 : x > y ? 1 : 0) : op === '/' ? (y === 0 ? err(DIV0) : decimal(x / y)) : decimal(FLOAT[op](x, y)); }
@@ -342,6 +367,7 @@ export function apply(fn, a){
   if (isError(a)) return a;
   if (a === null || a === undefined) return null;
   if (fn === '!'){ const t = truth(a); return isError(t) ? t : !t; }
+  if (isNone(a)) return NONE;
   if (isDec(a) || kind(a) === 'decimal') return decimal(FLOAT1[fn](float(a)));
   if (typeof a === 'boolean') a = +a;
   if (fn === 'neg') return combine('-', 0, a);
@@ -384,6 +410,7 @@ export function written(v){
   if (typeof v === 'boolean') return v ? 'T' : 'F';
   if (typeof v === 'number') return v === Infinity ? '∞' : v === -Infinity ? '-∞' : String(v);
   if (isError(v)) return '!';
+  if (isNone(v)) return '∅';
   if (isSym(v)){ const t = largeOf(v.sym); if (!t || !t[2]) return pretty(v.sym);      /* a root of a number too large for plain numbers: written as a root, with nothing brought out from under it */
     const mark = t[2] === 1 ? '√' : t[2] === 2 ? '∜' : null, under = t[1] === 1n ? String(big(t[0])) : `(${big(t[0])}/${t[1]})`;
     return (t[0] < 0n ? '-' : '') + (mark ? mark + under : `${under}^(1/${2 ** t[2]})`); }
@@ -400,6 +427,7 @@ export function written(v){
 export function surd(n, k, d = 1){ return valueOf(norm(B(n), B(d), k)); }
 export function rootOf(v){
   if (typeof v === 'boolean') v = +v;
+  if (isNone(v)) return NONE;
   if (!(isInteger(v) || isSurd(v) || isSym(v))) return null;
   const s = compare(v, 0); if (isError(s) || s < 0) return null;
   const r = combine('^', v, HALF); return isError(r) ? null : r;

@@ -559,3 +559,11 @@ test('a tile goes with what is copied only where the whole of it is copied, in a
   /* a tile never goes without the tiles inside it that the block is in */
   assert.deepEqual(copied(['inner', 'outer'], whole(['outer'])), []); assert.deepEqual(copied(['a', 'b', 'c'], whole(['a', 'c'])), ['a']);
 });
+
+/* ---- None (phase 9) ---- */
+test('a count that comes to None is refused, as 0 or 3/2 is', () => {
+  assert.match(count({ expr: 'none' }).refused, /whole number, at least 1, and that comes to ∅/);
+  assert.match(count({ expr: 'select(none, 2, none)' }).refused, /comes to ∅/);
+  assert.equal(count({ expr: 'select(none, 2, 3)' }).count, 3);      /* None chooses the second, which is a count */
+  assert.ok(count({ none: true }).refused);
+});

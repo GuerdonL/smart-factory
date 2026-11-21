@@ -13,7 +13,7 @@ map's and a mapalong's formula, an attribute's. From what binds loosest to what 
     a ^ b                     a power, right to left
     √a  ∜a                    a square or fourth root of the number, name or bracket that follows
     numbers, brackets, names, and select(c, a, b), max(a, b), min(a, b), abs(a), sqrt(a), exp(a), ln(a), tanh(a),
-    erf(a), inf, infinity, ∞, true, false
+    erf(a), inf, infinity, ∞, true, false, and none or ∅: None (values.js), which evaluate asks ops.nothing() for
 
 A name is a letter or _ and then letters, digits, _ and dots (index.x), or $ and digits ($1: an input of the node).
 What a name stands for is the caller's to say. A capsule (@[…]) is refused: a graph's formula holds none.
@@ -55,7 +55,8 @@ class Wrong(ValueError):
 
 
 ARITY = {'select': 3, 'max': 2, 'min': 2, 'abs': 1, 'sqrt': 1, 'exp': 1, 'ln': 1, 'tanh': 1, 'erf': 1}
-CONSTANT = {'inf': math.inf, 'infinity': math.inf, 'true': 1.0, 'false': 0.0}
+NOTHING = object()      # what the word none stands for, until ops makes a value of it
+CONSTANT = {'inf': math.inf, 'infinity': math.inf, 'true': 1.0, 'false': 0.0, 'none': NOTHING}
 SYMBOLIC = {'e': math.e, 'pi': math.pi}
 SIGN = {'×': '*', '·': '*', '∙': '*', '÷': '/', '−': '-', '–': '-', '≠': '!=', '≤': '<=', '≥': '>='}
 SPACE = set('\t\n\v\f\r                  　﻿​')
@@ -66,7 +67,7 @@ DOLLAR = re.compile(r'\$([1-9]\d*)', re.ASCII)
 AXIS = re.compile(r'index\.(x|y)')
 INNER = re.compile(r'[kK]([1-6])')      # k1 to k6: the inner position of the entry being worked out (graph.js: INNER)
 TWO = ('==', '!=', '<=', '>=', '&&', '||')
-ONE = set('+-*/^(),<>!√∜∞')
+ONE = set('+-*/^(),<>!√∜∞∅')
 UNREAD = 'that cannot be read as arithmetic'
 # what binds how tightly, loosest first; all of them group from the left
 LEVEL = {'||': 1, '&&': 2, '==': 3, '!=': 3, '<': 3, '>': 3, '<=': 3, '>=': 3, '+': 4, '-': 4, '*': 5, '/': 5}
@@ -142,6 +143,8 @@ def _parse(text, arity):
             return ('num', v[0], v[1])
         if t == '∞':
             return ('num', math.inf, None)
+        if t == '∅':
+            return ('name', 'none')
         if t == '(':
             deeper()
             e = binary(1)
@@ -336,7 +339,7 @@ def evaluate(tree, leaf, ops):
             out.append(ops.number(node[1]))
         elif kind == 'name':
             fixed = CONSTANT.get(node[1].lower())
-            out.append(ops.number(fixed) if fixed is not None else leaf(node[1]))
+            out.append(ops.nothing() if fixed is NOTHING else ops.number(fixed) if fixed is not None else leaf(node[1]))
         elif not ready:
             todo.append((node, True))
             for child in reversed((node[2], node[3]) if kind == 'op' else node[2]):

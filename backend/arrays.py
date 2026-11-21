@@ -10,13 +10,26 @@ those axes, () for none. An entry that has no value (a division by zero, ∞ −
 logarithm of a negative number: the browser's error value) is NaN, and stays NaN through whatever is made of it;
 an infinity is an infinity. Nothing here raises for what the numbers are.
 
+None. NaN already says "no value", so an entry that holds None (values.js: nothing, said outright) is said by a
+mask beside the array: Held(values, none), none an array of true and false the shape of values, true where the
+entry is None, and the number under a None is 0. Only an array that holds a None is a Held: every function below
+takes a plain array or a Held and gives a plain array wherever no entry of what it made is None, so a graph with no
+None in it is worked out exactly as it was before there was one, by the same code on the same arrays. The rules are
+values.js's: an entry with no value against None has no value; otherwise None with anything is None (a product
+entry with one None term is None); None counts as false (so !None is 1, None && x is 0, and select(None, a, b) is
+b); and None == None is 1, None against anything else under == is 0.
+    nothing()                        the one value None
+    is_none(a, r, c, ks)             whether that entry is None (from 0, as item)
+    nones(a)                         how many of its entries are None
+place and put give back what was set into, which is a Held once a None has been set into it: use what they give.
+
 Making them
     number(x)                        one number
     full(rows, cols, x, inner)       every entry x
     identity(rows, cols, inner)      1 where the column is the row, else 0, at every inner position
     blank(rows, cols, inner)         every entry without a value, to be set into (place, put)
     table(text, skip)                the numbers of a CSV already seen to be one (data.py: inspect), skip lines passed over
-    row(values)                      Python numbers as one row
+    row(values)                      Python numbers as one row (None among them: that entry is None)
     spread(a, rows, cols, inner)     one entry, one row or one column spread over a whole matrix (a matrix is itself).
                                      inner given: over every inner position too; left out: the leading axes a has
     grid(rows, cols)                 (i, j): each entry's column and its row, from 1, as arrays that spread over the matrix
@@ -49,7 +62,8 @@ Putting them together
 Reading them
     shape(a) -> (rows, cols);  inner(a) -> the lengths of its inner axes;  size(a) -> how many bytes it takes
     item(a, r, c, ks) -> one entry as a Python float (from 0; ks: its inner position, from 0)
-    summary(a) -> (least, most, mean) of the entries that have a value, as Python floats, or (None, None, None)
+    summary(a) -> (least, most, mean) of the entries that have a value and are not None, as Python floats, or
+                  (None, None, None)
 
 How the arithmetic differs from plain floating point, so that it is the browser's (values.js) wherever both have an
 answer: dividing by zero has no value (never an infinity); 0 to a power below 0 likewise; an infinity to the power
@@ -98,6 +112,38 @@ def quiet():
     return np.errstate(all='ignore')
 
 
+class Held:
+    """An array some of whose entries are None: values, and none, true where the entry is None (the number there is 0)."""
+    __slots__ = ('values', 'none')
+
+    def __init__(self, values, none):
+        self.values, self.none = values, none
+
+
+def _split(a):
+    return (a.values, a.none) if isinstance(a, Held) else (a, None)
+
+
+def _held(values, none):
+    """What was made, with which of it is None: a plain array where none of it is."""
+    if none is None or not none.any():
+        return values
+    none = np.broadcast_to(none, np.shape(values))
+    values = np.array(values, dtype=F)
+    values[none] = 0
+    return Held(values, np.array(none))
+
+
+def _both(fn, a):
+    """A rule that only moves entries about, applied to the numbers and to which of them are None alike."""
+    values, none = _split(a)
+    return fn(values) if none is None else _held(fn(values), fn(none))
+
+
+def nothing():
+    return Held(np.zeros((), dtype=F), np.ones((), dtype=bool))
+
+
 def number(x):
     return np.asarray(x, dtype=F)
 
@@ -120,11 +166,16 @@ def table(text, skip):
 
 
 def row(values):
+    if any(v is None for v in values):
+        return Held(np.asarray([0.0 if v is None else v for v in values], dtype=F)[None, :], np.asarray([v is None for v in values], dtype=bool)[None, :])
     return np.asarray(values, dtype=F)[None, :]
 
 
 def spread(a, rows, cols, inner=None):
-    return np.array(np.broadcast_to(a, (np.shape(a)[:-2] if inner is None else tuple(inner)) + (rows, cols)), dtype=F)
+    a, none = _split(a)
+    to = (np.shape(a)[:-2] if inner is None else tuple(inner)) + (rows, cols)
+    out = np.array(np.broadcast_to(a, to), dtype=F)
+    return out if none is None else _held(out, np.array(np.broadcast_to(none, to)))
 
 
 def along(inner):
@@ -136,38 +187,87 @@ def grid(rows, cols):
     return np.arange(1, cols + 1, dtype=F)[None, :], np.arange(1, rows + 1, dtype=F)[:, None]
 
 
+def _count(x, y):
+    """How many terms of each entry of a product both of two flags hold at."""
+    return np.matmul(x.astype(F), y.astype(F))
+
+
+def _wrong(a, ma, b, mb):
+    """Which entries of a product have no value, told from the terms neither side of which is None: a term with no
+    value of its own; 0 × ∞; or ∞ − ∞ among them. Asked only where a None meets an infinity, whose product as
+    numbers (0 × ∞) would otherwise be taken for an entry with no value."""
+    off = np.zeros((), dtype=bool)
+    ma, mb = off if ma is None else ma, off if mb is None else mb
+    lost = np.isnan(a).any(axis=-1, keepdims=True) | np.isnan(b).any(axis=-2, keepdims=True)
+    ia, ib = np.isinf(a), np.isinf(b)
+    zero = (_count((a == 0) & ~ma, ib) + _count(ia, (b == 0) & ~mb)) > 0
+    pa, na, pb, nb = a > 0, a < 0, b > 0, b < 0
+    up = _count(pa, pb) - _count(pa & ~ia, pb & ~ib) + _count(na, nb) - _count(na & ~ia, nb & ~ib)      # the terms that are ∞
+    down = _count(pa, nb) - _count(pa & ~ia, nb & ~ib) + _count(na, pb) - _count(na & ~ia, pb & ~ib)      # and those that are -∞
+    return lost | zero | ((up > 0) & (down > 0))
+
+
 def matmul(a, b):
+    a, ma = _split(a)
+    b, mb = _split(b)
     with quiet():
-        return np.matmul(a, b)
+        out = np.matmul(a, b)
+        if ma is None and mb is None:
+            return out
+        # an entry is None where a term of it is: a None anywhere in its row of the one, or its column of the other
+        none = np.broadcast_to((ma.any(axis=-1, keepdims=True) if ma is not None else False) | (mb.any(axis=-2, keepdims=True) if mb is not None else False), out.shape)
+        met = (ma is not None and np.isinf(b).any()) or (mb is not None and np.isinf(a).any())
+        wrong = np.broadcast_to(_wrong(a, ma, b, mb), out.shape) if met else np.isnan(out)
+        out = np.where(none & wrong, NAN, out).astype(F)      # an entry with no value stays one, None term or no
+        return _held(out, none & ~wrong)
 
 
 def transpose(a):
-    return np.swapaxes(a, -1, -2)
+    return _both(lambda x: np.swapaxes(x, -1, -2), a)
 
 
 def part(a, row, col, rows, cols):
-    return a[..., row:row + rows, col:col + cols]
+    return _both(lambda x: x[..., row:row + rows, col:col + cols], a)
+
+
+def _into(out, a, write):
+    """a set into out by write(target, source), the numbers and which of them are None alike; gives out back."""
+    out, into = _split(out)
+    a, none = _split(a)
+    write(out, a)
+    if into is None and none is None:
+        return out
+    if into is None:
+        into = np.zeros(out.shape, dtype=bool)
+    write(into, np.zeros((), dtype=bool) if none is None else none)
+    return Held(out, into) if into.any() else out
 
 
 def place(out, a, row, col):
-    out[..., row:row + a.shape[-2], col:col + a.shape[-1]] = a
+    rows, cols = _split(a)[0].shape[-2:]
+
+    def write(target, source):
+        target[..., row:row + rows, col:col + cols] = source
+    return _into(out, a, write)
 
 
 def repeat(a, down, across):
-    return np.tile(a, (1,) * (a.ndim - 2) + (down, across))
+    return _both(lambda x: np.tile(x, (1,) * (x.ndim - 2) + (down, across)), a)
 
 
 def take(a, rs, cs, ks=()):
-    if ks and np.ndim(a) == 2 + len(ks):
-        return a[tuple(ks) + (rs, cs)][None, :]
-    return a[..., rs, cs][..., None, :]
+    if ks and np.ndim(_split(a)[0]) == 2 + len(ks):
+        return _both(lambda x: x[tuple(ks) + (rs, cs)][None, :], a)
+    return _both(lambda x: x[..., rs, cs][..., None, :], a)
 
 
 def put(out, rs, cs, row, ks=()):
-    if ks:
-        out[tuple(ks) + (rs, cs)] = np.broadcast_to(row, (1, len(rs)))[0]
-    else:
-        out[..., rs, cs] = np.broadcast_to(row, row.shape[:-2] + (1, len(rs)))[..., 0, :]
+    def write(target, source):
+        if ks:
+            target[tuple(ks) + (rs, cs)] = np.broadcast_to(source, (1, len(rs)))[0]
+        else:
+            target[..., rs, cs] = np.broadcast_to(source, np.shape(source)[:-2] + (1, len(rs)))[..., 0, :]
+    return _into(out, row, write)
 
 
 def _dim(axis, n):
@@ -180,54 +280,79 @@ def reorder(a, order):
     perm = [0] * len(order)
     for k, source in enumerate(order):
         perm[_dim(k, n)] = _dim(source, n)
-    return np.ascontiguousarray(np.transpose(a, perm))
+    return _both(lambda x: np.ascontiguousarray(np.transpose(x, perm)), a)
 
 
 def stack(parts, at, rows, cols):
-    n = parts[0].ndim - 2
+    n = _split(parts[0])[0].ndim - 2
     turn = (n + 1, n) + tuple(range(n))      # a part's columns and rows become the first two inner axes, its own follow
-    first = np.transpose(parts[0], turn)
-    out = np.full(first.shape + (rows, cols), NAN, dtype=F)
-    for part, (col, row) in zip(parts, at):
-        out[..., row, col] = np.transpose(part, turn)
-    return out
+
+    def of(pick, fill, dtype):
+        first = np.transpose(pick(parts[0]), turn)
+        out = np.full(first.shape + (rows, cols), fill, dtype=dtype)
+        for part, (col, row) in zip(parts, at):
+            out[..., row, col] = np.transpose(pick(part), turn)
+        return out
+    out = of(lambda p: _split(p)[0], NAN, F)
+    if not any(isinstance(p, Held) for p in parts):
+        return out
+    return _held(out, of(lambda p: p.none if isinstance(p, Held) else np.zeros(p.shape, dtype=bool), False, bool))
 
 
 def entry(a, col, row):
-    got = a[..., row, col]
-    if got.ndim == 1:
-        return np.array(got[None, :])
-    n = got.ndim
-    return np.ascontiguousarray(np.transpose(got, tuple(range(2, n)) + (1, 0)))
+    def of(x):
+        got = x[..., row, col]
+        if got.ndim == 1:
+            return np.array(got[None, :])
+        n = got.ndim
+        return np.ascontiguousarray(np.transpose(got, tuple(range(2, n)) + (1, 0)))
+    return _both(of, a)
 
 
 def at_position(a, where):
-    return a[tuple(where)]
+    return _both(lambda x: x[tuple(where)], a)
 
 
 def join(parts, inner):
-    return np.stack(parts).reshape(tuple(inner) + parts[0].shape)
+    out = np.stack([_split(p)[0] for p in parts]).reshape(tuple(inner) + _split(parts[0])[0].shape)
+    if not any(isinstance(p, Held) for p in parts):
+        return out
+    return _held(out, np.stack([p.none if isinstance(p, Held) else np.zeros(p.shape, dtype=bool) for p in parts]).reshape(out.shape))
 
 
 def shape(a):
+    a = _split(a)[0]
     return int(a.shape[-2]), int(a.shape[-1])
 
 
 def inner(a):
-    return tuple(int(x) for x in a.shape[:-2])
+    return tuple(int(x) for x in _split(a)[0].shape[:-2])
 
 
 def size(a):
-    return int(a.nbytes)
+    a, none = _split(a)
+    return int(a.nbytes) + (0 if none is None else int(none.nbytes))
 
 
 def item(a, r, c, ks=()):
+    a = _split(a)[0]
     return float(a[tuple(ks) + (r, c)] if ks else a[..., r, c])
 
 
+def is_none(a, r, c, ks=()):
+    none = _split(a)[1]
+    return none is not None and bool(none[tuple(ks) + (r, c)] if ks else none[..., r, c])
+
+
+def nones(a):
+    none = _split(a)[1]
+    return 0 if none is None else int(none.sum())
+
+
 def summary(a):
+    a, none = _split(a)
     with quiet():
-        known = a[~np.isnan(a)]
+        known = a[~np.isnan(a)] if none is None else a[~np.isnan(a) & ~none]
         if not known.size:
             return None, None, None
         mean = float(known.mean(dtype=D))
@@ -262,6 +387,9 @@ def _power(x, y):
 
 def root(a, p, q):
     """a to the power p/q, q odd: for a number below 0 the real one, the odd root ((-8)^(1/3) is -2)."""
+    a, none = _split(a)
+    if none is not None:
+        return _held(root(a, p, q), none)
     with quiet():
         a = np.asarray(a, dtype=F)
         y = F(p / q)
@@ -291,6 +419,24 @@ COMPARE = {'==': np.equal, '!=': np.not_equal, '<': np.less, '>': np.greater, '<
 
 
 def binary(op, a, b):
+    a, ma = _split(a)
+    b, mb = _split(b)
+    if ma is None and mb is None:
+        return _binary(op, a, b)
+    with quiet():
+        out = _binary(op, a, b)
+        if op in ('&&', '||'):
+            return out      # None is false, and the number under it is 0
+        off = np.zeros((), dtype=bool)
+        ma, mb = off if ma is None else ma, off if mb is None else mb
+        lost = _lost(a, b)      # what has no value has none still: it comes before None
+        if op in ('==', '!='):      # None is equal to None and to nothing else
+            return np.where(lost, NAN, np.where(ma | mb, (ma & mb) == (op == '=='), out)).astype(F)
+        none = (ma | mb) & ~lost
+        return _held(np.where(lost, NAN, out).astype(F), none)
+
+
+def _binary(op, a, b):
     with quiet():
         if op == '+':
             return np.add(a, b, dtype=F)
@@ -312,6 +458,24 @@ def binary(op, a, b):
 
 
 def call(fn, args):
+    if not any(isinstance(x, Held) for x in args):
+        return _call(fn, args)
+    with quiet():
+        split = [_split(x) for x in args]
+        values, off = [v for v, _ in split], np.zeros((), dtype=bool)
+        masks = [off if m is None else m for _, m in split]
+        out = _call(fn, values)
+        if fn == '!':
+            return out      # None is false
+        if fn == 'select':      # a None that chooses is false and chooses the second; what is chosen may itself be None
+            return _held(out, np.where(_yes(values[0]), masks[1], masks[2]) & ~np.isnan(values[0]))
+        if fn in ('max', 'min'):
+            lost = _lost(values[0], values[1])
+            return _held(np.where(lost, NAN, out).astype(F), (masks[0] | masks[1]) & ~lost)
+        return _held(out, masks[0])
+
+
+def _call(fn, args):
     with quiet():
         a = args[0]
         if fn == 'select':

@@ -49,7 +49,7 @@ class SameAnswers(unittest.TestCase):
 
     def test_every_node_of_every_fixture(self):
         graphs = fixture('graphs.json')
-        compared = errors = unknown = deep = 0
+        compared = errors = unknown = deep = nones = 0
         for G in graphs:
             g = G['graph']
             asks = [(i, None, a) for i, a in G['nodes'].items()] + [(b['node'], b['binding'], b['answer']) for b in G['bound']]
@@ -82,7 +82,12 @@ class SameAnswers(unittest.TestCase):
                         self.assertEqual((res['cols'], res['rows']), (len(rows[0]), len(rows)), at)
                         for r, row in enumerate(rows):
                             for c, want in enumerate(row):
-                                got = as_float(cells[(c + 1, r + 1) + ks])
+                                got = cells[(c + 1, r + 1) + ks]
+                                if want == 'none' or got == {'none': True}:      # None is None in both, and nothing else is
+                                    self.assertEqual((got, want), ({'none': True}, 'none'), '%s, entry %s' % (at, (c + 1, r + 1) + ks))
+                                    nones += 1
+                                    continue
+                                got = as_float(got)
                                 self.assertTrue(close(got, as_float(want)), '%s, entry %s: %r here and %r exactly' % (at, (c + 1, r + 1) + ks, got, want))
                                 compared += 1
                                 deep += bool(ks)
@@ -90,6 +95,7 @@ class SameAnswers(unittest.TestCase):
         self.assertGreater(deep, 400)      # entries at an inner position
         self.assertGreater(errors, 5)
         self.assertGreater(unknown, 5)
+        self.assertGreater(nones, 60)      # entries that are None: every row of the None table that can arise here
 
     def test_a_64_by_64_product_of_fractions(self):
         n = 64

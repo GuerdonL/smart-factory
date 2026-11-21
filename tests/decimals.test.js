@@ -36,7 +36,13 @@ test('a decimal\'s square: black at 0 or below, white at 1 or above, grey betwee
 test('the backend\'s values as values here', () => {
   assert.deepEqual(fromBackend(0.5), { f: 0.5 }); assert.deepEqual(fromBackend(0), { f: 0 }); assert.deepEqual(fromBackend('inf'), { f: Infinity }); assert.deepEqual(fromBackend('-inf'), { f: -Infinity });
   assert.deepEqual(fromBackend({ err: 'that has no value' }), { err: 'that has no value' });
-  for (const no of [null, undefined, 'x', true, NaN, Infinity, {}, [], { f: 1 }]) assert.equal(fromBackend(no), null);
+  for (const no of [null, undefined, 'x', true, NaN, Infinity, {}, [], { f: 1 }, { none: 1 }, { none: false }]) assert.equal(fromBackend(no), null);
+  assert.deepEqual(fromBackend({ none: true }), { none: true });      /* None is None, and no decimal: it is written ∅ */
+});
+test('an entry the backend says is None is drawn as None, in a result the browser did not work out', () => {
+  const t = { cols: 2, rows: 1, colsName: null, rowsName: null };
+  const got = merged({ type: t, deferred: true }, new Map(), { cols: 2, rows: 1, cells: [[1, 1, { none: true }], [2, 1, 0.5]] });
+  assert.deepEqual([...got], [['1,1', { none: true }], ['2,1', { f: 0.5 }]]); assert.equal(written(got.get('1,1')), '∅'); assert.equal(kind(got.get('1,1')), 'none');
 });
 test('what is asked of the backend: what the browser does not work out, and an entry that holds exp, ln, tanh or erf; nothing it holds exactly', () => {
   const t = { cols: 2, rows: 1, colsName: null, rowsName: null }, sym = text => ({ sym: text });

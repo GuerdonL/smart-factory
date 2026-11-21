@@ -129,6 +129,7 @@
                           { "n": 3, "d": 4, "k": 1 }      exact: n over d under k square roots, d left out where it is 1
                           true, false                     a boolean, as a JSON boolean
                           { "sym": "1+sqrt(2)" }          symbolic: text the solver reads back
+                          { "none": true }                None: nothing, said outright (format 5). Not an absent entry
        a formula          { "expr": "1/√(@[b3k2m9x:x])" } the text as it was typed, worked out each time it is shown.
                                                           A capsule in it names a measure of a variable by the id of
                                                           the block it was made as: @[id:x], @[id:y], @[id:m] (a
@@ -194,7 +195,11 @@
    resized: the references that were drawn at another size than their variable's and have been set to it (see
    oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
 
-   The format is 4. Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
+   The format is 5. Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
+   shape: the number space it promises (spaces.js), one of the nine words with a "?" after it where it may hold None
+   ("integer?"), left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
+   saved again it differs only in the format number. Reading, a holds that is no such word is dropped.
+   Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
    that go with it, from.entry, and a use's "axes". A format 3 project has none of them and is read exactly as it is: no field is
    converted, and saved again it differs only in the format number. Reading, inner is given whole lengths of at least
    1 and at most six axes (an arrow has none); a length past 16,000,000 (as many numbers as anything holds) is no
@@ -254,7 +259,7 @@ import { stacks, pieces, isFormula, isSurd, isInteger, storable } from './algebr
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 4;
+export const FORMAT = 5;
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
 const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
 const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */
@@ -277,7 +282,7 @@ const out = v => isFormula(v) ? { expr: v.expr } : !storable(v) ? undefined : v 
 /* and as it is read: undefined for what is no entry (an error, a decimal, or nothing this format knows) */
 const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : typeof v === 'boolean' || isInteger(v) ? v : !v || typeof v !== 'object' ? undefined
   : typeof v.expr === 'string' ? { expr: v.expr } : isSurd(v) && (v.d === undefined || Number.isInteger(v.d)) ? { n: v.n, ...(v.d !== undefined && v.d !== 1 ? { d: v.d } : {}), k: v.k }
-  : typeof v.sym === 'string' ? { sym: v.sym } : undefined;
+  : typeof v.sym === 'string' ? { sym: v.sym } : v.none === true ? { none: true } : undefined;
 const kept = (entries, as) => Object.fromEntries(Object.entries(entries || {}).map(([k, v]) => [k, as(v)]).filter(([, v]) => v !== undefined));
 
 /* a range as it is kept: whole numbers, a start not before 0, at least one column and one row, and toEnd's two fields true or false */

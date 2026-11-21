@@ -26,8 +26,8 @@ import re
 from .formula import formula_ok, reads_index as text_reads_index
 from .limits import MAX_JSON_DEPTH
 
-VERSION = 2                 # 2 added stack, entry, a transpose's order and inner axes: a version 1 graph is a version 2 graph as it stands
-VERSIONS = (1, 2)
+VERSION = 3                 # 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value. An older graph is a version 3 graph as it stands
+VERSIONS = (1, 2, 3)
 AXES = 6                    # the most inner axes a type has
 CODES = ('mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown')
 PIECE_CODES = ('mismatch', 'not-a-row', 'mixed', 'size-unknown')
@@ -263,6 +263,8 @@ def ok_literal(v):
         return False
     if 'n' in v or 'k' in v:
         return ok_exact(v)
+    if v.get('none') is True:
+        return len(v) == 1      # None: a value like any other
     return isinstance(v.get('sym'), str) and bool(v['sym']) and len(v) == 1
 
 

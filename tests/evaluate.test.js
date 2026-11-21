@@ -499,3 +499,26 @@ test('after review: two arrows of one function on different rows of one input ea
   assert.deepEqual([column(g, 0), column(g, 1)], [[11, 110], [1100, 11000]]);
   const again = made(); assert.deepEqual([column(again, 1), column(again, 0)], [[1100, 11000], [11, 110]]);      /* asked the other way round */
 });
+
+/* ---- None (phase 9) ---- */
+const NONE = { none: true };
+test('None: a product entry with one None term is None, wherever among the terms it stands; an error or an unknown term comes first', () => {
+  const dot = (row, col) => worked(G({ a: V([row]), b: V(col.map(v => [v])), p: N('matmul', ['a', 'b'], t(1, 1)) }), 'p')['1,1'];
+  assert.deepEqual(dot([0, NONE], [5, 7]), NONE); assert.deepEqual(dot([NONE, 0], [5, 7]), NONE); assert.deepEqual(dot([2, 3], [NONE, 0]), NONE); assert.deepEqual(dot([NONE], [NONE]), NONE);
+  assert.deepEqual(dot([NONE, 'inf'], ['inf', 1]), NONE);      /* None against an infinity is None, not ∞ × 0 */
+  for (const row of [['inf', NONE, '-inf'], ['inf', '-inf', NONE], [NONE, 'inf', '-inf']]) assert.equal(dot(row, [1, 1, 1]).err, '∞ − ∞ has no value');
+  assert.equal(dot([0, NONE], ['inf', 1]).err, '0 × ∞ has no value');
+  assert.equal(dot([NONE, 2], [1, null]), undefined); assert.equal(dot([null, NONE], [1, 1]), undefined);      /* None against unknown is unknown: the entry is absent */
+  assert.deepEqual(worked(product([[1, NONE], [3, 4]], [[5, 6], [7, 8]]), 'p'), rowsOf([[NONE, NONE], [43, 50]]));
+});
+test('None: a sum, a scale, entry by entry, a formula and a measure follow the table', () => {
+  const g = G({ a: V([[NONE, 1, 0]]), b: V([[1, NONE, { expr: '1/0' }]]), s: V([[NONE]]), sum: N('add', ['a', 'b'], t(3, 1)), sc: N('scale', ['s', 'b'], t(3, 1)),
+    over: N('ewise', ['b', 'a'], t(3, 1), { fn: 'div', broadcast: 'none' }), f: V([[{ expr: 'select($1, 1, 2)' }, { expr: '$1 == none' }, { expr: '!$1 + ($1 || 3)' }]], { inputs: ['s'] }),
+    side: N('measure', ['s'], t(1, 1), { side: 'x' }), mass: N('measure', ['s'], t(1, 1), { side: 'm' }), m: N('map', ['a'], t(3, 1), { formula: 'select(x == none, -1, x + 1)' }) });
+  assert.deepEqual(text(worked(g, 'sum')), { '1,1': '∅', '2,1': '∅', '3,1': '!' });
+  assert.deepEqual(text(worked(g, 'sc')), { '1,1': '∅', '2,1': '∅', '3,1': '!' });
+  assert.deepEqual(text(worked(g, 'over')), { '1,1': '∅', '2,1': '∅', '3,1': '!' });      /* 1 / None is None, not a division by zero */
+  assert.deepEqual(worked(g, 'f'), rowsOf([[2, true, 2]]));
+  assert.deepEqual(worked(g, 'side'), { '1,1': NONE }); assert.deepEqual(worked(g, 'mass'), { '1,1': NONE });
+  assert.deepEqual(worked(g, 'm'), rowsOf([[-1, 2, 1]]));
+});

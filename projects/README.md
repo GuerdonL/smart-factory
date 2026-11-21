@@ -16,7 +16,10 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 4. Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
+The format is 5. Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
+nothing, said outright, which is not the same as an entry never given), and `"holds"` on a shape, the number space it
+promises (`"integer"`, `"natural?"`: see the README). A format 4 project has neither and opens as it is.
+Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
 `size` (the lengths of the inner axes, at most six) and in its `sides` (their names, `null` where unnamed), as in
 `"size": { "cols": 3, "rows": 1, "inner": [2, 4] }, "sides": { "cols": null, "rows": null, "inner": ["key", "embed"] }`;
 its entries are keyed `"column,row,k1,k2,…"`, one more number from 1 for each inner axis (`"2,1,1,3"` is entry 2,1,

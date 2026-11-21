@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { combine, apply, truth, kind, written, typedNumber, storable, sideOf, rootOf, isError, isFormula, exact, held } from '../values.js';
+import { combine, apply, truth, truthOf, NONE, isNone, kind, written, typedNumber, storable, sideOf, rootOf, isError, isFormula, exact, held } from '../values.js';
 import * as algebra from '../algebra.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), E = why => ({ err: why }), sym = text => ({ sym: text });
@@ -278,4 +278,50 @@ test('after review (phase 7): the solver is exact again after it was asked for a
   assert.equal(kind(apply('tanh', combine('-', 3, { n: 1, d: 3, k: 0 }))), 'symbolic');
   assert.equal(kind(combine('+', half, apply('tanh', -3))), 'symbolic'); assert.equal(kind(apply('exp', combine('-', 6, 27))), 'symbolic');
   assert.deepEqual(apply('exp', 0), 1); assert.deepEqual(combine('*', apply('exp', 1), 0), 0);      /* what does come out exactly still does */
+});
+
+/* ---- None (phase 9): every row of the table in the proposal's section 4 ---- */
+const N = { none: true };
+test('None is a kind of its own: written ∅, kept, false, and not unknown', () => {
+  assert.equal(kind(N), 'none'); assert.equal(kind(NONE), 'none'); assert.equal(isNone(N), true); assert.equal(isNone(null), false); assert.equal(isNone({ none: 1 }), false);
+  assert.equal(written(N), '∅'); assert.equal(storable(N), true); assert.equal(truth(N), false);
+  assert.equal(algebra.isNone(N), true); assert.deepEqual(algebra.NONE, N);
+});
+test('None + 1 and None × 0 are None', () => { is('+', N, 1, N); is('+', 1, N, N); is('*', N, 0, N); is('*', 0, N, N); is('-', N, N, N); is('^', N, 2, N); is('^', 2, N, N); });
+test('None == 0 and None == false are false; None == None is true; != is the other way round', () => {
+  is('==', N, 0, false); is('==', 0, N, false); is('==', N, false, false); is('==', N, N, true);
+  is('!=', N, 0, true); is('!=', N, N, false); is('==', N, q(1, 2), false); is('==', N, INF, false); is('==', N, sym('1+sqrt(2)'), false);
+});
+test('None < 1 and max(None, 3) are None', () => { for (const op of ['<', '>', '<=', '>=', 'max', 'min']){ is(op, N, 1, N); is(op, 3, N, N); } });
+test('1 / None is None, not a division by zero', () => { is('/', 1, N, N); is('/', N, 0, N); is('/', N, 1, N); });
+test('exp(None), ln(None) and every other function of None are None; !None is true', () => {
+  for (const fn of ['exp', 'ln', 'tanh', 'erf', 'abs', 'sqrt', 'neg']) assert.deepEqual(apply(fn, N), N, fn);
+  assert.equal(apply('!', N), true);
+});
+test('None && x is false and None || x is whether x is true', () => {
+  is('&&', N, 3, false); is('&&', 3, N, false); is('&&', N, N, false); is('||', N, 3, true); is('||', N, 0, false); is('||', N, true, true); is('||', 0, N, false); is('||', N, N, false);
+});
+test('a product entry with one None term is None: 0 × None + 5 is None', () => { is('+', combine('*', 0, N), 5, N); is('+', combine('*', 2, 3), combine('*', N, 1), N); });
+test('None against unknown is unknown, also where true or false is wanted', () => {
+  for (const op of ['+', '*', '/', '==', '!=', '<', 'max', '&&', '||']){ is(op, N, null, null); is(op, null, N, null); }
+});
+test('None against an error is the error', () => { const e = E('divide by zero'); for (const op of ['+', '*', '==', '<', '&&', '||', 'max']){ is(op, N, e, e); is(op, e, N, e); } assert.deepEqual(apply('exp', e), e); });
+test('None against a decimal is None, and is not equal to it', () => { const d = { f: 0.5 }; is('+', N, d, N); is('*', d, N, N); is('/', d, N, N); is('<', N, d, N); is('==', N, d, false); is('||', N, d, true); is('&&', N, d, false); });
+test('the order where special kinds meet: error, unknown, None, decimal', () => {
+  const e = E('x'), d = { f: 2 };
+  is('+', e, null, e); is('+', null, e, e); is('+', null, N, null); is('+', N, d, N); is('+', null, d, null); is('+', e, d, e);
+});
+test('the side of a single entry that holds None is None, and None is no length', () => {
+  assert.deepEqual(rootOf(N), N);
+  assert.match(sideOf(N).refused, /cannot be ∅/);
+});
+test('the truth of a whole matrix is three-valued', () => {
+  /* true: any known entry is true, whatever the others are */
+  assert.equal(truthOf([0, 3]), true); assert.equal(truthOf([null, true]), true); assert.equal(truthOf([E('x'), q(1, 2)]), true); assert.equal(truthOf([N, -1]), true); assert.equal(truthOf([{ f: 0.25 }, null]), true); assert.equal(truthOf([INF]), true);
+  /* false: every entry is known and is zero, false or None */
+  assert.equal(truthOf([0, 0]), false); assert.equal(truthOf([0, false, N]), false); assert.equal(truthOf([N]), false); assert.equal(truthOf([{ f: 0 }]), false); assert.equal(truthOf([]), false);
+  /* unknown: nothing known is true, and something is not known */
+  assert.equal(truthOf([0, null]), null); assert.equal(truthOf([null]), null); assert.equal(truthOf([N, undefined]), null); assert.equal(truthOf([0, E('divide by zero')]), null);
+  assert.equal(truthOf(new Map([['1,1', 0], ['2,1', 5]]).values()), true);
+  assert.equal(algebra.truthOf([0]), false);
 });

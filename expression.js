@@ -20,7 +20,7 @@
                                  infinity in the other does no harm
        max(a, b)  min(a, b)  abs(a)  sqrt(a)         worked out exactly
        exp(a)  ln(a)  tanh(a)  erf(a)                stay symbolic unless they come out (exp(0) is 1)
-       inf, infinity, ∞          infinity;   true, false
+       inf, infinity, ∞          infinity;   true, false;   none, ∅: None (values.js)
    An odd root of a negative number is the real one: (-8)^(1/3) is -2. An even root of one is an error.
    Nothing is ever rounded. The kinds of value, and how they combine, are set out in values.js.
    A name may have dots in it (Keys.x, index.x). What a name stands for is the lookup's to say: x, i and j in an
@@ -61,11 +61,11 @@
                         { clear: true }        nothing typed: the entry goes back to being a symbol
                       | { value }              a literal value, or { expr: text }
                       | { refused: why }       the text cannot be read; nothing is stored
-       What was typed is kept as a literal where it is a value written out ("7", "-inf", "3/4", "2√3", "true"), and
+       What was typed is kept as a literal where it is a value written out ("7", "-inf", "3/4", "2√3", "true", "none"), and
        as a formula otherwise ("6/4", "exp(2) + 1", "1/0": a formula is kept whatever it comes to). With settle, a
-       formula that uses no name and no capsule and comes to a whole, infinite, exact or boolean value is kept as
+       formula that uses no name and no capsule and comes to a whole, infinite, exact or boolean value, or None, is kept as
        that value instead (for a number worked out from what was typed, such as a mass from a side).
-   typed(stored)   -> the text to type over: a formula's own text, a literal as it is written ("true" for true)
+   typed(stored)   -> the text to type over: a formula's own text, a literal as it is written ("true" for true, "none" for None)
 
    refs(text)                -> every capsule in a text: [{ id, measure, name, text }]
    refersTo(text, ids)       -> whether the text has a capsule naming one of these ids (a Set)
@@ -94,12 +94,12 @@
    guard() -> working(key, work): works out things that may depend on one another. working(key, work) gives work(),
        unless key is already being worked out further up, in which case the thing depends on itself and what it
        gives is the error "depends on itself". */
-import { combine, apply, truth, typedNumber, written, kind, isError, isFormula } from './values.js';
+import { combine, apply, truth, typedNumber, written, kind, isError, isFormula, isNone, NONE } from './values.js';
 export { written };
 
 class Wrong extends Error {}
 const ARITY = { select: 3, max: 2, min: 2, abs: 1, sqrt: 1, exp: 1, ln: 1, tanh: 1, erf: 1 };
-const CONSTANT = { inf: Infinity, infinity: Infinity, true: true, false: false };
+const CONSTANT = { inf: Infinity, infinity: Infinity, true: true, false: false, none: NONE };
 const SIGN = { '×': '*', '·': '*', '∙': '*', '÷': '/', '−': '-', '–': '-', '≠': '!=', '≤': '<=', '≥': '>=' };
 const ONE = /^@\[([^\]:\s]+)(?::([xymg]|d[1-6])|:a:([^\]]+))?\]/, CAPSULE = new RegExp(ONE.source.slice(1), 'g');
 const capsuleOf = m => ({ id: m[1], measure: m[3] !== undefined ? 'a' : m[2] || null, name: m[3] ?? null });
@@ -123,7 +123,7 @@ function tokens(text){
     const input = rest.match(/^\$\d+/); if (input){ out.push({ t: 'name', v: input[0] }); i += input[0].length; continue; }      /* $1: an input, in a formula of the graph */
     const two = c.length === 2 ? c : (c + (s[i + 1] || ''));
     if (['==', '!=', '<=', '>=', '&&', '||'].includes(two)){ out.push({ t: two }); i += c.length === 2 ? 1 : 2; continue; }
-    if ('+-*/^(),<>!√∜∞'.includes(c)){ out.push({ t: c }); i++; continue; }
+    if ('+-*/^(),<>!√∜∞∅'.includes(c)){ out.push({ t: c }); i++; continue; }
     throw new Wrong(`cannot read "${s[i]}"`);
   }
   return out;
@@ -142,6 +142,7 @@ function parse(text){
     const t = ts[i++]; if (!t) throw new Wrong(UNREAD);
     if (t.t === 'num') return { num: t.v };
     if (t.t === '∞') return { num: Infinity };
+    if (t.t === '∅') return { num: NONE };
     if (t.t === 'ref') return { ref: t.v };
     if (t.t === '('){ const e = inside(or); if (!take(')')) throw new Wrong('a bracket is not closed'); return e; }
     if (t.t === '√' || t.t === '∜'){ const root = { fn: 'sqrt', args: [inside(under)] }; return t.t === '∜' ? { fn: 'sqrt', args: [root] } : root; }
@@ -221,12 +222,12 @@ export function entered(text, lookup = () => undefined, { settle = false, matric
   const got = evaluate(text, lookup, { matrices });
   if (got.empty) return { clear: true };
   if (got.unread) return { refused: got.value.err };
-  const v = got.value, k = kind(v), t = squeezed(text).toLowerCase(), literal = ['integer', 'infinity', 'exact', 'boolean'].includes(k);
-  const plain = literal && (t === squeezed(written(v)) || t === String(v) || (k === 'infinity' && /^[+-]?(inf|infinity|∞)$/.test(t)) || (k === 'integer' && /^[+-]?\d+$/.test(t)));
-  if (plain || (settle && literal && !leaves(read(text).tree).length)) return { value: v };
+  const v = got.value, k = kind(v), t = squeezed(text).toLowerCase(), literal = ['integer', 'infinity', 'exact', 'boolean', 'none'].includes(k);
+  const plain = literal && (t === squeezed(written(v)) || t === String(v) || (k === 'infinity' && /^[+-]?(inf|infinity|∞)$/.test(t)) || (k === 'integer' && /^[+-]?\d+$/.test(t)) || (k === 'none' && t === 'none'));
+  if (plain || (settle && literal && !leaves(read(text).tree).length)) return { value: isNone(v) ? { none: true } : v };      /* (an object of the entry's own, to be kept) */
   return { value: { expr: text } };
 }
-export const typed = stored => stored === null || stored === undefined ? '' : isFormula(stored) ? stored.expr : typeof stored === 'boolean' ? String(stored) : written(stored);
+export const typed = stored => stored === null || stored === undefined ? '' : isFormula(stored) ? stored.expr : typeof stored === 'boolean' ? String(stored) : isNone(stored) ? 'none' : written(stored);
 
 /* ---- choosing a variable ---- */
 export const measuresOf = v => [{ measure: 'x', name: null, label: 'x' }, { measure: 'y', name: null, label: 'y' }, ...(v.scalar ? [{ measure: 'm', name: null, label: 'mass' }] : []),

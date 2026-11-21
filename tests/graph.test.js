@@ -444,8 +444,8 @@ test('validate accepts what build made, of every operation', () => {
 });
 test('validate refuses a graph that is not one', () => {
   for (const g of [null, 7, 'graph', {}, { version: 1 }, { version: 1, nodes: [], functions: {}, spaces: {}, blocks: {} }]) assert.ok(validate(g).length > 0);
-  refused(g => { g.version = 3; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
-  for (const v of [1, 2]){ const g = JSON.parse(JSON.stringify(good())); g.version = v; assert.deepEqual(validate(g), [], 'a version 1 graph is a version 2 graph as it stands'); }
+  refused(g => { g.version = 4; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
+  for (const v of [1, 2, 3]){ const g = JSON.parse(JSON.stringify(good())); g.version = v; assert.deepEqual(validate(g), [], 'a version 1 or 2 graph is a version 3 graph as it stands'); }
   const inf = good(); inf.nodes['v:A'].entries['1,1'] = Infinity; assert.ok(validate(inf).length > 0);      /* an infinity is written "inf" */
   const undef = good(); undef.nodes['v:A'].entries['1,1'] = undefined; assert.ok(validate(undef).length > 0);
 });
@@ -805,4 +805,14 @@ test('after review (phase 7): a formula in a graph is bounded as the backend bou
     const v = Object.values(g.nodes).find(n => n.op === 'variable' && n.inputs.length && Object.values(n.entries).some(e => e && e.expr));
     for (const k of Object.keys(v.entries)) if (v.entries[k] && v.entries[k].expr) v.entries[k] = { expr };
     assert.equal(validate(g).length === 0, ok, expr.slice(0, 30) + '… (' + expr.length + ')'); }
+});
+
+/* ---- None (phase 9) ---- */
+test('None: an entry that holds None is kept in the graph as { none: true }, in that one form, and both older versions are still read', () => {
+  const g = build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': { none: true }, '2,1': { expr: 'none + 1' } } })]));
+  assert.equal(g.version, 3); assert.equal(VERSION, 3); assert.deepEqual(validate(g), []);
+  assert.deepEqual(g.nodes['v:A'].entries, { '1,1': { none: true }, '2,1': { expr: 'none + 1' } });
+  for (const v of [{ none: 1 }, { none: false }, { none: true, sym: 'x' }, { none: true, more: 1 }, 'none']){ const h = JSON.parse(JSON.stringify(g)); h.nodes['v:A'].entries['1,1'] = v; assert.ok(validate(h).length > 0, JSON.stringify(v)); }
+  for (const version of [1, 2, 3]) assert.deepEqual(validate({ ...g, version }), []);
+  assert.ok(validate({ ...g, version: 4 }).length > 0);
 });

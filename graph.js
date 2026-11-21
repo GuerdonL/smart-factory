@@ -16,15 +16,17 @@
    axes(type)                    every axis of a type in order, [{ length, name }]: columns, rows, then the inner ones
    tailsOf(type)                 every inner position of a type as what follows "column,row" in a key ([""]: none)
    AXES                          6, the most inner axes a type has
-   VERSION                       2. Version 2 added inner axes, stack, entry and a transpose's order; a version 1
-                                 graph has none of them, and validate takes it as it stands.
+   VERSION                       3. Version 2 added inner axes, stack, entry and a transpose's order; version 3 the
+                                 value None ({ "none": true }) and a type's "value", the number space it lies in
+                                 (spaces.js). A version 1 or 2 graph has none of them, and validate takes it as
+                                 it stands.
    CODES                         every error code
    indexAt(cells, c, r)          the index an entry reads, from the cell it is in (see "Bindings", below)
    readsIndex(node)              whether the node of its own accord differs from cell to cell: a formula of its own
                                  reads the index, it is an arrow repeated through an outer tile, or it is noise
 
    The graph
-       { "version": 2,
+       { "version": 3,
          "nodes":     { "<node id>": { "op", "inputs": [node ids], "type": { "cols", "rows", "colsName", "rowsName" }, … } },
                       (a type also has "inner" where its entries hold inner data: see "Inner data", below)
          "functions": { "<function id>": { "input": "<the node of its in block>", "body": "<the node its space comes to>" } },
@@ -79,8 +81,8 @@
                    inner data, taken out), "seat" (an arrow's output, or the result
                    in a pair's hollow) or "source" (zeros, ones, an identity, a data file or noise; or a tile's index
                    as a matrix, a map of zeros by index.x or index.y). Own fields: name, named, defined, entries, and error where it has
-                   one (it is then "entries"). An entry is a value, a formula { expr }, or the error { err } that a
-                   formula was found to be when the graph was built.
+                   one (it is then "entries"). An entry is a value (None, { "none": true }, among them), a formula
+                   { expr }, or the error { err } that a formula was found to be when the graph was built.
        matmul      left, right: the matrix product. A row of three is two nodes, grouped from the left.
        scale       scalar, matrix: every entry times the scalar. Scalars in a row are pulled to the front.
        transpose   entry c,r is the input's r,c. With order, a list that names every axis of the input once (0 and 1
@@ -169,7 +171,7 @@
    may read what comes of the tile it is in, of a tile beside it or of a tile in its pattern, short of a real cycle.
    A block's zone, for what it touches, is the innermost tile it is in (algebra.js: zoneOf).
    Definitions are read 64 deep, one inside the next, and no deeper. */
-import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isFormula, exact, held as fromExact } from './algebra.js';
+import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isNone, isFormula, exact, held as fromExact } from './algebra.js';
 import { ROOTS } from './values.js';
 import { parts as textParts, evaluate as work, namesIn, refs } from './expression.js';
 import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES } from './arrows.js';
@@ -177,8 +179,8 @@ import * as tiles from './tiles.js';
 import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS } from './sources.js';
 import { FUNCTIONS, CONFIG } from './system.js';
 
-export const VERSION = 2;                     /* 2 added stack, entry, a transpose's order and inner axes: a version 1 graph holds none of them and is a version 2 graph as it stands */
-const VERSIONS = [1, 2];
+export const VERSION = 3;                     /* 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value. An older graph holds none of them and is a version 3 graph as it stands */
+const VERSIONS = [1, 2, 3];
 export const CODES = ['mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown'];
 const PIECE_CODES = ['mismatch', 'not-a-row', 'mixed', 'size-unknown'];
 const DEFINED = ['entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source', 'entry'];
@@ -252,6 +254,7 @@ function literal(v){
   if (typeof v === 'number') return Number.isSafeInteger(v) ? v : undefined;
   if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
   if ('n' in v || 'k' in v) return exactly(v);
+  if (v.none === true) return NOTHING;      /* None: a value like any other, and kept */
   return typeof v.sym === 'string' && v.sym ? { sym: v.sym } : undefined;
 }
 /* whether a value is written exactly as the graph writes it: nothing more, and in its one form */
@@ -260,12 +263,13 @@ function okLiteral(v){
   if (l === null || typeof l !== 'object') return l === v;
   return !!v && typeof v === 'object' && Object.keys(v).length === Object.keys(l).length && Object.keys(l).every(k => v[k] === l[k]);
 }
+const NOTHING = Object.freeze({ none: true });
 const okError = v => !!v && typeof v === 'object' && typeof v.err === 'string' && Object.keys(v).length === 1;
 const cell = (m, key) => { const v = m.get(key); return v === undefined ? null : v; };
 /* a value of one of the kinds values.js sets out, or the error that it is none: nothing else is handed on */
 const NONE = { err: 'that has no value' };
 const sound = v => v === null || v === undefined ? null : typeof v === 'boolean' || (typeof v === 'number' && !Number.isNaN(v)) ? v
-  : typeof v === 'object' && (typeof v.err === 'string' || typeof v.sym === 'string' || typeof v.f === 'number' || (Number.isInteger(v.n) && Number.isInteger(v.k))) ? v : NONE;
+  : typeof v === 'object' && (typeof v.err === 'string' || typeof v.sym === 'string' || typeof v.f === 'number' || v.none === true || (Number.isInteger(v.n) && Number.isInteger(v.k))) ? v : NONE;
 
 /* ---- bindings: the index ---- */
 /* The index an entry reads: its column and row counted across the whole filled tile. cells is the chain of cells
@@ -283,7 +287,7 @@ export function indexAt(cells, c, r){
 /* ---- formulas in the graph ---- */
 const DOLLAR = /^\$([1-9]\d*)$/, INNER = /^k([1-6])$/i;      /* $n: an input; k1 to k6: the inner position of the entry being worked out */
 const LONGEST = 10000, DEEPEST = 64;            /* a formula in a graph is at most this long, and nests at most this deep: the backend reads it with these bounds (backend/limits.py), and the two validators are to agree */
-const FUNCS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']), CONSTS = new Set(['inf', 'infinity', 'true', 'false']);
+const FUNCS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']), CONSTS = new Set(['inf', 'infinity', 'true', 'false', 'none']);
 /* Whether a formula is one the graph may hold: it reads as arithmetic (expression.js), it is no longer than LONGEST
    characters and nests no deeper than DEEPEST, it holds no capsule, and every
    name in it is $1 to $most, index.x or index.y, or (in an arrow's formula) x, i or j. Nothing a node depends on
@@ -394,14 +398,19 @@ export const OPS = {
       || (a.type.cols === b.type.rows && !nested(innerOf(a.type), innerOf(b.type)).ok ? 'a product of shapes whose inner data does not agree: ' + nested(innerOf(a.type), innerOf(b.type)).note
         : `a product of ${a.type.cols} columns and ${b.type.rows} rows` + (one(a.type) || one(b.type) ? ': a single entry against a matrix is a scale' : '')),
     /* entry c,r is the sum over k of left k,r times right c,k. An unknown term makes the entry unknown, even against
-       a known zero: what two values come to is combine's to say, for every pair */
+       a known zero: what two values come to is combine's to say, for every pair. The terms that are None are left
+       out of the sum and make the entry None, so that it does not turn on where among the terms the None stands */
     value(n, at){ const a = at.type(0), b = at.type(1), L = at.get(0), R = at.get(1), K = a.cols, out = new Map();
       const rowsOf = [], colsOf = [];
       for (let r = 1; r <= a.rows; r++){ const row = new Array(K); for (let k = 1; k <= K; k++) row[k - 1] = cell(L, k + ',' + r); rowsOf.push(row); }
       for (let c = 1; c <= b.cols; c++){ const col = new Array(K); for (let k = 1; k <= K; k++) col[k - 1] = cell(R, c + ',' + k); colsOf.push(col); }
       for (let r = 1; r <= a.rows; r++){ const row = rowsOf[r - 1];
-        for (let c = 1; c <= b.cols; c++){ const col = colsOf[c - 1]; let sum = combine('*', row[0], col[0]);
-          for (let k = 1; k < K; k++) sum = combine('+', sum, combine('*', row[k], col[k]));
+        for (let c = 1; c <= b.cols; c++){ const col = colsOf[c - 1]; let sum = combine('*', row[0], col[0]), none = false;
+          for (let k = 1; k < K; k++){ const term = combine('*', row[k], col[k]);
+            if (isNone(sum)){ none = true; sum = term; } else if (isNone(term)) none = true; else sum = combine('+', sum, term); }
+          /* a term that is None makes the entry None, whichever term it is: unless the others come to no value (an
+             error) or are not all known, which come first, as they do for a pair of values */
+          if (none && sum !== null && !isError(sum)) sum = NOTHING;
           if (sum !== null) out.set(c + ',' + r, sum); } }
       return out; } },
   scale: { inputs: [2, 2], fields: () => [], id: n => plain(n),

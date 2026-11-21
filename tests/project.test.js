@@ -194,7 +194,7 @@ test('what is not a project is refused, with the reason', () => {
   assert.throws(() => read([]), /no project\.json/);
   assert.throws(() => read([file('A.json', config('A'))]), /no project\.json/);
   assert.throws(() => read([file('project.json', { format: 'other' })]), /not a smart-factory project/);
-  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 5\)/);
+  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 6\)/);
   assert.throws(() => read([head(), { path: 'Bad.json', text: '{ not json' }]), /Bad\.json is not valid JSON/);
 });
 
@@ -220,7 +220,7 @@ test('format 1: the settings become the Menu, and the old top level one block be
 const at = (name, x, y, cols, rows, more = {}) => config(name, { position: { x, y }, size: { cols, rows }, ...more });
 const rectsOf = shapes => shapes.map(d => ({ x: d.x, y: d.y, w: d.cols, h: d.rows, wName: d.colsName, hName: d.rowsName }));
 
-test('the format is 4', () => { assert.equal(FORMAT, 4); });
+test('the format is 5', () => { assert.equal(FORMAT, 5); });
 
 test('format 2: a stack is fused into one shape, which holds its shapes top to bottom', () => {
   const p = read([head(2), file('Top.json', at('Top', 4, 0, 3, 2, { id: 'btop', order: 1, value: { entries: { '1,1': 5 } } })), file('Under.json', at('Under', 4, 2, 3, 1, { id: 'bunder', order: 0 })),
@@ -741,10 +741,33 @@ test('projects/inner-data holds a shape of matrices with a matrix standing in ea
   const attend = by('attend'), inside = attend.inside.shapes, input = inside.find(d => d.in);
   assert.equal(attend.arrow.input.id, by('QKV').id); assert.deepEqual(input.inner, by('QKV').inner);
   assert.deepEqual(inside.filter(d => d.from).map(d => [d.name, d.from.id === input.id, d.from.entry, d.transposed]), [['Q', true, { col: 1, row: 1 }, false], ['K', true, { col: 2, row: 1 }, true], ['V', true, { col: 3, row: 1 }, false]]);
-  for (const f of files.filter(f => f.path.endsWith('.json'))) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path);
+  for (const f of files.filter(f => f.path.endsWith('.json'))) assert.equal(JSON.parse(f.text).version ?? 4, 4, f.path);      /* it was saved at format 4, and is kept as it was saved */
   const again = write(read(write(p))); assert.deepEqual(again, write(p));      /* written, read and written again: the same files */
   const byPath = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
-  assert.deepEqual(byPath(write(p)), byPath(files));      /* and they are the files that are shipped */
+  const v4 = o => Object.fromEntries(Object.entries(o).map(([k, t]) => [k, t.replace(/"version": \d+/g, '"version": 4')]));
+  assert.deepEqual(v4(byPath(write(p))), byPath(files));      /* and they are the files that are shipped, but for the format's number */
+});
+test('every project that comes with the repository opens and saves as it did before format 5: saved, read and saved again gives the same files, and none gains a holds or a None', () => {
+  const root = fileURLToPath(new URL('../projects/', import.meta.url)); let seen = 0;
+  for (const name of readdirSync(root)){ if (!statSync(join(root, name)).isDirectory()) continue; seen++;
+    const p = read(shipped(name)), files = write(p);
+    assert.deepEqual(write(read(files)), files, name); assert.deepEqual(read(files), read(write(read(files))), name);
+    for (const f of files){ assert.ok(!/"holds"|"none"/.test(f.text), name + '/' + f.path); if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path); } }
+  assert.ok(seen >= 11);
+});
+test('a format 4 project opens: its entries and shapes are read as they are, and saved it is format 5', () => {
+  const p = project(space([shape('A', { id: 'b00000a', cols: 2, rows: 1, entries: { '1,1': 3, '2,1': { n: 1, d: 2, k: 0 } } })])), files = write(p);
+  const old = files.map(f => ({ path: f.path, text: f.text.replace(/"version": 5/g, '"version": 4') }));
+  assert.ok(old.every(f => !f.text.includes('"version": 5')));
+  assert.deepEqual(read(old), read(files)); assert.deepEqual(write(read(old)), files);
+});
+test('None is kept: { "none": true } in a file, read back as None, and written again the same', () => {
+  const p = project(space([shape('A', { id: 'b00000a', cols: 2, rows: 1, entries: { '1,1': { none: true }, '2,1': 0 } })])), files = write(p);
+  assert.deepEqual(JSON.parse(files.find(f => f.path === 'A.json').text).value.entries, { '1,1': { none: true }, '2,1': 0 });
+  assert.deepEqual(read(files).top.shapes[0].entries, { '1,1': { none: true }, '2,1': 0 });
+  assert.deepEqual(write(read(files)), files);
+  const odd = files.map(f => f.path === 'A.json' ? { path: f.path, text: f.text.replace('"none": true', '"none": 1') } : f);
+  assert.deepEqual(read(odd).top.shapes[0].entries, { '2,1': 0 });      /* what is not None as it is written is no entry */
 });
 test('format 4: a turned use keeps its axis order, beside its own size as it is drawn; what is no order of its variable is dropped', () => {
   const inner = [{ length: 3, name: 'head' }], W = shape('W', { id: 'b00000w', cols: 2, rows: 1, inner, variable: 1 });

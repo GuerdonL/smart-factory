@@ -11,7 +11,7 @@
                                              with the request as a whole is under the key "*".
     upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" } (and "small" where it has numbers too small for 32 bits); raises
                                              data.Refused(why)
-    health()                              -> { "ok": true, "version": 2 }: the graph version (check.py: VERSION)
+    health()                              -> { "ok": true, "version": 3 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
@@ -24,7 +24,8 @@ The request to /run:
       "tick": 0,                          which draw of the noise: a whole number, 0 where left out
       "project": "<name>" }               the project whose data/ a file source reads; may be left out where there is none
 A value is a number; "inf" or "-inf"; or { "err": "that has no value" } for an entry that has none (a division by
-zero, ∞ − ∞). min, max and mean are of the entries that have a value, written the same way (null where none has).
+zero, ∞ − ∞); or { "none": true } for an entry that is None. min, max and mean are of the entries that have a
+value and are not None, written the same way (null where none has).
 
 Nothing in a request is executed: the graph is data, a formula is read by formula.py, and a file's path is
 resolved inside the named project's data/ directory by data.py."""
@@ -167,7 +168,9 @@ def one(work, graph, w):
         raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(work.weight(node), ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
     value = work.value(node, w.get('binding'))
     least, most, mean = A.summary(value)
-    read = lambda c: [int(x) for x in c] + [written(A.item(value, int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:])))]
+    def read(c):
+        at = (int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:]))
+        return [int(x) for x in c] + [{'none': True} if A.is_none(value, *at) else written(A.item(value, *at))]
     out = {'cols': cols, 'rows': rows}
     if inner:
         out['inner'] = list(inner)      # only where it holds inner data: a node that holds none answers as it always did
