@@ -619,7 +619,8 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
 as `{ "none": true }`. It is not an entry never given, which stays a symbol, and it is not zero. Since `none` is that
 word, nothing is called it: typed, sent or pasted as the name of a shape, an attribute, a side, an inner axis or an
 arrow's gap, however it is capitalised, it is refused with "none is the word for no value, so nothing can be called
-it", and nothing changes. A name that only has it in it (`none_1`, `nonesuch`) is a name like any other, and a
+it", and nothing changes. So is `∅`, and so is either behind comment marks or beside a blank a formula passes over:
+a name is refused where a formula would read the whole of it as None. A name that only has it in it (`none_1`, `nonesuch`) is a name like any other, and a
 project saved before the rule opens as it is. None counts as false, and in arithmetic None with anything is None:
 
 | | |

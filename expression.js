@@ -95,10 +95,13 @@
 
    nameable(name) -> { ok: true } | { refused: why }
                                 whether something can be called that. `none` is the word for the value None, so no
-                                shape, attribute, side or inner axis is called it, however it is capitalised and
-                                whether or not the name is commented out (// none). A name that only has it in it
-                                (none_1, nonesuch) is a name like any other, and so, today, is every other word of
-                                the language. Every way a name is given asks here (smart-factory.js).
+                                shape, attribute, side or inner axis is called what a formula reads as None:
+                                none however it is capitalised, ∅, either with blanks the language passes over
+                                round it (a zero-width space among them), and whether or not the name is
+                                commented out, once or more (// none, // // none). The tokenizer is asked, so
+                                there is no second list of spellings to fall behind. A name that only has it in
+                                it (none_1, nonesuch) is a name like any other, and so, today, is every other
+                                word of the language. Every way a name is given asks here (smart-factory.js).
 
    guard() -> working(key, work): works out things that may depend on one another. working(key, work) gives work(),
        unless key is already being worked out further up, in which case the thing depends on itself and what it
@@ -291,7 +294,13 @@ export function bound(text, variables, { matrices = false } = {}){
   return { text: out };
 }
 
-export const nameable = name => /^\s*(\/\/\s*)?none\s*$/i.test(String(name ?? '')) ? { refused: 'none is the word for no value, so nothing can be called it' } : { ok: true };
+/* Asked of the tokenizer, not of a list of spellings: a name is refused where the whole of it, its comment marks taken
+   off, is the one token the language reads as None. So whatever tokens() comes to read as None is refused here too. */
+export function nameable(name){
+  let ts; try { ts = tokens(String(name ?? '').replace(/^(\s*\/\/)+/, '')); } catch (e){ return { ok: true }; }      /* what cannot be read is no word of the language */
+  const none = ts.length === 1 && (ts[0].t === '∅' || (ts[0].t === 'name' && Object.hasOwn(CONSTANT, ts[0].v.toLowerCase()) && CONSTANT[ts[0].v.toLowerCase()] === NONE));
+  return none ? { refused: 'none is the word for no value, so nothing can be called it' } : { ok: true };
+}
 
 export function guard(){
   const open = new Set();

@@ -347,6 +347,9 @@ test('a + b + c and a * b * c are one sum and one product: an error two terms ma
 test('nothing is called none, and every other name is free', () => {
   const why = { refused: 'none is the word for no value, so nothing can be called it' };
   for (const name of ['none', 'None', 'NONE', 'nOnE', ' none ', '\tnone\n', '// none', '//None', '  //  NONE  ']) assert.deepEqual(nameable(name), why, JSON.stringify(name));
+  /* whatever the formula language reads as None, by any spelling: the tokenizer is asked */
+  for (const name of ['∅', ' ∅ ', '// ∅', 'none\u200b', '\u200bnone', 'none\u200b\u200b', '\u200b∅\u200b', '// // none', '////none', '// //  ∅', '//\u200bnone']){
+    assert.deepEqual(nameable(name), why, JSON.stringify(name)); assert.deepEqual(evaluate(name.replace(/^(\s*\/\/)+/, '')).value, { none: true }, JSON.stringify(name)); }
   /* a name that only has the word in it, and every other word of the language, is a name */
-  for (const name of ['none_1', 'nonesuch', 'none 1', 'anone', 'no ne', 'none.x', '∅', 'true', 'false', 'inf', 'infinity', 'pi', 'e', 'index', 'select', 'Shape 1', 'Keys', '// Keys', '//', '', ' ', null, undefined, 0]) assert.deepEqual(nameable(name), { ok: true }, JSON.stringify(name));
+  for (const name of ['none_1', 'nonesuch', 'none 1', 'anone', 'no ne', 'none.x', '∅∅', '∅ 1', 'none none', '(none)', '-none', 'no\u200bne', '@', '#none', 'none //', 'true', 'false', 'inf', 'infinity', 'pi', 'e', 'index', 'select', 'Shape 1', 'Keys', '// Keys', '//', '', ' ', null, undefined, 0]) assert.deepEqual(nameable(name), { ok: true }, JSON.stringify(name));
 });
