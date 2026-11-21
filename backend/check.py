@@ -29,13 +29,13 @@ from . import spaces as S
 from .formula import DOLLAR, INNER, SPACE as BLANK, Wrong, axis_of, formula_ok, parse as read_formula, reads_index as text_reads_index
 from .limits import MAX_JSON_DEPTH
 
-VERSION = 3                 # 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value. An older graph is a version 3 graph as it stands
-VERSIONS = (1, 2, 3)
+VERSION = 4                 # 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value; 4 choose and a source of kind none. An older graph is a version 4 graph as it stands
+VERSIONS = (1, 2, 3, 4)
 AXES = 6                    # the most inner axes a type has
 CODES = ('mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type')
 PIECE_CODES = ('mismatch', 'not-a-row', 'mixed', 'size-unknown')
 DEFINED = ('entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source', 'entry')
-KINDS = ('zeros', 'ones', 'identity')
+KINDS = ('zeros', 'ones', 'identity', 'none')      # none: None at every entry, the empty side of a choose (sources.js: EMPTY)
 DISTS = ('uniform', 'normal')
 ROOTS = 6
 SAFE = 2 ** 53 - 1
@@ -545,11 +545,17 @@ def own_size(n, ins, g):
     return T(n['type']['cols'], n['type']['rows'], None, None, [{'length': a['length'], 'name': None} for a in inner_of(n['type'])])
 
 
+def stray(n, fields, what):
+    """What a node holds beside its operation's own fields (graph.js: stray): said for a choose and a source of None,
+    which hold nothing else."""
+    return ['%s holds no %s' % (what, k) for k in n if k not in ('op', 'inputs', 'type', 'within') + fields][:1]
+
+
 def source_fields(n):
     if n.get('kind') == 'file':
         return [] if data_path(n.get('path')) else ['path is not a file under data/']
     if isinstance(n.get('kind'), str) and n['kind'] in KINDS:
-        return ['only a file has a path'] if 'path' in n else []
+        return ['only a file has a path'] if 'path' in n else stray(n, ('kind',), 'a source of None') if n['kind'] == 'none' else []
     return ['kind is "%s"' % (n.get('kind'),)]
 
 
@@ -715,6 +721,15 @@ def entry_type(n, ins, g):
     return T(inner[0]['length'], second['length'], inner[0]['name'], second['name'], inner[2:])
 
 
+def choose_type(n, ins, g):
+    """One of two sides, by whether a condition is true as a whole: the sides are one size (drawn sides, inner axes,
+    and no side under two names), whatever the condition's is, and the type is the first side's (graph.js: choose)."""
+    a, b = ins[1]['type'], ins[2]['type']
+    if not same(a, b) or nested(inner_of(a), inner_of(b), True) is None or any(a[k] and b[k] and a[k] != b[k] for k in ('colsName', 'rowsName')):
+        return 'its two sides are not one size'
+    return T(a['cols'], a['rows'], a['colsName'], a['rowsName'], inner_of(a))
+
+
 def none(n):
     return []
 
@@ -731,7 +746,7 @@ RULES = {
               + ([] if isinstance(n.get('broadcast'), str) and n['broadcast'] in ('none', 'scalar', 'row', 'col') else ['broadcast is "%s"' % (n.get('broadcast'),)])},
     'block': {'inputs': (1, INF), 'fields': lambda n: [] if ok_places(n) else ['at is not one { col, row } for each part'], 'type': block_type, 'space': lambda n, ins, g: all_of(ins)},
     'slice': {'inputs': (1, 1), 'fields': lambda n: [] if ok_range(n.get('range')) and len(n['range']) == 4 else ['range is not { col, row, cols, rows }'], 'type': slice_type, 'space': lambda n, ins, g: value_of(ins[0])},
-    'source': {'inputs': (0, 0), 'fields': source_fields, 'type': own_size, 'space': lambda n, ins, g: 'real' if n['kind'] == 'file' else 'boolean'},
+    'source': {'inputs': (0, 0), 'fields': source_fields, 'type': own_size, 'space': lambda n, ins, g: 'real' if n['kind'] == 'file' else S.NONE if n['kind'] == 'none' else 'boolean'},
     'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g), 'space': lambda n, ins, g: 'probability' if n['dist'] == 'uniform' else 'real'},
     'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type, 'space': measure_space},
     'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type, 'space': lambda n, ins, g: space_in(n['formula'], ins, 1, value_of(ins[0]))},
@@ -741,6 +756,7 @@ RULES = {
     'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g, ins[0]) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
     'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type, 'space': lambda n, ins, g: all_of(ins)},
     'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type, 'space': lambda n, ins, g: value_of(ins[0])},
+    'choose': {'inputs': (3, 3), 'fields': lambda n: stray(n, (), 'a choose'), 'type': choose_type, 'space': lambda n, ins, g: S.choice(value_of(ins[1]), value_of(ins[2]))},
 }
 
 
@@ -856,8 +872,13 @@ def validate(graph):
 
 
 def version_for(n):
-    """The version a node needs for what it holds (graph.js: versionFor): None among its entries, a number space or a
-    promise need 3; inner data, a stack, an entry and a transpose's order need 2. -> (version, what), or None."""
+    """The version a node needs for what it holds (graph.js: versionFor): a choose and a source of kind none need 4;
+    None among its entries, a number space or a promise need 3; inner data, a stack, an entry and a transpose's order
+    need 2. -> (version, what), or None."""
+    if n['op'] == 'choose':
+        return (4, 'a choose')
+    if n['op'] == 'source' and n.get('kind') == 'none':
+        return (4, 'a source of None')
     if 'value' in n['type']:
         return (3, 'a number space')
     if 'holds' in n:

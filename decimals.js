@@ -45,6 +45,9 @@
                                  older state of the project (it is drawn dimmed until the new one comes); the Map
                                  then has stale: true, and its decimals carry no exact form: the number is the
                                  older state's, and the entry may stand for another value now.
+                                 Where the answer is deferred and the result is not stale, the Map carries truth
+                                 too: what the backend says of the whole matrix (true, false, or null for not
+                                 known; backend/run.py), which the page has no other way to tell.
    noted(note)                -> an empty Map that carries a note in place of values ("needs the backend", or why the
                                  backend gave none): matrix.js writes the note where the numbers would be. The same
                                  Map for the same note.
@@ -102,6 +105,7 @@ export function merged(answer, exact, result, stale = false){
     if (answer.deferred) out.set(key, v);
     else if (functional(was)) out.set(key, 'f' in v && !stale ? { f: v.f, exact: written(was) } : v); }      /* (an older state's number is not said to be this value's) */
   if (stale) out.stale = true;
+  else if (answer.deferred && result && (result.truth === true || result.truth === false)) out.truth = result.truth;      /* of every entry, not only those asked for */
   return out;
 }
 export function laid(answer, exact, { there = null, got = null, why = null } = {}){

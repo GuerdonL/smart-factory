@@ -708,8 +708,52 @@ In the graph a node's type carries `"value": "integer?"`, both validators check 
 inputs, and a variable that promises carries `"holds"`, which is how the promise reaches the backend. Where a number
 it works out breaks one, its answer has, beside that result's error (the sentence), `"codes": { key: { "code":
 "type", "node": id } }`. A graph that says a version too low for what it holds is refused by both validators (None,
-a value and a promise need version 3; inner data needs 2), and a page that finds the backend's `/health` saying an
+a value and a promise need version 3; inner data needs 2; a `choose` and a source of None need 4), and a page that finds the backend's `/health` saying an
 older version than its own asks it for no run and says "the backend is older than this page: restart it".
+
+## Conditions, and truth as height
+
+**Truth is shown as height.** A shape whose whole matrix is false is drawn sunk: pressed into the canvas, with no
+shadow under it, set down by the height of its lip, and its lit and shaded lips changed over. A matrix is false only
+when every entry is known and is zero, false or None; one true entry makes it true, and a shape with an entry not
+yet given (and none that is true) is not known. True and not known are drawn as a block always was. Every shape is
+asked, a setting in a `.config` included, so `.dark_mode` holding 0 sits sunk. A shape too large for the page to
+work out is judged by what it is known to hold (a source of zeros is false at any size); one whose numbers only the
+backend has is drawn by what the backend answers, once it has. An arrow is never sunk: a function is always true.
+
+**Make conditional.** Select the shapes of exactly one piece, right-click, **Make conditional**. The piece folds
+away into a new arrow, marked with a small `?` on its triangle, and where the piece stood there is now a single
+entry holding `true` with that arrow on its east side. The arrow's output is what the piece came to, for as long as
+the entry is true; make it false and the output is None (`∅`) at the same size. One step back undoes all of it.
+
+- The condition is whatever the arrow's base covers: a single `true` or `false`, a formula, or a whole matrix,
+  which counts by its truth as above. None is false. Where the truth is not known, the output keeps its size and
+  shows its symbols, and the arrow's panel says "Its condition is not known"; where an entry of the condition is an
+  error, it says which: "Its condition is an error: divide by zero at 1, 1".
+- Open the arrow (select it, then double-click) for its two sides: two frames called **true** and **false**, and
+  `in`, which shows the condition. Each frame holds one piece or nothing. An empty frame is None at the other
+  side's size, and is still drawn, so that a shape can be dragged into it. The side that is not chosen is faded;
+  neither is while the truth is not known. A shape in neither frame takes no part, and is drawn in the warning
+  colour, block or arrow.
+- The two sides have to be one size ("its two sides are not one size"); two pieces in one frame are "2 pieces".
+  A piece that lies across a frame's edge, some of its blocks in the frame and one that touches them outside it,
+  belongs to neither side: the arrow and those blocks are drawn in the warning colour, and the arrow says "a piece
+  lies across the edge of its true side: move its blocks wholly into that frame, or wholly out of it". A side is
+  None only where its frame holds nothing.
+  The frames cannot be unframed or renamed.
+- Only the chosen side is worked out, in the browser and in the backend: an error on the other side, or a side too
+  large to work out, does no harm.
+- It is an arrow like any other: a block can be seated on its output, it can be named and set against another
+  condition from the list, and in a tile it is repeated along a column or a row of conditions (clear its promise
+  there, as for any arrow: the promise is one run's size).
+- Refused, each with its sentence: nothing selected; more than one piece; part of a piece; a piece that comes to no
+  matrix; and a selection that holds an arrow, a function's `in` block or a seated block.
+
+In the graph this is the operation `choose`, over whole matrices: `[condition, then, else]`, its inputs read only
+when asked for, and a source of kind `none` for the empty side. The formula function `select` is another thing: it
+chooses entry by entry and works both sides out. In a file it is one field on an ordinary arrow, `"choose": {
+"then": "<frame id>", "else": "<frame id>" }`, naming two frames of the arrow's definition space
+(`projects/README.md`). `choose` and a source of None need graph version 4.
 
 ## The graph and the evaluator
 
@@ -726,14 +770,14 @@ of the model that anything else is to read: the backend (see "The backend"), an 
                                                // (deferred with backend: true: made of noise or a data file, which only the backend has)
 
 - A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
-  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack` and `entry`; its `inputs` are the nodes it is
+  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack`, `entry` and `choose`; its `inputs` are the nodes it is
   worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`, holds no
   other name but `index.x`, `index.y`, `k1` to `k6` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
 - A node's `type` is `{ cols, rows, colsName, rowsName }`, with `inner`, the list of its inner axes
   (`[{ "length": 2, "name": "key" }, …]`), where its entries hold inner data, and no other key. An entry's key is
   then `"column,row,k1,k2,…"`. The rules stay two-dimensional: the evaluator runs each once for every inner
   position. `stack` puts matrices into the entries of one, `entry` takes one out, and a `transpose` with `order`
-  turns the axes. The graph's `version` is 2; a version 1 graph holds none of this and is still accepted.
+  turns the axes. These need a graph of `version` 2 (the graph's version is now 4: see above); a version 1 graph holds none of this and is still accepted.
 - A `matmul`'s first input has as many columns as its second has rows, a single entry included: a single entry
   against a single row or column is a product, and against anything else it is a `scale`, which is another node.
   `validate` and the backend's check refuse any other product in the same words ("a product of 1 columns and 3
@@ -862,9 +906,9 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 3 }` (the version of graph it reads; it still takes a version 1 or 2 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 4 }` (the version of graph it reads; it still takes a version 1, 2 or 3 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
-`{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
+`{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean", "truth" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
 and each answer is `[c, r, k1, …, value]`; it holds every array with rows and columns as its last two axes);
 `POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`, and

@@ -36,6 +36,13 @@ are joined. A function whose input block holds inner data is handed its input wh
 Formulas are read once each (formula.py) and applied to whole arrays: a variable's formula to all the entries that
 hold it at once, a map's to the whole matrix. A select works both its sides out and keeps the chosen one.
 
+A choose branches: its condition is worked out and reduced to one truth (arrays.truth), and then one side is worked
+out and the other never. So the side not chosen may be an error, or worked out from more than is worked out at all,
+and does no harm: what the chosen side needs is looked at when it is chosen (Run.chosen), as run.py looks at every
+other node before anything is made. For memory a choose counts its condition, what is made through one side alone
+for the heavier side only, and what a side shares with anything else whichever is taken (weight); and room to work
+on the largest thing in either (needs: room), since which side it takes is not known before it runs. A condition with no truth (an entry with no value and none that is true) leaves it with no value.
+
 What has been worked out is remembered for the run, up to half the room the run was given for its arrays (room, in
 bytes: limits.py says how it follows from the machine's memory): past that the oldest results are let go, and worked
 out again if they are asked for again. weight(node) says how many entries a node is worked out from in all, and
@@ -51,7 +58,7 @@ import itertools
 
 from .check import covered, data_path, fn_whole, inner_of, is_int, is_obj, lengths, numbers, ok_range, one, reads_index, run_of
 from .formula import DOLLAR, INNER, SYMBOLIC, Wrong, axis_of, evaluate as work, parse, parse_symbolic
-from .limits import MAX_BINDING_CELLS, MEMORY_LEAST
+from .limits import BYTES_AN_ENTRY, MAX_BINDING_CELLS, MAX_ENTRIES, MEMORY_LEAST
 
 NAN = math.nan
 
@@ -350,6 +357,8 @@ def v_source(n, at):
         if A.shape(got) != (rows, cols):
             raise Trouble('%s holds %d × %d numbers, and its block is %d × %d: make the block the size of its file' % (n['path'], A.shape(got)[1], A.shape(got)[0], cols, rows))
         return got
+    if n['kind'] == 'none':
+        return A.empty(rows, cols, inner)      # None at every entry: the empty side of a choose
     return A.identity(rows, cols, inner) if n['kind'] == 'identity' else A.full(rows, cols, 1.0 if n['kind'] == 'ones' else 0.0, inner)
 
 
@@ -472,6 +481,15 @@ def v_stack(n, at):
     return A.stack([at.get(k) for k in range(len(n['inputs']))], [(int(a['col']), int(a['row'])) for a in n['at']], int(n['type']['rows']), int(n['type']['cols']))
 
 
+def v_choose(n, at):
+    t = A.truth(at.get(0))
+    if t is None:      # (the page leaves every entry unknown; here what is not known is no value)
+        raise Trouble('unknown: its condition has an entry with no value, and none that is true')
+    k = 1 if t else 2
+    at.run.chosen(n['inputs'][k])
+    return at.get(k)
+
+
 OPS = {
     'variable': v_variable,
     'matmul': v_matmul,
@@ -491,6 +509,7 @@ OPS = {
     'mapalong': lambda n, at: (positioned(v_mapalong) if 'fn' in n else v_mapalong)(n, at),
     'stack': v_stack,
     'entry': lambda n, at: A.entry(at.get(0), int(n['at']['col']), int(n['at']['row'])),
+    'choose': v_choose,
 }
 
 
@@ -500,7 +519,21 @@ def reads(n, ins):
         return [] if 'error' in n else n['inputs']
     if n['op'] == 'measure':
         return n['inputs'][1:] if n['side'] == 'a' else n['inputs'][:1] if n['side'] == 'm' or one(ins[0]['type']) else []
+    if n['op'] == 'choose':
+        return n['inputs'][:1]      # its condition; the side it takes is read once that is known (v_choose)
     return n['inputs']
+
+
+def later(n):
+    """The inputs a node reads only once its value asks for them (graph.js: OPS[op].later): a choose's two sides."""
+    return n['inputs'][1:] if n['op'] == 'choose' else []
+
+
+def too_many(nodes, need, node):
+    """The sentence for a node worked out from more numbers than are worked out at all."""
+    at = nodes[need['where']]['type']
+    return '%s numbers%s, more than the %s that are worked out' % (' × '.join(format(int(x), ',') for x in (at['cols'], at['rows']) + lengths(at)),
+                                                                     '' if need['where'] == node else ' in what it is worked out from', format(MAX_ENTRIES, ','))
 
 
 class Run:
@@ -543,8 +576,19 @@ class Run:
             todo.pop()
         return self._follows[i]
 
+    def chosen(self, side):
+        """The side a choose has taken, looked at as run.py looks at a node before it is worked out: refused where a
+        variable it is worked out from has an error, or where anything it is worked out from is too large."""
+        need = self.needs(side)
+        if need['most'] > MAX_ENTRIES:
+            raise Trouble(too_many(self.nodes, need, side))
+        if need['bad']:
+            raise Trouble(need['bad'])
+
     def needs(self, start):
-        """-> { most, where, bad }, walked with a list of its own (evaluate.js: needsOf)."""
+        """-> { most, where, bad, room, room_where }, walked with a list of its own (evaluate.js: needsOf). room: the
+        most numbers of anything it may come to be worked out from, the sides of a choose included, either of which
+        it may take: what there has to be room to work on (bytes_for)."""
         todo = [start]
         while todo:
             i = todo[-1]
@@ -555,11 +599,12 @@ class Run:
             deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
             if n['op'] in ('apply', 'mapalong') and 'fn' in n:
                 deps.append(self.functions[n['fn']]['body'])
-            waiting = [d for d in deps if d not in self._needs]
+            waiting = [d for d in deps + later(n) if d not in self._needs]
             if waiting:
                 todo.extend(waiting)
                 continue
             most, where = numbers(n['type']), i
+            room, room_where = most, i
             bad = None
             if n['op'] == 'variable' and 'error' in n:
                 e = n['error']
@@ -569,42 +614,121 @@ class Run:
                 if got['most'] > most:
                     most, where = got['most'], got['where']
                 bad = bad or got['bad']
-            self._needs[i] = {'most': most, 'where': where, 'bad': bad}
+            for d in deps + later(n):
+                got = self._needs[d]
+                if got['room'] > room:
+                    room, room_where = got['room'], got['room_where']
+            self._needs[i] = {'most': most, 'where': where, 'bad': bad, 'room': room, 'room_where': room_where}
             todo.pop()
         return self._needs[start]
 
     def weight(self, start):
-        """How many entries there are in everything a node's value is worked out from, itself included, each node
-        counted once: what a run of it may come to hold at once. Walked with a list of its own."""
+        """How many entries there are in everything a run of a node may come to hold at once: itself and what its
+        value is worked out from, each node counted once. Walked with lists of its own, each node visited once.
+        Of a choose's two sides only one is worked out, so of what is made through one side alone (and through
+        nothing else the run makes) only the heavier side's is counted, by the bytes it may take. What a side
+        shares with the other, or with anything else that is worked out, is counted whichever side is taken: the
+        count is of the nodes that may be made, and is never less than what is. A choose whose condition is inside a
+        function, or follows its cell, has a truth for each thing the function is given and each cell, and may take
+        both sides in one run: both are counted."""
         if start not in self._weights:
-            seen, todo, total, masked = {start}, [start], 0, 0
-            while todo:
-                n = self.nodes[todo.pop()]
-                total += numbers(n['type'])
-                masked += numbers(n['type']) * (2 if chain_of(n) else 1) if self.may_be_none(n['type']) else 0      # (a sum or a product of several may keep a second byte an entry: arrays.py, Held.rest)
-                deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
-                if n['op'] in ('apply', 'mapalong') and 'fn' in n:
-                    deps.append(self.functions[n['fn']]['body'])
-                for d in deps:
-                    if d not in seen:
-                        seen.add(d)
-                        todo.append(d)
-            self._weights[start], self._masked[start] = total, masked
+            self._weights[start], self._masked[start] = self.count(start)
         return self._weights[start]
+
+    def deps(self, i):
+        """Everything a node may be worked out from: a side of a choose is ('side', choose, k), a step of its own on
+        the way to that input, so that what is reached through one side alone can be told (count)."""
+        if not isinstance(i, str):
+            return [self.nodes[i[1]]['inputs'][i[2]]]
+        n = self.nodes[i]
+        deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
+        if n['op'] in ('apply', 'mapalong') and 'fn' in n:
+            deps.append(self.functions[n['fn']]['body'])
+        return deps + [('side', i, k) for k in range(1, len(n['inputs']))] if n['op'] == 'choose' else deps
+
+    def count(self, start):
+        """-> (entries, bytes of masks) for weight. With no choose it is the sum over what is reached. With one, each
+        thing reached has the one nearest thing that every way to it from start passes through (its dominator: in a
+        graph with no loop, the nearest common one of all that read it), and a count is passed up that tree: a
+        choose takes the heavier of what hangs under its two sides alone."""
+        order, seen, done, todo, chooses, loops = [], {start}, set(), [(start, iter(self.deps(start)))], False, False
+        while todo:      # every node after all it is worked out from
+            i, rest = todo[-1]
+            d = None
+            for d in rest:
+                if d not in seen:
+                    break
+                loops = loops or d not in done      # it is on the way to itself: a function that applies itself
+            else:
+                d = None
+            if d is None:
+                done.add(i)
+                order.append(todo.pop()[0])
+            else:
+                seen.add(d)
+                chooses = chooses or not isinstance(d, str)
+                todo.append((d, iter(self.deps(d))))
+        own = {}
+        for i in order:
+            if isinstance(i, str):
+                n = self.nodes[i]
+                size = numbers(n['type'])
+                own[i] = (size, size * (2 if chain_of(n) else 1) if self.may_be_none(n['type']) else 0)      # (a sum or a product of several may keep a second byte an entry: arrays.py, Held.rest)
+            else:
+                own[i] = (0, 0)
+        if not chooses or loops:      # (in a loop nothing is nearest: everything reached is counted)
+            return sum(w for w, _ in own.values()), sum(m for _, m in own.values())
+        order.reverse()      # every node before all it is worked out from
+        # the tree, with a second way up from each node that skips ahead, so that the nearest thing above two nodes is found in few steps
+        above, depth, skip, readers = {start: start}, {start: 0}, {start: start}, {}
+        for i in order:
+            if i != start:
+                up = None
+                for r in readers[i]:
+                    if up is None:
+                        up = r
+                        continue
+                    a, b = (up, r) if depth[up] >= depth[r] else (r, up)
+                    while depth[a] > depth[b]:
+                        a = skip[a] if depth[skip[a]] >= depth[b] else above[a]
+                    while a != b:
+                        a, b = (skip[a], skip[b]) if skip[a] != skip[b] else (above[a], above[b])
+                    up = a
+                above[i], depth[i] = up, depth[up] + 1
+                s = skip[up]
+                skip[i] = skip[s] if depth[up] - depth[s] == depth[s] - depth[skip[s]] else up
+            for d in self.deps(i):
+                readers.setdefault(d, []).append(i)
+        total, sides = dict(own), {}
+        for i in reversed(order):      # what hangs under a node is counted before the node
+            w, m = total[i]
+            if i in sides:
+                c = self.nodes[i]['inputs'][0]      # one condition, worked out once, takes one side however often the choose is asked for
+                both = bool(functions_of(self.nodes[c])) or self.follows(c)
+                took = [sum(x) for x in zip(*sides[i])] if both else max(sides[i], key=lambda side: BYTES_AN_ENTRY * side[0] + side[1])
+                w, m = w + took[0], m + took[1]
+            if i != start:
+                if isinstance(i, str):
+                    up = total[above[i]]
+                    total[above[i]] = (up[0] + w, up[1] + m)
+                else:
+                    sides.setdefault(above[i], []).append((w, m))
+            else:
+                return w, m
 
     def may_be_none(self, t):
         """Whether an array of this type may carry a mask beside its numbers (arrays.py: Held), a byte an entry more:
         its value admits None ("integer?"), or, in a graph of version 3, says nothing, which reads as any or None.
         An older graph's types say no value and are counted as they always were."""
         value = t.get('value')
-        return value.endswith('?') if isinstance(value, str) else self.graph.get('version', 0) >= 3
+        return value.endswith('?') or value == S.NONE if isinstance(value, str) else self.graph.get('version', 0) >= 3
 
     def bytes_for(self, start, room_to_work, bytes_an_entry):
         """The bytes a run of a node may come to hold at once: everything it is worked out from, held together, and
         room to work on the largest of it; with the byte an entry that says which entries are None, where one may."""
         weight, need = self.weight(start), self.needs(start)
-        most = self.nodes[need['where']]['type']
-        return bytes_an_entry * (weight + room_to_work * need['most']) + self._masked[start] + (room_to_work * need['most'] if self.may_be_none(most) else 0)
+        most = self.nodes[need['room_where']]['type']
+        return bytes_an_entry * (weight + room_to_work * need['room']) + self._masked[start] + (room_to_work * need['room'] if self.may_be_none(most) else 0)
 
     def homes(self):
         """The tiles each block's node is itself in, and which tiles each repeat is the matrix of (evaluate.js: homesOf)."""

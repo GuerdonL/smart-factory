@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 6,
+  "id": "bcdz001",
+  "type": "tensor",
+  "name": "Zero",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -14,
+    "y": -14
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 18,
+  "source": "zeros"
+}

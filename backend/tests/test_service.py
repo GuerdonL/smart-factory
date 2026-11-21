@@ -63,9 +63,12 @@ class Service(unittest.TestCase):
         return self.request('POST', '/run', dict({'graph': graph, 'want': want}, **more))
 
     def test_health_and_a_run(self):
-        self.assertEqual(self.request('GET', '/health'), (200, {'ok': True, 'version': 3}))
+        from backend.check import VERSION
+        self.assertEqual(self.request('GET', '/health'), (200, {'ok': True, 'version': VERSION}))      # the service reads the number off check.py's text, importing nothing of the graph
+        from backend import service
+        self.assertEqual((service.GRAPH_VERSION, service.graph_version()), (VERSION, VERSION))
         self.assertEqual(self.run_graph(SMALL, [{'node': 's', 'cells': [[1, 1], [2, 1]]}]),
-                         (200, {'results': {'s': {'cols': 2, 'rows': 2, 'cells': [[1, 1, 1.0], [2, 1, 0.0]], 'min': 0.0, 'max': 1.0, 'mean': 0.5}}, 'errors': {}}))
+                         (200, {'results': {'s': {'cols': 2, 'rows': 2, 'cells': [[1, 1, 1.0], [2, 1, 0.0]], 'min': 0.0, 'max': 1.0, 'mean': 0.5, 'truth': True}}, 'errors': {}}))
         self.assertEqual(self.request('GET', '/nothing')[0], 404)
         self.assertEqual(self.request('POST', '/health', b'{}')[0], 404)
         self.assertEqual(self.request('GET', '/run')[0], 404)
@@ -170,7 +173,7 @@ class Service(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn('*', out['errors'])
         status, out = self.run_graph(chain, [{'node': 'n19999', 'cells': [[1, 1]]}])      # twenty thousand nodes deep: worked out, on a stack made for it
-        self.assertEqual(out, {'results': {'n19999': {'cols': 1, 'rows': 1, 'cells': [[1, 1, 1.0]], 'min': 1.0, 'max': 1.0, 'mean': 1.0}}, 'errors': {}})
+        self.assertEqual(out, {'results': {'n19999': {'cols': 1, 'rows': 1, 'cells': [[1, 1, 1.0]], 'min': 1.0, 'max': 1.0, 'mean': 1.0, 'truth': True}}, 'errors': {}})
         self.assertEqual(self.request('GET', '/health')[0], 200)
 
     def test_a_file_is_uploaded_into_its_projects_data_and_nowhere_else(self):

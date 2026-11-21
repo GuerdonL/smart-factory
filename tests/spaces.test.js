@@ -155,7 +155,7 @@ test('graph: every node\'s type says its number space, by its operation\'s rule'
    is('v:U', 'boolean');      /* an entry not given says nothing */
   is('v:Fm', 'real'); is('measure(v:A;x)', 'natural'); is('v:Zs', 'boolean'); is('v:Nu', 'probability'); is('v:Nn', 'real'); is('v:Fl', 'real'); is('transpose(v:A)', 'natural');
   is(g.spaces.top.arrows.find(a => a.arrow === 'sq').node, 'integer'); is(g.spaces.top.arrows.find(a => a.arrow === 'cmp').node, 'boolean');
-  assert.equal(g.version, 3); assert.equal(VERSION, 3); assert.ok(CODES.includes('type'));
+  assert.equal(g.version, 4); assert.equal(VERSION, 4); assert.ok(CODES.includes('type'));
   for (const n of Object.values(g.nodes)) assert.deepEqual(Object.keys(n.type).filter(k => k !== 'inner'), ['cols', 'rows', 'colsName', 'rowsName', 'value']);
 });
 test('graph: a promise is the variable\'s value, whatever defines it; a function\'s input takes what its in block promises, and a function applied gives its body\'s', () => {

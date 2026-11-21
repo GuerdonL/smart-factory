@@ -16,7 +16,10 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 5. Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
+The format is 6. Format 6 adds to format 5 `"choose"` on an arrow (`{ "then", "else" }`: the two frames of its definition
+space a condition chooses between) and a frame file that holds no shapes, the empty side. A format 5 project has neither
+and opens as it is; a program from before conditions refuses a format 6 project rather than strip it.
+Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
 nothing, said outright, which is not the same as an entry never given), and `"holds"` on a shape, the number space it
 promises (`"integer"`, `"natural?"`: see the README). A format 4 project has neither and opens as it is.
 Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
@@ -279,6 +282,32 @@ the arrow, and its panel writes it out, `≈2.71828175`, with `exp(1)`, the exac
 
 In a file, a noise block has `"source": { "noise": { "seed": 0, "dist": "uniform" } }`, a file block
 `"source": { "file": "data/weights.csv" }`, and neither has entries: nothing the backend worked out is ever saved.
+
+## conditions/
+
+Conditions and truth as height, beside a copy of the default Menu's `.config`.
+
+At the top left `Go` holds `true`, and the arrow `gate` beside it, with a `?` on its triangle, is a condition: its
+output, where `Out` is seated, is `Keys · Weights`. Select the arrow and double-click it for its two sides: the
+frame `true` holds `Keys` and `Weights`, and the frame `false` is empty. Type `false` into `Go` and `Out` holds `∅`
+in all four entries, None at the true side's size, and inside the arrow the true side is faded.
+
+Under it `No` holds `false`, and the same `gate`, used again from the list, gives `∅` there.
+
+`Mask` holds 0, `∅` and 5: a whole matrix for a condition. One true entry makes it true, so its arrow gives `Then`
+(1, 2); make the 5 a 0 and it gives `Else` (7, 8), its false side.
+
+`Each` is a column of `true`, `false` and `∅`, and the arrow beside it is in the tile `Rows`, which repeats it down
+the column: three conditions, three outputs, (1, 2), then (-1, -2) twice.
+
+On the right, truth as height. `Zero`, a source of zeros, and `Nothing`, which holds only `∅`, are false, and are
+drawn sunk: no shadow, set down, the light along their bottom edge. `Some` holds a 3 and stands as a block always
+has. `Open` has an entry never given: its truth is not known, and it stands too. `No` is sunk, and so is
+`.dark_mode` in the `.config`, which holds 0.
+
+A conditional arrow's file carries `"choose": { "then": "<frame id>", "else": "<frame id>" }` in its `"arrow"`, and
+its definition directory holds `in.json`, `true.frame.json` and `false.frame.json`; the empty side is a frame file
+with no shapes.
 
 ## none-and-spaces/
 

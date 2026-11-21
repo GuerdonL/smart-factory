@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, inner, set(rect), select(on), nest(n), dim(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
+   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, inner, set(rect), select(on), nest(n), dim(on), sink(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
      id       a name for this block that nothing else has: how messages say which block they mean. null until whoever
               made the block gives it one.
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
@@ -31,6 +31,11 @@
               behind its face for each, down and to the right, at most three drawn (0: none). Its name stays
               where every block's is.
      dim      fades the block and its name most of the way to the theme's --fade-to, or brings them back
+     sink     draws it sunk: a shape that is false (every entry known, and zero, false or None). Truth is shown as
+              height: a true shape, and one not known, sits raised as a block always has; a false one is pressed
+              into the canvas, with no shadow under it and its lit and shaded lips changed over, the deep one
+              on top, so that it reads as a dent and its face lies lower in its box. Its box does not move: a
+              sunk block has exactly the rectangle it has raised. No colour is added for it: the lips are the theme's own
    Each side and corner has a grip, an element with data-grip = n | s | e | w | nw | ne | sw | se, for whoever
    wants to resize by it.
      off      shows it as commented out: washed out, with a dashed edge
@@ -61,7 +66,7 @@ style('block', `
   background: var(--bands, none) var(--face); transition: background-color .15s;
   /* a thin dark rim all round, so two blocks that touch still show where one ends and the next begins */
   box-shadow: var(--halo, 0 0), inset 0 0 0 var(--px) var(--rim),
-    inset 0 calc(2.5 * var(--px)) 0 var(--lit), inset 0 calc(-4 * var(--px)) 0 var(--shade), var(--sheets, 0 0); }
+    inset 0 calc(var(--lip-top, 2.5) * var(--px)) 0 var(--lit), inset 0 calc(-1 * var(--lip-bottom, 4) * var(--px)) 0 var(--shade), var(--sheets, 0 0); }
 /* the shadow underneath is drawn on a layer below every block (z-index -1), so it falls on the canvas and never on another block */
 .block::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
   box-shadow: 0 calc(2 * var(--px)) calc(3 * var(--px)) var(--cast), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--cast); }
@@ -70,6 +75,13 @@ style('block', `
 .block.cols { --bands: repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
 .block.rows.cols { --bands: repeating-linear-gradient(to bottom, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))),
   repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
+/* false: sunk. No shadow, and the two lips changed over, colour and height: the shade along the top edge, as deep as
+   the bottom lip of a raised block, and the light along the bottom, as a dent is lit. So its face is set down by the
+   difference, inside its own box: the box is the rectangle it has, exactly as for a raised one, and what is placed by
+   that rectangle (grips, the selection's ring, side labels, operator badges, the block that touches it) is where it
+   would be. (Before .off, .dim and .input, which each say more of the lips.) */
+.block.sunk { --lit: var(--raise-dark); --shade: var(--raise-light); --cast: transparent; --lip-top: 4; --lip-bottom: 2.5; }
+.block.sunk > .block-value { inset: calc(1.5 * var(--px)) 0 calc(-1.5 * var(--px)) 0; }      /* what is written on the face goes down with it */
 /* commented out: there, but taking no part. (Before .selected, so a selected one still shows its ring.) */
 .block.off { --face: color-mix(in srgb, var(--block) 16%, var(--fade-to)); --ink: var(--muted); --rim: transparent; --lit: transparent; --shade: transparent; --cast: transparent;
   outline: calc(1.5 * var(--px)) dashed var(--muted); outline-offset: calc(-1.5 * var(--px)); }
@@ -83,6 +95,8 @@ style('block', `
 .block.dim { --face: color-mix(in srgb, var(--block) 28%, var(--fade-to)); --ink: color-mix(in srgb, var(--fg) 30%, var(--fade-to));
   --rim: color-mix(in srgb, var(--edge) 25%, transparent); --lit: color-mix(in srgb, var(--raise-light) 40%, transparent);
   --shade: color-mix(in srgb, var(--raise-dark) 25%, transparent); --cast: color-mix(in srgb, var(--shadow) 30%, transparent); }
+.block.sunk.dim { --lit: color-mix(in srgb, var(--raise-dark) 25%, transparent); --shade: color-mix(in srgb, var(--raise-light) 40%, transparent); --cast: transparent; }      /* faded and sunk: the lips still changed over */
+.block.sunk.off, .block.sunk.input { --lit: transparent; --shade: transparent; }
 /* seated on an output: inset, so the output's brackets show round it */
 .block.seated { border: calc(5 * var(--px)) solid transparent; background-clip: padding-box; }
 /* a function's input: pale, with a dashed edge in the function colour */
@@ -124,7 +138,7 @@ style('block', `
 .block-parts { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; overflow: hidden; pointer-events: none; }
 .block-parts .seams { fill: none; stroke: var(--rim); stroke-width: 1.2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .block.joined::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: var(--bands, none);
-  box-shadow: inset 0 0 0 var(--px) var(--rim), inset 0 calc(2.5 * var(--px)) 0 var(--lit), inset 0 calc(-4 * var(--px)) 0 var(--shade); }
+  box-shadow: inset 0 0 0 var(--px) var(--rim), inset 0 calc(var(--lip-top, 2.5) * var(--px)) 0 var(--lit), inset 0 calc(-1 * var(--lip-bottom, 4) * var(--px)) 0 var(--shade); }
 .block.dim .block-parts, .block.off .block-parts { opacity: .25; }
 /* grips: a strip along each side and a square on each corner, half in and half out, showing which way it stretches */
 .block.no-grips .block-grip { display: none; }
@@ -143,10 +157,10 @@ style('block', `
 `);
 
 /* a picture of a block, for where a shape stands in an equation: it looks the part and does nothing.
-   likeness({ cols, rows, unit, color, name }) -> { el, width, height } */
-export function likeness({ cols, rows, unit, color, name = '' }){
+   likeness({ cols, rows, unit, color, name, sunk }) -> { el, width, height }; sunk draws it sunk, as sink does */
+export function likeness({ cols, rows, unit, color, name = '', sunk = false }){
   const b = createBlock({ color }, { x: 0, y: 0, w: cols * unit, h: rows * unit }, name);
-  b.grips(false); b.el.classList.add('likeness'); b.el.style.pointerEvents = 'none';
+  b.grips(false); b.sink(sunk); b.el.classList.add('likeness'); b.el.style.pointerEvents = 'none';
   return { el: b.el, width: cols * unit, height: rows * unit };
 }
 export function createBlock(shape, rect, name = ''){
@@ -158,6 +172,7 @@ export function createBlock(shape, rect, name = ''){
   const block = { id: null, el, nameEl, shape, rect, name, sides: { w: null, h: null }, values: new Map(), inner: [], t: false,
     select(on){ el.classList.toggle('selected', on); },
     dim(on){ el.classList.toggle('dim', on); },
+    sink(on){ el.classList.toggle('sunk', !!on); },
     nest(n){ const depth = Math.max(0, Math.min(3, Math.round(+n || 0))); if (depth === nested) return; nested = depth;
       for (const d of el.querySelectorAll(':scope > .block-depth')) d.remove();
       el.classList.toggle('nested', depth > 0); for (const k of [1, 2, 3]) el.classList.toggle('nest-' + k, depth === k); el.style.setProperty('--depth', String(depth));

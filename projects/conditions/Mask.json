@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 6,
+  "id": "bcdm001",
+  "type": "tensor",
+  "name": "Mask",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -26,
+    "y": -2
+  },
+  "size": {
+    "cols": 3,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 0,
+      "2,1": {
+        "none": true
+      },
+      "3,1": 5
+    }
+  },
+  "order": 10
+}
