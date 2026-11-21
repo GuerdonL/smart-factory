@@ -42,7 +42,8 @@ the tree is walked with a list of its own, so a long sum is no deeper than a sho
                                    solver writes it: the same grammar, with log for ln and the names e and pi
     SYMBOLIC                    -> { 'e': …, 'pi': … }
 
-A tree is ('num', float, Fraction | None) | ('name', text) | ('op', sign, a, b) | ('fn', name, [trees])."""
+A tree is ('num', float, Fraction | None) | ('name', text) | ('op', sign, a, b) | ('fn', name, [trees]). A number
+typed with more than 40 characters has no Fraction and is ('num', float, None, True): spaces.py tells it so from ∞."""
 import math
 import re
 from fractions import Fraction
@@ -88,7 +89,7 @@ def tokens(text):
             raise Wrong('a capsule, which a formula of the graph does not hold')
         m = NUMBER.match(text, i)
         if m:
-            out.append(('num', (float(m.group()), Fraction(m.group()) if len(m.group()) <= 40 else None)))      # as a float, and exactly as it was typed (0.2 is 1/5)
+            out.append(('num', (float(m.group()), Fraction(m.group()) if len(m.group()) <= 40 else None, len(m.group()) > 40)))      # as a float, exactly as it was typed (0.2 is 1/5), and whether it is typed long
             i = m.end()
             continue
         m = NAME.match(text, i)
@@ -140,7 +141,7 @@ def _parse(text, arity):
         t, v = ts[at[0]]
         at[0] += 1
         if t == 'num':
-            return ('num', v[0], v[1])
+            return ('num', v[0], v[1], True) if v[2] else ('num', v[0], v[1])
         if t == '∞':
             return ('num', math.inf, None)
         if t == '∅':

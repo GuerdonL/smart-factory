@@ -26,6 +26,11 @@
                    Most are changed at random (the same every time); TYPES, below, adds changes to what a type and
                    an entry's key may be, for every node that holds inner data.
 
+   spaces.json     what spaces.js makes of the number spaces: for every pair of the nine, whether one lies inside the
+                   other and the space of both; for every pair of written spaces (each with and without "?") and every
+                   operation, what the operation gives; the smallest space of some values; and the space of some
+                   formulas. backend/spaces.py has to say the same of every one (backend/tests/test_spaces.py).
+
    tests/fixtures.test.js runs this with --check, so the files cannot fall behind the code they were made from. */
 import '../../tests/solver.js';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
@@ -34,6 +39,8 @@ import { fileURLToPath } from 'node:url';
 import { build, validate, tailsOf, VERSION } from '../../graph.js';
 import { evaluate } from '../../evaluate.js';
 import { read } from '../../project.js';
+import * as S from '../../spaces.js';
+import { treeOf } from '../../expression.js';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..');
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -165,6 +172,16 @@ const CASES = {
     B('Jn', 100, 0, 2, 1, { name: 'Shape 23', joined: [{ fx: 0, fy: 0, fw: .5, fh: 1, shape: B('Jl', 100, 0, 1, 1, { entries: { '1,1': NONE } }) }, { fx: .5, fy: 0, fw: .5, fh: 1, shape: B('Jr', 101, 0, 1, 1, { entries: { '1,1': 7 } }) }] }),
     B('Tn', 0, 40, 2, 1, { entries: rowsOf([[NONE, f('index.x')]]) }), arrow('out', { id: 't1', as: 'tile' })].map((d, i) => i === 0 ? { ...d, variable: 1 } : d),
     [tile('t1', [25], { y: 40, cols: 2, rows: 1, across: 2, down: 2 })]),
+  /* ---- number spaces (phase 9): promises that are kept, on shapes and on a function's input and output ---- */
+  'number spaces': snap([B('Wn', 0, 0, 3, 1, { entries: rowsOf([[1, 2, 3]]), holds: 'natural' }), B('Wz', 0, 1, 3, 1, { entries: rowsOf([[-2, 0, NONE]]), holds: 'integer?' }),      /* a sum of a natural and an integer or None */
+    B('Pp', 10, 0, 2, 2, { entries: rowsOf([[half, 1], [0, { n: 1, d: 2, k: 1 }]]) }), B('Pq', 12, 0, 2, 2, { entries: rowsOf([[1, 0], [0, 1]]), holds: 'boolean' }),      /* a product of probabilities and booleans */
+    B('Fm', 20, 0, 4, 1, { entries: rowsOf([[f('@[Wn:x] + 1'), f('1/3'), f('exp(1)'), f('select(2 > 1, none, -1)')]]) }),
+    B('Any', 30, 0, 2, 1, { entries: rowsOf([['inf', 2]]), holds: 'any' }), B('Cx', 40, 0, 1, 1, { entries: { '1,1': 2 }, holds: 'complex' }),      /* complex is no space: the promise is not read */
+    B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) }),
+    B('Out', 5, 20, 1, 2, { seat: 'lin', holds: 'whole' }),
+    arrow('sq', { id: 'X', as: 'block' }, { side: 's', span: 2, formula: 'x ^ 2 - i' }), arrow('rt', { id: 'X', as: 'block' }, { side: 'n', span: 2, formula: 'tanh(sqrt(x)) > 1/2' }),
+    B('Ns', 60, 0, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } }, holds: 'probability' }), B('Id', 70, 0, 2, 2, { source: 'identity' })]),
   'None: inner data': snap([I('X', 0, 0, 2, 1, [ax(2)], (c, r, k) => c === k ? NONE : c + k), B('W', 2, 0, 1, 2, { entries: rowsOf([[1], [2]]) }),      /* a product repeated at each inner position, a None in each */
     I('A', 10, 0, 2, 1, [ax(2)], (c, r, k) => k === 2 && c === 1 ? NONE : c * k), I('Bn', 10, 1, 2, 1, [ax(2)], (c, r, k) => k === 1 && c === 2 ? NONE : 10)]),
 };
@@ -255,12 +272,37 @@ function mutations(graphs){
       push({ path: [...at, 'axes'], set: 2 }); push({ path: [...at, 'depth'], set: null }); push({ path: [...at, 'inner', '0', 'name'], set: 'named' }); push({ path: [...at, 'inner', '0', 'name'], set: '' });
       if (n.op === 'variable'){ const tail = inner.map(() => ',1').join('');
         for (const key of ['1,1', '1,1' + tail + ',1', '1,1' + tail.slice(2), '1,1' + inner.map(a => ',' + (a.length + 1)).join(''), '1,1' + tail.replace(/1$/, '0'), '1,1' + tail.replace(/1$/, '01'), '1,1' + tail]) push({ path: ['nodes', id, 'entries', key], set: 7 }); } }
+    /* what a type's value and a variable's promise may be: each a change in one place */
+    const WORDS = ['any?', 'any', 'boolean', 'natural', 'natural?', 'integer?', 'real', 'complex', 'Integer', 'integer ?', '', '?', 7, null, true, ['real']];
+    for (const id of [...ids.filter(id => g.nodes[id].type.value !== undefined).slice(0, 3), ...ids.filter(id => g.nodes[id].op !== 'variable' && g.nodes[id].type.value !== undefined).slice(0, 3)]){ const at = ['nodes', id, 'type', 'value'];
+      for (const set of WORDS) push({ path: at, set }); push({ path: at, drop: true }); }
+    for (const id of ids.filter(id => g.nodes[id].op === 'variable').slice(0, 3)){ for (const set of [...WORDS, ...(g.nodes[id].type.value !== undefined ? [g.nodes[id].type.value] : [])]) push({ path: ['nodes', id, 'holds'], set }); if (g.nodes[id].holds !== undefined) push({ path: ['nodes', id, 'holds'], drop: true }); }
     if (g.version !== undefined) for (const v of [1, 2, 3, 4, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }
 
+/* ---- the number spaces, as spaces.js has them ---- */
+const VALUES = [0, 1, 2, -1, -2, 7, -7, true, false, 'inf', '-inf', half, root2, { n: 3, d: 2, k: 0 }, { n: -1, d: 2, k: 0 }, { n: 1, d: 2, k: 1 }, { n: -2, k: 1 }, { n: 5, d: 4, k: 2 }, { none: true }, { err: 'no' },
+  { sym: '1+sqrt(2)' }, { sym: 'e^(-1)' }, { sym: '1208925819614629174706176' }, { sym: '-1208925819614629174706176' }, { sym: '1/1208925819614629174706176' }, { sym: '-1/1208925819614629174706176' }, { sym: '1208925819614629174706177/1208925819614629174706176' }, { sym: '(1208925819614629174706177/1)^(1/2)' }];
+const FORMULAS = ['1', '0', '2', '0.5', '1.5', '1.0', '5.', '.25', '123456789012345678901234567890', '0.' + '1'.repeat(38), '1' + '0'.repeat(45), '0.' + '0'.repeat(45) + '1', '9'.repeat(400), '∞', 'inf', '-inf', 'none', '∅', 'true', 'false && $1',
+  '$1 + $2', '$1 - $2', '$1 * $2', '$1 / $2', '$1 ^ 2', '$1 ^ $2', '2 ^ $1', '$1 ^ 0', '$1 ^ (1/3)', '-$1', '!$1', 'abs($1)', 'sqrt($1)', '√$1', '∜$1', 'exp($1)', 'ln($1)', 'tanh($1)', 'erf($1)', 'max($1, $2)', 'min($1, 0)',
+  'select($1, $2, $3)', 'select($1 > 0, none, $2)', 'select(none, $1, $2)', '$1 == $2', '$1 != none', '$1 < $2', '$1 >= none', '$1 && $2', '$1 || none', 'none + $1', 'none == none', 'index.x + index.y', 'k1 * 2', 'x + i * j', 'x / i', 'X ^ J',
+  '$4', '$1 + unknown', '2x', '2(3+1)', '1/0', '(-8)^(1/3)', '($1 + $2) * ($3 - 1) / 2 ^ 2', 'exp(-($1 ^ 2))', 'tanh(abs($1))', '1 - $3', 'abs($1 - $2)', 'max(1, $1)', 'ln($1 + 1)', 'ln(2)', 'sqrt(4)', '-1', '-(1)', '+$1', '2 - 1'];
+export function spaceTable(){
+  const words = S.SPACES.flatMap(s => [s, s + '?']), pairs = fn => Object.fromEntries(words.flatMap(a => words.map(b => [a + ' ' + b, fn(a, b)])));
+  const named = ['natural', 'integer?', 'probability'], lookup = arrow => name => { const m = name.match(/^\$(\d+)$/); if (m) return named[+m[1] - 1]; if (/^index\.[xy]$/i.test(name) || /^k[1-6]$/i.test(name)) return 'natural';
+    const k = name.toLowerCase(); return !arrow ? undefined : k === 'x' ? 'rational' : k === 'i' || k === 'j' ? 'natural' : undefined; };
+  return { spaces: S.SPACES, inside: Object.fromEntries(S.SPACES.flatMap(a => S.SPACES.map(b => [a + ' ' + b, S.inside(a, b)]))), within: pairs(S.within), both: pairs(S.both), choice: pairs(S.choice),
+    binary: Object.fromEntries(['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min'].map(op => [op, pairs((a, b) => S.binary(op, a, b))])),
+    unary: Object.fromEntries(['neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf'].map(fn => [fn, Object.fromEntries(words.map(a => [a, S.unary(fn, a)]))])),
+    sum: Object.fromEntries(words.flatMap(a => [1, 2, 3, 5].map(n => [a + ' ' + n, S.sum(a, n)]))), product: Object.fromEntries([1, 2, 4].map(n => [n, pairs((a, b) => S.product(a, b, n))])),
+    parse: ['integer', 'integer?', 'any?', 'complex', 'Integer', 'integer ?', '', '?', 'whole?', 'number', 'decimal', 'fraction', 'root', 'irrational'].map(w => [w, S.parse(w) ? [S.parse(w).space, S.parse(w).none] : null]),
+    of: VALUES.map(v => [v, S.of(v)]), ofAll: [[], [1, 2], [0, 1], [1, -1], [2, half], [{ none: true }], [{ none: true }, 2, 3], [2, 'inf'], [{ err: 'x' }, -5], [half, root2], [true, { n: 3, d: 2, k: 0 }]].map(vs => [vs, S.ofAll(vs)]),
+    formulas: FORMULAS.flatMap(text => [false, true].map(arrow => [text, arrow, S.formula(treeOf(text), lookup(arrow))])) };
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]){
-  const made = fixtures(), texts = { 'graphs.json': JSON.stringify(made.graphs) + '\n', 'mutations.json': '[\n' + made.mutations.map(m => JSON.stringify(m)).join(',\n') + '\n]\n' };
+  const made = fixtures(), texts = { 'graphs.json': JSON.stringify(made.graphs) + '\n', 'mutations.json': '[\n' + made.mutations.map(m => JSON.stringify(m)).join(',\n') + '\n]\n', 'spaces.json': JSON.stringify(spaceTable()) + '\n' };
   if (process.argv.includes('--check')){ const stale = Object.keys(texts).filter(f => { try { return readFileSync(join(here, f), 'utf8') !== texts[f]; } catch { return true; } });
     console.log(stale.length ? 'out of date: ' + stale.join(', ') : 'up to date'); process.exit(stale.length ? 1 : 0); }
   for (const [f, t] of Object.entries(texts)) writeFileSync(join(here, f), t);

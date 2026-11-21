@@ -846,3 +846,23 @@ test('no project that comes with the repository holds a use of another size than
   for (const name of readdirSync(root)){ if (!statSync(join(root, name)).isDirectory()) continue; const p = read(files(join(root, name))); assert.deepEqual(p.resized, [], name); count(p.top); }
   assert.ok(references > 10);      /* and they do hold references */
 });
+
+/* ---- number spaces (phase 9): what a shape promises to hold ---- */
+test('holds is kept on a shape, read back, and written again the same; where nothing is promised there is no holds at all', () => {
+  const p = project(space([shape('W', { id: 'b00000w', holds: 'integer?' }), shape('V', { id: 'b00000v' }),
+    shape('f', { id: 'b00000f', type: 'arrow', cols: 1, rows: 1, arrow: { input: { id: 'b00000w', as: 'block' }, side: 'e', start: 1, span: 3, gap: 2, gapName: null, output: null, formula: null },
+      inside: space([shape('in', { id: 'b00000i', in: true, holds: 'natural' })]) }), shape('Out', { id: 'b00000o', seat: 'b00000f', holds: 'whole' })])), files = write(p);
+  assert.equal(json(files, 'W.json').holds, 'integer?'); assert.ok(!('holds' in json(files, 'V.json'))); assert.equal(json(files, 'f/in.json').holds, 'natural'); assert.equal(json(files, 'Out.json').holds, 'whole');
+  const back = read(files); assert.deepEqual(back, p); assert.deepEqual(write(back), files);
+  assert.equal(back.top.shapes[0].holds, 'integer?'); assert.ok(!('holds' in back.top.shapes[1]));
+});
+test('a holds that is no number space is not read: complex is reserved, and the old words are no spaces', () => {
+  const files = write(project(space([shape('W', { id: 'b00000w', holds: 'natural' })])));
+  for (const word of ['complex', 'complex?', 'decimal', 'fraction', 'root', 'number', 'irrational', 'Integer', 'integer ?', '', 7, null, true, ['real']]){
+    const odd = files.map(f => f.path === 'W.json' ? { path: f.path, text: JSON.stringify({ ...JSON.parse(f.text), holds: word }) } : f);
+    assert.ok(!('holds' in read(odd).top.shapes[0]), JSON.stringify(word)); }
+  for (const word of ['boolean', 'ternary', 'natural', 'whole', 'integer', 'rational', 'probability', 'real', 'any', 'any?', 'whole?']){
+    const good = files.map(f => f.path === 'W.json' ? { path: f.path, text: JSON.stringify({ ...JSON.parse(f.text), holds: word }) } : f);
+    assert.equal(read(good).top.shapes[0].holds, word); }
+  assert.ok(!('holds' in write(project(space([shape('W', { id: 'b00000w', holds: 'complex' })]))).map(f => f.path === 'W.json' ? JSON.parse(f.text) : {})[0]));      /* nor written */
+});

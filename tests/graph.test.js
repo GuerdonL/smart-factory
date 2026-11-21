@@ -7,7 +7,11 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, validate, OPS, CODES, indexAt, VERSION } from '../graph.js';
+import { build as valued, validate, OPS, CODES, indexAt, VERSION } from '../graph.js';
+/* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
+   without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
+   tests/graph.test.js); a type with no value is a type still (graph.js: Number spaces). */
+const build = snapshot => { const g = valued(snapshot); for (const n of Object.values(g.nodes)){ const { value, ...size } = n.type; n.type = size; } return g; };
 import { read } from '../project.js';
 
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -304,7 +308,7 @@ test('every error code', () => {
   assert.deepEqual(see(seat.nodes['v:H'].error), { code: 'seat', note: 'no-source' });
   const unknown = make(snap([B('Row', 0, 0, 4, 1), arrow('out', { id: 't1', as: 'tile' }), B('Tau', 0, 20, 1, 1)], [tile({ down: { expr: '@[Tau:m]' } })]));      /* a mass not yet given */
   assert.deepEqual(see(unknown.spaces.top.arrows[0].error), { code: 'size-unknown', note: '@[Tau:m]' });
-  assert.deepEqual([...seen].sort(), [...CODES].sort());
+  assert.deepEqual([...seen].sort(), CODES.filter(c => c !== 'type').sort());      /* (type is never written by build: a promise is held against the values, which evaluate.js has) */
 });
 test('a loop through a formula is in the graph as an error on each variable round it, and never a cycle', () => {
   const g = make(snap([B('S', 0, 0, 1, 1, { entries: { '1,1': { expr: '@[T:m] * 2' } } }), B('T', 9, 0, 1, 1, { entries: { '1,1': { expr: '@[S:x]' } } }), B('U', 20, 0, 1, 1, { entries: { '1,1': { expr: '@[T:m]' } } })]));

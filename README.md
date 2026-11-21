@@ -62,6 +62,9 @@ who can reach the port can read and overwrite the projects.
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
 - `values.js`, `expression.js`: what a value is (nine kinds, None among them) and how two combine; and a formula as it is typed, read
   and worked out. No drawing. `algebra.js` gives `combine` and the value helpers from `values.js` too.
+- `spaces.js`: the number spaces a shape may hold (boolean, ternary, natural, whole, integer, rational, probability,
+  real, any), which lies inside which, what each operation gives, and a promise held against values. No drawing.
+  `backend/spaces.py` is the same tables again, held to this one by `backend/fixtures/spaces.json`.
 - `graph.js`, `evaluate.js`: a whole project as one graph of matrix operations, plain JSON, and that graph worked
   out exactly. No drawing. Every exact number the page shows comes from these two: see "The graph and the evaluator".
 - `decimals.js`, `backend.js`: the backend's numbers on the page (which entries are asked for, what is drawn of an
@@ -83,7 +86,7 @@ who can reach the port can read and overwrite the projects.
 
 ## Tests
 
-    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, inner data, graph, evaluate, project, bus, history, ids, zip
+    node --test                                # the JavaScript: values, expression, spaces, algebra, arrows, sources, tiles, inner data, graph, evaluate, project, bus, history, ids, zip
     python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, the PIN, and what it passes on to the backend
     backend/.venv/bin/python -B -m unittest discover -s backend/tests -t .      # the backend, with NumPy (see "The backend" for the environment)
 
@@ -609,6 +612,68 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
   and pasted, it is a shape of its own, lying as the use lay. In the graph it is a `transpose` with `order`.
 
 `projects/inner-data` shows these.
+
+## None, and number spaces
+
+**None.** Type `none` (or `∅`) into an entry and it holds None: nothing, said outright. It is written `∅`, and saved
+as `{ "none": true }`. It is not an entry never given, which stays a symbol, and it is not zero. None counts as false,
+and in arithmetic None with anything is None:
+
+| | |
+| --- | --- |
+| `none + 1`, `none * 0`, `1 / none`, `exp(none)`, `max(none, 3)`, `none < 1` | None |
+| `none == none` | true |
+| `none == 0`, `none == false` | false (and `!=` the other way round) |
+| `!none` | true |
+| `none && x` | false |
+| `none \|\| x` | whether `x` is true |
+| `select(none, a, b)` | `b`, and only `b` is worked out |
+| a product entry with one None term | None |
+| None against an entry not given | not known |
+| None against an error | the error |
+
+So an optional bias is `select(b, x + b, x)`. The side of a single entry that holds None is None, as its mass is, and
+no side takes that length; a count, a span, a start and an axis's length that come to None are refused. The backend
+says which entries of an answer are None, and they are written `∅` among its squares.
+
+**Number spaces.** A shape's type is the space its numbers lie in. How a number is held, exactly or as the backend's
+decimal, is no part of it.
+
+| Space | Values | Lies inside |
+| --- | --- | --- |
+| `boolean` | 0, 1 (and true, false, which count as 1 and 0) | `whole`, `ternary`, `probability` |
+| `ternary` | -1, 0, 1 | `integer` |
+| `natural` | 1, 2, 3, … | `whole` |
+| `whole` | 0 and the naturals | `integer` |
+| `integer` | the wholes and their negatives | `rational` |
+| `rational` | a ratio of integers | `real` |
+| `probability` | a real from 0 to 1, both ends included | `real` |
+| `real` | any number on the line (no infinity) | `any` |
+| `any` | nothing promised | |
+
+A space is written as its word, with `?` after it where None is admitted too (`integer?`). Select a shape and the
+panel has a row **Holds**: a list of the nine words and a box **or None**.
+
+- With nothing chosen the row is greyed and says what the shape is worked out as: `natural (from its entries)`. The
+  space of some values is the smallest that holds them all (0 and 1 are boolean, 2 is natural, -1 ternary, -2
+  integer, 1/2 a probability, 3/2 rational, √2 real); the space of a result follows from its inputs' by the
+  operation's rule (a sum of naturals is natural, a difference of them an integer, a quotient of integers
+  rational, a comparison boolean, a matrix product a sum of products, and so on: `spaces.js` has every rule, and
+  each gives the wider space where there was doubt).
+- Choose a word and the shape **promises** it. The promise is the variable's: every reference shares it, and it is
+  saved as `"holds": "natural"`. A promise is held against the values wherever the page has them: a value outside
+  it is an error, said with the entry (`W is not natural: it holds -3 at 1, 2`), in the warning colour, and what is
+  worked out from the shape then has no value. An entry not given, and one that is itself an error, break nothing.
+- Where the page has not got the values (a matrix too large for it, noise, a data file), it goes by what the shape
+  is worked out as. If that is not inside the promise the row warns, and the shape keeps its value:
+  `Nz cannot be shown to be probability: it is worked out as real`.
+- An arrow has **Takes** and **Gives**. What it takes is the promise of its function's `in` block, held against what
+  the arrow gives it; what it gives is the promise of the block seated on its output. With no block seated there is
+  nothing to hold that promise, and the row only says what the output is worked out as.
+- `complex` is a reserved word: it is refused with a sentence saying it is not built.
+
+In the graph a node's type carries `"value": "integer?"`, both validators check that it follows from the node's
+inputs, and a variable that promises carries `"holds"`. The backend does not yet hold its own numbers to a promise.
 
 ## The graph and the evaluator
 

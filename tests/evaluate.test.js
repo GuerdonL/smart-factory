@@ -8,7 +8,11 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluate, carry, MOST, tooLarge, toMap } from '../evaluate.js';
-import { build, validate } from '../graph.js';
+import { build as valued, validate } from '../graph.js';
+/* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
+   without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
+   tests/graph.test.js); a type with no value is a type still (graph.js: Number spaces). */
+const build = snapshot => { const g = valued(snapshot); for (const n of Object.values(g.nodes)){ const { value, ...size } = n.type; n.type = size; } return g; };
 import { read } from '../project.js';
 import { valueText } from '../algebra.js';
 

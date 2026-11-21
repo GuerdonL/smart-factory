@@ -14,7 +14,9 @@ apply; every node carries its operation's own fields in their stated form (a for
 its inputs: formula.py); every type follows from its inputs by its operation's rule; every block is covered exactly
 by its parts; every node is marked with the functions and the tiles it belongs to, exactly (within); spaces name
 pieces, arrows and tiles in their stated form. A type is its four fields, and inner where its entries hold inner
-data: the axes of what one entry holds, 1 to 6 of exactly { length, name }; it has no other key. Every rule acts on
+data: the axes of what one entry holds, 1 to 6 of exactly { length, name }; and value where its number space is said
+(spaces.py), which is then checked to follow from the node's inputs by its operation's rule, as its size is; it has
+no other key. A variable's holds is a promise in the same words, and is then its value. Every rule acts on
 the two drawn sides and is repeated at each inner position; whether two shapes' inner data agrees is nested, which
 is algebra.js's nested again.
 
@@ -23,13 +25,14 @@ covered_type, run_of, reads_index, tiles_of, data_path, as_int."""
 import math
 import re
 
-from .formula import formula_ok, reads_index as text_reads_index
+from . import spaces as S
+from .formula import DOLLAR, INNER, SPACE as BLANK, Wrong, axis_of, formula_ok, parse as read_formula, reads_index as text_reads_index
 from .limits import MAX_JSON_DEPTH
 
 VERSION = 3                 # 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value. An older graph is a version 3 graph as it stands
 VERSIONS = (1, 2, 3)
 AXES = 6                    # the most inner axes a type has
-CODES = ('mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown')
+CODES = ('mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type')
 PIECE_CODES = ('mismatch', 'not-a-row', 'mixed', 'size-unknown')
 DEFINED = ('entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source', 'entry')
 KINDS = ('zeros', 'ones', 'identity')
@@ -39,7 +42,7 @@ SAFE = 2 ** 53 - 1
 BIGGEST = 2 ** 1024 - 1      # past the largest number JavaScript holds, a number in JSON is an infinity there
 PLACE = re.compile(r'[1-9]\d*', re.ASCII)
 SIDE = re.compile(r'x|y|m|a|d[1-6]')
-TYPE_KEYS = ('cols', 'rows', 'colsName', 'rowsName', 'inner')
+TYPE_KEYS = ('cols', 'rows', 'colsName', 'rowsName', 'inner', 'value')
 PATH = re.compile(r'data/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')
 MISSING = object()
 
@@ -112,7 +115,71 @@ def ok_type(t):
     return (is_obj(t) and whole1(t.get('cols')) and whole1(t.get('rows')) and 'colsName' in t and 'rowsName' in t
             and (t['colsName'] is None or isinstance(t['colsName'], str)) and (t['rowsName'] is None or isinstance(t['rowsName'], str))
             and ('inner' not in t or (isinstance(t['inner'], list) and 1 <= len(t['inner']) <= AXES and all(ok_axis(a) for a in t['inner'])))
+            and ('value' not in t or S.parse(t['value']) is not None)      # its number space, where it is said: one of the nine words, "?" after it where None is admitted
             and all(k in TYPE_KEYS for k in t))
+
+
+# ---- number spaces (spaces.py; graph.js: Number spaces) ----
+def value_of(n):
+    """A node's number space as its type says it; "any?" where it says none."""
+    v = n['type'].get('value') if n and is_obj(n.get('type')) else None
+    return v if isinstance(v, str) else S.ANY
+
+
+def all_of(ins):
+    out = value_of(ins[0])
+    for i in ins[1:]:
+        out = S.both(out, value_of(i))
+    return out
+
+
+def space_in(text, ins, first, arrow=None):
+    """The space of a formula of the graph (graph.js: spaceIn)."""
+    try:
+        tree = read_formula(text)
+    except Wrong:
+        return S.ANY
+
+    def name(word):
+        m = DOLLAR.fullmatch(word)
+        if m:
+            k = int(m.group(1)) - 1 + first
+            return value_of(ins[k]) if 0 <= k < len(ins) else None
+        if axis_of(word) is not None or INNER.fullmatch(word):
+            return 'natural'
+        k = word.lower()
+        return None if arrow is None else arrow if k == 'x' else 'natural' if k in ('i', 'j') else None
+    return S.formula(tree, name)
+
+
+def body_of(n, g):
+    f = g['fn'](n['fn'])
+    return value_of(g['node'](f['body']) if f else None)
+
+
+def variable_space(n, ins, g):
+    if 'holds' in n:
+        return n['holds']
+    if n['defined'] != 'entries':
+        return value_of(ins[0])
+    entries = list(n['entries'].values())
+    is_formula = lambda v: is_obj(v) and isinstance(v.get('expr'), str)
+    return S.of_all([v for v in entries if not is_formula(v)], [space_in(v['expr'], ins, 0) for v in entries if is_formula(v)])
+
+
+def measure_space(n, ins, g):
+    if n['side'] == 'a':
+        return space_in(n['formula'], ins, 1) if n['formula'].strip(''.join(BLANK - {'\u200b'})) else 'boolean'      # (empty as formula_ok tells it: nothing typed yet)
+    if n['side'] == 'm':
+        return value_of(ins[0])
+    return 'natural' if n['side'][0] == 'd' or not one(ins[0]['type']) else S.unary('sqrt', value_of(ins[0]))
+
+
+def sum_space(n, ins, g):
+    out = value_of(ins[0])
+    for i in ins[1:]:
+        out = S.binary('+', out, value_of(i))
+    return out
 
 
 def one(t):
@@ -350,6 +417,8 @@ def variable_fields(n):
         bad.append('defined is "%s"' % (n.get('defined'),))
     if 'error' in n and not ok_err(n['error'], CODES):
         bad.append('its error is not { code, note }')
+    if 'holds' in n and S.parse(n['holds']) is None:
+        bad.append('holds is no number space')
     if 'error' in n and n.get('defined') != 'entries':
         bad.append('a variable with an error is "entries": it keeps what was typed into it')
     if n.get('defined') != 'entries' and len(n['inputs']) != 1:
@@ -636,26 +705,26 @@ def none(n):
 
 INF = math.inf
 RULES = {
-    'variable': {'inputs': (0, INF), 'fields': variable_fields, 'type': variable_type},
-    'matmul': {'inputs': (2, 2), 'fields': none, 'type': matmul_type},
-    'scale': {'inputs': (2, 2), 'fields': none, 'type': lambda n, ins, g: T(ins[1]['type']['cols'], ins[1]['type']['rows'], ins[1]['type']['colsName'], ins[1]['type']['rowsName'], inner_of(ins[1]['type'])) if one(ins[0]['type']) else 'the first input of a scale is a single number'},
-    'transpose': {'inputs': (1, 1), 'fields': transpose_fields, 'type': transpose_type},
-    'add': {'inputs': (2, INF), 'fields': none, 'type': add_type},
-    'ewise': {'inputs': (2, 2), 'type': ewise_type,
+    'variable': {'inputs': (0, INF), 'fields': variable_fields, 'type': variable_type, 'space': variable_space},
+    'matmul': {'inputs': (2, 2), 'fields': none, 'type': matmul_type, 'space': lambda n, ins, g: S.product(value_of(ins[0]), value_of(ins[1]), ins[0]['type']['cols'])},
+    'scale': {'inputs': (2, 2), 'fields': none, 'space': lambda n, ins, g: S.binary('*', value_of(ins[0]), value_of(ins[1])), 'type': lambda n, ins, g: T(ins[1]['type']['cols'], ins[1]['type']['rows'], ins[1]['type']['colsName'], ins[1]['type']['rowsName'], inner_of(ins[1]['type'])) if one(ins[0]['type']) else 'the first input of a scale is a single number'},
+    'transpose': {'inputs': (1, 1), 'fields': transpose_fields, 'type': transpose_type, 'space': lambda n, ins, g: value_of(ins[0])},
+    'add': {'inputs': (2, INF), 'fields': none, 'type': add_type, 'space': sum_space},
+    'ewise': {'inputs': (2, 2), 'type': ewise_type, 'space': lambda n, ins, g: S.binary('/' if n['fn'] == 'div' else '*', value_of(ins[0]), value_of(ins[1])),
               'fields': lambda n: ([] if n.get('fn') in ('mul', 'div') and isinstance(n['fn'], str) else ['fn is "%s"' % (n.get('fn'),)])
               + ([] if isinstance(n.get('broadcast'), str) and n['broadcast'] in ('none', 'scalar', 'row', 'col') else ['broadcast is "%s"' % (n.get('broadcast'),)])},
-    'block': {'inputs': (1, INF), 'fields': lambda n: [] if ok_places(n) else ['at is not one { col, row } for each part'], 'type': block_type},
-    'slice': {'inputs': (1, 1), 'fields': lambda n: [] if ok_range(n.get('range')) and len(n['range']) == 4 else ['range is not { col, row, cols, rows }'], 'type': slice_type},
-    'source': {'inputs': (0, 0), 'fields': source_fields, 'type': own_size},
-    'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g)},
-    'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type},
-    'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type},
-    'apply': {'inputs': (1, 1), 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type},
-    'param': {'inputs': (0, 0), 'fields': none, 'type': lambda n, ins, g: n['type'] if ok_type(n.get('type')) else 'it has no size of its own'},
-    'repeat': {'inputs': (1, INF), 'fields': repeat_fields, 'type': repeat_type},
-    'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type},
-    'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type},
-    'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type},
+    'block': {'inputs': (1, INF), 'fields': lambda n: [] if ok_places(n) else ['at is not one { col, row } for each part'], 'type': block_type, 'space': lambda n, ins, g: all_of(ins)},
+    'slice': {'inputs': (1, 1), 'fields': lambda n: [] if ok_range(n.get('range')) and len(n['range']) == 4 else ['range is not { col, row, cols, rows }'], 'type': slice_type, 'space': lambda n, ins, g: value_of(ins[0])},
+    'source': {'inputs': (0, 0), 'fields': source_fields, 'type': own_size, 'space': lambda n, ins, g: 'real' if n['kind'] == 'file' else 'boolean'},
+    'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g), 'space': lambda n, ins, g: 'probability' if n['dist'] == 'uniform' else 'real'},
+    'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type, 'space': measure_space},
+    'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type, 'space': lambda n, ins, g: space_in(n['formula'], ins, 1, value_of(ins[0]))},
+    'apply': {'inputs': (1, 1), 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type, 'space': lambda n, ins, g: body_of(n, g)},
+    'param': {'inputs': (0, 0), 'fields': none, 'type': lambda n, ins, g: n['type'] if ok_type(n.get('type')) else 'it has no size of its own', 'space': lambda n, ins, g: value_of(n)},
+    'repeat': {'inputs': (1, INF), 'fields': repeat_fields, 'type': repeat_type, 'space': lambda n, ins, g: all_of(ins)},
+    'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
+    'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type, 'space': lambda n, ins, g: all_of(ins)},
+    'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type, 'space': lambda n, ins, g: value_of(ins[0])},
 }
 
 
@@ -881,6 +950,9 @@ def check(graph):
         if not alike(t, n['type']):
             said = lambda u: '%s (%s)' % (' × '.join(str(x['length']) for x in axes(u)), ', '.join(str(x['name']) for x in axes(u)))
             bad.append('%s: its type is %s and its inputs give %s' % (i, said(n['type']), said(t)))
+            continue
+        if 'value' in n['type'] and n['type']['value'] != RULES[n['op']]['space'](n, ins, g):      # its number space follows by its operation's rule too
+            bad.append('%s: its value is %s and its inputs give %s' % (i, n['type']['value'], RULES[n['op']]['space'](n, ins, g)))
             continue
         typed.add(i)
         want, got = scopes(n, ins, g['fn']), sorted(functions_of(n.get('within')))

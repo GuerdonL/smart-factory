@@ -54,6 +54,12 @@
                                                  matrix it holds. A number never given is unknown, at any depth
          "definition": "Keys/",                  the directory holding its definition space, if it has one with anything in it
          "order": 3,                             its place among the shapes of its space, back to front
+         "holds": "integer?",                    the number space it promises to hold (spaces.js): one of boolean, ternary,
+                                                 natural, whole, integer, rational, probability, real, any, with "?"
+                                                 where it may hold None too. Left out where it promises nothing; what
+                                                 is no such word (complex is reserved, and not built) is not read. On
+                                                 a function's in block it is what the arrow takes, and on the block
+                                                 seated on its output what it gives. Format 5
          "standing": true,                       a standing shape: it stands in its owner's matrix (it was dropped onto that matrix), and
                                                  its place in the definition space is its place among the entries. Written
                                                  "tile": true before phase 5; either is read
@@ -247,6 +253,7 @@
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it],
               repeat: { x, y, cols, rows, across, down } only where the frame is a tile }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, inner: [{ length, name }] | null, entries: { "c,r" or "c,r,k1,…": a literal value (Infinity for an infinity) or { expr } },
+              holds: "integer?" where it promises a number space (left out where it promises none),
               inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | { noise: { seed, dist } } | { file } | null,
               variable: a number shared by shapes that are one variable, or null,
               from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, entry: { col, row } } | { id, index: 'x' | 'y' } | null,
@@ -256,6 +263,7 @@
               axes: [variable axis, …] only on a use that is turned } */
 
 import { stacks, pieces, isFormula, isSurd, isInteger, storable } from './algebra.js';
+import { parse as spaceOf } from './spaces.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
@@ -343,7 +351,7 @@ export function write(project){
       if (inside){ if (v !== null) written.add(v); space(inside, dir + name + '/'); }
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.length) } : {}) },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.name) } : {}) }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}), ...(axesOf(shape) ? { axes: axesOf(shape) } : {}),
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.name) } : {}) }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(spaceOf(shape.holds) ? { holds: shape.holds } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}), ...(axesOf(shape) ? { axes: axesOf(shape) } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: fromOut(shape.from) } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
@@ -394,7 +402,7 @@ export function read(files){
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides, String(c.name ?? 'A shape')),
         entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
-        reference: !!c.reference, from: fromBack(c.from),
+        reference: !!c.reference, from: fromBack(c.from), ...(spaceOf(c.holds) ? { holds: c.holds } : {}),      /* a promise: only where there is one, and only a word that is a number space (complex is none) */
         arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });

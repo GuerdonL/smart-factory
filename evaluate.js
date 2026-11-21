@@ -13,6 +13,9 @@
                                                times its rows times every inner length)
         | { error: { code, note, node } }      its value is worked out from a variable that has an error; node is
                                                that variable's id. (Also for an id the graph has not got: no-source.)
+                                               A variable that promises a number space (holds) and has a value
+                                               outside it is such a variable: the code is type, and the note names
+                                               the entry. It is found here, where the values are, not by build.
         | { type, deferred: true, backend: true }   it is worked out from noise or from a data file, whose numbers
                                                only the backend has (backend/): nothing here can say them
    It never throws, for a well-formed graph (graph.js: validate) or any other, and it finishes: a function that
@@ -24,6 +27,10 @@
                                                node is, so such a node has the value it had. (Only what was worked
                                                out under no binding is taken: what a function's body came to for one
                                                input says nothing once the input has changed.) Gives how many nodes.
+   judged(graph, id, holds, name, options)     a promise held against any node's values (what a function's input
+                                               block promises, against what it is given): see the function
+   promiseOf(graph, id, options)               what a variable promises to hold (its number space, spaces.js) and
+                                               whether its values keep the promise: see the function
    MOST                                        4096, the default maxEntries: the most numbers the browser works out
    tooLarge(type, most)                        the sentence that says so of a result that size
    toMap(entries)                              an answer's entries as the page keeps them: a Map, infinities as numbers
@@ -80,7 +87,8 @@
        at.keyOf(k)         a key for input k's entries as they are under this env
        at.given(node)      the entries a function's input has been given, none where it has been given nothing
        at.ks               where the rule is being repeated over inner data, the inner position of this run */
-import { OPS, readsIndex, tailsOf } from './graph.js';
+import { OPS, readsIndex, tailsOf, inferred } from './graph.js';
+import { broken, within, NOT_HELD, UNPROVEN } from './spaces.js';
 import { passed } from './arrows.js';
 import { numbers } from './algebra.js';
 
@@ -198,7 +206,7 @@ function run(graph, st, id, env){
   /* a part of the pattern met again below its tile (an arrow there reads it): it is at its own place, not the reader's */
   if (last && last.at && own(last.at, id)){ const p = last.at[id]; if (last.dx !== p.col || last.dy !== p.row || last.turned) env = { ...env, cells: inner(env.cells, c => ({ ...c, dx: p.col, dy: p.row, turned: false })) }; }
   const key = keyFor(graph, st, id, n, env), mine = under(env.scratch && key ? env.scratch : st.values, id);      /* (what follows a function's input, under a run that keeps nothing: in that run's own store) */
-  if (mine.has(key)) return mine.get(key);
+  if (mine.has(key)){ const was = mine.get(key); if (was && was.broke) throw was; return was; }      /* (a promise it was found to break: found once) */
   const at = { id, graph, env, cells: env.cells,
     type: k => graph.nodes[n.inputs[k]].type,
     get: (k, e = env) => run(graph, st, n.inputs[k], e),
@@ -218,6 +226,10 @@ function run(graph, st, id, env){
   const rule = OPS[n.op], types = n.inputs.map((_, k) => at.type(k));
   const deep = !types.some(hasInner) || (typeof rule.deep === 'function' ? rule.deep(n, { node: i => nodeAt(graph, i), fn: f => fnAt(graph, f) }) : !!rule.deep);
   const value = deep ? rule.value(n, at) : repeated(rule, n, at, types);
+  /* a variable that promises a number space is held to it here, where its values are: one that lies outside it
+     is the error type, said with the entry, for the variable and for everything worked out from it */
+  if (n.op === 'variable' && typeof n.holds === 'string'){ const out = broken(n.holds, value);
+    if (out){ const failed = { broke: { code: 'type', note: NOT_HELD(n.name || id, n.holds, out.key, out.value === Infinity ? 'inf' : out.value === -Infinity ? '-inf' : out.value), node: id } }; mine.set(key, failed); throw failed; } }
   mine.set(key, value); return value;
 }
 
@@ -240,8 +252,43 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
       if (v !== null && v !== undefined) entries[c + ',' + r + tail] = v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v; }
     return done({ type: n.type, entries });
   } catch (e){      /* never thrown: a function inside itself is a loop, and anything else is a graph that is not well formed */
+    if (e && e.broke) return done({ error: e.broke });      /* a promise broken by a value, here or in what this is worked out from */
     return done({ error: e === LOOP ? { code: 'loop', note: '', node: nodeId } : { code: 'no-source', note: 'it could not be worked out: ' + (e && e.message ? e.message : String(e)), node: nodeId } });
   }
+}
+
+/* What a variable promises to hold, and how that stands. -> null for what is no variable, else
+   { holds, inferred, state, note }: holds is its promise ("integer?") or null; inferred the space it would have with
+   none (graph.js: inferred); state is
+       'inferred'   it promises nothing: its space is the inferred one
+       'kept'       its values are here and all lie in the space, or it is worked out as a space inside its promise
+       'broken'     a value lies outside it: note is the error's, "W is not natural: it holds -3 at 2, 1". The
+                    variable has then no value (evaluate answers with the error type)
+       'unproven'   its values are not here (too large, noise, a data file) and what it is worked out as is not
+                    inside its promise: note says so, "W cannot be shown to be natural: it is worked out as
+                    integer". A warning: the variable keeps its value. */
+export function promiseOf(graph, id, options = {}){
+  const n = graph && typeof graph === 'object' && typeof id === 'string' ? nodeAt(graph, id) : null; if (!n || n.op !== 'variable') return null;
+  const was = inferred(graph, id), holds = typeof n.holds === 'string' ? n.holds : null;
+  if (!holds) return { holds, inferred: was, state: 'inferred', note: '' };
+  const a = evaluate(graph, id, options);
+  if (a.error && a.error.code === 'type' && a.error.node === id) return { holds, inferred: was, state: 'broken', note: a.error.note };
+  if (a.deferred && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
+  return { holds, inferred: was, state: 'kept', note: '' };
+}
+
+/* A promise held against any node's values, for what is no variable of its own: what a function's input block
+   promises to take, against what an arrow gives it. -> null for what is no node, else { holds, inferred, state,
+   note } as promiseOf gives, inferred being the node's own space. Nothing in the graph is changed by it: it is a
+   sentence for whoever draws, and the node keeps its value. name: what the sentence calls it. */
+export function judged(graph, id, holds, name, options = {}){
+  const n = graph && typeof graph === 'object' && typeof id === 'string' ? nodeAt(graph, id) : null; if (!n) return null;
+  const was = typeof n.type.value === 'string' ? n.type.value : 'any?';
+  if (!holds) return { holds: null, inferred: was, state: 'inferred', note: '' };
+  const a = evaluate(graph, id, options), out = a.entries ? broken(holds, a.entries) : null;
+  if (out) return { holds, inferred: was, state: 'broken', note: NOT_HELD(name, holds, out.key, out.value) };
+  if (a.deferred && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(name, holds, was) };
+  return { holds, inferred: was, state: 'kept', note: '' };
 }
 
 const texts = new WeakMap();

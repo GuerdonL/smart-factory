@@ -51,6 +51,8 @@
        undefined for a name it does not know, which is the error "unknown name: w". For a capsule, undefined is the
        error "missing variable".
    written(value)  -> a value as text (values.js): the one function that does that
+   treeOf(text)    -> the text as a tree, { num } | { name } | { ref } | { op, a, b } | { fn, args }, or null where it
+                      cannot be read: for telling a formula's number space without working it out (spaces.js)
    namesIn(text)   -> { why } where the text cannot be read, else { names, capsules, deep }: the names in it that are not
                       words of the language, its capsules, and how deep it nests (brackets, signs, roots and powers
                       one inside the next). For whoever must know what a formula depends on
@@ -118,7 +120,7 @@ function tokens(text){
   for (let i = 0; i < s.length;){ const c = SIGN[s[i]] || s[i], rest = s.slice(i);
     if (/\s/.test(c) || c === '​'){ i++; continue; }
     if (c === '@'){ const m = rest.match(ONE); if (!m) throw new Wrong('after @, choose a variable from the list'); out.push({ t: 'ref', v: capsuleOf(m) }); i += m[0].length; continue; }
-    const n = rest.match(/^(\d+\.?\d*|\.\d+)/); if (n){ out.push({ t: 'num', v: typedNumber(n[0]) }); i += n[0].length; continue; }
+    const n = rest.match(/^(\d+\.?\d*|\.\d+)/); if (n){ out.push({ t: 'num', v: typedNumber(n[0]), long: n[0].length > 40 }); i += n[0].length; continue; }
     if (/[A-Za-z_]/.test(c)){ const id = rest.match(/^[A-Za-z_][\w.]*/)[0].replace(/\.+$/, ''); out.push({ t: 'name', v: id }); i += id.length; continue; }
     const input = rest.match(/^\$\d+/); if (input){ out.push({ t: 'name', v: input[0] }); i += input[0].length; continue; }      /* $1: an input, in a formula of the graph */
     const two = c.length === 2 ? c : (c + (s[i + 1] || ''));
@@ -140,7 +142,7 @@ function parse(text){
   const level = (next, ops) => () => { let a = next(); while (ts[i] && ops.includes(ts[i].t)) a = { op: ts[i++].t, a, b: next() }; return a; };
   function atom(){
     const t = ts[i++]; if (!t) throw new Wrong(UNREAD);
-    if (t.t === 'num') return { num: t.v };
+    if (t.t === 'num') return t.long ? { num: t.v, long: true } : { num: t.v };      /* long: typed with more than 40 characters (spaces.js) */
     if (t.t === '∞') return { num: Infinity };
     if (t.t === '∅') return { num: NONE };
     if (t.t === 'ref') return { ref: t.v };
@@ -181,6 +183,8 @@ const leaves = tree => { const out = [], todo = [tree];
   while (todo.length){ const n = todo.pop(); if (n.name !== undefined || n.ref) out.push(n); else { for (let i = (n.args || []).length - 1; i >= 0; i--) todo.push(n.args[i]); if (n.op){ todo.push(n.b); todo.push(n.a); } } }
   return out; };
 
+/* a text's tree, for whoever reads a formula without working it out (spaces.js: formula); null where it cannot be read */
+export const treeOf = text => read(String(text)).tree || null;
 /* what a text names, without working it out: { why } where it cannot be read, else { names, capsules }: every name in
    it that is not one of the words of the language (a function, inf, true, false), and every capsule */
 export function namesIn(text){

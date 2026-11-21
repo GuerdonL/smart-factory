@@ -1,0 +1,121 @@
+"""spaces.py: the number spaces, held to spaces.js. backend/fixtures/spaces.json is what spaces.js makes of every pair
+of spaces and every operation (backend/fixtures/generate.mjs); this file has to say the same of each. These need no
+NumPy."""
+import unittest
+
+from .support import fixture
+from backend import spaces as S
+from backend.check import validate
+from backend.formula import parse
+
+
+def pair(key):
+    a, b = key.split(' ')
+    return a, b
+
+
+class SameAsSpacesJs(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.table = fixture('spaces.json')
+
+    def test_the_nine_spaces_and_which_lies_inside_which(self):
+        self.assertEqual(list(S.SPACES), self.table['spaces'])
+        self.assertEqual(len(self.table['inside']), 81)
+        for key, yes in self.table['inside'].items():
+            self.assertEqual(S.inside(*pair(key)), yes, key)
+
+    def test_the_space_of_both_for_every_pair(self):
+        self.assertEqual(len(self.table['both']), 18 * 18)
+        for key, word in self.table['both'].items():
+            self.assertEqual(S.both(*pair(key)), word, key)
+        for key, yes in self.table['within'].items():
+            self.assertEqual(S.within(*pair(key)), yes, key)
+        for key, word in self.table['choice'].items():
+            self.assertEqual(S.choice(*pair(key)), word, key)
+
+    def test_every_operation_for_every_pair(self):
+        seen = 0
+        self.assertEqual(sorted(self.table['binary']), sorted(['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min']))
+        for op, by in self.table['binary'].items():
+            self.assertEqual(len(by), 18 * 18)
+            for key, word in by.items():
+                self.assertEqual(S.binary(op, *pair(key)), word, '%s %s' % (op, key))
+                seen += 1
+        self.assertEqual(sorted(self.table['unary']), sorted(['neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']))
+        for fn, by in self.table['unary'].items():
+            for a, word in by.items():
+                self.assertEqual(S.unary(fn, a), word, '%s %s' % (fn, a))
+                seen += 1
+        for key, word in self.table['sum'].items():
+            a, n = key.split(' ')
+            self.assertEqual(S.total(a, int(n)), word, key)
+        for terms, by in self.table['product'].items():
+            for key, word in by.items():
+                self.assertEqual(S.product(*pair(key), int(terms)), word, '%s terms, %s' % (terms, key))
+                seen += 1
+        self.assertGreater(seen, 5000)
+
+    def test_a_word_is_read_the_same(self):
+        for word, got in self.table['parse']:
+            self.assertEqual(None if S.parse(word) is None else list(S.parse(word)), got, word)
+        for no in (None, 7, True, ['real'], {}):
+            self.assertIsNone(S.parse(no))
+
+    def test_the_smallest_space_of_a_value(self):
+        self.assertGreater(len(self.table['of']), 25)
+        for value, word in self.table['of']:
+            self.assertEqual(S.of(value), word, value)
+        for values, word in self.table['ofAll']:
+            self.assertEqual(S.of_all(values), word, values)
+        self.assertEqual(S.of(1.0), 'boolean')      # a whole number that JSON wrote with a point is that number
+        self.assertEqual(S.of(-2.0), 'integer')
+        self.assertEqual(S.of_all([1], ['natural']), 'natural')
+
+    def test_the_space_of_a_formula(self):
+        named = ['natural', 'integer?', 'probability']
+
+        def lookup(arrow):
+            def name(word):
+                if word.startswith('$') and word[1:].isdigit():
+                    k = int(word[1:]) - 1
+                    return named[k] if 0 <= k < len(named) else None
+                low = word.lower()
+                if low in ('index.x', 'index.y') or (len(low) == 2 and low[0] == 'k' and low[1] in '123456'):
+                    return 'natural'
+                return None if not arrow else 'rational' if low == 'x' else 'natural' if low in ('i', 'j') else None
+            return name
+        self.assertGreater(len(self.table['formulas']), 150)
+        for text, arrow, word in self.table['formulas']:
+            self.assertEqual(S.formula(parse(text), lookup(arrow)), word, '%s%s' % (text[:60], ' (an arrow\'s)' if arrow else ''))
+
+
+class InAGraph(unittest.TestCase):
+    def graph(self):
+        t = lambda value: {'cols': 2, 'rows': 1, 'colsName': None, 'rowsName': None, 'value': value}
+        v = lambda entries, value, **more: dict({'op': 'variable', 'inputs': [], 'type': t(value), 'name': 'v', 'named': True, 'defined': 'entries', 'entries': entries}, **more)
+        return {'version': 3, 'functions': {}, 'spaces': {}, 'blocks': {}, 'nodes': {
+            'a': v({'1,1': 1, '2,1': 2}, 'whole', holds='whole'), 'c': v({'1,1': 1, '2,1': -1}, 'ternary'), 'n': v({'1,1': {'none': True}, '2,1': {'expr': '2 ^ 3'}}, 'natural?'),
+            's': {'op': 'add', 'inputs': ['a', 'c'], 'type': t('integer')}}}
+
+    def test_a_value_follows_by_its_operations_rule(self):
+        self.assertEqual(validate(self.graph()), [])
+        for change, what in ((lambda g: g['nodes']['c']['type'].update(value='integer'), 'a value its entries do not give'), (lambda g: g['nodes']['s']['type'].update(value='real'), 'a value its inputs do not give'),
+                             (lambda g: g['nodes']['c']['type'].update(value='complex'), 'no space'), (lambda g: g['nodes']['c']['type'].update(value=None), 'no word'), (lambda g: g['nodes']['c']['type'].update(holds='ternary'), 'another key'),
+                             (lambda g: g['nodes']['a'].update(holds='natural'), 'a promise that is not its value'), (lambda g: g['nodes']['a'].update(holds='complex'), 'a promise that is no space'),
+                             (lambda g: g['nodes']['a'].pop('holds'), 'a value that was its promise'), (lambda g: g['nodes']['c']['type'].pop('value'), 'an input that says none is any?')):
+            g = self.graph()
+            change(g)
+            self.assertNotEqual(validate(g), [], what)
+
+    def test_a_type_that_says_none_is_not_checked(self):
+        g = self.graph()
+        for n in g['nodes'].values():
+            n['type'].pop('value')
+        self.assertEqual(validate(g), [])
+        g = self.graph()
+        g['nodes']['s']['type'].pop('value')
+        self.assertEqual(validate(g), [])
+        g = self.graph()
+        g['nodes']['c']['holds'] = 'ternary'
+        self.assertEqual(validate(g), [])
