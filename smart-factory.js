@@ -1475,7 +1475,8 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
 function conditionableNow(list){
   const alg = algebraIn(space), held = alg.all.filter(p => p.members.some(m => list.includes(alg.active[m])));
   const out = list.filter(b => !alg.active.includes(b) && !isArrow(b) && !b.in && !b.seat).length;      /* a block that takes no part (commented out, in a .config) is in no piece */
-  return conditionable({ blocks: list.length, fixed: fixedIn(list, 'made conditional'), pieces: [...held.map(p => ({ members: p.members.length, chosen: p.members.filter(m => list.includes(alg.active[m])).length, error: p.type.error || null })), ...Array.from({ length: out }, () => ({ members: 1, chosen: 1, error: 'it takes no part' }))] });
+  const read = list.find(b => space.blocks.some(k => isArrow(k) && !list.includes(k) && k.arrow.input.as !== 'tile' && k.arrow.input.id === b.id));      /* a block an arrow has for its input, or reads the piece's result by way of */
+  return conditionable({ blocks: list.length, fixed: fixedIn(list, 'made conditional'), read: read ? bare(read.name) || 'That block' : null, pieces: [...held.map(p => ({ members: p.members.length, chosen: p.members.filter(m => list.includes(alg.active[m])).length, error: p.type.error || null })), ...Array.from({ length: out }, () => ({ members: 1, chosen: 1, error: 'it takes no part' }))] });
 }
 function makeConditional(list){
   const can = conditionableNow(list); if (can.refused){ hud.say(can.refused); return shown(); }

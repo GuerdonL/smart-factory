@@ -489,6 +489,9 @@ test('conditionable: exactly one piece, whole, that comes to a matrix and holds 
   assert.equal(conditionable({ blocks: 4, pieces: [piece(1), piece(2), piece(1)] }).refused, 'Make conditional takes exactly one piece, and 3 are selected');
   assert.equal(conditionable({ blocks: 1, pieces: [piece(2, 1)] }).refused, 'Make conditional takes a whole piece: select every shape of it');
   assert.equal(conditionable({ blocks: 2, pieces: [piece(2, 2, '4 ≠ 3')] }).refused, 'That piece comes to no one matrix (4 ≠ 3): there is nothing to choose');
+  /* a block an arrow reads (a condition's own entry, or any block with an arrow on its edge): folded away it would leave the arrow reading nothing */
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], read: 'if' }).refused, 'if is what an arrow reads: it cannot be made conditional, which would fold it away from under the arrow');
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], read: 'if', fixed: 'in is the function\'s input: it cannot be made conditional' }).refused, 'in is the function\'s input: it cannot be made conditional');
   assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], fixed: 'An arrow cannot be made conditional' }).refused, 'An arrow cannot be made conditional');      /* an arrow, a function's input, a seated block: said first */
   assert.equal(conditionable({ blocks: 1, pieces: [], fixed: 'in is the function\'s input: it cannot be made conditional' }).refused, 'in is the function\'s input: it cannot be made conditional');
   assert.equal(conditionable({ blocks: 1, pieces: [] }).refused, 'Make conditional takes exactly one piece, and 0 are selected');

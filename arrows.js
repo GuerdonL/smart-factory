@@ -172,12 +172,15 @@
    Conditions. A conditional arrow chooses between the two frames its choose names, by whether what its base covers
    (the condition, any size) is true as a whole matrix: the then frame where it is, the else frame where it is not.
    Each frame holds one piece or nothing, and an empty one is None at the other's size. Its function has no formula.
-   conditionable({ blocks, pieces, fixed }) -> { ok: true } | { refused: a sentence }: whether a selection can be made
+   conditionable({ blocks, pieces, fixed, read }) -> { ok: true } | { refused: a sentence }: whether a selection can be made
                                    conditional. blocks: how many blocks are selected; pieces: the pieces of the
                                    canvas that hold any of them, [{ members: how many blocks it has, chosen: how many
                                    of those are selected, error: why it comes to no matrix, or null }]; fixed: why
                                    one of the blocks cannot be folded away (an arrow, a function's input, a seated
-                                   block), or null. It takes exactly one piece, whole, that comes to a matrix.
+                                   block), or null; read: the name of one of the blocks that an arrow has for its
+                                   input (any arrow: a condition's own entry is one), or null: folded away, it would
+                                   leave that arrow reading nothing. It takes exactly one piece, whole, that comes
+                                   to a matrix.
    chosenType(sides, promise, across) -> what a conditional arrow comes to: a type, or { error }. sides: for the then frame
                                    and the else frame, the ends that lie wholly in it ([{ type }], as ends gives
                                    them); promise: the arrow's output, { cols, rows } or null. Several ends in one
@@ -389,9 +392,10 @@ export function fitting(inner, side, type, at){
 }
 
 export const TWO_SIZES = 'its two sides are not one size';
-export function conditionable({ blocks = 0, pieces = [], fixed = null } = {}){
+export function conditionable({ blocks = 0, pieces = [], fixed = null, read = null } = {}){
   if (!blocks) return { refused: 'Make conditional takes one piece: select the shapes of one' };
   if (fixed) return { refused: fixed };
+  if (read) return { refused: `${read} is what an arrow reads: it cannot be made conditional, which would fold it away from under the arrow` };
   if (pieces.length !== 1) return { refused: `Make conditional takes exactly one piece, and ${pieces.length} are selected` };
   if (pieces[0].chosen < pieces[0].members) return { refused: 'Make conditional takes a whole piece: select every shape of it' };
   if (pieces[0].error) return { refused: `That piece comes to no one matrix (${pieces[0].error}): there is nothing to choose` };
