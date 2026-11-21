@@ -181,7 +181,8 @@ function plainly(graph, id){
   if (!n) return null;
   if (n.op === 'variable') return n.defined === 'entries' && !n.error && n.entries && typeof n.entries === 'object' && !Object.values(n.entries).some(v => v && typeof v === 'object' && 'expr' in v) ? n.entries : null;
   if (n.op !== 'source') return null;
-  return n.kind === 'zeros' ? { '1,1': 0 } : n.kind === 'ones' ? { '1,1': 1 } : n.kind === 'identity' ? { '1,1': 1, ...(n.type.cols > 1 ? { '2,1': 0 } : n.type.rows > 1 ? { '1,2': 0 } : {}) } : null;
+  const t = hasInner(n.type) ? tailsOf(n.type)[0] : '';      /* with inner data the first such entry is at the first inner position, and its place is said with it: "at 1, 1, 1" */
+  return n.kind === 'zeros' ? { ['1,1' + t]: 0 } : n.kind === 'ones' ? { ['1,1' + t]: 1 } : n.kind === 'identity' ? { ['1,1' + t]: 1, ...(n.type.cols > 1 ? { ['2,1' + t]: 0 } : n.type.rows > 1 ? { ['1,2' + t]: 0 } : {}) } : null;
 }
 const inner = (cells, change) => cells.length ? [...cells.slice(0, -1), change(cells[cells.length - 1])] : cells;
 

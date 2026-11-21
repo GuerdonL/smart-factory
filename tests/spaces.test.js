@@ -311,6 +311,7 @@ test('none is the space of None alone: joined with a space S it is S? exactly, i
   assert.equal(sum('none', 3), 'none'); assert.equal(product('none', 'natural', 2), 'none');
   assert.equal(admits('none', NONE), true); assert.equal(admits('none', 0), false); assert.equal(admits('none', null), true); assert.equal(admits('none', { err: 'x' }), true);
   assert.deepEqual(broken('none', { '1,1': NONE, '2,1': 2 }), { key: '2,1', value: 2 }); assert.equal(NOT_HELD('W', 'none', '2,1', 2), 'W is not None: it holds 2 at 2, 1');
+  assert.equal(NOT_HELD('W', 'none', '1,1', true), 'W is not None: it holds 1 at 1, 1'); assert.equal(NOT_HELD('W', 'none', '1,1', false), 'W is not None: it holds 0 at 1, 1');      /* a boolean as the backend writes it in the same sentence (backend/tests/test_none.py) */
   assert.equal(UNPROVEN('W', 'none', 'natural?'), 'W cannot be shown to be None: it is worked out as natural or None');
 });
 test('a shape of only None is worked out as none, promises it and keeps it, and a number in it breaks the promise', () => {
@@ -380,6 +381,11 @@ test('evaluate: a shape too large to work out whose values can be read off the g
   assert.equal(promiseOf(g, 'v:Ty').note, 'Ty is not natural: it holds -7 at 80, 80');
   assert.equal(promiseOf(g, 'v:Tf').state, 'unproven');      /* a formula among its entries: it would have to be worked out */
   assert.equal(evaluate(g, g.blocks.R).error.note, 'Zs is not natural: it holds 0 at 1, 1');      /* and what is made of it has no value */
+  /* with inner data the place is said with its inner position, as the same shape small says it and as the backend does */
+  const inner = [{ length: 2, name: null }], h = made(snap([B('Zi', 0, 0, 70, 70, { inner, source: 'zeros', holds: 'natural' }), B('Zj', 100, 0, 2, 2, { inner, source: 'zeros', holds: 'natural' }),
+    B('Ii', 200, 0, 70, 70, { inner: [{ length: 2, name: null }, { length: 3, name: null }], source: 'identity', holds: 'natural' })]));
+  assert.equal(evaluate(h, 'v:Zi').error.note, 'Zi is not natural: it holds 0 at 1, 1, 1'); assert.equal(evaluate(h, 'v:Zj').error.note, 'Zj is not natural: it holds 0 at 1, 1, 1');
+  assert.equal(evaluate(h, 'v:Ii').error.note, 'Ii is not natural: it holds 0 at 2, 1, 1, 1');
 });
 
 /* ---- ruled 21 November 2026: a sentence names the place as drawn on the shape being looked at ---- */

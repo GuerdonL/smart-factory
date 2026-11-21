@@ -415,6 +415,10 @@ class Promises(unittest.TestCase):
         self.assertEqual(A.outside(A.row([1, None, 0.5]), 'natural', True), (0, 2, (), 0.5))
         self.assertEqual(A.outside(A.row([1, None, 0.5]), 'real', False), (0, 1, (), None))
 
+    def test_a_boolean_that_breaks_a_promise_of_none_is_written_1_or_0_as_on_the_page(self):
+        self.assertEqual(self.says({'1,1': True, '2,1': {'none': True}, '3,1': {'none': True}}, 'none')[0], 'W is not None: it holds 1 at 1, 1')      # tests/spaces.test.js has the same sentence of spaces.js
+        self.assertEqual(self.says({'1,1': {'none': True}, '2,1': False, '3,1': {'none': True}}, 'none')[0], 'W is not None: it holds 0 at 2, 1')
+
     def test_an_inner_position_past_nine_is_after_the_second_as_on_the_page(self):
         """One entry with an inner axis of 12, -5 at inner positions 2 and 10: "at 1, 1, 2", which is what the page
         says of the same graph (tests/spaces.test.js), where the keys were once compared as text."""

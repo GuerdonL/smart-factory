@@ -254,6 +254,7 @@ function firstThat(holds, entries, answer){
 }
 export const broken = (holds, entries) => firstThat(holds, entries, false);
 export const untold = (holds, entries) => firstThat(holds, entries, null);
-const shown = v => v === 'inf' ? '∞' : v === '-inf' ? '-∞' : isNone(v) ? 'None' : valueText(v);
+/* (true and false are written 1 and 0 here, as the backend, which holds them so, writes them in the same sentence: only a promise of None alone is broken by one) */
+const shown = v => v === 'inf' ? '∞' : v === '-inf' ? '-∞' : isNone(v) ? 'None' : typeof v === 'boolean' ? (v ? '1' : '0') : valueText(v);
 export const NOT_HELD = (name, holds, key, value) => `${name} is not ${said(holds)}: it holds ${shown(value)} at ${key.split(',').join(', ')}`;
 export const UNPROVEN = (name, holds, inferred) => `${name} cannot be shown to be ${said(holds)}: it is worked out as ${said(inferred)}`;
