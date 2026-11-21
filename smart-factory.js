@@ -368,7 +368,9 @@ const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), nod
    none, or (for one that is only too large) that it is; null where its numbers are shown, or it has an error of its own */
 function unshown(node, binding = null, slot = null){
   if (!node) return null;
-  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined); if (!wanted(r)) return null;
+  const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined);
+  if (r.error && r.error.code === 'type' && r.error.node !== node) return 'It has no value: ' + r.error.note;      /* worked out from a shape whose promise a value breaks (that shape says so itself, in its Holds row) */
+  if (!wanted(r)) return null;
   if (backend.available() === false) return r.backend ? 'It needs the backend: its numbers are made there, and none is running (README: The backend)' : r.deferred ? tooLarge(r.type) : null;
   const why = backend.problem(g, node, binding); if (why) return 'The backend gave no numbers: ' + why;
   return r.deferred && !backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)) ? (backend.available() ? 'Waiting for the backend' : r.backend ? null : tooLarge(r.type)) : null;
@@ -1034,15 +1036,25 @@ function holdsRow(b, key = 'holds', label = 'Holds'){
   return steadily(() => { const g = graphNow(), holds = holdsOf(b); let id = g.blocks[b.id], n = id && g.nodes[id]; if (n && n.op === 'transpose'){ id = n.inputs[0]; n = g.nodes[id]; }
     if (!n || n.op === 'param') return { key, label, holds, inferred: n && !holds ? 'any?' : null, from: n ? 'whatever it is given' : '', note: null };
     const p = promiseOf(g, id, { binding: bindingOf([b], spaceWith(b)) }), bare = n.defined === 'entries' && !Object.keys(n.entries).length;
-    return { key, label, holds, inferred: !p || bare ? null : p.inferred, from: bare ? '' : n.defined === 'entries' ? 'from its entries' : n.defined === 'seat' ? 'from the arrow' : n.defined === 'source' ? 'from its source' : 'from what defines it', note: p && p.note ? p.note : null }; });
+    return { key, label, holds, inferred: !p || bare ? null : p.inferred, from: bare ? '' : n.defined === 'entries' ? 'from its entries' : n.defined === 'seat' ? 'from the arrow' : n.defined === 'source' ? 'from its source' : 'from what defines it', note: p && p.note ? p.note : holds ? brokenInTile(b, g, id) : null }; });
 }
-/* and an arrow's two: what it takes is the promise of its function's in block, held against what the arrow gives it;
+/* a block of a tile holds its promise in every cell, not the first alone: the tile's matrix is every cell worked
+   out, so where that has no value because this block breaks its promise in some cell, the sentence (which names
+   the cell) is this block's to show. The outermost tile's matrix, which has every cell of the tiles inside it. */
+function brokenInTile(b, g, id){
+  const s = spaceWith(b), t = s ? tileOf(b, s) : undefined; if (t === undefined) return null;
+  const top = [t, ...tilesAbove(s, t)].pop(), node = findIn(g).tiles.get('t:' + top)?.node, a = node ? workOut(g, node) : null;
+  return a && a.error && a.error.code === 'type' && a.error.node === id ? a.error.note : null;
+}
+/* and an arrow's two: what it takes is the promise of its function's in block, held against what the arrow gives it
+   (what it takes of its input, a run at a time where it is repeated in a tile: evaluate.js, judged);
    what it gives is the promise of the block seated on its output. With no block seated there is nothing to hold
    that promise, and the row says only what the output is worked out as. */
 function arrowHolds(a){
   return steadily(() => { const g = graphNow(), s = spaceWith(a), e = findIn(g).arrows.get(a.id), out = e && e.node, n = out && g.nodes[out], inner = inOf(a), seat = seatOn(a, s);
     const given = n ? (n.op === 'apply' || n.op === 'map' || n.op === 'mapalong' ? n.inputs[0] : out) : null, binding = n ? bindingOf(readBy(a, s), s, false, a) : null;
-    const took = given ? judged(g, given, inner ? holdsOf(inner) : null, 'in', binding ? { binding } : {}) : null;
+    const runs = n && n.op === 'mapalong' ? { axis: n.axis, start: n.start, span: n.span, count: n.count } : null;      /* repeated in a tile: it takes its input a run at a time, and no more of it than its runs cover */
+    const took = given ? judged(g, given, inner ? holdsOf(inner) : null, 'in', { ...(binding ? { binding } : {}), ...(runs ? { runs } : {}) }) : null;
     return [{ key: 'takes', label: 'Takes', holds: inner ? holdsOf(inner) : null, inferred: took ? took.inferred : null, from: took ? 'from its input' : '', note: took && took.note ? took.note : null, fixed: !inner },
       seat ? holdsRow(seat, 'gives', 'Gives') : { key: 'gives', label: 'Gives', holds: null, inferred: n ? n.type.value || null : null, from: n ? 'seat a block on its output to promise it' : '', note: null, fixed: true }]; });
 }
@@ -1221,7 +1233,8 @@ function paint(){
       shape: `tile: a ${r.cols} × ${r.rows} pattern, ${t.across} across × ${t.down} down` + (t.matrix.error ? '' : `. Its matrix is ${t.matrix.cols} wide × ${t.matrix.rows} tall`)
         + (up !== undefined && !t.over ? `. It is inside ${space.groupNames.get(up) || 'a tile'}'s pattern, and is repeated with it` : ''),
       attributes: [{ key: 'cols', label: 'pattern x', text: String(r.cols) }, { key: 'rows', label: 'pattern y', text: String(r.rows) }, row('across'), row('down')],
-      notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(t.over ? [cap(t.over) + '. It has no matrix while it lies so'] : read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : [])], matrix: null }); }
+      notes: [...(t.warn ? [cap(t.warn)] : []), ...(mapWarn ? [cap(mapWarn)] : []), ...(t.over ? [cap(t.over) + '. It has no matrix while it lies so'] : read && t.matrix.error ? ['It has no matrix for its arrow to read: ' + t.matrix.error] : []),
+        ...(steadily(() => { const g = graphNow(), node = findIn(g).tiles.get('t:' + pickedTile)?.node, a = node ? workOut(g, node) : null; return a && a.error && a.error.code === 'type' ? ['Its matrix has no value: ' + a.error.note] : []; }) || [])], matrix: null }); }
   else if (one && isArrow(one)){ const o = outputOf(one), fn = fnOf(one), t = o.type, seat = seatOn(one, space), laidOut = o.asDrawn, wrong = [...(laidOut || [])].filter(([, v]) => isError(v));
     const data = t?.inner || [], path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path), says = t ? nesting.described(t.cols, t.rows, data) : null;      /* its output's entries are opened as a block's are */
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar: false, plain: true, fixed: true,

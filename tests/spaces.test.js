@@ -11,7 +11,7 @@ import { combine, apply, isError, isNone, written } from '../values.js';
 import { treeOf, evaluate as evaluateExpr } from '../expression.js';
 const evaluateText = text => evaluateExpr(text, () => undefined).value;
 import { build, validate, inferred, CODES, VERSION } from '../graph.js';
-import { evaluate, promiseOf } from '../evaluate.js';
+import { evaluate, promiseOf, judged } from '../evaluate.js';
 
 const q = (n, d = 1, k = 0) => ({ n, ...(d !== 1 ? { d } : {}), k }), NONE = { none: true }, sym = text => ({ sym: text });
 
@@ -132,6 +132,7 @@ const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c
 const arrow = (id, input, more = {}, shapeMore = {}) => B(id, 0, 0, 1, 1, { type: 'arrow', name: 'Shape 9', arrow: { input, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: null, formula: null, ...more }, ...shapeMore });
 const made = s => { const g = build(s); assert.deepEqual(validate(g), []); assert.deepEqual(JSON.parse(JSON.stringify(g)), g); return g; };
 const valueOf = (g, id) => g.nodes[id].type.value;
+const numbersOf = (g, id) => g.nodes[id].type.cols * g.nodes[id].type.rows;
 
 test('graph: every node\'s type says its number space, by its operation\'s rule', () => {
   const g = made(snap([B('A', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]) }), B('W', 2, 0, 2, 2, { entries: rowsOf([[0, 1], [1, 0]]) }),      /* a product: natural × boolean, two terms */
@@ -222,6 +223,35 @@ test('a value the solver cannot compare exactly breaks no promise: it is not sho
   assert.ok(evaluate(g, 'v:E3').entries); assert.deepEqual(promiseOf(g, 'v:E3'), { holds: 'probability', inferred: 'probability', state: 'kept', note: '' });      /* tanh of a whole number is worked out as a probability: kept */
   assert.ok(evaluate(g, 'v:E4').entries); assert.deepEqual(promiseOf(g, 'v:E4'), { holds: 'probability', inferred: 'real', state: 'unproven', note: 'E4 cannot be shown to be probability: it is worked out as real' });
   assert.equal(evaluate(g, 'v:E5').error.note, 'E5 is not probability: it holds 3 at 2, 1');      /* and a value that is told to lie outside still breaks it */
+});
+test('evaluate: what is worked out from a shape whose promise a value breaks has no value, also where it would be the backend\'s to give', () => {
+  const g = made(snap([B('W', 0, 0, 2, 2, { entries: rowsOf([[1, 2], [-3, 4]]), holds: 'natural' }), B('Nz', 2, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } }),
+    B('K', 0, 10, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]), holds: 'natural' }), B('Nk', 2, 10, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } } }),
+    B('Col', 0, 20, 1, 80, { source: 'ones' }), B('Wide', 1, 20, 80, 1, { entries: { '3,1': -3 }, holds: 'natural' })]));
+  const err = { code: 'type', note: 'W is not natural: it holds -3 at 1, 2', node: 'v:W' };
+  assert.deepEqual(evaluate(g, 'matmul(v:W,v:Nz)'), { error: err });      /* made of noise: not deferred to the backend, since W has no value */
+  assert.equal(evaluate(g, 'matmul(v:K,v:Nk)').deferred, true); assert.equal(evaluate(g, 'matmul(v:K,v:Nk)').backend, true);      /* a promise that is kept changes nothing */
+  assert.equal(numbersOf(g, 'matmul(v:Col,v:Wide)'), 6400);
+  assert.deepEqual(evaluate(g, 'matmul(v:Col,v:Wide)'), { error: { code: 'type', note: 'Wide is not natural: it holds -3 at 3, 1', node: 'v:Wide' } });      /* too large to work out here, and nothing all the same */
+  assert.equal(evaluate(g, 'v:Nz').deferred, true);
+});
+test('evaluate: what an arrow repeated in a tile takes is held to its promise run by run, and what no run covers is not asked', () => {
+  const g = made(snap([B('M', 0, 0, 3, 2, { entries: rowsOf([[-4, 2, 3], [1, 5, -6]]) })]));
+  const runs = (start, span, count, axis = 'cols') => ({ runs: { axis, start, span, count } });
+  assert.equal(judged(g, 'v:M', 'natural', 'in').note, 'in is not natural: it holds -4 at 1, 1');      /* the whole of it */
+  assert.equal(judged(g, 'v:M', 'natural', 'in', runs(2, 1, 1)).state, 'kept');      /* column 2 alone: -4 and -6 are none of what it takes */
+  assert.equal(judged(g, 'v:M', 'natural', 'in', runs(2, 1, 2)).note, 'in is not natural: it holds -6 at 1, 2 in run 2');      /* columns 2 and 3, one at a time: the place is the input block's own */
+  assert.equal(judged(g, 'v:M', 'natural', 'in', runs(1, 1, 3)).note, 'in is not natural: it holds -4 at 1, 1 in run 1');
+  assert.equal(judged(g, 'v:M', 'natural', 'in', runs(2, 1, 1, 'rows')).note, 'in is not natural: it holds -6 at 3, 1');      /* row 2 alone, a single run: no run is named */
+  assert.equal(judged(g, 'v:M', 'integer', 'in', runs(1, 1, 3)).state, 'kept');
+});
+test('evaluate: a promise is held in every cell of a tile, and the sentence says which cell breaks it', () => {
+  const g = build(snap([B('Row', 0, 0, 2, 1, { entries: { '1,1': { expr: '3 - index.x' }, '2,1': 1 }, holds: 'natural' }), arrow('out', { id: 't1', as: 'tile' })],
+    [{ id: 't1', name: null, members: [0], groups: [], repeat: { x: 0, y: 0, cols: 2, rows: 1, across: 3, down: 1 } }]));
+  assert.deepEqual(validate(g), []);
+  const tile = g.spaces.top.tiles[0].node, got = evaluate(g, tile);
+  assert.deepEqual(got, { error: { code: 'type', note: 'Row is not natural: it holds 0 at 1, 1 in cell 2, 1', node: 'v:Row' } });      /* cell 1 holds 2 1, cell 2 holds 0 1 */
+  assert.deepEqual(evaluate(g, g.spaces.top.arrows[0].node), got);      /* and so has the arrow that reads the tile */
 });
 test('evaluate: a promise on the block seated on an arrow is held against the arrow\'s output, and one inside a function against each thing it is given', () => {
   const g = made(snap([B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, -4]]) }),
