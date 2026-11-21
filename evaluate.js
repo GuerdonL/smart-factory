@@ -167,6 +167,19 @@ function homesOf(graph, st){
       for (const t of tiles) if (typeof t.node === 'string'){ if (!repeats.has(t.node)) repeats.set(t.node, []); if (!repeats.get(t.node).includes(t.tile)) repeats.get(t.node).push(t.tile); } } }
   st.homes = homes; st.repeats = repeats; return st;
 }
+/* What a variable holds, where that can be read off the graph without working anything out, at any size: its own
+   entries where every one of them is a value typed in (no formula among them); or, where it is a source filled with
+   known values, one entry for each value there is in it (zeros: 0; ones: 1; an identity: 1, and 0 off its diagonal),
+   keyed where the first such entry lies. -> { key: value }, or null where it has to be worked out. For holding a
+   promise against a shape too large to be worked out here. */
+function plainly(graph, id){
+  let n = nodeAt(graph, id);
+  for (let k = 0; n && k < 64 && n.op === 'variable' && n.defined !== 'entries' && !n.error && n.inputs.length === 1; k++) n = nodeAt(graph, n.inputs[0]);
+  if (!n) return null;
+  if (n.op === 'variable') return n.defined === 'entries' && !n.error && n.entries && typeof n.entries === 'object' && !Object.values(n.entries).some(v => v && typeof v === 'object' && 'expr' in v) ? n.entries : null;
+  if (n.op !== 'source') return null;
+  return n.kind === 'zeros' ? { '1,1': 0 } : n.kind === 'ones' ? { '1,1': 1 } : n.kind === 'identity' ? { '1,1': 1, ...(n.type.cols > 1 ? { '2,1': 0 } : n.type.rows > 1 ? { '1,2': 0 } : {}) } : null;
+}
 const inner = (cells, change) => cells.length ? [...cells.slice(0, -1), change(cells[cells.length - 1])] : cells;
 
 /* ---- inner data: a rule repeated at each inner position ----
@@ -256,7 +269,11 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
        variable it is worked out from breaks its promise by a value that is here: that variable has no value, so
        neither has this, and it is not the backend's to give. Asked of each such variable on its own, which is
        small enough to be worked out or is deferred itself and says nothing. */
-    const broke = () => { for (const d of needs) for (const v of d.kept || NO_IDS) if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding }); if (a.error && a.error.code === 'type') return a.error; } return null; };
+    const broke = () => { for (const d of needs) for (const v of d.kept || NO_IDS){
+      /* one whose values can be read off the graph (a source filled with one known value, entries all typed in) is held to its promise by them at any size, itself included */
+      const kn = nodeAt(graph, v), plain = kn && kn.op === 'variable' && typeof kn.holds === 'string' ? plainly(graph, v) : null, out = plain ? broken(kn.holds, plain) : null;
+      if (out) return { code: 'type', note: NOT_HELD(kn.name || v, kn.holds, out.key, out.value), node: v };
+      if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding }); if (a.error && a.error.code === 'type') return a.error; } } return null; };
     if (needs.some(d => d.most > maxEntries)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, ...(needs.some(d => d.remote) ? { backend: true } : {}) }); }
     const bad = needs.map(d => d.bad).find(Boolean); if (bad) return done({ error: bad });
     if (needs.some(d => d.remote)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, backend: true }); }
@@ -279,6 +296,9 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
        'kept'       its values are here and all lie in the space, or it is worked out as a space inside its promise
        'broken'     a value lies outside it: note is the error's, "W is not natural: it holds -3 at 2, 1". The
                     variable has then no value (evaluate answers with the error type)
+                    A shape too large to be worked out here whose values can be read off the graph (a source
+                    filled with one known value, entries all typed in) is held to its promise by them all the
+                    same, at any size: kept or broken, never unproven.
        'unproven'   its values are not here (too large, noise, a data file), or one of them cannot be compared
                     exactly with the space's ends (tanh(20) against 1), and what it is worked out as is not
                     inside its promise: note says so, "W cannot be shown to be natural: it is worked out as
@@ -289,7 +309,8 @@ export function promiseOf(graph, id, options = {}){
   if (!holds) return { holds, inferred: was, state: 'inferred', note: '' };
   const a = evaluate(graph, id, options);
   if (a.error && a.error.code === 'type' && a.error.node === id) return { holds, inferred: was, state: 'broken', note: a.error.note };
-  if ((a.deferred || (a.entries && untold(holds, a.entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
+  const plain = a.deferred ? plainly(graph, id) : null;      /* too large to work out, and its values can be read off the graph all the same: they were held to the promise (evaluate), and keep it */
+  if (((a.deferred && !(plain && !untold(holds, plain))) || (a.entries && untold(holds, a.entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
   return { holds, inferred: was, state: 'kept', note: '' };
 }
 

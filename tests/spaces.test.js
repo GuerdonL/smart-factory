@@ -215,7 +215,7 @@ test('evaluate: a promise that cannot be checked against values (too large, nois
   assert.equal(promiseOf(g, 'v:Nu').state, 'kept');
   assert.deepEqual(promiseOf(g, 'v:Nn'), { holds: 'probability', inferred: 'real', state: 'unproven', note: 'Nn cannot be shown to be probability: it is worked out as real' });
   assert.equal(promiseOf(g, 'v:Fl').note, 'Fl cannot be shown to be natural: it is worked out as real');
-  assert.equal(promiseOf(g, 'v:Big').note, 'Big cannot be shown to be natural: it is worked out as boolean'); assert.equal(promiseOf(g, 'v:Fine').state, 'kept');
+  assert.equal(promiseOf(g, 'v:Big').state, 'kept'); assert.equal(promiseOf(g, 'v:Fine').state, 'kept');      /* (ones, at any size: see the test of a source filled with one known value) */
   for (const id of ['v:Nn', 'v:Fl', 'v:Big']) assert.equal(evaluate(g, id).deferred, true);      /* a warning: the shape keeps its value, which is the backend's */
   assert.equal(promiseOf(g, 'v:Big', { maxEntries: 10000 }).state, 'kept');      /* and where the values are here, they are asked: ones are natural */
 });
@@ -335,4 +335,19 @@ test('graph: a function applied gives its body\'s space only where what it is gi
   assert.equal(out(lin([[1, 2], [3, 4]], 'natural')), 'natural');      /* naturals given to a function of naturals */
   assert.equal(out(lin([[1, 2], [3, -4]], 'natural')), 'any?');      /* integers given: the body's space was worked out for naturals, and is not said of this */
   assert.equal(out(lin([[1, 2], [3, -4]], 'integer')), 'integer'); assert.equal(out(lin([[1, 2], [3, -4]], null)), 'any?');
+});
+
+/* ---- ruled 21 November 2026: a source filled with one known value is checked by that value at any size ---- */
+test('evaluate: a shape too large to work out whose values can be read off the graph is held to its promise by them: kept or broken, never unproven', () => {
+  const big = { '1,1': 2, '80,80': -7 };
+  const g = made(snap([B('Os', 0, 0, 80, 80, { source: 'ones', holds: 'natural' }), B('Zs', 100, 0, 80, 80, { source: 'zeros', holds: 'natural' }), B('Zw', 200, 0, 80, 80, { source: 'zeros', holds: 'whole' }),
+    B('Id', 300, 0, 80, 80, { source: 'identity', holds: 'natural' }), B('Ib', 400, 0, 80, 80, { source: 'identity', holds: 'probability' }),
+    B('Ty', 500, 0, 80, 80, { entries: big, holds: 'natural' }), B('Tz', 600, 0, 80, 80, { entries: big, holds: 'integer' }), B('Tf', 700, 0, 80, 80, { entries: { '1,1': { expr: '2 - 9' } }, holds: 'natural' }),
+    B('R', 0, 100, 80, 80, { name: 'Zs', variable: 1, reference: true })].map((d, i) => i === 1 ? { ...d, variable: 1 } : d)));
+  for (const id of ['v:Os', 'v:Zw', 'v:Ib', 'v:Tz']){ assert.deepEqual(promiseOf(g, id).note, '', id); assert.equal(promiseOf(g, id).state, 'kept', id); assert.equal(evaluate(g, id).deferred, true, id); }
+  assert.deepEqual(evaluate(g, 'v:Zs'), { error: { code: 'type', note: 'Zs is not natural: it holds 0 at 1, 1', node: 'v:Zs' } }); assert.equal(promiseOf(g, 'v:Zs').state, 'broken');
+  assert.equal(promiseOf(g, 'v:Id').note, 'Id is not natural: it holds 0 at 2, 1');
+  assert.equal(promiseOf(g, 'v:Ty').note, 'Ty is not natural: it holds -7 at 80, 80');
+  assert.equal(promiseOf(g, 'v:Tf').state, 'unproven');      /* a formula among its entries: it would have to be worked out */
+  assert.equal(evaluate(g, g.blocks.R).error.note, 'Zs is not natural: it holds 0 at 1, 1');      /* and what is made of it has no value */
 });
