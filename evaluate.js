@@ -88,7 +88,7 @@
        at.given(node)      the entries a function's input has been given, none where it has been given nothing
        at.ks               where the rule is being repeated over inner data, the inner position of this run */
 import { OPS, readsIndex, tailsOf, inferred } from './graph.js';
-import { broken, within, NOT_HELD, UNPROVEN } from './spaces.js';
+import { broken, untold, within, NOT_HELD, UNPROVEN } from './spaces.js';
 import { passed } from './arrows.js';
 import { numbers } from './algebra.js';
 
@@ -264,7 +264,8 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null } = 
        'kept'       its values are here and all lie in the space, or it is worked out as a space inside its promise
        'broken'     a value lies outside it: note is the error's, "W is not natural: it holds -3 at 2, 1". The
                     variable has then no value (evaluate answers with the error type)
-       'unproven'   its values are not here (too large, noise, a data file) and what it is worked out as is not
+       'unproven'   its values are not here (too large, noise, a data file), or one of them cannot be compared
+                    exactly with the space's ends (tanh(20) against 1), and what it is worked out as is not
                     inside its promise: note says so, "W cannot be shown to be natural: it is worked out as
                     integer". A warning: the variable keeps its value. */
 export function promiseOf(graph, id, options = {}){
@@ -273,7 +274,7 @@ export function promiseOf(graph, id, options = {}){
   if (!holds) return { holds, inferred: was, state: 'inferred', note: '' };
   const a = evaluate(graph, id, options);
   if (a.error && a.error.code === 'type' && a.error.node === id) return { holds, inferred: was, state: 'broken', note: a.error.note };
-  if (a.deferred && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
+  if ((a.deferred || (a.entries && untold(holds, a.entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
   return { holds, inferred: was, state: 'kept', note: '' };
 }
 
@@ -287,7 +288,7 @@ export function judged(graph, id, holds, name, options = {}){
   if (!holds) return { holds: null, inferred: was, state: 'inferred', note: '' };
   const a = evaluate(graph, id, options), out = a.entries ? broken(holds, a.entries) : null;
   if (out) return { holds, inferred: was, state: 'broken', note: NOT_HELD(name, holds, out.key, out.value) };
-  if (a.deferred && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(name, holds, was) };
+  if ((a.deferred || (a.entries && untold(holds, a.entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(name, holds, was) };
   return { holds, inferred: was, state: 'kept', note: '' };
 }
 

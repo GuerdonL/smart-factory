@@ -6,9 +6,10 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SPACES, INSIDE, BINARY, UNARY, parse, promise, inside, within, both, of, ofAll, binary, unary, choice, sum, product, formula, admits, broken, said, NOT_HELD, UNPROVEN } from '../spaces.js';
+import { SPACES, INSIDE, BINARY, UNARY, parse, promise, inside, within, both, of, ofAll, binary, unary, choice, sum, product, formula, admits, broken, untold as untoldIn, said, NOT_HELD, UNPROVEN } from '../spaces.js';
 import { combine, apply, isError, isNone, written } from '../values.js';
-import { treeOf } from '../expression.js';
+import { treeOf, evaluate as evaluateExpr } from '../expression.js';
+const evaluateText = text => evaluateExpr(text, () => undefined).value;
 import { build, validate, inferred, CODES, VERSION } from '../graph.js';
 import { evaluate, promiseOf } from '../evaluate.js';
 
@@ -84,9 +85,10 @@ const SAMPLES = { boolean: [0, 1, true, false], ternary: [-1, 0, 1], natural: [1
   probability: [0, 1, q(1, 2), q(1, 2, 1), q(1, 3)], real: [q(2, 1, 1), q(-2, 1, 1), q(3, 2), 0, -1, 7, q(1, 3, 2)], any: [Infinity, -Infinity, 0, 5, q(-1, 2), 1] };
 test('every rule is sound: for every operation and every pair of spaces, what values.js makes of their values lies in the space the rule gives', () => {
   let held = 0;
-  /* (a symbolic result that the solver cannot tell from 0 or 1, erf(5) against 1, is not held to a space here: it is no answer either way) */
+  /* (a symbolic result that the solver cannot tell from 0 or 1, erf(5) against 1, is no answer either way: it must not be said to lie outside the space) */
   const untold = v => !!v && typeof v === 'object' && typeof v.sym === 'string' && (isError(combine('<=', v, 1)) || isError(combine('>=', v, 0)));
-  const lies = (space, v, said) => { if (isError(v) || untold(v)) return; assert.ok(admits(space, v), `${said} is ${written(v)}, outside ${space}`); held++; };
+  const lies = (space, v, said) => { if (isError(v)) return; const a = admits(space, v);      /* one the solver cannot compare exactly is not shown to lie in the space, and must not be said to lie outside it */
+    if (untold(v)) assert.notEqual(a, false, `${said} is ${written(v)}, which cannot be compared exactly and is said to lie outside ${space}`); else assert.ok(a, `${said} is ${written(v)}, outside ${space}`); held++; };
   for (const a of SPACES) for (const b of SPACES) for (const x of SAMPLES[a]) for (const y of SAMPLES[b]){
     for (const op of ['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min']){ if (op === '^' && typeof y === 'object' && typeof x === 'object') continue;      /* (a root of a root is the solver's, and slow) */
       lies(binary(op, a, b), combine(op, x, y), `${written(x)} ${op} ${written(y)} (${a}, ${b})`);
@@ -200,6 +202,17 @@ test('evaluate: a promise that cannot be checked against values (too large, nois
   assert.equal(promiseOf(g, 'v:Big').note, 'Big cannot be shown to be natural: it is worked out as boolean'); assert.equal(promiseOf(g, 'v:Fine').state, 'kept');
   for (const id of ['v:Nn', 'v:Fl', 'v:Big']) assert.equal(evaluate(g, id).deferred, true);      /* a warning: the shape keeps its value, which is the backend's */
   assert.equal(promiseOf(g, 'v:Big', { maxEntries: 10000 }).state, 'kept');      /* and where the values are here, they are asked: ones are natural */
+});
+test('a value the solver cannot compare exactly breaks no promise: it is not shown to lie in the space, and the warning is for a promise the inferred space is not inside', () => {
+  for (const text of ['tanh(20)', 'tanh(64)', 'erf(5)', 'exp(-50)']){ const v = evaluateText(text);
+    assert.ok(isError(combine('<=', v, 1)) || isError(combine('>=', v, 0)), text + ' is one the solver cannot compare');
+    assert.equal(admits('probability', v), null, text); assert.equal(broken('probability', { '1,1': v }), null); assert.deepEqual(untoldIn('probability', { '2,1': 1, '1,1': v }), { key: '1,1', value: v }); }
+  assert.equal(admits('probability', 2), false); assert.equal(admits('probability', q(1, 2)), true); assert.equal(untoldIn('probability', { '1,1': q(1, 2) }), null);
+  const g = made(snap([B('E3', 0, 0, 1, 1, { entries: { '1,1': { expr: 'tanh(20)' } }, holds: 'probability' }), B('E4', 5, 0, 1, 1, { entries: { '1,1': { expr: 'exp(-50)' } }, holds: 'probability' }),
+    B('E5', 10, 0, 2, 1, { entries: { '1,1': { expr: 'exp(-50)' }, '2,1': 3 }, holds: 'probability' })]));
+  assert.ok(evaluate(g, 'v:E3').entries); assert.deepEqual(promiseOf(g, 'v:E3'), { holds: 'probability', inferred: 'probability', state: 'kept', note: '' });      /* tanh of a whole number is worked out as a probability: kept */
+  assert.ok(evaluate(g, 'v:E4').entries); assert.deepEqual(promiseOf(g, 'v:E4'), { holds: 'probability', inferred: 'real', state: 'unproven', note: 'E4 cannot be shown to be probability: it is worked out as real' });
+  assert.equal(evaluate(g, 'v:E5').error.note, 'E5 is not probability: it holds 3 at 2, 1');      /* and a value that is told to lie outside still breaks it */
 });
 test('evaluate: a promise on the block seated on an arrow is held against the arrow\'s output, and one inside a function against each thing it is given', () => {
   const g = made(snap([B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, -4]]) }),

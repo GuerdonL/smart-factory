@@ -52,11 +52,15 @@
                                   space a name stands for (undefined: not known, which is "any?")
    With None admitted on any input the result admits None, but for select, !, &&, ||, == and !=, which follow
    values.js: None is false, and is equal only to None.
-   admits(holds, value)        -> whether a value lies in a written space. Exact: it asks values.js, so a symbolic
-                                  value is told from 0 and 1 as any comparison is. Unknown and an error are not
-                                  asked (true): they are no values to break a promise.
-   broken(holds, entries)      -> the first entry (by row, then column) that does not lie in the space:
-                                  { key, value }, or null. entries: a Map or an object keyed "column,row".
+   admits(holds, value)        -> whether a value lies in a written space: true, false, or null where it cannot be
+                                  told. Exact: it asks values.js, so a symbolic value is told from 0 and 1 as any
+                                  comparison is, and one the solver cannot compare exactly (tanh(20) against 1) is
+                                  null: not shown to lie in the space, and not shown to lie outside it. Unknown
+                                  and an error are not asked (true): they are no values to break a promise.
+   broken(holds, entries)      -> the first entry (by row, then column) that lies outside the space:
+                                  { key, value }, or null. entries: a Map or an object keyed "column,row". An
+                                  entry that cannot be told breaks nothing.
+   untold(holds, entries)      -> the first entry that cannot be told to lie in the space or outside it, or null
    NOT_HELD(name, holds, key, value), UNPROVEN(name, holds, inferred)
                                -> the two sentences: "W is not natural: it holds -3 at 2, 1" and
                                   "W cannot be shown to be natural: it is worked out as integer"
@@ -188,7 +192,8 @@ export function formula(tree, name = () => undefined){
 }
 
 /* ---- a promise against values ---- */
-const yes = (op, a, b) => combine(op, a, b) === true;
+/* a comparison the solver cannot decide (values.js: "cannot be compared exactly") is neither yes nor no: null */
+const told = (op, a, b) => { const r = combine(op, a, b); return r === true ? true : r === false ? false : null; };
 const HOLDS = {
   boolean: v => typeof v === 'boolean' || v === 0 || v === 1,
   ternary: v => typeof v === 'boolean' || v === 0 || v === 1 || v === -1,
@@ -196,7 +201,7 @@ const HOLDS = {
   whole: v => (Number.isInteger(v) && v >= 0) || typeof v === 'boolean' || bigWhole(v) > 0,
   integer: v => Number.isInteger(v) || typeof v === 'boolean' || bigWhole(v) !== 0,
   rational: v => HOLDS.integer(v) || (!!v && typeof v === 'object' && ((Number.isInteger(v.n) && v.k === 0) || (typeof v.sym === 'string' && FRACTION.test(v.sym)))),
-  probability: v => !infinite(v) && yes('>=', v, 0) && yes('<=', v, 1),
+  probability: v => { if (infinite(v)) return false; const low = told('>=', v, 0), high = told('<=', v, 1); return low === false || high === false ? false : low === null || high === null ? null : true; },
   real: v => !infinite(v),
   any: () => true,
 };
@@ -210,12 +215,14 @@ export function admits(holds, v){
   if (typeof v === 'object' && typeof v.f === 'number') return p.space === A || (Number.isFinite(v.f) && (p.space === R || (p.space === P && v.f >= 0 && v.f <= 1)));      /* a decimal is asked only whether it is on the line, and from 0 to 1 */
   return HOLDS[p.space](v);
 }
-export function broken(holds, entries){
+function firstThat(holds, entries, answer){
   const list = entries instanceof Map ? [...entries] : Object.entries(entries || {}); let worst = null;
-  for (const [key, value] of list){ if (admits(holds, value)) continue; const [c, r] = key.split(',').map(Number);
+  for (const [key, value] of list){ if (admits(holds, value) !== answer) continue; const [c, r] = key.split(',').map(Number);
     if (!worst || r < worst.r || (r === worst.r && c < worst.c) || (r === worst.r && c === worst.c && key < worst.key)) worst = { key, value, c, r }; }
   return worst && { key: worst.key, value: worst.value };
 }
+export const broken = (holds, entries) => firstThat(holds, entries, false);
+export const untold = (holds, entries) => firstThat(holds, entries, null);
 const shown = v => v === 'inf' ? '∞' : v === '-inf' ? '-∞' : isNone(v) ? 'None' : valueText(v);
 export const NOT_HELD = (name, holds, key, value) => `${name} is not ${said(holds)}: it holds ${shown(value)} at ${key.split(',').join(', ')}`;
 export const UNPROVEN = (name, holds, inferred) => `${name} cannot be shown to be ${said(holds)}: it is worked out as ${said(inferred)}`;
