@@ -50,6 +50,7 @@
                                   no number among them and a None is, and "boolean" where there is nothing at
                                   all (the smallest word there is to say so). more: written
                                   spaces that are among them too (what a variable's formulas come to)
+   silent(values, more)        -> whether they say nothing at all: no number among them and no None
    binary(op, a, b)            -> the space of a op b, for + - * / ^, == != < > <= >=, && ||, max and min
    unary(fn, a)                -> of fn(a), for neg ! abs sqrt exp ln tanh erf
    choice(a, b)                -> of select(c, a, b): the space of both sides, whatever c is (None is false)
@@ -160,6 +161,9 @@ function smallest(values, more = []){
 const ofValue = v => { const s = lies(v); return s === undefined ? undefined : s[1] ? [null, true] : [FIRST.find(x => s[0].includes(x)), false]; };
 export const of = v => { const s = ofValue(v); return s === undefined ? null : write(s); };
 export const ofAll = (values, more = []) => write(smallest(values, more));
+/* whether they say nothing at all: no number among them and no None (a shape none of whose entries is given yet).
+   Nothing known is no space, and lies inside every one: it widens nothing and breaks nothing. */
+export function silent(values, more = []){ return !values.some(v => lies(v)) && !more.some(w => { const s = read(w); return s[0] !== null || s[1]; }); }
 
 /* ---- the operations ---- */
 const first = (clauses, ...xs) => { for (const c of clauses) if (xs.every((x, i) => inside(x, c[i]))) return c[xs.length]; return A; };

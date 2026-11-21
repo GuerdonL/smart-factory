@@ -297,7 +297,8 @@ made of it has no value until the promise is changed or the entry is.
 
 At the bottom, `X` is read by the arrow `linear`, whose function multiplies its input by `Wf`, and `Out` is seated
 on the output. Select the arrow: **Takes** is `natural`, what the function's `in` block promises, held against what
-`X` gives it; **Gives** is `whole`, what `Out` promises. Type -4 into `X` and both rows say what breaks them.
+`X` gives it; **Gives** is `whole`, what `Out` promises. Type -4 into `X` and Takes says which entry breaks it:
+the arrow's output then has no value, and nor has `Out`.
 
 In a file, `W` has `"holds": "natural?"` and the entry `"2,1": { "none": true }`; a shape that promises nothing has
 no `holds`.

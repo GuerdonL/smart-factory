@@ -14,6 +14,7 @@ file to it, so the two cannot drift apart.
     both(a, b)              -> the space of both: the smallest listed space that holds the two, written
     of(value)               -> the smallest space a value of the graph lies in, written; None for what is no value
     of_all(values, more)    -> the space of them all; more: written spaces that are among them too
+    silent(values, more)    -> whether they say nothing at all
     binary(op, a, b), unary(fn, a), choice(a, b), total(a, count), product(a, b, terms)
     formula(tree, name)     -> of a formula, from its tree (formula.py: parse) and name(text) -> a written space,
                                or None for a name that is not known ("any?")
@@ -205,6 +206,11 @@ def of(v):
 
 def of_all(values, more=()):
     return _write(_smallest(values, more))
+
+
+def silent(values, more=()):
+    """Whether they say nothing at all: no number among them and no None (spaces.js: silent)."""
+    return not any(_lies(v) for v in values) and not any(_read(w)[0] is not None or _read(w)[1] for w in more)
 
 
 def _first(clauses, *xs):

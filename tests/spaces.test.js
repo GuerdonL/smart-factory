@@ -290,3 +290,49 @@ test('a shape of only None is worked out as none, promises it and keeps it, and 
   assert.equal(g.nodes[node('E')].type.value, 'none'); assert.equal(promiseOf(g, node('E')).inferred, 'none'); assert.equal(g.nodes[node('P')].holds, 'none'); assert.equal(promiseOf(g, node('P')).state, 'kept');
   assert.deepEqual(promiseOf(g, node('Q')), { holds: 'none', inferred: 'natural?', state: 'broken', note: 'Q is not None: it holds 3 at 2, 1' });
 });
+
+/* ---- ruled 21 November 2026: a broken Takes is an error, and a type never says what might be false ---- */
+test('evaluate: a value outside what an arrow takes is the error type, naming the entry: the output has no value, and nor has what is made of it', () => {
+  const lin = (x, more = {}) => [B('X', 0, 20, 2, 2, { entries: rowsOf(x) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural', ...more }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) }),
+    B('Out', 5, 20, 1, 2, { seat: 'lin' })];
+  let g = made(snap(lin([[1, 2], [3, -4]]))); const out = g => g.spaces.top.arrows[0].node;
+  assert.deepEqual(evaluate(g, out(g)), { error: { code: 'type', note: 'in is not natural: it holds -4 at 2, 2', node: out(g) } });
+  assert.deepEqual(evaluate(g, 'v:Out').error, evaluate(g, out(g)).error);      /* the block seated on it: no value, for the same reason */
+  assert.equal(judged(g, 'v:X', 'natural', 'in').note, 'in is not natural: it holds -4 at 2, 2');      /* the sentence the arrow's Takes row shows is the same one */
+  g = made(snap(lin([[1, 2], [3, 4]]))); assert.deepEqual(evaluate(g, 'v:Out').entries, { '1,1': 5, '1,2': 11 });      /* kept: worked out as before */
+  g = made(snap(lin([[1, NONE], [3, 4]]))); assert.equal(evaluate(g, out(g)).error.note, 'in is not natural: it holds None at 2, 1');
+  g = made(snap(lin([[1, NONE], [3, 4]], { holds: 'natural?' }))); assert.ok(evaluate(g, out(g)).entries);
+  g = made(snap(lin([[1, null], [3, 4]]))); assert.ok(evaluate(g, out(g)).entries);      /* an entry not given breaks nothing */
+});
+test('evaluate: an arrow repeated in a tile holds each run to what it takes, and the sentence says which run', () => {
+  const tile = (id, members, repeat) => ({ id, name: null, members, groups: [], repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 1, down: 1, ...repeat } });
+  const g = made(snap([B('N', 0, 20, 2, 4, { entries: rowsOf([[1, 2], [3, 4], [5, -6], [7, 8]]) }),
+    arrow('g', { id: 'N', as: 'block' }, { side: 'e', span: 2 }, { x: 2, y: 20, inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wg', -7, 0, 1, 2, { entries: rowsOf([[1], [10]]) })]) })],
+    [tile('t2', [1], { x: 2, y: 20, cols: 1, rows: 2, down: 2 })]));
+  const node = g.spaces.top.arrows[0].node; assert.equal(g.nodes[node].op, 'mapalong');
+  assert.deepEqual(evaluate(g, node), { error: { code: 'type', note: 'in is not natural: it holds -6 at 2, 1 in run 2', node } });
+});
+test('graph: a promise is a type only where the graph alone shows it kept; otherwise the type passed on is what is worked out, and nothing known widens nothing', () => {
+  const g = made(snap([B('Nn', 0, 0, 2, 2, { source: { noise: { seed: 1, dist: 'normal' } }, holds: 'probability' }), B('Nu', 10, 0, 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } }, holds: 'real' }),
+    B('Z', 20, 0, 2, 1, { entries: rowsOf([[2, -3]]), holds: 'natural' }), B('K', 30, 0, 2, 1, { entries: rowsOf([[2, 3]]), holds: 'integer' }),
+    B('E', 40, 0, 2, 1, { holds: 'natural' }), B('Ef', 50, 0, 2, 1, { holds: 'natural' }), B('P', 60, 0, 2, 1, { entries: rowsOf([[1, null]]), holds: 'natural' }), B('F', 70, 0, 1, 1, { entries: { '1,1': { expr: '3 - 1' } }, holds: 'natural' })]));
+  assert.equal(valueOf(g, 'v:Nn'), 'real');      /* cannot be shown: the wider one actually worked out, not the promise */
+  assert.equal(promiseOf(g, 'v:Nn').state, 'unproven');
+  assert.equal(valueOf(g, 'v:Nu'), 'real');      /* probability lies inside real: the promise */
+  assert.equal(valueOf(g, 'v:Z'), 'integer'); assert.equal(valueOf(g, 'v:K'), 'integer');
+  for (const id of ['v:E', 'v:Ef']){ assert.equal(valueOf(g, id), 'natural', id); assert.deepEqual(promiseOf(g, id), { holds: 'natural', inferred: 'boolean', state: 'kept', note: '' }); }      /* an empty shape: nothing known lies inside every space, so it neither widens nor warns */
+  assert.equal(valueOf(g, 'v:P'), 'boolean'); assert.equal(promiseOf(g, 'v:P').state, 'kept');      /* one entry given: what is known is said, and its value keeps the promise */
+  assert.equal(valueOf(g, 'v:F'), 'integer'); assert.equal(promiseOf(g, 'v:F').state, 'kept');      /* a difference is an integer by its rule; its value, 2, is held against the promise where the values are */
+  /* and the validator holds a graph to it: a promise claimed as the type where the graph does not show it is refused */
+  const claimed = JSON.parse(JSON.stringify(g)); claimed.nodes['v:Nn'].type.value = 'probability'; assert.ok(validate(claimed).some(w => w.includes('v:Nn')));
+  const empty = JSON.parse(JSON.stringify(g)); empty.nodes['v:E'].type.value = 'boolean'; assert.ok(validate(empty).some(w => w.includes('v:E')));
+});
+test('graph: a function applied gives its body\'s space only where what it is given is known to lie in what the function takes', () => {
+  const lin = (x, takes) => made(snap([B('X', 0, 20, 2, 2, { entries: rowsOf(x) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, ...(takes ? { holds: takes } : {}) }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) })]));
+  const out = g => valueOf(g, g.spaces.top.arrows[0].node);
+  assert.equal(out(lin([[1, 2], [3, 4]], 'natural')), 'natural');      /* naturals given to a function of naturals */
+  assert.equal(out(lin([[1, 2], [3, -4]], 'natural')), 'any?');      /* integers given: the body's space was worked out for naturals, and is not said of this */
+  assert.equal(out(lin([[1, 2], [3, -4]], 'integer')), 'integer'); assert.equal(out(lin([[1, 2], [3, -4]], null)), 'any?');
+});

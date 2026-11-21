@@ -152,19 +152,26 @@ def space_in(text, ins, first, arrow=None):
     return S.formula(tree, name)
 
 
-def body_of(n, g):
+def body_of(n, g, given):
+    """A function applied has its body's space where what it is given lies in what the function takes, and any? where
+    that is not known from the graph (graph.js: bodyOf)."""
     f = g['fn'](n['fn'])
-    return value_of(g['node'](f['body']) if f else None)
+    p = g['node'](f['input']) if f else None
+    return value_of(g['node'](f['body']) if f else None) if S.within(value_of(given), value_of(p)) else S.ANY
 
 
 def variable_space(n, ins, g):
-    if 'holds' in n:
-        return n['holds']
+    """What it is worked out as; its promise where that is known to lie inside it, or its entries say nothing yet
+    (graph.js: OPS.variable.space). A type never says what might be false."""
+    quiet = False
     if n['defined'] != 'entries':
-        return value_of(ins[0])
-    entries = list(n['entries'].values())
-    is_formula = lambda v: is_obj(v) and isinstance(v.get('expr'), str)
-    return S.of_all([v for v in entries if not is_formula(v)], [space_in(v['expr'], ins, 0) for v in entries if is_formula(v)])
+        was = value_of(ins[0])
+    else:
+        entries = list(n['entries'].values())
+        is_formula = lambda v: is_obj(v) and isinstance(v.get('expr'), str)
+        values, more = [v for v in entries if not is_formula(v)], [space_in(v['expr'], ins, 0) for v in entries if is_formula(v)]
+        was, quiet = S.of_all(values, more), S.silent(values, more)
+    return n['holds'] if 'holds' in n and S.parse(n['holds']) is not None and (quiet or S.within(was, n['holds'])) else was
 
 
 def measure_space(n, ins, g):
@@ -728,10 +735,10 @@ RULES = {
     'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g), 'space': lambda n, ins, g: 'probability' if n['dist'] == 'uniform' else 'real'},
     'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type, 'space': measure_space},
     'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type, 'space': lambda n, ins, g: space_in(n['formula'], ins, 1, value_of(ins[0]))},
-    'apply': {'inputs': (1, 1), 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type, 'space': lambda n, ins, g: body_of(n, g)},
+    'apply': {'inputs': (1, 1), 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type, 'space': lambda n, ins, g: body_of(n, g, ins[0])},
     'param': {'inputs': (0, 0), 'fields': none, 'type': lambda n, ins, g: n['type'] if ok_type(n.get('type')) else 'it has no size of its own', 'space': lambda n, ins, g: value_of(n)},
     'repeat': {'inputs': (1, INF), 'fields': repeat_fields, 'type': repeat_type, 'space': lambda n, ins, g: all_of(ins)},
-    'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
+    'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g, ins[0]) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
     'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type, 'space': lambda n, ins, g: all_of(ins)},
     'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type, 'space': lambda n, ins, g: value_of(ins[0])},
 }

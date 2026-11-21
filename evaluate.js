@@ -132,7 +132,7 @@ function needsOf(graph, st, id, open = new Set()){
   let most = numbers(n.type), bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
   let remote = n.op === 'noise' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
   let bound = fnsOf(n).length ? most : 0;       /* the most numbers of anything it is worked out from that follows a function's input: that is worked out again for each thing the function is applied to */
-  let kept = n.op === 'variable' && typeof n.holds === 'string' ? [id] : NO_IDS;      /* the variables among them, itself included, that promise a number space */
+  let kept = (n.op === 'variable' && typeof n.holds === 'string') || ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined) ? [id] : NO_IDS;      /* the variables among them, itself included, that promise a number space, and the functions applied, whose input may promise one */
   if (open.has(id)) return { most, bound, bad: bad || { code: 'loop', note: '', node: id }, remote, kept };
   open.add(id);
   const ins = n.inputs.map(i => nodeAt(graph, i)), rule = OPS[n.op];
@@ -193,7 +193,7 @@ function repeated(rule, n, at, types){
   for (const tail of tailsOf(lead)){
     /* a function's body at one position is of no use at the next: what it comes to there is kept only while that position is worked out */
     const scratch = applies ? new Map() : null;
-    const here = { ...at, ks: tail.slice(1).split(',').map(Number), ...(applies ? { call: (fn, values, k) => at.call(fn, values, k, scratch) } : {}),
+    const here = { ...at, ks: tail.slice(1).split(',').map(Number), ...(applies ? { call: (fn, values, k, _, where = '') => at.call(fn, values, k, scratch, where, tail) } : {}),
       type: k => hasInner(types[k]) ? flatType(types[k]) : types[k],
       get: (k, e) => hasInner(types[k]) ? split(at.get(k, e)).get(tail) || EMPTY : at.get(k, e),
       keyOf: k => at.keyOf(k) + (hasInner(types[k]) ? '#k' + tail : '') };
@@ -217,8 +217,13 @@ function run(graph, st, id, env){
     turn: () => ({ ...env, cells: inner(env.cells, c => ({ ...c, turned: !c.turned })) }),
     shift: (dx, dy) => ({ ...env, cells: inner(env.cells, c => c.turned ? { ...c, dx: c.dx + dy, dy: c.dy + dx } : { ...c, dx: c.dx + dx, dy: c.dy + dy }) }),
     cell: c => ({ ...env, cells: [...env.cells, aCell({ ...c, of: homesOf(graph, st).repeats.get(id) || null })] }),
-    call(fn, values, k, scratch = null){ const f = fnAt(graph, fn); if (!f) return new Map();
+    call(fn, values, k, scratch = null, where = '', tail = ''){ const f = fnAt(graph, fn); if (!f) return new Map();
       if (env.active.includes(fn)) throw LOOP;      /* a function inside itself: validate refuses the graph, and this stops it */
+      /* what the function's input block promises to take is held against what it is given, here, where the values
+         are: one that lies outside it is the error type, as a shape's own broken promise is, and the function is not
+         run. where: which run of a repeated arrow; tail: which inner position, where it is run at each. */
+      const p = nodeAt(graph, f.input), takes = p && p.op === 'param' && typeof p.type.value === 'string' && p.type.value !== 'any?' ? p.type.value : null, out = takes ? broken(takes, values) : null;
+      if (out) throw { broke: { code: 'type', note: NOT_HELD('in', takes, out.key + tail, out.value === Infinity ? 'inf' : out.value === -Infinity ? '-inf' : out.value) + where, node: id } };
       return run(graph, st, f.body, { params: { ...env.params, [fn]: { values, key: k } }, cells: [], active: [...env.active, fn], scratch: scratch || env.scratch || null }); },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */

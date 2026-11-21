@@ -141,8 +141,10 @@
    "?" after it where None is admitted, "integer?". It follows from the node's inputs by its operation's rule, as
    the size does, and validate checks it so; a type that says none (every graph before version 3) is not checked,
    and is taken as "any?" by what reads it. A variable may carry holds, a promise in the same words: its value is
-   then the promise, whatever defines it. A function's input (param) has for its value what its input block
-   promises, "any?" where that promises nothing, and a function applied has its body's.
+   the promise where what it is worked out as lies inside the promise (or its entries say nothing yet), and
+   otherwise what it is worked out as: a type never says what might be false. A function's input (param) has for
+   its value what its input block promises, "any?" where that promises nothing, and a function applied has its
+   body's where what it is given lies in that, and "any?" where it is not known to.
 
    Inner data. A type's two drawn sides are cols and rows, as ever. Where each entry of the matrix is itself an
    array, the type has inner: the axes of what one entry holds, in order, each { "length", "name" } (name null where
@@ -216,7 +218,7 @@ const okType = t => !!t && typeof t === 'object' && !Array.isArray(t) && whole1(
    A type's value is the number space its numbers lie in, written "integer", or "integer?" where None is admitted. It
    follows from the node's inputs by its operation's rule (OPS[op].space), as its size does; a node whose type says
    none is taken as "any?", of which nothing is known. A variable that carries holds, a promise, has that for its
-   value whatever defines it: whether the promise is kept is asked of its values (evaluate.js), not of the graph. */
+   value only where the graph alone shows it kept: whether its values keep it is asked of them (evaluate.js). */
 const ANY = 'any?';
 const valueOf = n => (n && n.type && typeof n.type.value === 'string' ? n.type.value : ANY);
 const allOf = ins => ins.map(valueOf).reduce((a, b) => S.both(a, b));
@@ -228,7 +230,11 @@ function spaceIn(text, ins, first, arrow = null){
     if (tiles.axisOf(name) !== null || INNER.test(name)) return 'natural';
     const k = name.toLowerCase(); return arrow === null ? undefined : k === 'x' ? arrow : k === 'i' || k === 'j' ? 'natural' : undefined; });
 }
-const bodyOf = (n, g) => { const f = g.fn(n.fn); return valueOf(f && g.node(f.body)); };
+/* What a function applied comes to: its body's space, which was worked out for whatever the function's input block
+   promises to take. That is true of this use only where what it is given is known, from the graph alone, to lie in
+   what the function takes; where it is not, nothing is said of the result (any, or None). Whether the values given
+   lie in it is evaluate.js's to say (the error type, where one does not). */
+const bodyOf = (n, g, given) => { const f = g.fn(n.fn), p = f && g.node(f.input); return S.within(valueOf(given), valueOf(p)) ? valueOf(f && g.node(f.body)) : ANY; };
 const one = t => t.cols === 1 && t.rows === 1 && !innerOf(t).length;      /* a scalar: one number and nothing else. A one by one type that holds inner data is a matrix of one entry */
 const drawnSame = (a, b) => a.cols === b.cols && a.rows === b.rows;
 const same = (a, b) => drawnSame(a, b) && innerOf(a).length === innerOf(b).length && innerOf(a).every((x, i) => x.length === innerOf(b)[i].length);      /* one size, inner lengths and all */
@@ -392,10 +398,15 @@ const okEntryKey = (key, t) => { const p = key.split(','), ax = t ? axes(t) : nu
 
 export const OPS = {
   variable: { inputs: [0, Infinity], deep: true, id: n => n.id,
-    /* its promise where it carries one; else what defines it; else the space of its entries: every value given and every formula */
-    space(n, ins){ if (n.holds !== undefined) return n.holds;
-      if (n.defined !== 'entries') return valueOf(ins[0]);
-      const all = Object.values(n.entries); return S.ofAll(all.filter(v => !isFormula(v)), all.filter(isFormula).map(v => spaceIn(v.expr, ins, 0))); },
+    /* what defines it, or the space of its entries: every value given and every formula. Where it carries a promise
+       its value is the promise only where that follows from the graph alone: what it is worked out as lies inside
+       the promise, or its entries say nothing yet (nothing known lies inside every space). Otherwise it is what it
+       is worked out as, the wider of the two that is known to be true: a type never says what might be false.
+       Whether the values keep the promise is evaluate.js's to say, and the backend's of its own numbers. */
+    space(n, ins){ let was, quiet = false;
+      if (n.defined !== 'entries') was = valueOf(ins[0]);
+      else { const all = Object.values(n.entries), values = all.filter(v => !isFormula(v)), more = all.filter(isFormula).map(v => spaceIn(v.expr, ins, 0)); was = S.ofAll(values, more); quiet = S.silent(values, more); }
+      return n.holds !== undefined && S.parse(n.holds) && (quiet || S.within(was, n.holds)) ? n.holds : was; },
     fields(n){ const bad = [];
       if (n.holds !== undefined && !S.parse(n.holds)) bad.push('holds is no number space');
       if (typeof n.name !== 'string') bad.push('name is not text'); if (typeof n.named !== 'boolean') bad.push('named is not true or false');
@@ -525,7 +536,7 @@ export const OPS = {
     /* i, j and x are arrows.js's; index.x and index.y are the place of the output's entry in the cell it is worked out for */
     value(n, at){ const got = worked(n.formula, { cols: n.type.cols, rows: n.type.rows, x: at.get(0), lookup: lookupIn(n, at, 1, n.type, p => indexAt(at.cells, p.c, p.r)) });
       for (const [key, v] of got) if (sound(v) !== v) got.set(key, NONE); return got; } },
-  apply: { inputs: [1, 1], id: n => plain(n, ';' + n.fn), space: (n, ins, g) => bodyOf(n, g),      /* what its function's body comes to, for whatever the function's input block promises */
+  apply: { inputs: [1, 1], id: n => plain(n, ';' + n.fn), space: (n, ins, g) => bodyOf(n, g, ins[0]),      /* what its function's body comes to, where what it is given lies in what the function's input block promises */
     fields: n => typeof n.fn === 'string' ? [] : ['fn is not a function id'],
     type: (n, [a], g) => { const t = fnFits(n, g, a.type); return typeof t === 'string' ? t : T(t.cols, t.rows, t.colsName, t.rowsName, t.inner); },
     deep: fnWhole,
@@ -545,7 +556,7 @@ export const OPS = {
       const key = JSON.stringify(places);
       return tiles.entries({ x: 0, y: 0, cols: n.pattern.cols, rows: n.pattern.rows }, n.across, n.down, rects,
         (k, cx, cy) => at.get(k, at.cell({ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, cx, cy, at: places, atKey: key }))); } },
-  mapalong: { inputs: [1, Infinity], space: (n, ins, g) => n.fn !== undefined ? bodyOf(n, g) : spaceIn(n.formula, ins, 1, valueOf(ins[0])), id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
+  mapalong: { inputs: [1, Infinity], space: (n, ins, g) => n.fn !== undefined ? bodyOf(n, g, ins[0]) : spaceIn(n.formula, ins, 1, valueOf(ins[0])), id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
     fields: n => [...((n.fn !== undefined) !== (n.formula !== undefined) ? [] : ['it has exactly one of fn and formula']),
       ...(n.fn !== undefined && (typeof n.fn !== 'string' || n.inputs.length !== 1) ? ['fn is a function id, and takes the one input'] : []),
       ...(n.formula !== undefined && !formulaOk(n.formula, n.inputs.length - 1, { arrow: true }) ? ['its formula is one the graph cannot hold: it does not read, or names what is not an input'] : []),
@@ -565,7 +576,7 @@ export const OPS = {
       const on = (n.through || []).reduce((sum, t) => { const c = at.cells.find(c => c.of && c.of.includes(t.tile)); return sum + (c ? (rows ? c.y : c.x) : 0); }, 0);
       for (let k = 1; k <= n.count; k++){ const run = runOf(n, k), part = covered({ ...run, start: run.start + on }, x); if (!part) continue; const given = passed(X, part), size = T(part.cols, part.rows), off = (k - 1) * n.span;
         /* the key names the rows or columns handed over, where they really begin: two arrows of one function on different runs of one input, or one arrow in two cells of a tile it is repeated through, do not share an answer */
-        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + n.axis + ':' + (run.start + on) + ':' + run.span)
+        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + n.axis + ':' + (run.start + on) + ':' + run.span, null, n.count > 1 ? ' in run ' + k : '')
           : worked(n.formula, { cols: part.cols, rows: part.rows, x: given, lookup: lookupIn(n, at, 1, size, p => n.at ? { x: n.at.col + p.c + (rows ? 0 : off), y: n.at.row + p.r + (rows ? off : 0) } : null) });
         const each = Math.round((rows ? n.type.rows : n.type.cols) / n.count);
         for (const [key, v] of got){ const [c, r, ...ks] = key.split(',').map(Number); out.set((rows ? c + ',' + (r + (k - 1) * each) : (c + (k - 1) * each) + ',' + r) + tailOf(ks), sound(v)); } }

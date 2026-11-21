@@ -117,6 +117,29 @@ class NoneAlone(unittest.TestCase):
         self.assertNotEqual(validate(g), [])
 
 
+class NeverFalse(unittest.TestCase):
+    """Ruled 21 November 2026: a promise is a type only where the graph alone shows it kept (graph.js says the same)."""
+
+    def graph(self, entries, value, holds='natural'):
+        t = {'cols': 2, 'rows': 1, 'colsName': None, 'rowsName': None, 'value': value}
+        return {'version': 3, 'functions': {}, 'spaces': {}, 'blocks': {}, 'nodes': {'v': {'op': 'variable', 'inputs': [], 'type': t, 'name': 'V', 'named': True, 'defined': 'entries', 'entries': entries, 'holds': holds}}}
+
+    def test_the_type_is_the_promise_where_the_inferred_space_lies_inside_it_and_else_what_is_worked_out(self):
+        self.assertEqual(validate(self.graph({'1,1': 2, '2,1': -3}, 'integer')), [])
+        self.assertNotEqual(validate(self.graph({'1,1': 2, '2,1': -3}, 'natural')), [])
+        self.assertEqual(validate(self.graph({'1,1': 2, '2,1': 3}, 'integer', 'integer')), [])
+        self.assertNotEqual(validate(self.graph({'1,1': 2, '2,1': 3}, 'natural', 'integer')), [])
+
+    def test_nothing_known_lies_inside_every_space(self):
+        self.assertEqual(validate(self.graph({}, 'natural')), [])
+        self.assertNotEqual(validate(self.graph({}, 'boolean')), [])
+        self.assertEqual(validate(self.graph({'1,1': 1}, 'boolean')), [])      # one entry given: what is known is said
+        self.assertTrue(S.silent([], []))
+        self.assertTrue(S.silent([None, {'err': 'x'}], []))
+        self.assertFalse(S.silent([{'none': True}], []))
+        self.assertFalse(S.silent([], ['natural']))
+
+
 class InAGraph(unittest.TestCase):
     def graph(self):
         t = lambda value: {'cols': 2, 'rows': 1, 'colsName': None, 'rowsName': None, 'value': value}
