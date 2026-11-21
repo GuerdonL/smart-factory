@@ -114,9 +114,13 @@
                                    it covers, with a little air. whole: the result is read by an arrow, so its
                                    matrix has to stand on whole units: below, it is two units after the sign in
                                    place of one and a half (everywhere else it is on whole units already).
-   writtenWhere(box, size, taken, whole) -> writtenAt's answer with the side and drop chosen: to the right; if that
+   writtenWhere(box, size, taken, whole, firm) -> writtenAt's answer with the side and drop chosen: to the right; if that
                                    lies over one of taken, just below, to the left, or one or two units further
-                                   below; and if all of those are taken, to the right all the same.
+                                   below; and if all of those are taken, to the right all the same. firm, where
+                                   given, is the part of taken that is drawn solid (blocks, arrows, a tile's
+                                   copies; not the bare ground of a tile's own pattern): with every place taken,
+                                   the same places are tried against firm alone before the right is settled for,
+                                   so that a result with no free place is not written over an arrow that has one.
    readAt(written, hollow, copies) -> the rectangle an arrow reads of a written result, or null where none is
                                    written. written: { usable: [first, second] the pair's hollows that the result
                                    could be written in (null where not), drawn: [{ n, x, y, w, h }] those it is
@@ -340,9 +344,10 @@ export function writtenAt(box, size, { side = 'right', drop = 0, whole = false }
   const top = below ? on(box.y + box.h) + 1 + drop + (h ? 0 : .5) : h ? on(box.y + box.h / 2 - h / 2) : box.y + box.h / 2;
   return { sign: { x: left, y: top + h / 2 }, body: { x: left + lead, y: top, w, h }, at: { x: left - .5, y: top - (h ? air : .5), w: lead + 1 + w + air, h: (h || 1) + 2 * air } };
 }
-export function writtenWhere(box, size, taken, whole = false){
-  const tries = [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}];
-  for (const [i, where] of tries.entries()){ const got = writtenAt(box, size, { ...where, whole }); if (i === tries.length - 1 || !taken.some(t => over(t, got.at))) return { side: where.side || 'right', drop: where.drop || 0, ...got }; }
+export function writtenWhere(box, size, taken, whole = false, firm = null){
+  const tries = [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }];
+  for (const list of firm ? [taken, firm] : [taken]) for (const where of tries){ const got = writtenAt(box, size, { ...where, whole }); if (!list.some(t => over(t, got.at))) return { side: where.side || 'right', drop: where.drop || 0, ...got }; }
+  return { side: 'right', drop: 0, ...writtenAt(box, size, { whole }) };
 }
 export function readAt(written, hollow, copies){
   const named = hollow && copies > 0 ? written.usable[hollow - 1] : null;

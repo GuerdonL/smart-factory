@@ -2264,13 +2264,15 @@ function writtenIn(s, alg = null){
   /* an arrow that reads a written result, and the block seated on it, are placed by where the result is written: they are not in its way, or it would run from them */
   const follows = b => (isArrow(b) && b.arrow.input.as === 'result') || (typeof b.seat === 'string' && s.blocks.some(a => a.id === b.seat && isArrow(a) && a.arrow.input.as === 'result'));
   const taken = s.blocks.filter(b => !follows(b)).map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u }));      /* commented-out blocks are still in the way */
-  for (const g of s.repeats.keys()) taken.push(tileInfo(s, g).rect);      /* and so is all that is drawn of a tile: a result is not written over its copies */
+  const firm = [...taken];      /* what is drawn solid: with no place free, a result may lie on the bare ground of a tile's pattern, never on a block, an arrow or a copy (arrows.js: writtenWhere) */
+  for (const g of s.repeats.keys()){ const r = tileInfo(s, g).rect, rep = s.repeats.get(g); taken.push(r);      /* and so is all that is drawn of a tile: a result is not written over its copies */
+    if (r.x + r.w > rep.x + rep.cols) firm.push({ x: rep.x + rep.cols, y: r.y, w: r.x + r.w - rep.x - rep.cols, h: r.h }); if (r.y + r.h > rep.y + rep.rows) firm.push({ x: r.x, y: rep.y + rep.rows, w: rep.cols, h: r.y + r.h - rep.y - rep.rows }); }
   const out = all.map(piece => { const blocks = piece.members.map(m => active[m]), read = readers.filter(k => blocks.some(b => b.id === k.arrow.input.id)), type = piece.type, copies = copiesIn(s, blocks[0]);
     const size = type.error ? { w: 4, h: 0 } : { w: squares(type.cols, type.colsName), h: squares(type.rows, type.rowsName) };
     const usable = type.error ? [null, null] : pieceHollows(rects, piece).map(h => h && size.w <= h.w && size.h <= h.h ? h : null);
     const drawn = type.error ? [] : resultHollows(rects, piece, copies, { cols: size.w, rows: size.h }, read.map(k => k.arrow.input.hollow).filter(Boolean)).map(h => ({ n: usable.findIndex(o => same(o, h)) + 1, ...h }));
-    const where = drawn.length ? null : writtenWhere(piece.box, size, taken, read.length > 0), at = drawn.length ? { x: drawn[0].x, y: drawn[0].y, w: drawn[0].w, h: drawn[0].h } : where.at;
-    taken.push(at);
+    const where = drawn.length ? null : writtenWhere(piece.box, size, taken, read.length > 0, firm), at = drawn.length ? { x: drawn[0].x, y: drawn[0].y, w: drawn[0].w, h: drawn[0].h } : where.at;
+    taken.push(at); firm.push(at);
     return { piece, blocks, type, copies, usable, drawn, where, whole: read.length > 0, body: where && !type.error ? where.body : null, at }; });
   memo?.set(s, out); return out;
 }

@@ -504,6 +504,14 @@ test('conditionAt: what Make conditional adds lies over nothing that is there, m
   assert.deepEqual(conditionAt({ x: 0, y: 0 }, { cols: 2, rows: 3 }, [{ x: 4, y: 2, w: 1, h: 1 }]), { x: -1, y: 0 });      /* the whole output is looked at, not its first row */
   assert.deepEqual(conditionAt({ x: 0, y: 0 }, size, [{ x: -200, y: -200, w: 400, h: 400 }]), { x: 0, y: 0 });      /* nowhere: where it was */
 });
+test('writtenWhere: with every place taken, a result is written where it lies on no block or arrow before it is written to the right over one', () => {
+  const box = { x: 1, y: 1, w: 1, h: 1 }, size = { w: 1, h: 1 }, tile = { x: 0, y: 0, w: 9, h: 9 }, arrow = { x: 2, y: 1, w: 2, h: 1 }, copies = { x: 0, y: 3, w: 9, h: 6 };
+  assert.equal(writtenWhere(box, size, [arrow, tile]).side, 'right');      /* as it was: over the arrow */
+  assert.equal(writtenWhere(box, size, [arrow, tile], false, [arrow, copies]).side, 'left');      /* on the bare ground of the pattern and out of the tile: below is a copy's cell */
+  assert.equal(writtenWhere(box, size, [tile], false, [copies]).side, 'right');      /* nothing solid to its right: there, as before */
+  assert.equal(writtenWhere(box, size, [arrow, tile], false, [arrow, tile]).side, 'right');      /* and with nowhere at all, to the right all the same */
+  assert.deepEqual(writtenWhere(box, size, [arrow], false, [arrow]), writtenWhere(box, size, [arrow]));      /* a place that is free is taken as it always was */
+});
 test('chosenType: the size of a condition\'s two sides, which have to be one size; an empty side is None at the other\'s', () => {
   const t = (cols, rows, colsName = null, rowsName = null, inner = null) => ({ cols, rows, colsName, rowsName, ...(inner ? { inner } : {}) }), e = type => ({ type });
   assert.deepEqual(chosenType([[e(t(2, 3, 'key'))], [e(t(2, 3))]]), t(2, 3, 'key')); assert.deepEqual(chosenType([[e(t(2, 3))], [e(t(2, 3, 'key'))]]), t(2, 3));      /* the type is the true side's */
