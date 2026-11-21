@@ -39,9 +39,9 @@ hold it at once, a map's to the whole matrix. A select works both its sides out 
 A choose branches: its condition is worked out and reduced to one truth (arrays.truth), and then one side is worked
 out and the other never. So the side not chosen may be an error, or worked out from more than is worked out at all,
 and does no harm: what the chosen side needs is looked at when it is chosen (Run.chosen), as run.py looks at every
-other node before anything is made. For memory a choose counts its condition and the heavier of its two sides
-(weight), and room to work on the largest thing in either (needs: room), since which side it takes is not known
-before it runs. A condition with no truth (an entry with no value and none that is true) leaves it with no value.
+other node before anything is made. For memory a choose counts its condition, what is made through one side alone
+for the heavier side only, and what a side shares with anything else whichever is taken (weight); and room to work
+on the largest thing in either (needs: room), since which side it takes is not known before it runs. A condition with no truth (an entry with no value and none that is true) leaves it with no value.
 
 What has been worked out is remembered for the run, up to half the room the run was given for its arrays (room, in
 bytes: limits.py says how it follows from the machine's memory): past that the oldest results are let go, and worked
@@ -623,26 +623,98 @@ class Run:
         return self._needs[start]
 
     def weight(self, start):
-        """How many entries there are in everything a node's value is worked out from, itself included, each node
-        counted once: what a run of it may come to hold at once. Walked with a list of its own. Of a choose's two
-        sides only one is ever worked out: the heavier is counted (by the bytes it may take), with the condition."""
+        """How many entries there are in everything a run of a node may come to hold at once: itself and what its
+        value is worked out from, each node counted once. Walked with lists of its own, each node visited once.
+        Of a choose's two sides only one is worked out, so of what is made through one side alone (and through
+        nothing else the run makes) only the heavier side's is counted, by the bytes it may take. What a side
+        shares with the other, or with anything else that is worked out, is counted whichever side is taken: the
+        count is of the nodes that may be made, and is never less than what is. A choose whose condition is inside a
+        function, or follows its cell, has a truth for each thing the function is given and each cell, and may take
+        both sides in one run: both are counted."""
         if start not in self._weights:
-            seen, todo, total, masked = {start}, [start], 0, 0
-            while todo:
-                n = self.nodes[todo.pop()]
-                total += numbers(n['type'])
-                masked += numbers(n['type']) * (2 if chain_of(n) else 1) if self.may_be_none(n['type']) else 0      # (a sum or a product of several may keep a second byte an entry: arrays.py, Held.rest)
-                deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
-                if n['op'] in ('apply', 'mapalong') and 'fn' in n:
-                    deps.append(self.functions[n['fn']]['body'])
-                if n['op'] == 'choose':
-                    deps.append(max(n['inputs'][1:], key=lambda side: BYTES_AN_ENTRY * self.weight(side) + self._masked[side]))
-                for d in deps:
-                    if d not in seen:
-                        seen.add(d)
-                        todo.append(d)
-            self._weights[start], self._masked[start] = total, masked
+            self._weights[start], self._masked[start] = self.count(start)
         return self._weights[start]
+
+    def deps(self, i):
+        """Everything a node may be worked out from: a side of a choose is ('side', choose, k), a step of its own on
+        the way to that input, so that what is reached through one side alone can be told (count)."""
+        if not isinstance(i, str):
+            return [self.nodes[i[1]]['inputs'][i[2]]]
+        n = self.nodes[i]
+        deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
+        if n['op'] in ('apply', 'mapalong') and 'fn' in n:
+            deps.append(self.functions[n['fn']]['body'])
+        return deps + [('side', i, k) for k in range(1, len(n['inputs']))] if n['op'] == 'choose' else deps
+
+    def count(self, start):
+        """-> (entries, bytes of masks) for weight. With no choose it is the sum over what is reached. With one, each
+        thing reached has the one nearest thing that every way to it from start passes through (its dominator: in a
+        graph with no loop, the nearest common one of all that read it), and a count is passed up that tree: a
+        choose takes the heavier of what hangs under its two sides alone."""
+        order, seen, done, todo, chooses, loops = [], {start}, set(), [(start, iter(self.deps(start)))], False, False
+        while todo:      # every node after all it is worked out from
+            i, rest = todo[-1]
+            d = None
+            for d in rest:
+                if d not in seen:
+                    break
+                loops = loops or d not in done      # it is on the way to itself: a function that applies itself
+            else:
+                d = None
+            if d is None:
+                done.add(i)
+                order.append(todo.pop()[0])
+            else:
+                seen.add(d)
+                chooses = chooses or not isinstance(d, str)
+                todo.append((d, iter(self.deps(d))))
+        own = {}
+        for i in order:
+            if isinstance(i, str):
+                n = self.nodes[i]
+                size = numbers(n['type'])
+                own[i] = (size, size * (2 if chain_of(n) else 1) if self.may_be_none(n['type']) else 0)      # (a sum or a product of several may keep a second byte an entry: arrays.py, Held.rest)
+            else:
+                own[i] = (0, 0)
+        if not chooses or loops:      # (in a loop nothing is nearest: everything reached is counted)
+            return sum(w for w, _ in own.values()), sum(m for _, m in own.values())
+        order.reverse()      # every node before all it is worked out from
+        # the tree, with a second way up from each node that skips ahead, so that the nearest thing above two nodes is found in few steps
+        above, depth, skip, readers = {start: start}, {start: 0}, {start: start}, {}
+        for i in order:
+            if i != start:
+                up = None
+                for r in readers[i]:
+                    if up is None:
+                        up = r
+                        continue
+                    a, b = (up, r) if depth[up] >= depth[r] else (r, up)
+                    while depth[a] > depth[b]:
+                        a = skip[a] if depth[skip[a]] >= depth[b] else above[a]
+                    while a != b:
+                        a, b = (skip[a], skip[b]) if skip[a] != skip[b] else (above[a], above[b])
+                    up = a
+                above[i], depth[i] = up, depth[up] + 1
+                s = skip[up]
+                skip[i] = skip[s] if depth[up] - depth[s] == depth[s] - depth[skip[s]] else up
+            for d in self.deps(i):
+                readers.setdefault(d, []).append(i)
+        total, sides = dict(own), {}
+        for i in reversed(order):      # what hangs under a node is counted before the node
+            w, m = total[i]
+            if i in sides:
+                c = self.nodes[i]['inputs'][0]      # one condition, worked out once, takes one side however often the choose is asked for
+                both = bool(functions_of(self.nodes[c])) or self.follows(c)
+                took = [sum(x) for x in zip(*sides[i])] if both else max(sides[i], key=lambda side: BYTES_AN_ENTRY * side[0] + side[1])
+                w, m = w + took[0], m + took[1]
+            if i != start:
+                if isinstance(i, str):
+                    up = total[above[i]]
+                    total[above[i]] = (up[0] + w, up[1] + m)
+                else:
+                    sides.setdefault(above[i], []).append((w, m))
+            else:
+                return w, m
 
     def may_be_none(self, t):
         """Whether an array of this type may carry a mask beside its numbers (arrays.py: Held), a byte an entry more:

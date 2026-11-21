@@ -5,6 +5,7 @@ one side is worked out and the other never.
 The fixtures hold the same cases against evaluate.js (test_evaluate.SameAnswers: "by hand: choose" and
 "conditions"); what is here is each rule on its own, what differs from the page (a condition with an entry never
 given has no value here), and the measurements: a side of 16,000,000 numbers that is not chosen is never made."""
+import itertools
 import json
 import time
 import tracemalloc
@@ -284,3 +285,140 @@ class OnlyTheChosenSide(unittest.TestCase):
         self.assertEqual(whole(g, 't', 8 << 30), A2)      # not chosen: no harm
         self.assertEqual(whole(g, 'f', 8 << 30), '5,000 × 4,000 numbers in what it is worked out from, more than the 16,000,000 that are worked out')
         self.assertEqual(whole(g, 'cut', 8 << 30), '5,000 × 4,000 numbers in what it is worked out from, more than the 16,000,000 that are worked out')      # as it is of the node itself
+
+
+@needs_numpy
+class Counted(unittest.TestCase):
+    """Run.weight over chooses: each node visited once however they are nested, and never less than what a run may
+    come to hold, whichever side each choose takes."""
+
+    def chain(self, n, shape):
+        nodes = {'yes': variable(1, 1, [[True]]), 'no': variable(1, 1, [[0]]), 'leaf': variable(1, 1, [[3]])}
+        for i in range(n):
+            after = 'c%d' % (i + 1) if i + 1 < n else 'leaf'
+            nodes['c%d' % i] = {'op': 'choose', 'inputs': {'unchosen': ['yes', 'leaf', after], 'then': ['yes', after, 'leaf'], 'else': ['no', 'leaf', after], 'both': ['yes', after, after], 'condition': [after, 'leaf', 'leaf']}[shape], 'type': T(1, 1)}
+        return G(nodes)
+
+    def test_a_chain_of_chooses_as_deep_as_a_graph_may_be_is_counted_once_a_node_and_worked_out(self):
+        import sys
+        import threading
+        from backend.limits import MAX_NODES
+        n, out = MAX_NODES - 3, {}
+
+        def work():      # as service.py runs one: a deep stack, since a value is asked for through what reads it
+            for shape in ('unchosen', 'then', 'else', 'both', 'condition'):
+                g = self.chain(n, shape)
+                began, asked, deps = time.monotonic(), [], Run.deps
+                Run.deps = lambda self, i: (asked.append(i), deps(self, i))[1]
+                try:
+                    counted = Run(g, room=ROOM).weight('c0')
+                finally:
+                    Run.deps = deps
+                out[shape] = (counted, time.monotonic() - began, len(asked), ask(g, [{'node': 'c0', 'cells': [[1, 1]]}]))
+        limit, stack = sys.getrecursionlimit(), threading.stack_size(256 << 20)
+        sys.setrecursionlimit(1_000_000)
+        try:
+            t = threading.Thread(target=work)
+            t.start()
+            t.join()
+        finally:
+            sys.setrecursionlimit(limit)
+            threading.stack_size(stack)
+        for shape, (counted, took, asked, answer) in out.items():
+            self.assertEqual(counted, n + (1 if shape == 'condition' else 2), shape)      # every choose, the leaf and the one condition: each once
+            self.assertLessEqual(asked, 2 * 3 * (n + 3), shape)      # each node and each side asked what it reads twice (once to walk, once to say who reads it), never once for each choose above it
+            self.assertLess(took, 10, shape)
+            self.assertEqual((answer['errors'], answer['results']['c0']['cells']), ({}, [[1, 1, 3.0]]), shape)
+        self.assertEqual(len(out), 5)
+
+    def test_a_thousand_chooses_side_by_side_over_one_shared_chain_take_what_as_many_sums_take(self):
+        def flat(op):
+            nodes = {'yes': variable(1, 1, [[True]]), 'leaf': variable(1, 1, [[1]])}
+            for i in range(4000):
+                nodes['d%d' % i] = {'op': 'add', 'inputs': ['d%d' % (i - 1) if i else 'leaf', 'leaf'], 'type': T(1, 1)}
+            for k in range(1000):
+                nodes['s%d' % k] = {'op': 'add', 'inputs': ['d3999', 'leaf'], 'type': T(1, 1)}
+                nodes['c%d' % k] = {'op': 'choose', 'inputs': ['yes', 'leaf', 's%d' % k], 'type': T(1, 1)} if op == 'choose' else {'op': 'add', 'inputs': ['leaf', 's%d' % k], 'type': T(1, 1)}
+            nodes['all'] = {'op': 'block', 'inputs': ['c%d' % k for k in range(1000)], 'type': T(1000, 1), 'at': [{'col': k, 'row': 0} for k in range(1000)]}
+            began = time.monotonic()
+            return Run(G(nodes), room=ROOM).weight('all'), time.monotonic() - began
+        (chooses, took), (sums, plain) = flat('choose'), flat('add')
+        self.assertEqual(sums, 1000 + 1000 + 1000 + 4000 + 1)
+        self.assertEqual(chooses, sums + 1)      # the chain is under every side: all of it may be made, and the condition
+        self.assertLess(took, 2 + 20 * plain)
+
+    def test_a_side_that_is_read_outside_the_choose_as_well_does_not_stand_for_the_other(self):
+        # the reviewers' case: out is worked out from exactly what plain is, and from ch
+        N = 4000
+        nz = lambda k: {'op': 'noise', 'inputs': [], 'type': T(N, N), 'seed': k, 'dist': 'uniform', 'key': 'k%d' % k}
+        mm = lambda a, b: {'op': 'matmul', 'inputs': [a, b], 'type': T(N, N)}
+        for c in ('yes', 'no'):
+            g = G({'yes': variable(1, 1, [[True]]), 'no': variable(1, 1, [[0]]), 'x1': nz(1), 'x2': nz(2), 'r': nz(3), 's': nz(4), 'P': mm('x1', 'x2'), 'Q': mm('r', 's'),
+                   'ch': {'op': 'choose', 'inputs': [c, 'P', 'Q'], 'type': T(N, N)}, 'out': {'op': 'add', 'inputs': ['ch', 'P'], 'type': T(N, N)}, 'plain': {'op': 'add', 'inputs': ['Q', 'P'], 'type': T(N, N)}})
+            work, each = Run(g, room=ROOM), N * N
+            self.assertEqual(work.weight('plain'), 7 * each)
+            self.assertEqual(work.weight('ch'), each + 1 + 3 * each)      # alone, one side
+            self.assertEqual(work.weight('out'), work.weight('plain') + each + 1)      # P whichever side is taken, and Q, which may be
+            self.assertGreaterEqual(work.bytes_for('out', 6, 4), work.bytes_for('plain', 6, 4))
+
+    def test_it_is_never_less_than_what_any_choice_of_sides_makes_and_is_exactly_that_where_nothing_is_shared(self):
+        import random
+        rng = random.Random(9)
+        entry, mask = 4, lambda n: n['type']['cols'] * (2 if n['op'] == 'add' else 1)      # a graph of version 4 whose types say no value: every array may hold None
+        tight = 0
+        for trial in range(400):
+            count, shared = rng.randint(2, 12), trial % 2 == 0
+            nodes, free = {}, list(range(1, count))
+            for i in range(count):
+                def below():
+                    if shared:
+                        return rng.randint(i + 1, count) if i + 1 < count else count
+                    return free.pop(0) if free and free[0] > i and rng.random() < 0.8 else count      # each read by one node only: a tree
+                op = rng.choice(['add', 'choose', 'choose', 'slice'])
+                inputs = [below() for _ in range({'add': 2, 'choose': 3, 'slice': 1}[op])]
+                nodes['n%d' % i] = {'op': op, 'inputs': ['n%d' % k if k < count else 'leaf%d' % (rng.randint(0, 2) if shared else 3 * i + at) for at, k in enumerate(inputs)], 'type': T(rng.randint(1, 9), 1)}
+            for i in {i for n in list(nodes.values()) for i in n['inputs'] if i.startswith('leaf')}:
+                nodes[i] = {'op': 'source', 'inputs': [], 'type': T(rng.randint(1, 9), 1), 'kind': 'ones'}
+            chooses = [i for i, n in nodes.items() if n['op'] == 'choose']
+            most = 0
+            for taken in itertools.product((1, 2), repeat=len(chooses)):
+                side, made, todo = dict(zip(chooses, taken)), set(), ['n0']
+                while todo:
+                    i = todo.pop()
+                    if i not in made:
+                        made.add(i)
+                        n = nodes[i]
+                        todo.extend([n['inputs'][0], n['inputs'][side[i]]] if n['op'] == 'choose' else n['inputs'])
+                most = max(most, sum(entry * nodes[i]['type']['cols'] + mask(nodes[i]) for i in made))
+            work = Run(G(nodes), room=ROOM)
+            got = entry * work.weight('n0') + work._masked['n0']
+            reached, todo = set(), ['n0']
+            while todo:
+                i = todo.pop()
+                if i not in reached:
+                    reached.add(i)
+                    todo.extend(nodes[i]['inputs'])
+            self.assertGreaterEqual(got, most, nodes)
+            self.assertLessEqual(got, sum(entry * nodes[i]['type']['cols'] + mask(nodes[i]) for i in reached), nodes)
+            if sum(len(nodes[i]['inputs']) for i in reached) == len(reached) - 1:
+                self.assertEqual(got, most, nodes)      # a tree: the heavier side of each choose, exactly
+                tight += 1
+        self.assertGreater(tight, 150)
+
+    def test_a_choose_whose_condition_has_a_truth_for_each_thing_a_function_is_given_may_take_both_sides(self):
+        big = lambda kind: {'op': 'source', 'inputs': [], 'type': T(30, 30), 'kind': kind}
+        g = G({'one': big('ones'), 'zero': big('zeros'), 'p': {'op': 'param', 'inputs': [], 'type': T(1, 1), 'within': ['f:1']}, 'body': dict(CH('p', 'one', 'zero', 30, 30), within=['f:1']),
+               'col': variable(1, 2, [[1], [0]]), 'runs': {'op': 'mapalong', 'inputs': ['col'], 'type': T(30, 60), 'fn': 'f:1', 'axis': 'rows', 'start': 1, 'span': 1, 'count': 2},
+               'yes': variable(1, 1, [[True]]), 'fixed': CH('yes', 'one', 'zero', 30, 30)}, {'f:1': {'input': 'p', 'body': 'body'}})
+        self.assertEqual(validate(g), [])
+        work = Run(g, room=ROOM)
+        work.value('runs')
+        self.assertEqual({k[0] for k in work.kept} >= {'one', 'zero'}, True)      # both were made, one in each run
+        self.assertEqual(work.weight('runs'), 30 * 60 + 2 + 900 + 1 + 900 + 900)      # itself, col, body, p, and both sides
+        self.assertEqual(work.weight('fixed'), 900 + 1 + 900)      # one condition, one truth: one side
+
+    def test_a_function_that_applies_itself_is_counted_and_not_walked_for_ever(self):
+        g = G({'p': {'op': 'param', 'inputs': [], 'type': T(1, 1), 'within': ['f:1']}, 'a': variable(1, 1, [[1]]), 'b': variable(1, 1, [[2]]),
+               'again': {'op': 'apply', 'inputs': ['p'], 'type': T(1, 1), 'fn': 'f:1', 'within': ['f:1']}, 'body': dict(CH('p', 'again', 'b', 1, 1), within=['f:1']),
+               'use': {'op': 'apply', 'inputs': ['a'], 'type': T(1, 1), 'fn': 'f:1'}}, {'f:1': {'input': 'p', 'body': 'body'}})
+        self.assertEqual(Run(g, room=ROOM).weight('use'), 6)      # use, a, body, p, again, b: every node reached, once
