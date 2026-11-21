@@ -513,18 +513,23 @@ def _class(of, values, none, held, keep, minus):
     a term that is taken away); 0 otherwise. A 1 and a 2 among the terms that are not None is an entry with no value
     (0 × ∞, ∞ − ∞), and nothing else among them is. Where the entry is None it is what the terms set aside in it
     said (held.rest, where keep: the term is itself a step of this sum or product), and 0 where there were none."""
+    # (bytes throughout: a flag is a byte, and two flags that are never both true are one byte, 1 or 2)
     if of == '*':
-        out = np.where(values == 0, 1, np.where(np.isinf(values), 2, 0)).astype(np.int8)
+        out = np.asarray((values == 0).view(np.int8) | (np.isinf(values).view(np.int8) << 1))      # (asarray: one number alone is an array still)
     else:
-        out = np.where(values == (-np.inf if minus else np.inf), 1, np.where(values == (np.inf if minus else -np.inf), 2, 0)).astype(np.int8)
+        out = np.asarray((values == (-np.inf if minus else np.inf)).view(np.int8) | ((values == (np.inf if minus else -np.inf)).view(np.int8) << 1))
     if none is None:
         return out
     under = held.rest if keep and isinstance(held, Held) and held.rest is not None and held.of == of else None
     if under is None:
-        return np.where(none, 0, out).astype(np.int8)
+        out[np.broadcast_to(none, out.shape)] = 0
+        return out
     if minus:
-        under = np.where(under == 1, 2, np.where(under == 2, 1, 0))
-    return np.where(none, under, out).astype(np.int8)
+        under = SWAPPED[under]
+    return np.where(none, under, out)
+
+
+SWAPPED = np.array([0, 2, 1, 0], dtype=np.int8)      # a term taken away says the other thing: ∞ for -∞
 
 
 def binary(op, a, b, chain=None):
@@ -555,9 +560,10 @@ def binary(op, a, b, chain=None):
         none = none & ~wrong
         made = _held(np.where(lost | wrong, NAN, out).astype(F), none)
         if isinstance(made, Held):
-            rest = np.where(made.none, said, 0).astype(np.int8)
-            if rest.any():
-                made.rest, made.of = rest, of
+            said = np.array(np.broadcast_to(said, made.none.shape))
+            said[~made.none] = 0
+            if said.any():
+                made.rest, made.of = said, of
         return made
 
 
