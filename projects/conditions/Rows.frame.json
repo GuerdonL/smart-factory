@@ -1,0 +1,63 @@
+{
+  "format": "smart-factory/frame",
+  "version": 5,
+  "id": "gcdl004",
+  "name": "Rows",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 5,
+      "id": "bcda004",
+      "type": "arrow",
+      "name": "Shape 2",
+      "named": false,
+      "commented": false,
+      "color": null,
+      "position": {
+        "x": -25,
+        "y": 4
+      },
+      "size": {
+        "cols": 2,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "Shape 2/",
+      "order": 16,
+      "arrow": {
+        "input": {
+          "id": "bcdc001",
+          "as": "block"
+        },
+        "side": "e",
+        "start": 1,
+        "span": 1,
+        "gap": 2,
+        "gapName": null,
+        "output": null,
+        "formula": null,
+        "choose": {
+          "then": "gcdt004",
+          "else": "gcde004"
+        }
+      }
+    }
+  ],
+  "groups": [],
+  "repeat": {
+    "x": -25,
+    "y": 4,
+    "cols": 4,
+    "rows": 1,
+    "across": 1,
+    "down": 3
+  }
+}

@@ -14,7 +14,9 @@
          gap:    how far the output's near edge is from the input's edge, in units: a whole number, at least 1
          gapName:   a name given to the gap, or null. It is layout and nothing else
          output: { cols, rows } the function promises, or null for no promise
-         formula:   an entry formula, or null }
+         formula:   an entry formula, or null
+         choose:    { then, else }, the ids of two frames of its definition space, where it is a condition (see
+                    "Conditions", below); left out of any other arrow }
 
    A rect is { x, y, w, h } in units, y downward, as in algebra.js. A type is { cols, rows, colsName, rowsName },
    with inner (the axes of what each entry holds, algebra.js) where it holds inner data. An arrow's span, and all
@@ -162,6 +164,28 @@
                                    an input of that type at row or column `at`: a span the length of inner's side
                                    along the base (the whole side where inner names it), slid to take in `at`.
                                    inner null (a function with no input of its own yet) fits anything: the whole side.
+
+   Conditions. A conditional arrow chooses between the two frames its choose names, by whether what its base covers
+   (the condition, any size) is true as a whole matrix: the then frame where it is, the else frame where it is not.
+   Each frame holds one piece or nothing, and an empty one is None at the other's size. Its function has no formula.
+   conditionable({ blocks, pieces, fixed }) -> { ok: true } | { refused: a sentence }: whether a selection can be made
+                                   conditional. blocks: how many blocks are selected; pieces: the pieces of the
+                                   canvas that hold any of them, [{ members: how many blocks it has, chosen: how many
+                                   of those are selected, error: why it comes to no matrix, or null }]; fixed: why
+                                   one of the blocks cannot be folded away (an arrow, a function's input, a seated
+                                   block), or null. It takes exactly one piece, whole, that comes to a matrix.
+   chosenType(sides, promise)   -> what a conditional arrow comes to: a type, or { error }. sides: for the then frame
+                                   and the else frame, the ends that lie wholly in it ([{ type }], as ends gives
+                                   them); promise: the arrow's output, { cols, rows } or null. Several ends in one
+                                   frame are { error: 'n pieces' }; an end that is an error is that error; two sides
+                                   that are not one size (drawn sides, inner axes, or a side under two names) are
+                                   { error: TWO_SIZES }. The type is the then side's; with that side empty, the else
+                                   side's size under no names; with both empty, the promise, else one by one.
+   emptySide(which, other, size) -> where an empty frame of a condition is drawn, a rect in units: which is 'then' or
+                                   'else', other the box of the other frame's blocks (null where that is empty
+                                   too), size { cols, rows }. The two stand one above the other, then on top, three
+                                   units apart: the equation is on their right and the input block on their left.
+   TWO_SIZES                    -> 'its two sides are not one size'
 
    Seats. A block that sits on a drawn output is seated: its value is the output.
    seatable(block)              -> { ok: true } | { refused: a sentence }. A seat gives a variable its value, so a
@@ -346,6 +370,27 @@ export function fitting(inner, side, type, at){
   const start = Math.max(1, Math.min(n - span + 1, at)), fit = fits(inner, coveredType({ side, start, span }, type));
   return fit.refused ? fit : { start, span };
 }
+
+export const TWO_SIZES = 'its two sides are not one size';
+export function conditionable({ blocks = 0, pieces = [], fixed = null } = {}){
+  if (!blocks) return { refused: 'Make conditional takes one piece: select the shapes of one' };
+  if (fixed) return { refused: fixed };
+  if (pieces.length !== 1) return { refused: `Make conditional takes exactly one piece, and ${pieces.length} are selected` };
+  if (pieces[0].chosen < pieces[0].members) return { refused: 'Make conditional takes a whole piece: select every shape of it' };
+  if (pieces[0].error) return { refused: `That piece comes to no one matrix (${pieces[0].error}): there is nothing to choose` };
+  return { ok: true };
+}
+export function chosenType(sides, promise = null){
+  const came = [0, 1].map(k => { const es = (sides && sides[k]) || []; return es.length > 1 ? { error: es.length + ' pieces' } : es.length ? es[0].type || { error: 'no value' } : null; });
+  const bad = came.find(c => c && c.error); if (bad) return { error: bad.error };
+  const [a, b] = came, inner = t => (Array.isArray(t.inner) ? t.inner : []);
+  if (a && b && (a.cols !== b.cols || a.rows !== b.rows || !nested(inner(a), inner(b), true).ok || ['colsName', 'rowsName'].some(k => a[k] && b[k] && a[k] !== b[k]))) return { error: TWO_SIZES };
+  if (a) return { cols: a.cols, rows: a.rows, colsName: a.colsName || null, rowsName: a.rowsName || null, ...(inner(a).length ? { inner: inner(a) } : {}) };
+  if (b) return { cols: b.cols, rows: b.rows, colsName: null, rowsName: null, ...(inner(b).length ? { inner: inner(b).map(x => ({ length: x.length, name: null })) } : {}) };
+  return promise && whole(promise.cols) && whole(promise.rows) ? { cols: promise.cols, rows: promise.rows, colsName: null, rowsName: null } : { cols: 1, rows: 1, colsName: null, rowsName: null };
+}
+export const emptySide = (which, other, size) => other ? { x: other.x, y: which === 'else' ? other.y + other.h + 3 : other.y - 3 - size.rows, w: size.cols, h: size.rows }
+  : { x: -6 - size.cols, y: which === 'then' ? -2 - size.rows : 2, w: size.cols, h: size.rows };
 
 export function seatable(b){
   const name = b.name || 'It';

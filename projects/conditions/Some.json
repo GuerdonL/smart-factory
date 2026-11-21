@@ -1,0 +1,32 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcdz003",
+  "type": "tensor",
+  "name": "Some",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": -14,
+    "y": -2
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 0,
+      "2,1": 0,
+      "1,2": 0,
+      "2,2": 3
+    }
+  },
+  "order": 22
+}

@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcdo001",
+  "type": "tensor",
+  "name": "Out",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": -23,
+    "y": -14
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 4,
+  "seat": "bcda001"
+}

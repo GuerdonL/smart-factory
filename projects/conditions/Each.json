@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcdc001",
+  "type": "tensor",
+  "name": "Each",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": -26,
+    "y": 4
+  },
+  "size": {
+    "cols": 1,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": true,
+      "1,2": false,
+      "1,3": {
+        "none": true
+      }
+    }
+  },
+  "order": 14
+}

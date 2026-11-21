@@ -8,7 +8,7 @@ import { write, read, isNamed, FORMAT } from '../project.js';
 import { pieces } from '../algebra.js';
 import './solver.js';
 import { build, validate } from '../graph.js';
-import { evaluate, promiseOf } from '../evaluate.js';
+import { evaluate, promiseOf, truthAt } from '../evaluate.js';
 
 /* a shape as read() gives one: every field present */
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null, inner: null,
@@ -754,7 +754,7 @@ test('every project that comes with the repository opens and saves as it did bef
   for (const name of readdirSync(root)){ if (!statSync(join(root, name)).isDirectory()) continue; seen++;
     const p = read(shipped(name)), files = write(p);
     assert.deepEqual(write(read(files)), files, name); assert.deepEqual(read(files), read(write(read(files))), name);
-    for (const f of files){ assert.ok(name === 'none-and-spaces' || !/"holds"|"none"/.test(f.text), name + '/' + f.path); if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path); } }      /* (none-and-spaces is the one made for format 5: it has both) */
+    for (const f of files){ assert.ok(name === 'none-and-spaces' || name === 'conditions' || !/"holds"|"none"/.test(f.text), name + '/' + f.path); assert.ok(name === 'conditions' || !/"choose"/.test(f.text), name + '/' + f.path); if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path); } }      /* (none-and-spaces is the one made for format 5: it has both; conditions holds None, and is the one with conditional arrows) */
   assert.ok(seen >= 12);
 });
 test('projects/none-and-spaces holds a None, a select that None decides, a promise kept, one broken with its sentence, and an arrow that takes and gives', () => {
@@ -896,4 +896,39 @@ test('a promise written only on a reference, or on a shape fused into another, i
   const fused = project(space([shape('J', { id: 'b00000j', joined: [{ fx: 0, fy: 0, fw: 1, fh: 0.5, shape: shape('L', { id: 'b00000l', holds: 'natural' }) }, { fx: 0, fy: 0.5, fw: 1, fh: 0.5, shape: shape('R', { id: 'b00000r' }) }] })]));
   got = read(write(fused)); assert.deepEqual(got.unheld, [{ name: 'L', holds: 'natural', why: 'it is fused into J, which promises for itself' }]);
   assert.ok(!('holds' in got.top.shapes[0].joined[0].shape)); assert.deepEqual(read(write(got)).unheld, []);
+});
+
+/* ---- conditions (phase 9B): an arrow's choose, and the two frames it names ---- */
+test('an arrow\'s choose is kept where it names two frames, and an empty frame is written and read as a frame', () => {
+  const shape = (id, name, more = {}) => ({ id, type: 'tensor', name, color: 'variable-1', x: 0, y: 0, cols: 1, rows: 1, colsName: null, rowsName: null, inner: null, entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
+  const arrow = choose => shape('a1', 'Shape 2', { type: 'arrow', color: 'function', arrow: { input: { id: 'b1', as: 'block' }, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: { cols: 2, rows: 2 }, formula: null, ...(choose !== undefined ? { choose } : {}) },
+    inside: { shapes: [shape('i1', 'in', { in: true, color: 'function' }), shape('t1', 'Then', { cols: 2, rows: 2 })], groups: [{ id: 'gt', name: 'true', members: [1], groups: [] }, { id: 'ge', name: 'false', members: [], groups: [] }], operations: [] } });
+  const project = choose => ({ top: { shapes: [shape('b1', 'If', { entries: { '1,1': true } }), arrow(choose)], groups: [], operations: [] }, saved: null });
+  const files = write(project({ then: 'gt', else: 'ge' })), back = read(files);
+  assert.deepEqual(files.map(f => f.path).sort(), ['If.json', 'Shape 2.json', 'Shape 2/false.frame.json', 'Shape 2/in.json', 'Shape 2/true.frame.json', 'project.json']);
+  assert.deepEqual(JSON.parse(files.find(f => f.path === 'Shape 2.json').text).arrow.choose, { then: 'gt', else: 'ge' });
+  assert.deepEqual(JSON.parse(files.find(f => f.path === 'Shape 2/false.frame.json').text), { format: 'smart-factory/frame', version: FORMAT, id: 'ge', name: 'false', named: true, shapes: [], groups: [] });
+  assert.deepEqual(back.top.shapes[1].arrow.choose, { then: 'gt', else: 'ge' });
+  assert.deepEqual(back.top.shapes[1].inside.groups.map(g => [g.id, g.name, g.members]).sort(), [['ge', 'false', []], ['gt', 'true', [1]]]);
+  assert.deepEqual(write(read(files)), files);      /* saved, reopened, saved: the same files */
+  assert.equal(FORMAT, 5);      /* no format number marks it: a project saved before has no such field */
+  const g = build(back); assert.deepEqual(validate(g), []); assert.equal(g.functions['f:a1'].body, 'choose(param(f:a1),v:t1,source(none;2×2))');
+  /* what is no two frame ids is no condition, and is not written */
+  for (const choose of [undefined, null, 'gt', {}, { then: 'gt' }, { then: 'gt', else: 'gt' }, { then: '', else: 'ge' }, { then: 1, else: 2 }]){ const a = JSON.parse(write(project(choose)).find(f => f.path === 'Shape 2.json').text).arrow; assert.ok(!('choose' in a), JSON.stringify(choose)); }
+  const old = files.map(f => f.path === 'Shape 2.json' ? { path: f.path, text: f.text.replace(/,\s*"choose": \{[^}]*\}/, '') } : f); assert.ok(!('choose' in read(old).top.shapes[1].arrow));
+});
+test('projects/conditions holds a condition, the same arrow used again on a false one, a whole matrix for a condition, a condition in a tile, and shapes that are false', () => {
+  const files = shipped('conditions'), p = read(files), by = name => p.top.shapes.find(d => d.name === name), g = build(p); assert.deepEqual(validate(g), []);
+  const out = id => { const a = g.spaces.top.arrows.find(a => a.arrow === id); assert.equal(a.error, null, id); return evaluate(g, a.node).entries; }, N = { none: true };
+  assert.deepEqual(by('gate').arrow.choose, { then: 'gcdt001', else: 'gcde001' }); assert.deepEqual(by('gate').inside.groups.map(f => [f.name, f.members.length]).sort(), [['false', 0], ['true', 2]]);
+  assert.deepEqual(out('bcda001'), { '1,1': 2, '2,1': 1, '1,2': 4, '2,2': 3 });      /* Go is true: Keys · Weights */
+  assert.deepEqual(out('bcda002'), { '1,1': N, '2,1': N, '1,2': N, '2,2': N });      /* Stop is false, and the false side is empty: None, at that size */
+  assert.deepEqual(evaluate(g, g.blocks[by('Out').id]).entries, out('bcda001')); assert.equal(by('Out').seat, 'bcda001');
+  assert.deepEqual(out('bcda003'), { '1,1': 1, '2,1': 2 });      /* Mask holds 0, None and 5: one true entry */
+  assert.deepEqual(out('bcda004'), { '1,1': 1, '2,1': 2, '1,2': -1, '2,2': -2, '1,3': -1, '2,3': -2 });      /* in a tile, once for each row of Each: true, false, None */
+  assert.equal(g.nodes[g.spaces.top.arrows[3].node].op, 'mapalong');
+  const truth = name => truthAt(g, g.blocks[by(name).id]);
+  assert.deepEqual(['Go', 'Stop', 'Mask', 'Each', 'Zero', 'Nothing', 'Some', 'Open'].map(truth), [true, false, true, true, false, false, true, null]);      /* what is false is drawn sunk; Open has an entry never given */
+  const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
+  assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(paths(write(p)), paths(files));      /* saved again it is the files that are shipped */
 });

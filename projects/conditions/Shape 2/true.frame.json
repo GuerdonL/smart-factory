@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/frame",
+  "version": 5,
+  "id": "gcdt004",
+  "name": "true",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 5,
+      "id": "bcdy004",
+      "type": "tensor",
+      "name": "Kept",
+      "named": true,
+      "commented": false,
+      "color": "variable-4",
+      "position": {
+        "x": -7,
+        "y": -1
+      },
+      "size": {
+        "cols": 2,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 1,
+          "2,1": 2
+        }
+      },
+      "order": 1
+    }
+  ],
+  "groups": []
+}

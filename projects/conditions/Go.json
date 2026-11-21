@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcdg001",
+  "type": "tensor",
+  "name": "Go",
+  "named": true,
+  "commented": false,
+  "color": "variable-4",
+  "position": {
+    "x": -26,
+    "y": -14
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": true
+    }
+  },
+  "order": 0
+}

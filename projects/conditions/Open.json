@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcdz004",
+  "type": "tensor",
+  "name": "Open",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": -14,
+    "y": 4
+  },
+  "size": {
+    "cols": 2,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {
+      "1,1": 0
+    }
+  },
+  "order": 24
+}

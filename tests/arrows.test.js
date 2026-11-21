@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable } from '../arrows.js';
+import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -478,4 +478,36 @@ test('an arrow drawn shorter than it reads: the free edge and the output\'s plac
   assert.deepEqual(st.place, { x: -25, y: -6, w: 3, h: 4 });
   /* a block that does lie against the drawn edge is still in the way */
   assert.equal(standing(a, input, [rect(-27, -5, 2, 2)], null, null, { drawn: { ...a, span: 2 } }).warn, 'the edge under it is not free');
+});
+
+/* ---- conditions (phase 9B) ---- */
+test('conditionable: exactly one piece, whole, that comes to a matrix and holds nothing that cannot be folded away', () => {
+  const piece = (members, chosen = members, error = null) => ({ members, chosen, error });
+  assert.deepEqual(conditionable({ blocks: 1, pieces: [piece(1)] }), { ok: true }); assert.deepEqual(conditionable({ blocks: 3, pieces: [piece(3)] }), { ok: true });
+  assert.equal(conditionable({ blocks: 0, pieces: [] }).refused, 'Make conditional takes one piece: select the shapes of one'); assert.equal(conditionable().refused, 'Make conditional takes one piece: select the shapes of one');
+  assert.equal(conditionable({ blocks: 2, pieces: [piece(1), piece(1)] }).refused, 'Make conditional takes exactly one piece, and 2 are selected');
+  assert.equal(conditionable({ blocks: 4, pieces: [piece(1), piece(2), piece(1)] }).refused, 'Make conditional takes exactly one piece, and 3 are selected');
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(2, 1)] }).refused, 'Make conditional takes a whole piece: select every shape of it');
+  assert.equal(conditionable({ blocks: 2, pieces: [piece(2, 2, '4 ≠ 3')] }).refused, 'That piece comes to no one matrix (4 ≠ 3): there is nothing to choose');
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], fixed: 'An arrow cannot be made conditional' }).refused, 'An arrow cannot be made conditional');      /* an arrow, a function's input, a seated block: said first */
+  assert.equal(conditionable({ blocks: 1, pieces: [], fixed: 'in is the function\'s input: it cannot be made conditional' }).refused, 'in is the function\'s input: it cannot be made conditional');
+  assert.equal(conditionable({ blocks: 1, pieces: [] }).refused, 'Make conditional takes exactly one piece, and 0 are selected');
+});
+test('chosenType: the size of a condition\'s two sides, which have to be one size; an empty side is None at the other\'s', () => {
+  const t = (cols, rows, colsName = null, rowsName = null, inner = null) => ({ cols, rows, colsName, rowsName, ...(inner ? { inner } : {}) }), e = type => ({ type });
+  assert.deepEqual(chosenType([[e(t(2, 3, 'key'))], [e(t(2, 3))]]), t(2, 3, 'key')); assert.deepEqual(chosenType([[e(t(2, 3))], [e(t(2, 3, 'key'))]]), t(2, 3));      /* the type is the true side's */
+  assert.deepEqual(chosenType([[e(t(2, 3, 'key'))], []]), t(2, 3, 'key')); assert.deepEqual(chosenType([[], [e(t(2, 3, 'key', 'r'))]]), t(2, 3));      /* an empty true side: the false side's size, under no names */
+  assert.deepEqual(chosenType([[], []], { cols: 4, rows: 2 }), t(4, 2)); assert.deepEqual(chosenType([[], []]), t(1, 1)); assert.deepEqual(chosenType([[], []], { cols: 0, rows: 2 }), t(1, 1)); assert.deepEqual(chosenType(null), t(1, 1));
+  for (const [a, b] of [[t(2, 3), t(3, 2)], [t(2, 3), t(2, 4)], [t(2, 3, 'key'), t(2, 3, 'query')], [t(2, 3, null, 'r'), t(2, 3, null, 's')], [t(2, 3, null, null, [{ length: 2, name: null }]), t(2, 3)], [t(2, 3, null, null, [{ length: 2, name: null }]), t(2, 3, null, null, [{ length: 3, name: null }])]])
+    assert.deepEqual(chosenType([[e(a)], [e(b)]]), { error: TWO_SIZES }, JSON.stringify([a, b]));
+  assert.equal(TWO_SIZES, 'its two sides are not one size');
+  const deep = [{ length: 2, name: 'head' }]; assert.deepEqual(chosenType([[e(t(2, 1, null, null, deep))], [e(t(2, 1, null, null, deep))]]), t(2, 1, null, null, deep)); assert.deepEqual(chosenType([[], [e(t(2, 1, null, null, deep))]]), t(2, 1, null, null, [{ length: 2, name: null }]));
+  assert.deepEqual(chosenType([[e(t(2, 2)), e(t(2, 2))], []]), { error: '2 pieces' }); assert.deepEqual(chosenType([[e(t(2, 2))], [e(t(1, 1)), e(t(1, 1)), e(t(1, 1))]]), { error: '3 pieces' });
+  assert.deepEqual(chosenType([[e({ error: '4 ≠ 3' })], [e(t(2, 2))]]), { error: '4 ≠ 3' }); assert.deepEqual(chosenType([[e(t(2, 2))], [{ type: null }]]), { error: 'no value' });
+});
+test('emptySide: an empty side of a condition is drawn under the true side, or over the false one, three units clear, at the size given', () => {
+  const other = { x: -9, y: -1, w: 4, h: 2 };
+  assert.deepEqual(emptySide('else', other, { cols: 4, rows: 2 }), { x: -9, y: 4, w: 4, h: 2 }); assert.deepEqual(emptySide('then', other, { cols: 4, rows: 2 }), { x: -9, y: -6, w: 4, h: 2 });
+  const a = emptySide('then', null, { cols: 3, rows: 2 }), b = emptySide('else', null, { cols: 3, rows: 2 });      /* both empty: one above the other, left of the equation */
+  assert.deepEqual([a, b], [{ x: -9, y: -4, w: 3, h: 2 }, { x: -9, y: 2, w: 3, h: 2 }]); assert.ok(a.y + a.h < b.y && a.x + a.w < 0);
 });

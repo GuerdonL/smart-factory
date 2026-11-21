@@ -701,8 +701,47 @@ In the graph a node's type carries `"value": "integer?"`, both validators check 
 inputs, and a variable that promises carries `"holds"`, which is how the promise reaches the backend. Where a number
 it works out breaks one, its answer has, beside that result's error (the sentence), `"codes": { key: { "code":
 "type", "node": id } }`. A graph that says a version too low for what it holds is refused by both validators (None,
-a value and a promise need version 3; inner data needs 2), and a page that finds the backend's `/health` saying an
+a value and a promise need version 3; inner data needs 2; a `choose` and a source of None need 4), and a page that finds the backend's `/health` saying an
 older version than its own asks it for no run and says "the backend is older than this page: restart it".
+
+## Conditions, and truth as height
+
+**Truth is shown as height.** A shape whose whole matrix is false is drawn sunk: pressed into the canvas, with no
+shadow under it, set down by the height of its lip, and its lit and shaded lips changed over. A matrix is false only
+when every entry is known and is zero, false or None; one true entry makes it true, and a shape with an entry not
+yet given (and none that is true) is not known. True and not known are drawn as a block always was. Every shape is
+asked, a setting in a `.config` included, so `.dark_mode` holding 0 sits sunk. A shape too large for the page to
+work out is judged by what it is known to hold (a source of zeros is false at any size); one whose numbers only the
+backend has is drawn by what the backend answers, once it has. An arrow is never sunk: a function is always true.
+
+**Make conditional.** Select the shapes of exactly one piece, right-click, **Make conditional**. The piece folds
+away into a new arrow, marked with a small `?` on its triangle, and where the piece stood there is now a single
+entry holding `true` with that arrow on its east side. The arrow's output is what the piece came to, for as long as
+the entry is true; make it false and the output is None (`∅`) at the same size. One step back undoes all of it.
+
+- The condition is whatever the arrow's base covers: a single `true` or `false`, a formula, or a whole matrix,
+  which counts by its truth as above. None is false. Where the truth is not known, the output keeps its size and
+  shows its symbols, and the arrow's panel says "Its condition is not known".
+- Open the arrow (select it, then double-click) for its two sides: two frames called **true** and **false**, and
+  `in`, which shows the condition. Each frame holds one piece or nothing. An empty frame is None at the other
+  side's size, and is still drawn, so that a shape can be dragged into it. The side that is not chosen is faded;
+  neither is while the truth is not known. A shape in neither frame takes no part, and is drawn in the warning
+  colour.
+- The two sides have to be one size ("its two sides are not one size"); two pieces in one frame are "2 pieces".
+  The frames cannot be unframed or renamed.
+- Only the chosen side is worked out, in the browser and in the backend: an error on the other side, or a side too
+  large to work out, does no harm.
+- It is an arrow like any other: a block can be seated on its output, it can be named and set against another
+  condition from the list, and in a tile it is repeated along a column or a row of conditions (clear its promise
+  there, as for any arrow: the promise is one run's size).
+- Refused, each with its sentence: nothing selected; more than one piece; part of a piece; a piece that comes to no
+  matrix; and a selection that holds an arrow, a function's `in` block or a seated block.
+
+In the graph this is the operation `choose`, over whole matrices: `[condition, then, else]`, its inputs read only
+when asked for, and a source of kind `none` for the empty side. The formula function `select` is another thing: it
+chooses entry by entry and works both sides out. In a file it is one field on an ordinary arrow, `"choose": {
+"then": "<frame id>", "else": "<frame id>" }`, naming two frames of the arrow's definition space
+(`projects/README.md`). `choose` and a source of None need graph version 4.
 
 ## The graph and the evaluator
 

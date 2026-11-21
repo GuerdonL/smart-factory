@@ -1,0 +1,45 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcda003",
+  "type": "arrow",
+  "name": "Shape 1",
+  "named": false,
+  "commented": false,
+  "color": null,
+  "position": {
+    "x": -23,
+    "y": -2
+  },
+  "size": {
+    "cols": 2,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Shape 1/",
+  "order": 12,
+  "arrow": {
+    "input": {
+      "id": "bcdm001",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 1,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null,
+    "choose": {
+      "then": "gcdt003",
+      "else": "gcde003"
+    }
+  }
+}

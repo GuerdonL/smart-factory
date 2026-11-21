@@ -1,0 +1,49 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcda001",
+  "type": "arrow",
+  "name": "gate",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -25,
+    "y": -14
+  },
+  "size": {
+    "cols": 2,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "gate/",
+  "order": 2,
+  "variable": 1,
+  "arrow": {
+    "input": {
+      "id": "bcdg001",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 1,
+    "gap": 2,
+    "gapName": null,
+    "output": {
+      "cols": 2,
+      "rows": 2
+    },
+    "formula": null,
+    "choose": {
+      "then": "gcdt001",
+      "else": "gcde001"
+    }
+  }
+}

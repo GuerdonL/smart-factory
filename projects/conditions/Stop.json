@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bcds001",
+  "type": "tensor",
+  "name": "Stop",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": -26,
+    "y": -8
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": false
+    }
+  },
+  "order": 6
+}

@@ -31,7 +31,7 @@ import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
-import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable } from './arrows.js';
+import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
 import { wanted, laid, drawn as cellsDrawn, level as levelOf } from './decimals.js';
@@ -401,13 +401,14 @@ const faceLaid = b => { if (!single(b) || b.source || scalarOf(b) !== null) retu
    hold says (evaluate.js: truthAt: a source of zeros is false at any size); and where only the backend has its
    numbers, the backend's answer says once it has come (decimals.js: merged), and until then it is drawn as it was.
    For drawing only: nothing is worked out from this. */
-function sunkLaid(b){
-  if (isArrow(b) || isOff(b)) return false;
+function truthLaid(b){      /* true, false, or null where it is not known */
+  if (isArrow(b) || isOff(b)) return null;
   return steadily(() => { const n = nodeFor(b, false), u = view.unit;
-    if (!n){ const vs = valuesOf(b), count = Math.round(b.rect.w / u) * Math.round(b.rect.h / u) * dataOf(b).reduce((k, a) => k * a.length, 1); return vs.size >= count && truthOf(vs.values()) === false; }      /* in no graph (a setting in a .config): its own entries */
-    const t = truthAt(graphNow(), n.id, n.binding ? { binding: n.binding } : undefined);
-    return t !== null ? t === false : laidOf(b).truth === false; });
+    if (!n){ const vs = valuesOf(b), count = Math.round(b.rect.w / u) * Math.round(b.rect.h / u) * dataOf(b).reduce((k, a) => k * a.length, 1), t = truthOf(vs.values()); return t === false && vs.size < count ? null : t; }      /* in no graph (a setting in a .config): its own entries */
+    const t = truthAt(graphNow(), n.id, n.binding ? { binding: n.binding } : undefined), laid = t === null ? laidOf(b).truth : null;
+    return t !== null ? t : laid === true || laid === false ? laid : null; });
 }
+const sunkLaid = b => truthLaid(b) === false;
 /* Where a node is looked at from (evaluate.js: binding). A block of a tile, or one in the definition space of a block
    of a tile, is in a cell: the first, or the one being drawn (cellNow). The cell says where every block of the
    pattern lies, and every arrow's output there, so that each reads its own place however it is reached (a product
@@ -849,12 +850,18 @@ function tidy(s = space){
   for (let again = true; again;){ again = false;
     const ids = new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values()]);
     for (const g of ids){ const holds = [...s.groupOf.values()].filter(at => at === g).length + [...s.groupUp.values()].filter(at => at === g).length;
-      if (holds < 1 && !s.repeats.has(g)){ ungroup(g, s); again = true; break; } } }      /* a frame may hold a single thing; an empty one is no frame, unless it is a tile, whose pattern may be blank */
-  const live = new Set([...s.groupOf.values(), ...s.groupUp.values(), ...s.repeats.keys()]);
+      if (holds < 1 && !s.repeats.has(g) && !sidesIn(s).includes(g)){ ungroup(g, s); again = true; break; } } }      /* a frame may hold a single thing; an empty one is no frame, unless it is a tile, whose pattern may be blank, or a side of a condition, which is then None */
+  const live = new Set([...s.groupOf.values(), ...s.groupUp.values(), ...s.repeats.keys(), ...sidesIn(s)]);
   for (const id of [...s.groupNames.keys()]) if (!live.has(id)) s.groupNames.delete(id);
 }
 /* how many levels of named groups sit strictly inside these blocks' frame: 0 if none */
-const framesIn = s => new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values(), ...s.repeats.keys()]);      /* every frame of a space, by id: a tile that holds nothing is still one */
+const framesIn = s => new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values(), ...s.repeats.keys(), ...sidesIn(s)]);      /* every frame of a space, by id: a tile that holds nothing is still one, and so is a side of a condition */
+/* The two sides of a condition. A conditional arrow's function carries choose: { then, else }, the ids of two frames of
+   its definition space (arrows.js: Conditions). Those two frames stay, empty or not, for as long as they have their
+   names (true and false, given when they are made, and never changed): a side that holds nothing is None. conditionIn:
+   the choose of the arrow a space is the definition space of, or null; sidesIn: its two frames, those that are there. */
+const conditionIn = s => (s.owner && s.owner.arrow && s.owner.fn && s.owner.fn.choose) || null;
+const sidesIn = s => { const c = conditionIn(s); return c ? [c.then, c.else].filter(g => s.groupNames.has(g)) : []; };
 const namedBelow = id => Math.max(0, ...[...space.groupUp].filter(([, up]) => up === id).map(([c]) => 1 + namedBelow(c)));      /* the same, for a group: by what is grouped inside it */
 function namedWithin(list, not = []){             /* not: the groups already counted on the way in (two may hold exactly the same blocks) */
   let most = 0;
@@ -1248,13 +1255,16 @@ function paint(){
   hush(); follow(); if (arrangeAll()) memo?.clear(); configure();
   for (const b of space.blocks) if (measures(b)){ const src = sourceOf(b); if (!src) continue; const name = sideName(src, dimOf(b, src));
     if (name && b.name !== name){ b.call(name); for (const k of kinOf(b)) k.call(name); } if (b.shape.color !== src.shape.color) for (const k of kinOf(b)) k.paint(src.shape.color); }
+  const strays = new Set(straysIn(space));      /* in a condition's space, what lies in neither side takes no part */
   for (const b of space.blocks){ const v = scalarOf(b), f = v === null ? faceLaid(b) : null; b.face(b.source ? faceOf(b.source) : f ? f.text : v === null ? null : asText(v), f ? { decimal: true, stale: f.stale } : {});      /* a source says what it is on its face: 0, 1 or I; a number that is the backend's is marked as one */
-    b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b)); b.sit(!!b.seat); b.given(!!b.in); b.nest(dataOf(b).length);      /* one outline behind it for each inner axis */      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
+    b.warn(isArrow(b) ? !!outputOf(b).warn : lost(b) || strays.has(b)); b.sit(!!b.seat); b.given(!!b.in); b.nest(dataOf(b).length);      /* one outline behind it for each inner axis */      /* a part its source is now too small to have is drawn in the warning colour; so is an arrow that cannot be what it says, and a block whose seat is gone */
     b.sink(sunkLaid(b));      /* truth as height: a shape that is false is drawn sunk */
-    if (isArrow(b)) b.el.classList.toggle('anon', !isNamed(b)); }
+    if (isArrow(b)){ b.el.classList.toggle('anon', !isNamed(b)); b.mark(fnOf(b).choose && !fnOf(b).formula ? '?' : ''); } }      /* a condition carries a small ? on its triangle */
   for (const b of space.blocks) if (b.members){ flow(b); b.join(partsOf(b, 0, 0, b.rect.w / view.unit, b.rect.h / view.unit), b.rect.w / view.unit, b.rect.h / view.unit); }
   const list = [...selected], one = list.length === 1 ? list[0] : null;
-  for (const b of space.blocks){ b.select(selected.has(b)); b.dim(selected.size > 0 && !selected.has(b)); b.grips(!(list.length > 1 && selected.has(b))); }
+  /* in a condition's space the side that is not chosen is faded: by the truth of what the arrow the space was opened through is given. Not known, neither is */
+  const cond = conditionIn(space), given = cond ? space.blocks.find(k => k.in) : null, truth = given ? truthLaid(given) : null, idle = truth === null ? null : truth ? cond.else : cond.then;
+  for (const b of space.blocks){ b.select(selected.has(b)); b.dim((selected.size > 0 && !selected.has(b)) || (idle !== null && chain(b).includes(idle))); b.grips(!(list.length > 1 && selected.has(b))); }
   /* the properties of the one shape selected: its name, its shape, its value */
   if (pickedTile && space.repeats.has(pickedTile)){ const t = tileInfo(space, pickedTile), r = t.rep, typedAs = v => typeof v === 'object' ? v.expr : String(v);
     const row = k => ({ key: k, label: k, text: typedAs(r[k]), seen: refs(typedAs(r[k])).map(fields.look), result: typeof r[k] === 'object' ? String(t[k]) : null });
@@ -1269,8 +1279,8 @@ function paint(){
     const data = t?.inner || [], path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path), says = t ? nesting.described(t.cols, t.rows, data) : null;      /* its output's entries are opened as a block's are */
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar: false, plain: true, fixed: true,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
-      shape: (fn.formula ? 'entry formula' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn), spaces: arrowHolds(one), words: SPACES, reserved: Object.keys(RESERVED),
-      notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      shape: (fn.formula ? 'entry formula' : fn.choose ? 'a condition: its true side, or its false side' : o.defined ? 'defined in its space' : 'pass through') + (t ? `: ${t.cols} wide × ${t.rows} tall` + (says ? ` · ${says}` : '') : ''), attributes: arrowRows(one, fn), spaces: arrowHolds(one), words: SPACES, reserved: Object.keys(RESERVED),
+      notes: [...(o.warn ? [o.warn[0].toUpperCase() + o.warn.slice(1)] : []), ...(o.note ? [cap(o.note)] : []), ...(fn.choose && !fn.formula && !o.warn && conditionOpen(one) ? ['Its condition is not known'] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: t ? { letter: initials((seat || one).name), values: path.length ? nesting.opened(laidOut || new Map(), path, data.length) : laidOut || new Map(), ...(path.length ? {} : { colsName: t.colsName, rowsName: t.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } : null }); }
   else if (one){ const cols = Math.round(one.rect.w / view.unit), rows = Math.round(one.rect.h / view.unit), data = dataOf(one), path = openPath(one), at = nesting.pathType(typeAsDrawn(one), path);      /* at: what the panel shows: the shape, or the entry of it that is opened */
     const all = laidOf(one), values = path.length ? nesting.opened(all, path, data.length) : all, scalar = cols === 1 && rows === 1 && !one.members && !data.length, wrong = scalar ? [] : [...all].filter(([, v]) => isError(v));      /* why each entry that shows the error mark does (a scalar's is said on its mass) */
@@ -1281,20 +1291,21 @@ function paint(){
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
-      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(strays.has(one) ? ['It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values, transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
   else measure?.el.remove();
   /* every frame is drawn, named or not; the one that is the whole selection also carries the tools */
   const oneGroup = groupIs(list), live = new Set();
-  for (const id of framesIn(space)){ const name = space.groupNames.get(id) || '';
+  const twoSides = sidesIn(space);
+  for (const id of framesIn(space)){ const side = twoSides.includes(id), name = side ? (id === cond.then ? 'true' : 'false') : space.groupNames.get(id) || '';      /* the two sides of a condition are called true and false */
     if (space.repeats.has(id)) continue;       /* a tile draws itself (below) */
-    const ms = inGroup(id); if (!ms.length) continue;
+    const ms = inGroup(id); if (!ms.length && !side) continue;      /* a side of a condition is drawn though it holds nothing: it is None, and shapes are let go into it */
     live.add(id); if (!space.frames.has(id)) space.frames.set(id, createBounds());
-    const whole = ms.length === list.length && ms.every(b => selected.has(b));      /* the selection is this frame (two frames, one round the other, can hold the very same blocks) */
+    const whole = ms.length > 0 && ms.length === list.length && ms.every(b => selected.has(b));      /* the selection is this frame (two frames, one round the other, can hold the very same blocks) */
     const f = space.frames.get(id), on = whole || id === room.host;      /* lit while a selection is held over it */
-    f.fit = [room.loose?.get(id) || boxOf(ms), { name, solid: true, selected: on, tools: whole, grouped: true, fold: true, grow: namedBelow(id) }, room.loose?.has(id) ? [] : ms];
+    f.fit = [room.loose?.get(id) || frameBox(id), { name, solid: true, selected: on, tools: whole, grouped: true, fold: true, grow: namedBelow(id) }, room.loose?.has(id) ? [] : ms];
     f.set(f.fit[0], f.fit[1]); view.world.append(f.el);
   }
   for (const [id, f] of space.frames) if (!live.has(id)){ f.el.remove(); space.frames.delete(id); }
@@ -1345,7 +1356,8 @@ function paint(){
   if (space.definition && space.definition.wrote !== defKey(space.owner)) write();      /* shapes have gone into, or come out of, its block's matrix; or an arrow's output is another size */
   /* what the space comes to: its ends, the pieces (and outputs) nothing reads from. What is in a .config is no part of it. */
   const mine = space.definition ? endsOf(space, { active, all }) : [], outLook = a => ({ letter: initials(a.name), values: outputOf(a).asDrawn || new Map(), ...(outputOf(a).type?.inner?.length ? { inner: outputOf(a).type.inner } : {}) });      /* in the ordinary text colour: the function colour is for the triangle */
-  space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? (mine[0].piece ? lookOf(mine[0].piece) : outLook(mine[0].arrow)) : {});
+  if (cond) space.definition?.check(conditionCome(space), outLook(space.owner));      /* a condition comes to its two sides' size: the matrix on the right is its output, as it is written for the arrow */
+  else space.definition?.check(!mine.length ? null : mine.length === 1 ? mine[0].type : { error: mine.length + ' pieces' }, mine.length === 1 ? (mine[0].piece ? lookOf(mine[0].piece) : outLook(mine[0].arrow)) : {});
   /* a result stays by its piece: to the right; if something else is there (another block, or a result already placed),
      just below, to the left, or a little further below; and if every one of those is taken, to the right all the
      same, over whatever is there. It never goes off looking for room. */
@@ -1414,22 +1426,15 @@ function foldable(list){
   const u = view.unit, box = boxOf(list), type = typeOf(list.map(b => ({ x: b.rect.x / u, y: b.rect.y / u, w: b.rect.w / u, h: b.rect.h / u, wName: b.sides.w, hName: b.sides.h, inner: dataOf(b) })));
   return { blocks: list, box, type: type && !type.error ? type : { cols: box.w / u, rows: box.h / u, colsName: null, rowsName: null } };
 }
-function fold({ blocks: inside, type, box }, name, color = someColour()){
-  if (unnameable(name)) return shown();
-  const u = view.unit, fixed = fixedIn(inside, 'folded away');
-  if (fixed){ hud.say(fixed); return shown(); }
-  const made = makeBlock({ ...typeNamed('tensor'), color },
-    { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
-  made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
-  made.inner = nesting.kept(type.inner);                                   /* and it holds what the result holds */
-  /* its definition space: the folded blocks, level with the equation at the centre and clear of it on the left */
-  const def = newSpace(made, space); spaceOf.set(made, def);
+/* moves blocks of the space on screen into a definition space, by (dx, dy), with what goes with them: the frames that
+   lie wholly among them, a tile as a tile, and what was cut where every shape it made goes */
+function carryInto(def, inside, dx, dy){
+  const u = view.unit;
   /* groups lying wholly among the folded blocks go with them; the group being folded itself, if it is one, does not */
-  const whole = groupIs(inside), going = new Set(inside.flatMap(b => chain(b)).filter(g => g !== whole && inGroup(g).every(b => inside.includes(b))));
+  const whole = groupIs(inside), going = new Set(inside.flatMap(b => chain(b)).filter(g => g !== whole && !sidesIn(space).includes(g) && inGroup(g).every(b => inside.includes(b))));      /* (a side of a condition stays where it is, empty) */
   for (let more = true; more;){ more = false; for (const [g, up] of space.groupUp) if (going.has(up) && !going.has(g)){ going.add(g); more = true; } }      /* and what is inside a group that goes, though it holds no block: an empty tile in a tile's pattern */
   for (const b of inside) if (going.has(space.groupOf.get(b))) def.groupOf.set(b, space.groupOf.get(b));
   for (const g of going){ if (going.has(space.groupUp.get(g))) def.groupUp.set(g, space.groupUp.get(g)); if (space.groupNames.has(g)) def.groupNames.set(g, space.groupNames.get(g)); }
-  const dx = -u * (3 + squares(type.cols, type.colsName)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
   for (const g of going){ space.groupUp.delete(g); space.groupNames.delete(g);
     if (space.repeats.has(g)){ const r = space.repeats.get(g); def.repeats.set(g, { ...r, x: r.x + dx / u, y: r.y + dy / u }); space.repeats.delete(g); } }      /* a tile among them goes as a tile */
   for (const b of inside){
@@ -1440,10 +1445,56 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
   /* what was cut goes with the shapes it made, where all of them fold away: the blocks it keeps move as they did */
   for (const o of [...space.ops]) if (o.results.every(id => inside.some(b => b.id === id))){ space.ops.splice(space.ops.indexOf(o), 1); def.ops.push(o);
     for (const b of o.sources) b.set({ ...b.rect, x: b.rect.x + dx, y: b.rect.y + dy }); o.was = null; }      /* their old place in the order, and their frames, were this space's */
+}
+function fold({ blocks: inside, type, box }, name, color = someColour()){
+  if (unnameable(name)) return shown();
+  const u = view.unit, fixed = fixedIn(inside, 'folded away');
+  if (fixed){ hud.say(fixed); return shown(); }
+  const made = makeBlock({ ...typeNamed('tensor'), color },
+    { x: box.x, y: box.y, w: type.cols * u, h: type.rows * u }, name);
+  made.sides = { w: type.colsName, h: type.rowsName };                    /* its sides keep the names the result's sides had */
+  made.inner = nesting.kept(type.inner);                                   /* and it holds what the result holds */
+  /* its definition space: the folded blocks, level with the equation at the centre and clear of it on the left */
+  const def = newSpace(made, space); spaceOf.set(made, def);
+  carryInto(def, inside, -u * (3 + squares(type.cols, type.colsName)) - (box.x + box.w), Math.round(-box.h / 2 / u) * u - box.y);
   tidy();                                      /* a group left with one thing in it is no group */
   space.blocks.push(made); view.world.append(made.el);
   select([made]);
 }
+
+/* ---- make conditional ----
+   The selection, exactly one piece, is wrapped in a condition (arrows.js: Conditions): it folds away into a new arrow's
+   definition space, inside the frame called true; an empty frame called false, the same size, is made under it; a new
+   single entry holding true is set where the selection's left edge was, with the arrow on its east side; and the
+   arrow promises the size the selection came to. So what stood there is still what is worked out, until the entry is
+   made false: then it is None. One message, conditional { ids }: one step back undoes all of it. */
+function conditionableNow(list){
+  const alg = algebraIn(space), held = alg.all.filter(p => p.members.some(m => list.includes(alg.active[m])));
+  const out = list.filter(b => !alg.active.includes(b) && !isArrow(b) && !b.in && !b.seat).length;      /* a block that takes no part (commented out, in a .config) is in no piece */
+  return conditionable({ blocks: list.length, fixed: fixedIn(list, 'made conditional'), pieces: [...held.map(p => ({ members: p.members.length, chosen: p.members.filter(m => list.includes(alg.active[m])).length, error: p.type.error || null })), ...Array.from({ length: out }, () => ({ members: 1, chosen: 1, error: 'it takes no part' }))] });
+}
+function makeConditional(list){
+  const can = conditionableNow(list); if (can.refused){ hud.say(can.refused); return shown(); }
+  const u = view.unit, { box, type } = foldable(list);
+  const when = makeBlock({ ...typeNamed('tensor'), color: someColour() }, { x: box.x, y: box.y, w: u, h: u }, conditionName());
+  when.values.set('1,1', true); touched(when.values);
+  const a = makeArrow(freeName()); a.arrow = { input: { id: when.id, as: 'block' }, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: { cols: type.cols, rows: type.rows } };
+  a.fn = { formula: null, choose: { then: newGroup(), else: newGroup() } };
+  const def = newSpace(a, space); spaceOf.set(a, def);
+  const dx = -u * (3 + squares(type.cols, type.colsName)) - (box.x + box.w), dy = Math.round(-box.h / 2 / u) * u - box.y;
+  carryInto(def, list, dx, dy);
+  /* what was carried in is the true side: every block of it, and every frame that came with them, inside that frame */
+  for (const b of list) if (!def.groupOf.has(b)) def.groupOf.set(b, a.fn.choose.then);
+  for (const g of new Set([...def.groupOf.values(), ...def.groupUp.keys(), ...def.groupUp.values(), ...def.repeats.keys()])) if (g !== a.fn.choose.then && !def.groupUp.has(g)) def.groupUp.set(g, a.fn.choose.then);
+  def.groupNames.set(a.fn.choose.then, 'true'); def.groupNames.set(a.fn.choose.else, 'false');
+  /* its input block, the condition, on the left of the true side and clear of it */
+  const inner = makeBlock({ ...typeNamed('tensor'), color: 'function' }, { x: box.x + dx - 5 * u, y: box.y + dy, w: u, h: u }, 'in'); inner.in = true; def.blocks.push(inner);
+  tidy();
+  space.blocks.push(when, a); view.world.append(when.el, a.el);
+  select([a]); hud.say(`Made conditional: it is what it was while ${when.name} is true, and None while it is false. Open the arrow for its two sides`);
+}
+/* a name for the entry a condition is made with, that nothing on this canvas has */
+function conditionName(){ const used = new Set(space.blocks.map(b => b.name)); for (let n = 1; ; n++){ const name = n === 1 ? 'if' : 'if ' + n; if (!used.has(name) && !nameable(name).refused) return name; } }
 
 /* ---- copy and paste ----
    Copy takes a picture of the selected blocks as they are now: size, name, colour, side names, entries, grouping, and each
@@ -1451,7 +1502,7 @@ function fold({ blocks: inside, type, box }, name, color = someColour()){
    centred on a point, and selects them. The picture stays, so it can be pasted again and again.
    This is the page's own clipboard, not the computer's: it does not survive a reload or reach another tab. */
 let clipboard = null;
-const picture = (b, s, goes = null) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula } : null, use: isUse(b),
+const picture = (b, s, goes = null) => ({ id: b.id, arrow: isArrow(b) ? { ...b.arrow, input: { ...b.arrow.input }, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : fnOf(b).formula, choose: !isUse(b) && originOf(b).fn.choose ? { ...originOf(b).fn.choose } : null } : null, use: isUse(b),
   seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in, standing: !!b.standing, source: b.source || null, t: !!b.t, shape: { ...b.shape }, rect: { ...b.rect }, name: b.name, sides: { ...b.sides }, inner: dataOf(b).map(a => ({ ...a })), attrs: attrsOf(b).map(a => ({ ...a })), holds: holdsOf(b), values: orderOf(b) ? [...reordered(b.values, orderOf(b))] : measures(b) || indexedOf(b) || takenOf(b) ? [...valuesOf(b)].filter(([, v]) => storable(v)) : rangedOf(b) ? [...valuesOf(b, 0, true)].filter(([, v]) => storable(v)) : [...b.values],      /* plain data throughout, so a paste can say what it pasted; a measure, or a part of another shape, is copied as the numbers it now shows */
   groups: chain(b, s).filter(g => !goes || goes(g)).map(g => ({ id: g, name: s.groupNames.get(g) ?? null, repeat: s.repeats.has(g) ? repeatCopy(s.repeats.get(g)) : null })),      /* the groups it is in, innermost first; a tile with its repeat */
  
@@ -1476,7 +1527,7 @@ function develop(pictures, s, dx, dy){
     for (const dim of ['w', 'h']) if (pic.sides[dim] && lengthCalled(pic.sides[dim], s) !== undefined) r[dim] = lengthCalled(pic.sides[dim], s);      /* a named side is whatever length that name is now */
     const name = s === space && /^Shape \d+$/.test(pic.name) ? freeName() : pic.name;      /* a block never given a name of its own gets a fresh number */
     const b = pic.arrow ? makeArrow(name) : makeBlock(pic.shape, r, name); b.sides = { ...pic.sides }; b.inner = nesting.kept(pic.inner); b.attrs = (pic.attrs || []).map(a => ({ ...a })); if (pic.holds) b.attrs.holds = pic.holds; b.values = new Map(pic.values); if (pic.source) b.source = pic.source; b.turn(pic.t); if (pic.standing && s !== space) b.standing = true;
-    if (pic.arrow){ const { formula, ...geo } = pic.arrow; b.set(r); b.arrow = { ...geo, input: { ...geo.input }, output: geo.output ? { ...geo.output } : null }; b.fn = { formula }; if (pic.use) b.ref = true; }
+    if (pic.arrow){ const { formula, choose, ...geo } = pic.arrow; b.set(r); b.arrow = { ...geo, input: { ...geo.input }, output: geo.output ? { ...geo.output } : null }; b.fn = { formula }; if (pic.use) b.ref = true; }
     if (pic.seat) b.seat = typeof pic.seat === 'string' ? pic.seat : { hollow: [...pic.seat.hollow] };
     if (pic.in && s.owner && isArrow(s.owner) && !s.blocks.some(k => k.in)) b.in = true;      /* a function's input, copied with its function */
     if (pic.id) now.set(pic.id, b);
@@ -1485,9 +1536,13 @@ function develop(pictures, s, dx, dy){
     pic.groups.forEach((g, i) => { if (!groups.has(g.id)){ groups.set(g.id, newGroup()); if (g.name) s.groupNames.set(groups.get(g.id), g.name);
         if (g.repeat) s.repeats.set(groups.get(g.id), { ...repeatCopy(g.repeat), x: g.repeat.x + Math.round(dx / u), y: g.repeat.y + Math.round(dy / u) }); }      /* a tile is pasted as a tile, where its blocks are */
       if (i === 0) s.groupOf.set(b, groups.get(g.id)); else s.groupUp.set(groups.get(pic.groups[i - 1].id), groups.get(g.id)); });
-    if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); develop(pic.inside, def, 0, 0); }
+    if (pic.inside){ const def = newSpace(b, s); spaceOf.set(b, def); const inner = develop(pic.inside, def, 0, 0);
+      /* a condition copied: its two sides are the copies of its frames, and a side that held nothing is made anew, empty */
+      if (pic.arrow && pic.arrow.choose){ const side = (g, name) => { const id = inner.frames.get(g) || newGroup(); def.groupNames.set(id, name); return id; };
+        b.fn.choose = { then: side(pic.arrow.choose.then, 'true'), else: side(pic.arrow.choose.else, 'false') }; } }
     if (pic.arrow){ if (!spaceOf.has(b)) spaceOf.set(b, newSpace(b, s)); }
   }
+  made.frames = groups;                        /* the id a frame had when it was copied -> the frame made from it */
   /* an arrow copied with its input reads the copy, and a block copied with its seat sits on the copy; an arrow copied
      alone reads what the one it was copied from reads, and a seated block copied without its seat is not seated */
   for (const b of made){
@@ -1987,7 +2042,15 @@ function copiesOf(s, t){
 /* and what is written over the real blocks, in the first cell: the entries of one that reads the index (a single entry shows its own on its face) */
 const writtenOn = (t, list) => list.filter(b => !isArrow(b) && !single(b) && !dataOf(b).length && readsIndex(b)).map(b => { const r = unitsOf(b); return { x: r.x - t.rep.x, y: r.y - t.rep.y, w: r.w, h: r.h, values: texts(laidOf(b)) }; });
 /* a frame's rectangle, for whatever is held over it: a tile's pattern, or the box round an ordinary frame's blocks */
-const frameBox = id => { const r = space.repeats.get(id), u = view.unit; return r ? { x: r.x * u, y: r.y * u, w: r.cols * u, h: r.rows * u } : boxOf(inGroup(id)); };
+const frameBox = id => { const r = space.repeats.get(id), u = view.unit; return r ? { x: r.x * u, y: r.y * u, w: r.cols * u, h: r.rows * u } : sidesIn(space).includes(id) ? sideBox(space, id) : boxOf(inGroup(id)); };
+/* the box of one side of a condition, in world lengths: round its blocks, or, where it holds none, where an empty side
+   is drawn (arrows.js: emptySide), at the other side's size, else the size the arrow promises, else one by one */
+function sideBox(s, g){
+  const u = view.unit, ms = inGroup(g, s); if (ms.length) return boxOf(ms);
+  const c = conditionIn(s), which = g === c.then ? 'then' : 'else', om = inGroup(which === 'then' ? c.else : c.then, s), ob = om.length ? boxOf(om) : null, out = originOf(s.owner).arrow.output;
+  const r = emptySide(which, ob && { x: ob.x / u, y: ob.y / u, w: ob.w / u, h: ob.h / u }, ob ? { cols: ob.w / u, rows: ob.h / u } : out || { cols: 1, rows: 1 });
+  return { x: r.x * u, y: r.y * u, w: r.w * u, h: r.h * u };
+}
 /* whether an arrow in tile g is repeated there: its input is outside the tile */
 const mapsIn = (s, a, g) => { const inp = a.arrow.input; if (inp.as === 'tile') return inp.id !== g && s.repeats.has(inp.id) && !tilesAbove(s, inp.id).includes(g);      /* another tile is outside this one too, unless it is in this one's pattern: tiles.js says what comes of that */
   const blk = s.blocks.find(k => k.id === inp.id); return !!blk && !chain(blk, s).includes(g); };
@@ -2247,8 +2310,8 @@ function innerOf(a){ const o = originOf(a), input = isArrow(o) ? sized(inputOf(o
 /* what a space comes to: its ends, the things in it that nothing reads from. A piece no arrow has for its input is
    one; so is the output of an arrow that nothing reads from and no block is seated on (arrows.js: ends). Without
    arrows these are the space's pieces, as before. Each is { type, piece | arrow } */
-function endsOf(s, alg = algebraIn(s)){
-  const { active, all } = alg, arrows = s.blocks.filter(k => isArrow(k) && !isOff(k));
+function endsOf(s, alg = algebraIn(s), side = null){      /* side: one frame of a condition: the ends of what lies wholly in it (graph.js: endOf) */
+  const { active } = alg, inSide = b => side === null || chain(b, s).includes(side), all = alg.all.filter(p => p.members.every(m => inSide(active[m]))), arrows = s.blocks.filter(k => isArrow(k) && !isOff(k) && inSide(k));
   /* a piece in a tile is read where an arrow reads the tile: the tile's id goes with its blocks' */
   return ends(all.map(p => ({ ids: [...p.members.map(m => active[m].id), ...new Set(p.members.flatMap(m => tilesOf(active[m], s)))], type: p.type, config: p.members.some(m => inConfig(active[m], s)), of: p })),
     arrows.map(k => { const seated = !!seatOn(k, s), o = seated ? null : outputOf(k); return { id: k.id, reads: k.arrow.input.id, seated, type: o ? o.type || { error: o.warn || 'no value' } : null, of: k }; }),
@@ -2259,9 +2322,25 @@ function endsOf(s, alg = algebraIn(s)){
 function definedBy(a, input){
   const home = fnBlock(a) || a, def = spaceOf.get(home); if (!def) return null;
   syncIn(def); arrange(def);                   /* its space is laid out from the data, on screen or not, before it is asked what it comes to */
+  if (conditionIn(def)) return conditionCome(def);
   const alg = algebraIn(def), inner = def.blocks.find(k => k.in);
   return defined(endsOf(def, alg).map(e => e.piece ? { type: e.type, piece: { ids: e.piece.members.map(m => alg.active[m].id) } } : e), id => id === inner?.id);
 }
+/* what a condition's space comes to: the type of its two sides (arrows.js: chosenType), each the ends that lie wholly
+   in its frame; an error where a frame is gone, as the graph says it */
+function conditionCome(def){
+  const c = conditionIn(def); if (sidesIn(def).length < 2) return { error: 'a side of its condition is gone' };
+  const alg = algebraIn(def);
+  return chosenType([c.then, c.else].map(g => endsOf(def, alg, g)), originOf(def.owner).arrow.output);
+}
+/* whether a conditional arrow's condition is not known: what it is given is worked out here, and is neither true nor false */
+function conditionOpen(a){
+  return steadily(() => { const g = graphNow(), e = findIn(g).arrows.get(a.id), n = e && e.node && g.nodes[e.node]; if (!n || n.op !== 'apply') return false;
+    const binding = bindingOf(readBy(a, spaceWith(a)), spaceWith(a), false, a), options = binding ? { binding } : undefined, r = workOut(g, n.inputs[0], options);
+    return !!r.entries && truthAt(g, n.inputs[0], options) === null; });
+}
+/* the blocks of a condition's space that lie in neither of its sides, the input block apart: they take no part */
+const straysIn = s => { const sides = sidesIn(s); return conditionIn(s) ? s.blocks.filter(b => !b.in && !isOff(b) && !inConfig(b, s) && !chain(b, s).some(g => sides.includes(g))) : []; };
 /* the block called in takes the size and the side names of the covered part of the input of the arrow the function
    was made as (every use of a named arrow has to fit that, so it is theirs too). It does not depend on which arrow
    the space was opened through: going into a space never changes the project. Gives whether it changed. */
@@ -2493,7 +2572,8 @@ function gather(light = false){      /* light: each block's entries as their sta
     colsName: b.sides.w, rowsName: b.sides.h, inner: dataOf(b).length ? dataOf(b).map(a => ({ length: a.length, name: a.name || null })) : null, entries: b.members || b.source ? {} : light === true ? { stamp: stampOf(b.values) } : light === 'kept' ? entriesOut(b.values) : Object.fromEntries(b.values), inside: spaceOf.has(b) && !open.has(spaceOf.get(b)) && once(spaceOf.get(b)) ? plain(spaceOf.get(b)) : null, variable: number(b),
     ...(orderOf(b) ? { axes: [...b.axes] } : {}), standing: !!b.standing, source: b.source || null, transposed: !!b.t, attributes: attrsOf(b).map(a => ({ name: a.name, value: a.text })), ...(holdsOf(b) ? { holds: holdsOf(b) } : {}), reference: !!b.ref, from: fromOf(b.from),
     /* an arrow: this use of it, with its function's formula (a use of a function by name has none of its own). Never where its output is, or what it comes to. */
-    arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null } : null,
+    arrow: isArrow(b) ? { input: { ...b.arrow.input }, side: b.arrow.side, start: b.arrow.start, span: b.arrow.span, gap: b.arrow.gap, gapName: b.arrow.gapName || null, output: b.arrow.output ? { ...b.arrow.output } : null, formula: isUse(b) ? null : originOf(b).fn.formula || null,
+      ...(!isUse(b) && originOf(b).fn.choose ? { choose: { ...originOf(b).fn.choose } } : {}) } : null,      /* a condition: the two frames of its space it chooses between */
     seat: !b.seat ? null : typeof b.seat === 'string' ? b.seat : { hollow: [...b.seat.hollow] }, in: !!b.in,
     joined: b.members ? b.members.map(m => ({ fx: m.fx, fy: m.fy, fw: m.fw, fh: m.fh, shape: one(m.block) })) : null });      /* a joined shape's entries are its members' */
   /* a use of a variable inside that variable's own definition (the page refuses to make one, and a file may still hold one)
@@ -2570,7 +2650,7 @@ function rebuild(data){
   /* one block from its plain form, with its definition space and, for a joined shape, the shapes it was joined from */
   const build = (d, s) => { const type = typeNamed(d.type);
     const b = (d.arrow ? createArrow : createBlock)({ ...type, color: OLD[d.color] || d.color || type.color }, { x: d.x * u, y: d.y * u, w: d.cols * u, h: d.rows * u }, d.name);      /* OLD: a colour's name in projects saved before */
-    if (d.arrow){ const { formula, ...use } = d.arrow; b.arrow = { ...use, input: { ...use.input }, output: use.output ? { ...use.output } : null }; b.fn = { formula: formula || null }; }
+    if (d.arrow){ const { formula, choose, ...use } = d.arrow; b.arrow = { ...use, input: { ...use.input }, output: use.output ? { ...use.output } : null }; b.fn = { formula: formula || null, ...(choose ? { choose: { then: choose.then, else: choose.else } } : {}) }; }
     if (d.seat) b.seat = typeof d.seat === 'string' ? d.seat : { hollow: [...d.seat.hollow] };
     if (d.in) b.in = true;
     b.sides = { w: d.colsName, h: d.rowsName }; b.inner = d.arrow ? [] : nesting.kept(d.inner); b.values = new Map(Object.entries(d.entries)); if (d.standing) b.standing = true; if (sourceKept(d.source)) b.source = sourceKept(d.source); if (d.reference) b.ref = true; if (d.from) b.from = fromOf(d.from); b.attrs = (d.attributes || []).map(a => ({ name: a.name, text: a.value })); if (d.holds) b.attrs.holds = d.holds; b.turn(d.transposed); if (Array.isArray(d.axes) && d.reference) b.axes = [...d.axes]; b.id = d.id || ids.id('b');      /* the id it was saved with */
@@ -2733,7 +2813,7 @@ function dragged(el, from, e){
   cursor('move');
   /* held over a group, that group lights up; let go there and the selection joins it */
   const held = new Set(selected), u = view.unit;
-  const others = [...framesIn(space)].filter(id => { const m = inGroup(id); return (m.length || space.repeats.has(id)) && !m.some(x => held.has(x)); })
+  const others = [...framesIn(space)].filter(id => { const m = inGroup(id); return (m.length || space.repeats.has(id) || sidesIn(space).includes(id)) && !m.some(x => held.has(x)); })
     .map(id => [id, frameBox(id)]);      /* a tile takes what is let go on its pattern, blank or not */      /* they do not move during the drag, so their boxes are worked out once */
   const within = (p, r) => p.x >= r.x - u / 2 && p.x <= r.x + r.w + u / 2 && p.y >= r.y - 1.25 * u && p.y <= r.y + r.h + u / 2;      /* the frame stands a little off its blocks, more above */
   return {
@@ -2881,7 +2961,8 @@ const draw = {
    project; the rest look at it, move about in it, or change what is selected.
    (Phase 7 adds one: source.set { id, seed, dist } for a noise block, or { id, file, cols, rows } for a file block,
    whose file's text is already held under that path: see "data files". Asking the backend is no message: it changes
-   nothing in the project.) */
+   nothing in the project.)
+   (Phase 9 adds conditional { ids }: the blocks named, exactly one piece, are made a condition: see "make conditional".) */
 const changes = { changes: true };
 /* ---- undo and redo ----
    History is a tap on the bus (history.js). What it keeps is the whole project as it is saved, with where the user
@@ -3016,6 +3097,8 @@ bus.on('index.add', ({ of, axis, at, stand = false }) => { const owner = space.o
   if (stand) return slotIn(owner, b, 0, 0);
   select([b]); }, changes);
 bus.on('arrow.add', addArrow, changes);
+/* conditional { ids }: the blocks named, one piece, are made a condition (see "make conditional") */
+bus.on('conditional', ({ ids }) => makeConditional(ids.map(blockOf).filter(b => b && space.blocks.includes(b))), changes);
 bus.on('arrow.set', setArrow, changes);
 bus.on('seat', seatBlock, changes);
 bus.on('unseat', ({ id }) => { const b = blockOf(id); if (b && b.seat) b.seat = null; else hud.say('That block is not seated'); shown(); }, changes);
@@ -3107,7 +3190,8 @@ function framing(change, trial = false){      /* trial: undone whether or not it
   return !can.refused;
 }
 bus.on('frame', ({ ids }) => { if (!framing(() => group(ids.map(blockOf).filter(Boolean)))) return; shown(); hud.say('Framed: click its name to name it'); }, changes);
-bus.on('unframe', ({ frame: g }) => { if (space.repeats.has(g)){ hud.say('That frame is a tile: select the tile by its edge or its name, and press Delete to take it off'); return shown(); }
+bus.on('unframe', ({ frame: g }) => { if (sidesIn(space).includes(g)){ hud.say('That frame is a side of the condition: it stays, empty or not. An empty side is None'); return shown(); }
+  if (space.repeats.has(g)){ hud.say('That frame is a tile: select the tile by its edge or its name, and press Delete to take it off'); return shown(); }
   ungroup(g); tidy(); shown(); hud.say('Frame taken off'); }, changes);
 bus.on('frame.enter', ({ ids, frame }) => { enterFrame(ids, frame); }, changes);
 /* blocks let go on a frame go into it. trial: only whether they would, with the sentence where they would not, and nothing changed (a drag asks before it sets the blocks down there) */
@@ -3138,6 +3222,7 @@ bus.on('replicate', ({ frame, at }) => { const s = trail().find(s => s.groupName
 bus.on('frame.leave', ({ id, frame: g, also = [] }) => { const b = blockOf(id); if (b){ if (g === null) space.groupOf.delete(b); else space.groupOf.set(b, g); } tidy(); discard(also.map(blockOf).filter(Boolean)); shown(); }, changes);      /* also: what goes with it (the index matrices of a block that leaves its tile) */      /* pulled free of its group, as far out as g: null is out of them all */
 /* a name given to a frame: a named group is renamed; a group without one is named, and stays, framed; a plain selection folds into a new block of that name */
 bus.on('name', ({ frame: id, ids, name, color }) => { const list = ids.map(blockOf).filter(Boolean);
+  if (name && sidesIn(space).includes(id !== null ? id : groupIs(list))){ hud.say('The two sides of a condition are called true and false'); return shown(); }
   if (name && id !== null) space.groupNames.set(id, name);
   else if (name && groupIs(list) !== null) space.groupNames.set(groupIs(list), name);
   else if (name && list.length && list.every(b => space.blocks.includes(b))) return fold(foldable(list), name, color);
@@ -3181,6 +3266,7 @@ const menu = createMenu([
   /* greyed where the selection does not allow it; chosen all the same, each says why in the readout */
   { label: 'Difference', why: () => refusing([...selected], difference(inOrder([...selected]).map(unitsOf)), 'cut or fused').refused || null, run: () => bus.send('difference', { ids: idsOf(selected) }) },
   { label: 'Intersect', why: () => refusing([...selected], intersection(inOrder([...selected]).map(unitsOf)), 'cut').refused || null, run: () => bus.send('intersect', { ids: idsOf(selected) }) },
+  { label: 'Make conditional', why: () => conditionableNow([...selected]).refused || null, run: () => bus.send('conditional', { ids: idsOf(selected) }) },
   { label: 'Revert', why: () => revertible().refused || null, run: reverting },
   { label: 'Unseat', why: () => selected.size === 1 && [...selected][0].seat ? null : 'Unseat takes a seated block off its seat: select one block that is seated', run: () => bus.send('unseat', { id: [...selected][0].id }) },
   { label: 'Delete', hint: 'X', disabled: () => !selected.size, run: () => removing('delete') },
