@@ -873,9 +873,11 @@ function tidy(s = space){
 /* a tile whose step is no longer an arrow that reads it from the east, or whose stop block is no longer a block of
    its pattern, has none: the arrow or the block was deleted, turned to another side, or taken out of the tile */
 function unstep(s = space){
+  let gone = 0;
   for (const [g, r] of s.repeats){
-    if (r.step){ const a = s.blocks.find(k => k.id === r.step); if (!a || !isArrow(a) || a.arrow.input.as !== 'tile' || a.arrow.input.id !== g || a.arrow.side !== 'e') delete r.step; }
-    if (r.until){ const b = s.blocks.find(k => k.id === r.until); if (!b || isArrow(b) || tileOf(b, s) !== g) delete r.until; } }
+    if (r.step){ const a = s.blocks.find(k => k.id === r.step); if (!a || !isArrow(a) || a.arrow.input.as !== 'tile' || a.arrow.input.id !== g || a.arrow.side !== 'e'){ delete r.step; gone++; } }
+    if (r.until){ const b = s.blocks.find(k => k.id === r.until); if (!b || isArrow(b) || tileOf(b, s) !== g){ delete r.until; gone++; } } }
+  return gone;
 }
 /* how many levels of named groups sit strictly inside these blocks' frame: 0 if none */
 const framesIn = s => new Set([...s.groupOf.values(), ...s.groupUp.keys(), ...s.groupUp.values(), ...s.repeats.keys(), ...sidesIn(s)]);      /* every frame of a space, by id: a tile that holds nothing is still one, and so is a side of a condition */
@@ -2613,7 +2615,8 @@ function setArrow({ id, ...patch }){
     const text = String(patch.formula ?? '').trim(), t = bound(text, reachList(), { matrices: true }), read = t.refused ? t : entered(t.text, formulaNames(lookupFor(a)), { matrices: true });
     if (read.refused){ hud.say(`Not kept: ${read.refused}`); return shown(); }
     originOf(a).fn.formula = read.clear ? null : t.text.trim(); }
-  a.arrow = next; shown();
+  a.arrow = next; unstep(space);      /* turned to another side, a tile's step is its step no longer: taken off here, in this message, so that the change is undone and redone whole */
+  shown();
 }
 /* what arrows.js needs to know of a block to say whether it can be seated */
 const seatFacts = b => ({ name: bare(b.name), named: isNamed(b), arrow: isArrow(b), input: !!givenOf(b), reference: !!b.ref, uses: [...kinOf(b)].length, defined: !!spaceOf.get(b)?.blocks.some(k => !isOff(k)),
@@ -2872,6 +2875,8 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
     /* a use that the files drew at another size than its variable's: project.js has set it to its variable's, and says which (no page saves one) */
     /* a promise that could not be kept as the files wrote it (no number space, or written where no promise is kept): project.js has dropped it, and says which */
     + (data.unheld && data.unheld.length ? `. ${data.unheld.slice(0, 3).map(u => `${bare(u.name)}'s promise "${u.holds}" is not kept: ${u.why}`).join('; ')}${data.unheld.length > 3 ? `; and ${data.unheld.length - 3} more` : ''}` : '')
+    /* a tile whose step or stop block named what is none of its own: project.js has dropped it, and says which tile (no page saves one) */
+    + (data.unstepped && data.unstepped.length ? `. ${data.unstepped.slice(0, 3).map(u => `${u.tile ? 'The tile ' + u.tile : 'A tile'} named ${u.key === 'step' ? 'a step that is no arrow on its east side: it has no step now' : 'a stop block that is no block of its pattern: it has no stop block now'}`).join('; ')}${data.unstepped.length > 3 ? `; and ${data.unstepped.length - 3} more` : ''}` : '')
     + (data.resized && data.resized.length ? `. ${data.resized.slice(0, 3).map(r => `${bare(r.name)} was drawn ${r.was.cols} × ${r.was.rows} and its variable is ${r.cols} × ${r.rows}`).join('; ')}${data.resized.length > 3 ? `; and ${data.resized.length - 3} more` : ''}: every use of a variable is its size, so ${data.resized.length === 1 ? 'it has' : 'they have'} been set to it` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
@@ -3108,6 +3113,12 @@ const draw = {
    nothing in the project.)
    (Phase 9 adds conditional { ids }: the blocks named, exactly one piece, are made a condition: see "make conditional".) */
 const changes = { changes: true };
+/* Whatever a message did, no tile is left with a step or a stop block that is none (unstep): looked at when each
+   message the user caused is over, in every space, so that the project as it stands after the message is the one
+   that is saved, undone to and redone to. (The messages that turn, move or delete say so themselves; this is for
+   any that do not.) */
+bus.tap((phase, message) => { if (phase !== 'after' || !message.changes || message.depth) return;
+  let gone = 0; for (const s of new Set([top, ...spaceOf.values()])) gone += unstep(s); if (gone) shown(); });
 /* ---- undo and redo ----
    History is a tap on the bus (history.js). What it keeps is the whole project as it is saved, with where the user
    was: the space they were in and what was selected (blocks, or a tile). Putting one back rebuilds the project from it (every block and

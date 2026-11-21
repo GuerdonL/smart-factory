@@ -14,7 +14,7 @@ import { evaluate, promiseOf, truthAt } from '../evaluate.js';
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null, inner: null,
   entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
-const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, resized: [], unheld: [], ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently; resized: the references it set to their variable's size */
+const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, resized: [], unheld: [], unstepped: [], ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently; resized: the references it set to their variable's size */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 const paths = files => files.map(f => f.path).sort();
 const file = (path, body) => ({ path, text: JSON.stringify(body) });
@@ -979,4 +979,25 @@ test('projects/running-total: a tile with a step; its cells show 0, 3, 4, 8 and 
   const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
   assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(paths(write(p)), paths(files));      /* saved again it is the files that are shipped */
   for (const f of files) if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path);
+});
+
+test('read: a tile whose step or stop block names what is none of its own has it dropped, and read says which tile', () => {
+  const files = shipped('running-total'), p = read(files); assert.deepEqual(p.unstepped, []);
+  const frame = files.find(f => f.path.endsWith('.frame.json')), c = JSON.parse(frame.text), step = c.repeat.step;
+  const withFrame = change => { const d = JSON.parse(frame.text); change(d); return files.map(f => f === frame ? { path: f.path, text: JSON.stringify(d) } : f); };
+  const turned = files.map(f => { if (!f.path.endsWith('.json') || f === frame) return f; const d = JSON.parse(f.text); if (d.id !== step) return f; d.arrow.side = 's'; return { path: f.path, text: JSON.stringify(d) }; });
+  const name = c.named ? c.name : null;
+  for (const [label, changed, key] of [
+    ['a step that is no shape', withFrame(d => { d.repeat.step = 'nowhere'; }), 'step'],
+    ['a step turned to the south side', turned, 'step'],
+    ['a step that is a block', withFrame(d => { d.repeat.step = d.shapes[0].id; }), 'step'],
+    ['a stop block that is no shape', withFrame(d => { d.repeat.until = 'nowhere'; }), 'until'],
+    ['a stop block outside the tile', withFrame(d => { d.repeat.until = p.top.shapes.find(x => x.name === 'X').id; }), 'until'],
+    ['a stop block that is an arrow', withFrame(d => { d.repeat.until = step; }), 'until']]){
+    const q = read(changed), rep = q.top.groups.find(g => g.repeat).repeat;
+    assert.deepEqual(q.unstepped, [{ tile: name, key }], label); assert.equal(rep[key], undefined, label);
+    const again = read(write(q)); assert.deepEqual(again.unstepped, [], label);      /* and saved, it opens with nothing to say */
+    assert.deepEqual(write(again).filter(f => f.path !== 'project.json'), write(q).filter(f => f.path !== 'project.json'), label); }
+  /* a stop block of the pattern is kept */
+  const kept = read(withFrame(d => { d.repeat.until = d.shapes[0].id; })); assert.deepEqual(kept.unstepped, []); assert.equal(kept.top.groups.find(g => g.repeat).repeat.until, c.shapes[0].id);
 });
