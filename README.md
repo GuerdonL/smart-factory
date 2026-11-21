@@ -755,6 +755,38 @@ chooses entry by entry and works both sides out. In a file it is one field on an
 "then": "<frame id>", "else": "<frame id>" }`, naming two frames of the arrow's definition space
 (`projects/README.md`). `choose` and a source of None need graph version 4.
 
+## Loops
+
+A tile is a loop once it has a **step**: an arrow on the tile's east side, made its step by right-clicking it and
+choosing **Step** (the same command takes it off). A step is not handed the tile's matrix, as any other arrow on a
+tile is: its `in` block is one whole cell, the pattern's size, and what its space comes to is the state of the next
+cell. `projects/running-total` is the example (`projects/README.md`).
+
+- **State.** The blocks of the pattern whose value is their own typed entries are the tile's state, and together
+  they must fill one rectangle; the step's output is that rectangle's size. Every other block of the pattern (one
+  with a formula, a source, noise, a seated block) is worked out afresh in each cell. Each drawn cell shows its
+  own state. Nothing is changed in place: cell k + 1 holds what the step made of cell k.
+- **What the step gives.** After the last cell, the state the step made of it: for a tile 4 across, the state of a
+  fifth cell. An arrow on any other side of the tile still reads the whole matrix, every cell with its state.
+- **Reading a block outside.** In a tile with a step, the block seated on a repeated arrow's output may lie inside
+  the pattern, and in cell k it holds the arrow's k-th run. (In a tile with no step such an arrow gives one strip
+  beside the tile, as before.)
+- **Counts.** A count may be typed `inf`: the tile does not end, is drawn as its first three cells and an ellipsis
+  with `∞` on it, and has no matrix. In a tile with a step a count may also be a formula that is settled only when
+  the model is run (it reads an attribute, or a mass that is worked out). Such a tile repeats one way only.
+- **Stop when true.** Right-click a block of the pattern: the tile stops at the first cell where that block is
+  true as a whole matrix, and the step's output is that cell's state, that cell included. The panel says which
+  cell. A stop block that is not known gives an output that is not known.
+- **Limits.** The browser takes at most 256 steps, then says "Not stopped after 256 steps: needs the backend"; the
+  backend takes up to 1,000,000. A tile that does not end and has no stop block "runs until stopped".
+- **Order.** Cells go left to right, then the next row down. A tile inside a tile's pattern with a step of its own
+  starts again from its first cell in every cell of the outer tile.
+- The index cannot be read in a step (a function's space is in no tile); a block of the pattern reads it.
+
+In the graph this is the operation `loop` (the pattern's nodes, `at`, `pattern`, `state`, `fn`, `count`, `until`
+and `across`), and a `repeat` with `fn` and `state` for the tile's matrix; both need graph version 5. In a file it
+is `"step"` and `"until"` on the tile's `"repeat"`, and a count of `"inf"`; the project format is 7.
+
 ## The graph and the evaluator
 
 The page does no arithmetic. The whole project is built into a graph (`graph.js`), once for each state of the
