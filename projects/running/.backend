@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/frame",
+  "version": 9,
+  "id": "gbck9e1",
+  "name": ".backend",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "bsec9e1",
+      "type": "tensor",
+      "name": ".seconds_per_pass",
+      "named": true,
+      "commented": false,
+      "color": "variable-5",
+      "position": {
+        "x": -16,
+        "y": 6
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 30
+        }
+      },
+      "order": 40,
+      "holds": "natural"
+    }
+  ],
+  "groups": []
+}

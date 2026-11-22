@@ -973,18 +973,43 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 6 }` (the version of graph it reads; it still takes a version 1 to 5 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 6, "play": true, "ceiling": 30 }` (the version of graph it reads, whether it supports Play/checkpoints, and its host ceiling on seconds per pass; it still takes a version 1 to 5 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean", "truth" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
 and each answer is `[c, r, k1, …, value]`; it holds every array with rows and columns as its last two axes);
 `"tick"` is the project's clock, and `"counts"` may give the counts the page has settled exactly for loops whose count
 is settled only when run. Where a stream that stops was asked for past its file's end the answer also has
-`"ended": [the stream's node id]`, and `"codes"` says for each key which stream and from which tick.
+`"ended": [the stream's node id]`, and `"codes"` says for each key which stream and from which tick. Where a loop at
+`tick > 0` had no matching checkpoint and was worked out from tick 0, `"recomputed"` names it.
+`POST /play` takes `{ "graph", "want", "from", "to", "project", "counts", "seconds" }` and gives `{ "run": id, "seconds", "ceiling" }` (refusing a second concurrent play with a sentence, and capping `seconds` to the host ceiling);
+`GET /play/<id>?after=<tick>` polls the newest finished pass after that tick (`{ "tick", "results", "errors", "ended", "running" }`, stopping runs unpolled for 10 seconds);
+`POST /stop` takes `{ "run": id }` and gives `{ "tick" }`;
+`POST /checkpoint` takes `{ "graph", "tick", "project", "counts" }` and caches loop states at that tick.
 `POST /data?project=<name>&path=data/<file>.csv` (or `.txt`, or `.npy`), with the file as its body, gives
 `{ "path", "cols", "rows", "length" }` (length: its rows, its characters, or its values along the first axis), and
 `"small"` where some of a CSV's numbers are too small for 32 bits and are read as 0: how many.
-`backend/run.py` has each in full.
+`backend/run.py` and `backend/service.py` have each in full.
+
+**Running, `.backend`, and checkpoints.**
+
+- **Playing worker.** One long-lived playing worker runs beside the two `/run` workers (so `/run` stays responsive while
+  a model plays) under the same memory and address-space limits. Each pass has a time limit (30 seconds by default, set
+  in the project's `.backend` frame via `.seconds_per_pass`, a `natural`); there is no limit on total run time. A pass
+  past its limit stops the run with a sentence and replaces the worker; a run not polled for 10 seconds is stopped.
+- **Host ceiling and configuration.** Set `SMART_FACTORY_BACKEND_MAX_SECONDS` in the backend's environment to raise or
+  lower the host ceiling on seconds per pass (default `30`); a project's `.backend` asks and the backend grants up to
+  the ceiling, telling the page where it granted less. Set `SMART_FACTORY_BACKEND_CHECKPOINT_BYTES` for the per-project
+  checkpoint cache budget in bytes (default 512 MB). Both `server.py` and the backend process must be restarted after
+  updating so `server.py` proxies `/play`, `/stop`, and `/checkpoint` and advertises them on `/api/backend/health`.
+- **Checkpoints.** Float32 `.npy` cache files under `projects/<name>/data/checkpoints/`, keyed by a SHA-256 fingerprint
+  of each infinite loop's subgraph, referenced data file contents, and tick. Written on save (`POST /checkpoint`), when
+  a playing run stops, and periodically between passes while playing. Loaded only on an exact fingerprint match;
+  otherwise recomputed from tick 0 with a notice. Evicted oldest-first under the budget (leaving room in the JSON
+  sidecar's `"kept"` flag for non-repeatable runs). Checkpoints are never part of project saves, diffs, zip exports, or
+  undo, and saving a project preserves `data/checkpoints/`.
+- **Future remote / GPU runs.** A run depends only on the graph, the tick, and checkpoints, so where a job executes can
+  later become a `.backend` setting (GPU count, type, budget) without changing the graph or project format.
 
 **Its rules.**
 

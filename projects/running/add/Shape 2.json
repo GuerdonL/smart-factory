@@ -1,0 +1,41 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "burwwft",
+  "type": "arrow",
+  "name": "Shape 2",
+  "named": false,
+  "commented": false,
+  "color": null,
+  "position": {
+    "x": -4,
+    "y": 1
+  },
+  "size": {
+    "cols": 2,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Shape 2/",
+  "order": 3,
+  "arrow": {
+    "input": {
+      "id": "bnf6xyn",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 2,
+    "span": 1,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}

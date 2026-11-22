@@ -1,0 +1,87 @@
+{
+  "format": "smart-factory/frame",
+  "version": 9,
+  "id": "gi42bn4",
+  "name": "Walk",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "bdm0pj1",
+      "type": "data-in",
+      "name": "draw",
+      "named": true,
+      "commented": false,
+      "color": "data-in",
+      "position": {
+        "x": -16,
+        "y": 1
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {}
+      },
+      "order": 37,
+      "source": {
+        "noise": {
+          "seed": 7,
+          "dist": "normal"
+        }
+      },
+      "stream": {
+        "length": 1,
+        "start": 0,
+        "step": 1,
+        "end": "stop"
+      }
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "bn0qc9k",
+      "type": "tensor",
+      "name": "S",
+      "named": true,
+      "commented": false,
+      "color": "tensor",
+      "position": {
+        "x": -16,
+        "y": 2
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 0
+        }
+      },
+      "order": 38
+    }
+  ],
+  "groups": [],
+  "repeat": {
+    "x": -16,
+    "y": 1,
+    "cols": 1,
+    "rows": 2,
+    "across": "inf",
+    "down": 1,
+    "step": "bgfb85r"
+  }
+}
