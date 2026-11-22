@@ -255,3 +255,18 @@ test('loop: a stop block that is an error or not known says which cell and why',
   assert.match(tiles.STEP.stuck('', 1, null), /^Its stop block is not known in cell 1, so/);
   assert.match(tiles.STEP.stopLost('Stop', 'a cycle: it depends on itself'), /^Its stop block Stop has no value \(a cycle: it depends on itself\)/);
 });
+
+import { truthAt } from '../evaluate.js';
+test('loop: a state block in a later cell is the backend\'s where its pattern is, and past 256 steps it is not judged by its own entries', () => {
+  const at = (k, id = 's') => ({ binding: { cells: [{ x: k - 1, y: 0, dx: 0, dy: id === 's' ? 1 : 0, cx: k, cy: 1, of: ['t:T'] }] } });
+  /* noise in the pattern: the state of every cell after the first is made of it */
+  const g = total(); g.nodes.c = { op: 'noise', inputs: [], type: ty(1, 1), seed: 1, dist: 'uniform', key: 'c', within: ['t:T'] }; assert.deepEqual(validate(g), []);
+  assert.equal(one(evaluate(g, 's', at(1))), 0);                                                   /* the first cell is the block's own entries */
+  assert.deepEqual(evaluate(g, 's', at(2)), { type: g.nodes.s.type, deferred: true, backend: true });
+  assert.deepEqual(evaluate(g, 's', at(4)), { type: g.nodes.s.type, deferred: true, backend: true });
+  assert.deepEqual(evaluate(g, 'lp'), { type: g.nodes.lp.type, deferred: true, backend: true });
+  /* 300 across: cell 300's state is deferred for its steps, and is not called false for the 0 typed into the block */
+  const h = total({ count: 300, across: 300 });
+  assert.deepEqual(evaluate(h, 's', at(300)), { type: h.nodes.s.type, deferred: true, steps: 256 }); assert.equal(truthAt(h, 's', at(300)), null);
+  assert.equal(truthAt(h, 's', at(1)), false); assert.equal(truthAt(h, 's', at(3)), true);      /* 0, and 0 + 1 + 2 */
+});

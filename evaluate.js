@@ -143,7 +143,7 @@ const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && O
 const nodeAt = (graph, id) => own(graph.nodes, id) && graph.nodes[id] && typeof graph.nodes[id] === 'object' && own(OPS, graph.nodes[id].op) && Array.isArray(graph.nodes[id].inputs) && graph.nodes[id].type ? graph.nodes[id] : null;
 const fnAt = (graph, id) => own(graph.functions, id) && graph.functions[id] && typeof graph.functions[id] === 'object' ? graph.functions[id] : null;
 const states = new WeakMap();                   /* a graph -> what has been worked out of it: values and answers by node id, then by binding */
-const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map(), carries: new Map(), stepped: new Map(), stops: new Map(), stuck: new Map() }); return states.get(graph); };
+const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map(), carries: new Map(), under: new Map(), stepped: new Map(), stops: new Map(), stuck: new Map() }); return states.get(graph); };
 /* whether a node's value follows the cell it is worked out in: a formula of its own reads the index, or what it is made of does.
    (The graph marks such a node with its tiles; this is asked of the node itself, so that a value is never remembered under too little.) */
 function follows(graph, st, id){
@@ -156,6 +156,12 @@ function follows(graph, st, id){
 function carries(graph, st, id){
   if (!st.carries.has(id)){ st.carries.set(id, false); const n = nodeAt(graph, id); st.carries.set(id, !!n && (homesOf(graph, st).stateIds.has(id) || n.inputs.some(i => carries(graph, st, i)))); }
   return st.carries.get(id);
+}
+/* the state blocks a node's value is worked out from, itself included (not through a function's body, which is run in no cell) */
+function statesUnder(graph, st, id){
+  if (!st.under.has(id)){ const out = new Set(); st.under.set(id, out); const n = nodeAt(graph, id);
+    if (n){ if (homesOf(graph, st).stateIds.has(id)) out.add(id); for (const i of n.inputs) if (carries(graph, st, i)) for (const s of statesUnder(graph, st, i)) out.add(s); } }
+  return st.under.get(id);
 }
 const paramsKey = params => Object.keys(params).sort().map(f => f + '=' + params[f].key).join('|');
 const under = (map, id) => { if (!map.has(id)) map.set(id, new Map()); return map.get(id); };
@@ -370,6 +376,13 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null, max
   try {
     const given = Object.entries((binding && binding.params) || {}).filter(([, spec]) => spec && (typeof spec === 'string' || typeof spec.of === 'string'));
     const needs = [needsOf(graph, st, nodeId), ...given.map(([, spec]) => needsOf(graph, st, typeof spec === 'string' ? spec : spec.of))];
+    /* looked at from a later cell of a tile with a step, what is worked out from the tile's state is worked out from
+       all the tile's cells before: its pattern and its step, whose needs are its own (a pattern made of noise is the
+       backend's, in every cell after the first, and so is the state there) */
+    const inCells = ((binding && Array.isArray(binding.cells) && binding.cells) || []).filter(c => c && typeof c === 'object').map(aCell);
+    if (inCells.length && carries(graph, st, nodeId)) for (const sid of statesUnder(graph, st, nodeId)) for (const tile of st.stateIds.get(sid).keys()){
+      const c = inCells.find(c => c.of && c.of.includes(tile)), loop = st.loops.get(tile), ln = loop ? nodeAt(graph, loop) : null;
+      if (c && ln && stepNumber(ln, c) > 1) needs.push(needsOf(graph, st, loop)); }
     /* a result that is not worked out here (too large, or made of noise or of a data file) is still nothing where a
        variable it is worked out from breaks its promise by a value that is here: that variable has no value, so
        neither has this, and it is not the backend's to give. Asked of each such variable on its own, which is
@@ -417,7 +430,7 @@ export function promiseOf(graph, id, options = {}){
   if (!holds) return { holds, inferred: was, state: 'inferred', note: '' };
   const a = evaluate(graph, id, options);
   if (a.error && a.error.code === 'type' && a.error.node === id) return { holds, inferred: was, state: 'broken', note: a.error.note };
-  const plain = a.deferred ? plainly(graph, id) : null;      /* too large to work out, and its values can be read off the graph all the same: they were held to the promise (evaluate), and keep it */
+  const plain = a.deferred && a.steps === undefined && !a.forever ? plainly(graph, id) : null;      /* too large to work out, and its values can be read off the graph all the same: they were held to the promise (evaluate), and keep it */
   if (((a.deferred && !(plain && !untold(holds, plain))) || (a.entries && untold(holds, a.entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
   return { holds, inferred: was, state: 'kept', note: '' };
 }
@@ -476,7 +489,7 @@ export function truthAt(graph, id, options = {}){
   const n = graph && typeof graph === 'object' && typeof id === 'string' ? nodeAt(graph, id) : null; if (!n) return null;
   const a = evaluate(graph, id, options), all = (values, count) => { const t = truthOf(values); return t === false && values.length < count ? null : t; };      /* an entry never given is absent: with none true, not known */
   if (a.entries) return all(Object.values(a.entries), numbers(n.type));
-  if (!a.deferred || a.backend) return null;
+  if (!a.deferred || a.backend || a.steps !== undefined || a.forever) return null;      /* (deferred for its steps, a state block is not its own entries: what it holds is the backend's to say) */
   let at = id, m = n; for (let k = 0; m && k < 64 && m.op === 'transpose'; k++){ at = m.inputs[0]; m = nodeAt(graph, at); }      /* turned, it holds the same numbers */
   const plain = m ? plainly(graph, at) : null; if (!plain) return null;
   for (let k = 0; m && k < 64 && m.op === 'variable' && m.defined !== 'entries' && !m.error && m.inputs.length === 1; k++) m = nodeAt(graph, m.inputs[0]);
