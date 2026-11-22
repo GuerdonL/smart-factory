@@ -23,7 +23,7 @@ import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText, truthOf } from './algebra.js';
 import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION, CODES, said as inWords } from './graph.js';
-import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, truthAt, stoppedAt, MOST as MOST_HERE } from './evaluate.js';
+import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, truthAt, stoppedAt, settledCounts, MOST as MOST_HERE } from './evaluate.js';
 import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
@@ -358,7 +358,7 @@ function answerOf(node, binding = null){
    their place, and in the readout when the reason arrives. Whether there is one is asked again after a failure and
    every quarter of a minute, so one started or stopped later is noticed. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
-  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null), version: GRAPH_VERSION,
+  changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null), version: GRAPH_VERSION, counts: g => settledCounts(g),
   told: why => hud.say((/^the backend /.test(why[0]) ? cap(why[0]) : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
 const laidKept = new WeakMap();                /* an evaluator's answer -> what was last laid over it, and from what */
 const slotAt = (slot, binding) => slot + (binding && binding.cells ? ' ' + binding.cells.map(c => c.cx + ',' + c.cy).join(' ') : '');      /* what is drawn in one place, in one cell: the previous numbers there are dimmed while the new are waited for */

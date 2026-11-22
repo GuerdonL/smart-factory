@@ -16,7 +16,7 @@
                                              with the request as a whole is under the key "*".
     upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" } (and "small" where it has numbers too small for 32 bits); raises
                                              data.Refused(why)
-    health()                              -> { "ok": true, "version": 4 }: the graph version (check.py: VERSION)
+    health()                              -> { "ok": true, "version": 5 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
@@ -27,6 +27,10 @@ The request to /run:
                   "binding": { … },       where it is looked at from, inside a function or a tile (evaluate.js); may be left out
                   "as": "<key>" } ],      what to call the answer in results and errors; left out, the node's id
       "tick": 0,                          which draw of the noise: a whole number, 0 where left out
+      "counts": { "<loop's id>": 3 },     the counts the page has settled exactly, for loops whose count is settled
+                                          only when run: taken as given where the count's node is in no function
+                                          and no tile, so that a natural is not looked for in 32-bit floats; may be
+                                          left out, and then every such count is worked out here (evaluate.py: v_loop)
       "project": "<name>" }               the project whose data/ a file source reads; may be left out where there is none
 A value is a number; "inf" or "-inf"; or { "err": "that has no value" } for an entry that has none (a division by
 zero, ∞ − ∞); or { "none": true } for an entry that is None. min, max and mean are of the entries that have a
@@ -126,7 +130,10 @@ def answer(body, root, room):
             raise Trouble(str(e))
         return A.table(text, skip)
 
-    work = Run(graph, read_file, int(tick), room)
+    counts = asked.get('counts', {})
+    if not is_obj(counts) or not all(is_obj(graph['nodes'].get(i)) and graph['nodes'][i]['op'] == 'loop' and is_obj(graph['nodes'][i]['count']) and is_int(v) and not isinstance(v, bool) and 1 <= v < 2 ** 53 for i, v in counts.items()):
+        return refuse('counts gives a whole number, at least 1, to loops whose count is settled when they are run')
+    work = Run(graph, read_file, int(tick), room, {i: int(v) for i, v in counts.items()})
     results, errors, codes = {}, {}, {}
     last = {}      # of several wants under one key the last is the answer, as it always was
     for k, w in enumerate(want):

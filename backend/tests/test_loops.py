@@ -72,7 +72,7 @@ class Loops(unittest.TestCase):
         g = named('loops: a count settled only when it is run')
         self.assertEqual(whole(g, tile(g)['loop']), [[15.0]])
         g = named('by hand: loop, a count that is no whole number')
-        self.assertEqual(whole(g, 'lp'), [[{'err': 'that has no value'}]])      # an entry with no value, as on the page
+        self.assertEqual(whole(g, 'lp'), 'its count comes to 0.5: a count is a whole number, at least 1')      # (on the page every entry is the error)
 
     def test_a_tile_with_a_step_in_a_function_has_a_state_for_each_thing_the_function_is_given(self):
         # by hand (tests/looping.js: inFunction): f(x) = 2x, so f(5) = 10, f(7) = 14 and f along [5; 7] is [10; 14], whatever was asked before
@@ -95,7 +95,39 @@ class Loops(unittest.TestCase):
         g = named('by hand: loop, a count that is true')      # as on the page: true counts as 1, false as 0
         self.assertEqual(whole(g, 'lp'), [[1.0]])
         g = named('by hand: loop, a count that is false')
-        self.assertEqual(whole(g, 'lp'), [[{'err': 'that has no value'}]])
+        self.assertEqual(whole(g, 'lp'), 'its count comes to 0: a count is a whole number, at least 1')
+
+    def test_a_count_worked_out_in_floats_is_the_whole_number_it_is_within_rounding_of(self):
+        self.assertEqual((E.COUNT_NEAR, E.COUNT_MOST), (1e-5, 1e-2))
+        for x, want in ((3.0000002, 3), (2.9999998, 3), (1.0, 1), (0.9999999, 1), (1000.004, 1000), (16777216.0, 16777216), (float('inf'), float('inf'))):
+            self.assertEqual(E.whole_count(x), want, x)
+        self.assertIsNone(E.whole_count(float('nan')))
+        for x, said in ((3.5, '3.5'), (3.001, '3.001'), (1000.02, '1000.02'), (0.4, '0.4'), (0.0, '0'), (-2.0, '-2'), (float('-inf'), '-∞')):
+            with self.assertRaises(E.Trouble) as told:
+                E.whole_count(x)
+            self.assertEqual(str(told.exception), 'its count comes to %s: a count is a whole number, at least 1' % said)
+        # (1/7) * 21 and sqrt(2) * sqrt(2) + 1, which are 3 on the page and not 3 in 32-bit floats: three steps, 0 + 1 + 2 + 3
+        for text in ('(1/7)*21', 'sqrt(2)*sqrt(2) + 1'):
+            g = named('by hand: loop, a count that is an input')
+            g['nodes']['n']['entries'] = {'1,1': {'expr': text}}
+            self.assertEqual(validate(g), [])
+            self.assertEqual(whole(g, 'lp'), [[6.0]], text)
+        g['nodes']['n']['entries'] = {'1,1': {'expr': '7/2'}}
+        self.assertEqual(whole(g, 'lp'), 'its count comes to 3.5: a count is a whole number, at least 1')
+
+    def test_a_count_the_page_settled_is_taken_as_given(self):
+        import json
+        from backend import run as R
+        g = named('by hand: loop, a count that is an input')
+        g['nodes']['n']['entries'] = {'1,1': {'expr': '7/2'}}      # (what the backend would refuse, so that it is seen not to look)
+        ask = lambda counts: R.run(json.dumps({'graph': g, 'want': [{'node': 'lp', 'cells': [[1, 1]]}], 'counts': counts}).encode(), None, 2 << 30)
+        self.assertEqual(ask({'lp': 3})['results']['lp']['cells'], [[1, 1, 6.0]])
+        self.assertIn('its count comes to 3.5', ask({})['errors']['lp'])
+        for bad in ({'lp': 0}, {'lp': 2.5}, {'lp': True}, {'lp': 'inf'}, {'c': 2}, {'nowhere': 2}, [], 3):
+            self.assertEqual(ask(bad)['errors'], {'*': 'counts gives a whole number, at least 1, to loops whose count is settled when they are run'}, bad)
+        fixed = named('by hand: loop')
+        out = R.run(json.dumps({'graph': fixed, 'want': [], 'counts': {'lp': 2}}).encode(), None, 2 << 30)      # a loop whose count is written on it takes none
+        self.assertIn('*', out['errors'])
 
     def test_a_loop_in_a_step_keeps_the_states_of_one_pass_and_they_are_counted(self):
         g = named('by hand: loop, in a step')      # the outer step holds an inner tile with a step: one more list of states at every outer step, before

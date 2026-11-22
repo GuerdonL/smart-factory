@@ -511,6 +511,25 @@ def state_in(run, tile, outer, k, node=None):
     return kept[k]
 
 
+COUNT_NEAR = 1e-5      # how far from a whole number, for its size, a count worked out in 32-bit floats may lie
+COUNT_MOST = 1e-2      # and never further than this
+
+
+def whole_count(x):
+    """A count that was worked out here, in 32-bit floats, as the natural it stands for. A count is a whole number of
+    at least 1 (or an infinity): (1/7) * 21 comes to 3.0000002 here and is 3, so a value within COUNT_NEAR of its own
+    size of a whole number, and never further than COUNT_MOST from it, is that whole number. (Past 2 ** 24 a float is
+    a whole number already.) Anything else is refused with the number. None for an entry with no value."""
+    if math.isnan(x):
+        return None
+    if x == math.inf:
+        return x
+    near = round(x) if abs(x) < 2 ** 62 else x
+    if near >= 1 and abs(x - near) <= min(COUNT_MOST, max(1e-6, COUNT_NEAR * abs(x))):
+        return int(near)
+    raise Trouble('its count comes to %s: a count is a whole number, at least 1' % shown(x))
+
+
 def v_loop(n, at):
     run = at.run
     run.homes()
@@ -519,11 +538,17 @@ def v_loop(n, at):
         raise Trouble("a loop that is no tile's")
     count = n['count']
     if is_obj(count):
-        got = at.get(count['input'])
-        count = math.nan if A.is_none(got, 0, 0) else A.item(got, 0, 0)
-        if math.isnan(count) or not (count == math.inf or (count >= 1 and count == int(count))):      # no count: every entry is the error (graph.js: BAD_COUNT)
-            t = n['type']
-            return A.full(int(t['rows']), int(t['cols']), NAN, lengths(t))
+        by = n['inputs'][count['input']]
+        if at.id in run.counts and not run.nodes[by].get('within'):      # the page has it exactly, and it is the same wherever it is looked at from
+            count = run.counts[at.id]
+        else:
+            got = at.get(count['input'])
+            if A.is_none(got, 0, 0):
+                raise Trouble('its count comes to None: a count is a whole number, at least 1')
+            count = whole_count(A.item(got, 0, 0))
+            if count is None:      # its count is an entry with no value: every entry is the error, as on the page
+                t = n['type']
+                return A.full(int(t['rows']), int(t['cols']), NAN, lengths(t))
     if count == 'inf':
         count = math.inf
     if count == math.inf and n['until'] is None:
@@ -672,7 +697,8 @@ def too_many(nodes, need, node):
 
 
 class Run:
-    def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST):
+    def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST, counts=None):
+        self.counts = counts or {}      # loop -> its count, where the page settled it exactly (run.py: counts)
         self.graph, self.nodes, self.functions, self.tick = graph, graph['nodes'], graph['functions'], tick
         self.room, self._weights, self._masked = room, {}, {}      # room: the bytes its arrays may take in all
         self.read_file, self.files, self.trees = read_file, {}, {}

@@ -10,6 +10,9 @@
      told       called with why ([sentence, …], each once) when the backend gives no numbers for something asked of
                 it, as the reasons arrive, and when a backend that was answering no longer is
      project    () -> the name of the project that is open, or null: sent with a run, for its data files
+     counts     graph -> { "<loop's id>": whole number }: the counts of loops that are settled only when run and
+                that the page has worked out exactly (evaluate.js: settledCounts); sent with a run as "counts"
+                where there are any, so that a natural is never looked for in 32-bit floats
 
      health()   asks whether there is a backend: a promise of true or false. Asked when the page loads, again every
                 `every` after that, and at once after a run that could not be asked or was refused whole, so that a
@@ -52,7 +55,7 @@ export const DELAY = 500, EVERY = 15000;
 export const keyFor = (node, binding) => binding ? node + '\n' + JSON.stringify(binding) : node;
 
 export const OLDER = 'the backend is older than this page: restart it';
-export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, changed = () => {}, told = () => {}, project = () => null, version = null }){
+export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, changed = () => {}, told = () => {}, project = () => null, version = null, counts = () => ({}) }){
   let older = false;                            /* a backend answers, and reads an older graph than this page writes: it is asked for no run */
   let there = null, now = null, before = new Map(), timer = null, beat = null, asking = null, gone = false, due = false;      /* due: this asking of its health is the regular one, at which what could not be asked for is tried again */
   /* now: { graph, wants: key -> { node, binding, cells, slot }, results: key -> result, errors: key -> why, asked: the keys sent, lost: the keys that could not be asked for }. before: the last answers, by slot, for dimming */
@@ -62,9 +65,9 @@ export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout
     timer = null; const at = now; if (!at || !there) return;
     const want = [...at.wants].filter(([key]) => !at.asked.has(key)); if (!want.length) return;
     for (const [key] of want) at.asked.add(key);
-    const name = project();
+    const name = project(); let given = {}; try { given = counts(at.graph) || {}; } catch { given = {}; }      /* the counts the page has settled exactly, which the backend is not asked to find */
     Promise.resolve().then(() => fetch('api/backend/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: 0, ...(name ? { project: name } : {}) }) })).then(said)
+      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: 0, ...(name ? { project: name } : {}), ...(Object.keys(given).length ? { counts: given } : {}) }) })).then(said)
       .then(answer => { if (now !== at) return;      /* an answer for an older graph: dropped */
         const whole = answer && answer.errors && answer.errors['*'], why = new Set();
         for (const [key] of want){ const r = answer && answer.results && answer.results[key];

@@ -41,6 +41,8 @@
                                                told here: true, false, or null for not known (see the function)
    stoppedAt(graph, id)                        the cell (from 1) at which a loop last worked out here was stopped
                                                by its stop block, or null
+   settledCounts(graph)                        the counts of loops settled only when run, where they are whole
+                                               numbers here: sent to the backend with a run (see the function)
    STEPS                                       256, the default maxSteps: the most steps of a loop worked out here
    MOST                                        4096, the default maxEntries: the most numbers the browser works out
    tooLarge(type, most)                        the sentence that says so of a result that size
@@ -478,6 +480,21 @@ export function truthAt(graph, id, options = {}){
 
 /* the cell at which a loop was last stopped by its stop block when it was worked out here, or null */
 export const stoppedAt = (graph, id) => { const st = graph && typeof graph === 'object' ? states.get(graph) : null; return st && st.stops.has(id) ? st.stops.get(id) : null; };
+
+/* The counts of the loops whose count is settled only when it is run, where they are worked out here: { "<loop's id>":
+   whole number }, for the backend (backend/run.py: counts). A count is a natural, and the page has it exactly; the
+   backend's numbers are 32-bit floats, in which (1/7) * 21 is not 3. So where the count's node is in no function and
+   no tile (it has one value) and comes here to a whole number of at least 1 (or to true, which counts as 1), that
+   number is sent, and the backend does not look for it. One only the backend can know (noise or a data file is
+   behind it) is not here, and the backend takes what it works out, to within float rounding. */
+export function settledCounts(graph, options = {}){
+  const out = {}; if (!graph || typeof graph !== 'object' || !graph.nodes) return out;
+  for (const id of Object.keys(graph.nodes)){ const n = nodeAt(graph, id); if (!n || n.op !== 'loop' || !n.count || typeof n.count !== 'object') continue;
+    const cid = n.inputs[n.count.input], c = typeof cid === 'string' ? nodeAt(graph, cid) : null; if (!c || (Array.isArray(c.within) && c.within.length)) continue;
+    const a = evaluate(graph, cid, options), v = a.entries ? a.entries['1,1'] : undefined, count = v === true ? 1 : v;
+    if (Number.isInteger(count) && count >= 1 && count <= Number.MAX_SAFE_INTEGER) out[id] = count; }
+  return out;
+}
 
 const texts = new WeakMap();
 export function carry(from, to){

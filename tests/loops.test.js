@@ -208,3 +208,22 @@ test('loop: a count far past what is worked out here is deferred at once, and a 
   assert.equal(one(evaluate(by(true), 'lp')), 1);      /* true counts as 1: one step, 0 + 1 */
   assert.match(one(evaluate(by(false), 'lp')).err, /whole number/);      /* and false as 0, which is no count */
 });
+
+import { settledCounts } from '../evaluate.js';
+import { createBackend } from '../backend.js';
+test('settledCounts: a count the page has exactly is sent to the backend, which is not asked to find it', async () => {
+  const n = v => ({ n: V(ty(1, 1), v === null ? {} : { '1,1': v }) }), by = v => total({ count: { input: 2 }, across: 'inf', more: n(v) });
+  assert.deepEqual(settledCounts(by(4)), { lp: 4 });
+  const third = by({ expr: '(1/7)*21' }); assert.deepEqual(validate(third), []); assert.deepEqual(settledCounts(third), { lp: 3 }); assert.equal(one(evaluate(third, 'lp')), 6);      /* 3 exactly here; 3.0000002 in 32-bit floats */
+  assert.deepEqual(settledCounts(by(true)), { lp: 1 });
+  for (const v of [null, { n: 1, d: 2, k: 0 }, 0, false, 'inf']) assert.deepEqual(settledCounts(by(v)), {}, JSON.stringify(v));      /* not known, no whole number, no end: nothing to send */
+  assert.deepEqual(settledCounts(total()), {});                                    /* a count written on the loop is no count to send */
+  const inside = by(4); inside.nodes.n.within = ['f:9']; assert.deepEqual(settledCounts(inside), {});      /* one that follows what a function is given has no one value */
+  assert.deepEqual(settledCounts(null), {});
+  /* and backend.js sends them with the run */
+  const sent = [], waits = [], g = by({ expr: '(1/7)*21' });
+  const fetch = (path, options) => { if (options) sent.push(JSON.parse(options.body)); return Promise.resolve({ ok: true, json: () => Promise.resolve(path.endsWith('health') ? { ok: true, version: g.version } : { results: {}, errors: {} }) }); };
+  const b = createBackend({ fetch, later: fn => { waits.push(fn); return waits.length; }, cancel: () => {}, version: g.version, counts: settledCounts });
+  await b.health(); b.ask(g, 'lp', null, [[1, 1]], 'a'); while (waits.length) waits.shift()(); await new Promise(r => setTimeout(r, 0));
+  assert.equal(sent.length, 1); assert.deepEqual(sent[0].counts, { lp: 3 });
+});
