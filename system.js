@@ -51,7 +51,10 @@ export const SYSTEM = [
 ];
 export const FUNCTIONS = [{ name: '.recip', formula: '1/x' }, { name: '.sqrt', formula: 'sqrt(x)' }, { name: '.exp', formula: 'exp(x)' }, { name: '.ln', formula: 'ln(x)' },
   { name: '.abs', formula: 'abs(x)' }, { name: '.tanh', formula: 'tanh(x)' }, { name: '.erf', formula: 'erf(x)' }];
-export const CONFIG = '.config', COLORS = '.colors', DARK = '.dark_colors';
+export const CONFIG = '.config', BACKEND = '.backend', COLORS = '.colors', DARK = '.dark_colors';
+export const BACKEND_SETTINGS = [
+  { name: '.seconds_per_pass', key: 'seconds-per-pass', holds: 'natural', at: [2, 1], cols: 1, color: SLOTS[4], fallback: 30 },
+];
 export const DARK_DOWN = 24;                    /* how far below .colors the same shapes sit in .dark_colors, in the default layout */
 export const isColour = v => !!(v.css || v.cssRows);
 /* a name as it is matched against the keys above: ".Data in" and "--data_in" are both "data-in" */

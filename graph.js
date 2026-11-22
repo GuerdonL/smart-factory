@@ -249,7 +249,7 @@ import { covered, coveredType, ends as endsOf, functionFor, check as promised, s
 import * as tiles from './tiles.js';
 import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, fileKind, streamKind, DISTS, EMPTY, ENDS } from './sources.js';
 const STREAM_KINDS = ['noise', 'csv', 'text', 'npy'];
-import { FUNCTIONS, CONFIG } from './system.js';
+import { FUNCTIONS, CONFIG, BACKEND } from './system.js';
 
 export const VERSION = 6;                     /* 6 added stream; 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise; 4 choose and a source of kind none. An older graph holds none of what came after it and is a version 4 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
 const VERSIONS = [1, 2, 3, 4, 5, 6];
@@ -889,7 +889,7 @@ export function build(snapshot){
     v.scalar = one(v.type) && !v.src.members.length;
   }
   const chain = rec => { const out = []; for (let g = rec.ctx.groupOf.get(rec.at); g; g = g.up) out.push(g); return out; };
-  const inConfig = rec => chain(rec).some(g => g.name === CONFIG);
+  const inConfig = rec => chain(rec).some(g => g.name === CONFIG || g.name === BACKEND);
   const tileOf = rec => chain(rec).find(g => g.repeat) || null;      /* the innermost tile it is in */
   const tileUp = grp => { for (let g = grp.up; g; g = g.up) if (g.repeat) return g; return null; };      /* the tile a tile is in */
   const upTiles = grp => { const out = []; for (let g = tileUp(grp); g; g = tileUp(g)) out.push(g); return out; };      /* every tile a tile is in, innermost first */

@@ -321,7 +321,7 @@ import { parse as spaceOf, promise as promiseOf } from './spaces.js';
 import { kept as sourceOf, dataPath, streamRead, streamOf, streamKind } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 8;
+export const FORMAT = 9;
 const tickOf = t => (Number.isSafeInteger(t) && t >= 0 ? t : 0);
 /* a source as it is written: the source itself, and its stream beside it */
 const sourceOut = source => { const k = sourceOf(source); if (!k) return {}; if (typeof k === 'string' || !k.stream) return { source: k }; const { stream, ...rest } = k; return { source: rest, stream }; };
@@ -416,10 +416,13 @@ export function write(project){
         ...(shape.joined ? { joined: shape.joined.map(j => ({ at: { x: j.fx, y: j.fy, w: j.fw, h: j.fh }, shape: config(j.shape, 0)[1] })) } : {}) }]; };
     s.shapes.forEach((shape, i) => { if (grouped.has(i)) return; const [name, c] = config(shape, i); files.push({ path: dir + name + '.json', text: JSON.stringify(c, null, 2) + '\n' }); });
     const inner = g => ({ ...(g.id ? { id: g.id } : {}), name: g.name || null, named: !!g.name, shapes: g.members.map(i => config(s.shapes[i], i)[1]), groups: (g.groups || []).map(inner), ...(repeatOf(g.repeat) ? { repeat: repeatOf(g.repeat) } : {}) });      /* a tile */
-    let hasConfig = false;
-    s.groups.forEach((g, n) => { const body = inner(g), own = !hasConfig && (g.name || '').trim() === '.config', name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken, '.frame.json');
-      if (own) hasConfig = true;
-      files.push({ path: own ? dir + '.config' : dir + name + '.frame.json', text: JSON.stringify({ format: 'smart-factory/frame', version: FORMAT, ...body }, null, 2) + '\n' }); });
+    let hasConfig = false, hasBackend = false;
+    s.groups.forEach((g, n) => { const body = inner(g), trimmed = (g.name || '').trim();
+      const ownConfig = !hasConfig && trimmed === '.config', ownBackend = !hasBackend && trimmed === '.backend';
+      const own = ownConfig || ownBackend, name = own ? '' : stem(g.name || 'frame ' + (n + 1), taken, '.frame.json');
+      if (ownConfig) hasConfig = true;
+      if (ownBackend) hasBackend = true;
+      files.push({ path: own ? dir + trimmed : dir + name + '.frame.json', text: JSON.stringify({ format: 'smart-factory/frame', version: FORMAT, ...body }, null, 2) + '\n' }); });
     /* what was cut here: each operation with its two sources whole, written as shapes are (a definition goes in a directory beside) */
     if (s.operations?.length) files.push({ path: dir + 'operations.json', text: JSON.stringify({ format: 'smart-factory/operations', version: FORMAT,
       operations: s.operations.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(shape => config(shape, 0)[1]), results: [...o.results], ...(o.was ? { was: o.was.map(w => ({ order: w.order, frames: w.frames.map(f => ({ id: f.id, name: f.name ?? null })) })) } : {}) })) }, null, 2) + '\n' });
@@ -458,7 +461,8 @@ export function read(files){
     const take = c => { const g = { id: typeof c.id === 'string' ? c.id : null, name: c.named ? c.name : null, members: [], groups: (c.groups || []).map(take), ...(repeatOf(c.repeat) ? { repeat: repeatOf(c.repeat) } : {}) };
       for (const shape of c.shapes || []) found.push([shape, g]); return g; };
     for (const [path, text] of at){
-      if (!path.startsWith(dir) || path.slice(dir.length).includes('/') || !(path.endsWith('.json') || path.slice(dir.length) === '.config') || path === 'project.json') continue;
+      const leafName = path.slice(dir.length);
+      if (!path.startsWith(dir) || leafName.includes('/') || !(path.endsWith('.json') || leafName === '.config' || leafName === '.backend') || path === 'project.json') continue;
       let c; try { c = JSON.parse(text); } catch (e) { throw new Error(path + ' is not valid JSON'); }
       if (c.format === 'smart-factory/shape') found.push([c, null]);
       else if (c.format === 'smart-factory/frame' || c.format === 'smart-factory/group'){ const n = !c.named && path.slice(dir.length).match(/^frame (\d+)\.frame\.json$/); groups.push(take(c)); places.push(n ? +n[1] - 1 : null); }      /* 'group' is what a frame was called in projects saved before */
@@ -587,7 +591,7 @@ function fuseStacks(s, owner = null, seen = new Set()){
   /* shapes standing in their owner's matrix are its entries, and were never worked out as a stack: that is so when
      every shape of the space outside a .config stands there, inside the matrix and over no other (as the page has it) */
   const standing = (() => { if (!owner) return false;
-    const act = live.filter(i => !chain(i).some(g => (g.name || '').trim() === '.config')).map(i => s.shapes[i]), x0 = -1 - owner.cols, y0 = Math.round(-owner.rows / 2), placed = [];
+    const act = live.filter(i => !chain(i).some(g => { const n = (g.name || '').trim(); return n === '.config' || n === '.backend'; })).map(i => s.shapes[i]), x0 = -1 - owner.cols, y0 = Math.round(-owner.rows / 2), placed = [];
     for (const t of act){ const x = t.x - x0, y = t.y - y0;
       if (!t.standing || x % 1 || y % 1 || x < 0 || y < 0 || x + t.cols > owner.cols || y + t.rows > owner.rows) return false;
       if (placed.some(o => x < o.x + o.w && o.x < x + t.cols && y < o.y + o.h && o.y < y + t.rows)) return false;

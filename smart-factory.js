@@ -35,19 +35,19 @@ const promiseOf = (g, id, options) => promiseAt(g, id, { ...options, tick });
 const judged = (g, id, holds, name, options) => judgedAt(g, id, holds, name, { ...options, tick });
 const truthAt = (g, id, options) => truthAtTick(g, id, { ...options, tick });
 const settledCounts = (g, options) => settledAt(g, { ...options, tick });
-import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
+import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead, broken as spaceBroken, NOT_HELD as SPACE_NOT_HELD } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
 import { createBus } from './bus.js';
 import { createIds } from './ids.js';
 import { createHistory } from './history.js';
-import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
+import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, BACKEND, BACKEND_SETTINGS, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, conditionAt, conditionSaid } from './arrows.js';
 import { zip, unzip } from './zip.js';
 import { SOURCES, DATA, STREAMS, ENDS, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, fileKind, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable, stream as streamNew, streamOf, streamKind, spanOf, valueOf as streamValue, pulled as streamPulled, resized as streamResized } from './sources.js';
 import { createClock } from './components/clock.js';
 import { wanted, laid, noted, drawn as cellsDrawn, level as levelOf } from './decimals.js';
-import { createBackend, OLDER as OLDER_BACKEND } from './backend.js';
+import { createBackend, OLDER as OLDER_BACKEND, OLDER_SERVER } from './backend.js';
 import { squares } from './components/matrix.js';
 import * as nesting from './inner.js';
 
@@ -222,7 +222,9 @@ function reachNow(){
 }
 const indexItems = b => ['x', 'y'].map(axis => ({ kind: 'index', name: 'index.' + axis, axis, of: b.id, color: b.shape.color, cols: b.rect.w / view.unit, rows: b.rect.h / view.unit }));
 const systemItems = () => [{ kind: 'system', name: CONFIG, group: true, color: 'muted', cols: 3, rows: 3 }, { kind: 'system', name: COLORS, group: true, color: 'muted', cols: 3, rows: 2 }, { kind: 'system', name: DARK, group: true, color: 'muted', cols: 3, rows: 2 },
+  { kind: 'system', name: BACKEND, group: true, backend: true, color: 'muted', cols: 3, rows: 2 },
   ...SYSTEM.map(v => ({ kind: 'system', name: v.name, key: v.key, color: v.css || v.color, cols: v.cols, rows: v.rows || 1 })),
+  ...BACKEND_SETTINGS.map(v => ({ kind: 'system', name: v.name, key: v.key, backend: true, color: v.color, cols: v.cols, rows: v.rows || 1 })),
   ...FUNCTIONS.map(f => ({ kind: 'arrow', name: f.name, color: 'function', cols: 1, rows: 1, builtin: true }))];      /* the program's own functions (a project's arrow of the same name is listed in its place) */
 /* another use of a shape variable, centred on a world point */
 function useShape(of, at, transposed = false){      /* transposed: whether the new use is to be the variable's transpose */
@@ -371,9 +373,11 @@ function answerOf(node, binding = null){
    every quarter of a minute, so one started or stopped later is noticed. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
   changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null), version: GRAPH_VERSION, counts: g => settledCounts(g),
-  tick: () => tick, ended: (g, node, at) => endedSays(g, node, at),
+  tick: () => tick, ended: (g, node, at) => endedSays(g, node, at), requirePlay: true,
+  onTick: t => { tick = t; clock.show(tick); },
+  recomputed: (g, nodes, at) => `No matching checkpoint at tick ${at.toLocaleString('en-US')}: worked out from tick 0`,
   /* (what a project said as it opened is not written over by the first answer that comes: it stays in front for as long as the readout shows a sentence) */
-  told: why => hud.say((asOpened.said && Date.now() - asOpened.at < 5000 ? asOpened.said + '. ' : '') + (/^the backend /.test(why[0]) ? cap(why[0]) : /^The stream /.test(why[0]) ? why[0] : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
+  told: why => hud.say((asOpened.said && Date.now() - asOpened.at < 5000 ? asOpened.said + '. ' : '') + (/^(the (backend|server) |another run |pass at tick |stopped:|no matching checkpoint )/i.test(why[0]) ? cap(why[0]) : /^The (stream|backend|server) /.test(why[0]) ? why[0] : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
 /* What the project said as it was opened, where it had more to say than its name: kept for the few seconds the readout
    shows it. And notes, block id -> what its stream's file words were read as (project.js: streamed): written in that
    block's panel until its stream is set again or another project is opened, since the readout's sentence is soon gone. */
@@ -971,7 +975,7 @@ const cells = b => { const u = view.unit, cols = Math.round(b.rect.w / u), rows 
    left blank it is whatever the computer (or the app the page sits in) asks for. The page then says so on the root
    element, which is what the stylesheet goes by, over whatever was there. A colour shape in a .config sets the light
    colour if it is in .colors, the dark one if it is in .dark_colors, and both if it is in neither. */
-const root = document.documentElement, bySystemKey = new Map(SYSTEM.map(v => [v.key, v]));
+const root = document.documentElement, bySystemKey = new Map(SYSTEM.map(v => [v.key, v])), byBackendKey = new Map(BACKEND_SETTINGS.map(v => [v.key, v]));
 let defaults = null;                           /* { light, dark }: the theme's own colours for each, read with nothing of ours laid over them */
 let hostTheme = root.dataset.theme || null, ourTheme;      /* what the app has put on the root element, and what the page last put there */
 const asksForDark = () => hostTheme ? hostTheme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
@@ -984,7 +988,18 @@ function programDefaults(){                    /* what the program itself says o
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => bus.send('theme', { dark: e.matches }));
 new MutationObserver(() => { const now = root.dataset.theme || null; if (now === ourTheme || now === hostTheme) return;      /* the page's own doing, or no change */
   bus.send('theme', { set: now }); }).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
-const inConfig = (b, s) => chain(b, s).some(g => (s.groupNames.get(g) || '').trim() === CONFIG);
+const inBackend = (b, s) => chain(b, s).some(g => (s.groupNames.get(g) || '').trim() === BACKEND);
+const inConfig = (b, s) => chain(b, s).some(g => { const n = (s.groupNames.get(g) || '').trim(); return n === CONFIG || n === BACKEND; });
+/* reads a setting from the project's .backend frame (top space), validated against its number space (holds) */
+function backendSetting(key){
+  const spec = byBackendKey.get(key); if (!spec) return { value: null, error: null };
+  const found = top.blocks.filter(b => !isOff(b) && inBackend(b, top) && leaf(b.name) === key);
+  if (!found.length) return { value: spec.fallback, error: null };
+  const b = found[found.length - 1], vs = valuesOf(b), v = vs.get('1,1');
+  if (v === undefined) return { value: spec.fallback, error: null };
+  if (spec.holds){ const bad = spaceBroken(spec.holds, new Map([['1,1', v]])); if (bad) return { value: null, error: SPACE_NOT_HELD(bare(b.name), spec.holds, bad.key, bad.value) }; }
+  return { value: typeof v === 'number' ? v : spec.fallback, error: null };
+}
 const modeOf = (b, s) => { const names = chain(b, s).map(g => (s.groupNames.get(g) || '').trim()); return names.includes(DARK) ? 'dark' : names.includes(COLORS) ? 'light' : 'both'; };
 /* a system variable as it stands after the .configs of these spaces, highest first, have each covered what they give.
    mode: for a colour, which of the two sets is wanted */
@@ -1060,6 +1075,7 @@ function dress(){
 function inheritedBy(b, s){
   const above = []; for (let p = s.parent; p; p = p.parent) above.unshift(p);
   const key = leaf(b.name), got = new Map(), cols = Math.round(b.rect.w / view.unit);
+  if (inBackend(b, s)){ const spec = byBackendKey.get(key); if (spec && 'fallback' in spec) got.set('1,1', spec.fallback); return got; }
   if (inConfig(b, s)){ const m = modeOf(b, s);
     if (bySystemKey.has(key)) systemValue(key, pathTo(s), m === 'both' ? modeIn(pathOf()) : m, true).forEach((n, i) => Number.isFinite(n) && got.set((i % cols + 1) + ',' + (Math.floor(i / cols) + 1), n));
     return got; }                                /* in a .config: what the .configs above say of it (the program itself says nothing) */
@@ -1072,7 +1088,21 @@ function inheritedBy(b, s){
    none). One variable brings one shape. .colors brings every colour, in its Shapes and UI groups; .config brings the
    whole tree. They are laid out as in system.js. */
 function summon(item, at){
-  const u = view.unit, on = v => Math.round(v / u) * u, made = [], colours = SYSTEM.filter(isColour);
+  const u = view.unit, on = v => Math.round(v / u) * u, made = [];
+  if (item.name === BACKEND || item.backend){
+    const which = item.group ? BACKEND_SETTINGS : [BACKEND_SETTINGS.find(v => v.key === item.key)].filter(Boolean);
+    if (!which.length) return;
+    const [x0, y0] = which[0].at;
+    let frame = [...space.groupNames].find(([, name]) => name.trim() === BACKEND)?.[0];
+    if (frame === undefined){ frame = newGroup(); space.groupNames.set(frame, BACKEND); }
+    for (const v of which){ const [x, y] = v.at;
+      const b = makeBlock({ ...typeNamed('tensor'), color: v.color }, { x: on(at.x) + (x - x0) * u, y: on(at.y) + (y - y0) * u, w: v.cols * u, h: (v.rows || 1) * u }, v.name);
+      if (v.holds) attrsOf(b).holds = v.holds;
+      space.blocks.push(b); view.world.append(b.el); made.push(b);
+      space.groupOf.set(b, frame); }
+    return select(made);
+  }
+  const colours = SYSTEM.filter(isColour);
   /* which variables, and the area of the .config each goes in: .colors, .dark_colors, or neither */
   const which = !item.group ? [[SYSTEM.find(v => v.key === item.key), null]] : item.name === COLORS ? colours.map(v => [v, COLORS]) : item.name === DARK ? colours.map(v => [v, DARK])
     : [...SYSTEM.filter(v => !isColour(v)).map(v => [v, null]), ...colours.map(v => [v, COLORS]), ...colours.map(v => [v, DARK])];
@@ -1133,7 +1163,9 @@ function holdsRow(b, key = 'holds', label = 'Holds'){
   return steadily(() => { const g = graphNow(), holds = holdsOf(b), use = g.blocks[b.id]; let id = use, n = id && g.nodes[id]; if (n && n.op === 'transpose'){ id = n.inputs[0]; n = g.nodes[id]; }
     /* the sentence names the entry as it is drawn on the use being looked at: a transposed use's columns are the variable's rows, and one turned through its inner axes has its own */
     const here = note => note && use !== id ? seenFrom(g, use, { code: 'type', note, node: id }) : note;
-    if (!n || n.op === 'param') return { key, label, holds, inferred: n && !holds ? 'any?' : null, from: n ? 'whatever it is given' : '', note: null };
+    if (!n || n.op === 'param'){
+      if (!n && holds){ const bad = spaceBroken(holds, valuesOf(b)); if (bad) return { key, label, holds, inferred: null, from: '', note: SPACE_NOT_HELD(bare(b.name), holds, bad.key, bad.value) }; }
+      return { key, label, holds, inferred: n && !holds ? 'any?' : null, from: n ? 'whatever it is given' : '', note: null }; }
     const binding = bindingOf([b], spaceWith(b)), p = promiseOf(g, id, { binding }), bare = n.defined === 'entries' && !Object.keys(n.entries).length;
     /* where its numbers are the backend's, the backend holds them to the promise, and what it found is this row's to say */
     const far = holds && p && p.state !== 'broken' ? [[use, binding], [use, null], [id, binding], [id, null]].find(([node, at]) => { const c = backend.broke(g, node, at); return c && c.node === id; }) : null;
@@ -1317,6 +1349,7 @@ function setDims(b, n){
 function shown(){
   memo = new Map();
   try { arrangeAll(); for (let pass = 0; pass < 4; pass++){ const was = paint(); memo.clear(); if (!arrangeAll() && standingNow() === was) break; } } finally { memo = null; }
+  clock.state({ playable: backend.playable(), playing: backend.playing() });
 }
 /* how every arrow on screen stands just now: whether it warns, and where its output is. What was drawn is drawn again where this is no longer so. */
 const standingNow = () => { const list = space.blocks.filter(isArrow); return !list.length ? '' : JSON.stringify(list.map(a => { const o = outputOf(a); return [o.warn, o.place, o.type]; })); };
@@ -2935,7 +2968,9 @@ async function sendSaved(name, files, what){
       if (!name) return hud.say('Not saved');
       const r = await fetch('api/projects/' + encodeURIComponent(name), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(files) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'the server answered ' + r.status);
-      current = name; await ask(); return hud.say(`Saved ${what} to projects/${name}/`);
+      current = name; await ask();
+      if (backend.playable() && tick > 0) backend.checkpoint(graphNow(), tick);
+      return hud.say(`Saved ${what} to projects/${name}/`);
     }
     const bytes = zip(files.map(f => ({ path: 'project/' + f.path, text: f.text }))), downloads = await window.claude?.use?.('downloads');
     if (downloads){ await downloads.save({ filename: 'smart-factory-project.zip', data: new Blob([bytes]) }); return hud.say(`Saved ${what} as a zip`); }
@@ -2950,7 +2985,7 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
    /* What was wanted of the project before is wanted no more: nothing of it is sent under this one's name. (Forgotten
       here, once the page is this project's: while it was being rebuilt it was drawn, and asked, as the old one still.
       Drawn again, it asks for what this one needs.) */
-   backend.forget(); shown();
+   backend.forget(); if (tick > 0) backend.checkNext(); shown();
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
   asOpened.notes = new Map(); for (const u of data.streamed || []) if (u.id) asOpened.notes.set(u.id, [...(asOpened.notes.get(u.id) || []), u.why]);
   const head = `Opened ${name ? name + ': ' : ''}${count(data)} shapes`, saidOpen = text => { asOpened.said = text === head ? null : text; asOpened.at = Date.now(); hud.say(text); };
@@ -3211,7 +3246,8 @@ const changes = { changes: true };
    message the user caused is over, in every space, so that the project as it stands after the message is the one
    that is saved, undone to and redone to. (The messages that turn, move or delete say so themselves; this is for
    any that do not.) */
-bus.tap((phase, message) => { if (phase !== 'after' || !message.changes || message.depth) return;
+bus.tap((phase, message) => { if (phase === 'before' && message.changes && backend.playing()) backend.stop();
+  if (phase !== 'after' || !message.changes || message.depth) return;
   let gone = 0; for (const s of new Set([top, ...spaceOf.values()])) gone += unstep(s); if (gone) shown(); });
 /* ---- undo and redo ----
    History is a tap on the bus (history.js). What it keeps is the whole project as it is saved, with where the user
@@ -3286,8 +3322,17 @@ bus.on('stream.set', ({ id, ...set }) => { const b = blockOf(id); if (!b || !str
   for (const k of kinOf(b)) asOpened.notes.delete(k.id);
   restream(b, got); shown(); }, changes);
 /* the tick: the project's clock. Not a change that undo records (it is sent with no `changes`): what the page shows is asked afresh at the new tick. */
-bus.on('tick', ({ tick: to }) => { if (!Number.isSafeInteger(to) || to < 0){ hud.say('The tick is a whole number, from 0'); clock.show(tick); return; }
+bus.on('tick', ({ tick: to }) => { if (backend.playing()) return; if (!Number.isSafeInteger(to) || to < 0){ hud.say('The tick is a whole number, from 0'); clock.show(tick); return; }
   tick = to; clock.show(tick); if (space.owner) write(); shown(); });
+bus.on('play', ({ to = null } = {}) => {
+  if (!backend.playable()){ hud.say(backend.serverOlder() ? cap(OLDER_SERVER) : backend.older() ? cap(OLDER_BACKEND) : 'Play needs the backend, and none is running'); return; }
+  if (backend.playing()) return;
+  const sec = backendSetting('seconds-per-pass');
+  if (sec.error){ hud.say(sec.error); return; }
+  shown();
+  backend.play(graphNow(), { from: tick, to, seconds: sec.value });
+});
+bus.on('stop', () => { backend.stop(); });
 bus.on('add', ({ type, rect, name, source = null }) => { if (unnameable(name)) return shown(); const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 /* place { rects, axes }: where blocks go, and how big: the end of a move or a resize. axes, where a side that was
    pulled carries the name of an inner axis: [{ id, index, length }], that axis of that block's variable at its new
@@ -3558,7 +3603,9 @@ const crumbs = createCrumbs({ onGo: index => bus.send('space.go', { index }) });
 /* the clock: the tick shown, typed (a whole number from 0) and stepped by one */
 const clock = createClock({
   onSet: text => { const t = text.trim().replace(/[,\s]/g, ''); if (!/^\d+$/.test(t) || !Number.isSafeInteger(Number(t))){ hud.say(`The tick is a whole number, from 0${/^\d+$/.test(t) ? ', and that is more than is counted exactly' : ''}: ${text.trim() ? '"' + text.trim().slice(0, 20) + '" is not one' : 'nothing was typed'}`); return clock.show(tick); } bus.send('tick', { tick: Number(t) }); },
-  onStep: by => { if (tick + by < 0) return hud.say('The tick is 0: it does not go below'); if (!Number.isSafeInteger(tick + by)) return hud.say('The tick is as large as is counted exactly'); bus.send('tick', { tick: tick + by }); } });
+  onStep: by => { if (tick + by < 0) return hud.say('The tick is 0: it does not go below'); if (!Number.isSafeInteger(tick + by)) return hud.say('The tick is as large as is counted exactly'); bus.send('tick', { tick: tick + by }); },
+  onPlay: () => bus.send('play'),
+  onStop: () => bus.send('stop') });
 const view = createView({
   onChange: camera => bus.send('camera', camera),
   onMenu: (x, y, el) => bus.send('menu.open', { x, y, id: blockAt(el)?.id ?? null }),

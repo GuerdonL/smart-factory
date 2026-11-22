@@ -230,12 +230,12 @@ const snapOf = (shapes, more = {}) => ({ top: { shapes, groups: [], operations: 
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 
 test('project: a stream is written beside its source, the tick in project.json, and saved, reopened, saved gives the same files', () => {
-  assert.equal(FORMAT, 8);
+  assert.equal(FORMAT, 9);
   const p = snapOf([shape('N', 8, 2, { source: noisy(3, 'normal', st(4, 5, 2, 'wrap')) }), shape('R', 3, 4, { source: filed('data/rows.csv', st(1, 0, 4)) }), shape('W', 6, 1, { source: filed('data/words.txt', st(2, 0, 3)) }),
     shape('C', 2, 3, { source: filed('data/cube.npy', st()) }), shape('U', 2, 1, { source: noisy(0, 'uniform', st(2, null, null)) }), shape('F', 2, 2, { source: filed(null, st()) }), shape('P', 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } })],
     { tick: 41, data: { 'data/rows.csv': '1,2,3\n', 'data/words.txt': 'héllo 😀\n', 'data/cube.npy': 'AAAA', 'data/notes.md': 'no data file' } });
   const files = write(p), back = read(files);
-  assert.deepEqual(json(files, 'project.json'), { format: 'smart-factory/project', version: 8, saved: '2026-11-22T00:00:00.000Z', tick: 41 });
+  assert.deepEqual(json(files, 'project.json'), { format: 'smart-factory/project', version: FORMAT, saved: '2026-11-22T00:00:00.000Z', tick: 41 });
   assert.deepEqual(json(files, 'N.json').source, { noise: { seed: 3, dist: 'normal' } }); assert.deepEqual(json(files, 'N.json').stream, { length: 4, start: 5, step: 2, end: 'wrap' });
   assert.deepEqual(json(files, 'R.json').source, { file: 'data/rows.csv' }); assert.deepEqual(json(files, 'R.json').stream, { length: 1, start: 0, step: 4, end: 'stop' });
   assert.deepEqual(json(files, 'U.json').stream, { length: 2, start: null, step: null, end: 'stop' }); assert.deepEqual(json(files, 'F.json').source, { file: null });
@@ -274,7 +274,7 @@ test('project: a project saved before streams opens as it was, with tick 0; a ti
     { id: 'bV', name: 'V', why: 'it reads "data/film.mp4", which is no data file this program reads (data/ and one name ending .csv, .txt or .npy): it has no file chosen' },
     { id: 'bD', name: 'D', why: 'it reads data/gone.csv, which is not among the project\'s files: choose the file again' }]);
   assert.deepEqual(read(write(odd)).streamed, [{ id: 'bD', name: 'D', why: 'it reads data/gone.csv, which is not among the project\'s files: choose the file again' }]);      /* saved, only what is still so is said again */
-  assert.throws(() => read([{ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: 9 }) }]), /saved by a newer version \(format 9\)/);
+  assert.throws(() => read([{ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT + 1 }) }]), new RegExp(`saved by a newer version \\(format ${FORMAT + 1}\\)`));
 });
 
 /* ---- the example that comes with the repository ---- */
@@ -296,9 +296,9 @@ test('projects/streams: one stream of each kind, a plain noise block, and the ru
   assert.deepEqual(Object.keys(p.data).sort(), ['data/cube.npy', 'data/letters.txt', 'data/rows.csv', 'data/total.csv']);
   assert.equal(p.data['data/total.csv'], '3\n1\n4\n1\n5\n'); assert.equal([...p.data['data/letters.txt']].length, 22);
   const tile = p.top.groups.find(g => g.repeat); assert.equal(tile.repeat.across, 'inf'); assert.equal(tile.repeat.step, by('add').id); assert.equal(tile.repeat.until, undefined);
-  /* saved again it is the files that are shipped */
-  const texts = list => Object.fromEntries(list.map(f => [f.path, f.text]));
-  assert.deepEqual(texts(write(p)), texts(files)); assert.deepEqual(write(read(write(p))), write(p));
+  /* saved again it is the files that are shipped, but for the format version */
+  const texts = list => Object.fromEntries(list.map(f => [f.path, f.text])), v8 = o => Object.fromEntries(Object.entries(o).map(([k, t]) => [k, k.endsWith('.json') || k === '.config' ? t.replace(new RegExp(`"version": ${FORMAT}`, 'g'), '"version": 8') : t]));
+  assert.deepEqual(v8(texts(write(p))), texts(files)); assert.deepEqual(write(read(write(p))), write(p));
   /* its graph: five streams and a loop with no end, all the backend's */
   const g = build(p); assert.deepEqual(validate(g), []);
   assert.deepEqual(Object.values(g.nodes).filter(n => n.op === 'stream').map(n => n.kind).sort(), ['csv', 'csv', 'noise', 'npy', 'text']);

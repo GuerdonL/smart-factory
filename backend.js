@@ -65,80 +65,185 @@
      pending()  how many nodes are wanted and not yet answered
 
    Nothing is kept beyond the answers of the graph being drawn and, for dimming, the ones before it. */
-export const DELAY = 500, EVERY = 15000;
+export const DELAY = 500, EVERY = 15000, POLL = 150;
 export const keyFor = (node, binding) => binding ? node + '\n' + JSON.stringify(binding) : node;
 
 export const OLDER = 'the backend is older than this page: restart it';
-export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, changed = () => {}, told = () => {}, project = () => null, version = null, counts = () => ({}), tick = () => 0, ended = () => null }){
-  let older = false;                            /* a backend answers, and reads an older graph than this page writes: it is asked for no run */
+export const OLDER_SERVER = 'the server is older than this page: restart it to use Play';
+export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, pollEvery = POLL, changed = () => {}, told = () => {}, project = () => null, version = null, counts = () => ({}), tick = () => 0, ended = () => null, onTick = () => {}, recomputed = () => null, requirePlay = false }){
+  let older = false, serverOld = false, canPlay = false, maxSeconds = null, playOld = false;
   let there = null, now = null, before = new Map(), timer = null, beat = null, asking = null, gone = false, due = false;      /* due: this asking of its health is the regular one, at which what could not be asked for is tried again */
+  let run = null, checkNext = false;            /* run: active playing run { id, graph, wants, after, timer, stopping }; checkNext: ask backend to report checkpoint misses on the next /run */
   /* now: { graph, wants: key -> { node, binding, cells, slot }, results: key -> result, errors: key -> why, asked: the keys sent, lost: the keys that could not be asked for }. before: the last answers, by slot, for dimming */
   const said = r => r.ok ? r.json() : r.json().then(j => Promise.reject(new Error((j && (j.error || (j.errors && j.errors['*']))) || 'the backend answered ' + r.status)), () => Promise.reject(new Error('the backend answered ' + r.status)));
   const afresh = keys => { if (!now) return false; let any = false; for (const key of [...keys]) if (now.errors.has(key)){ now.errors.delete(key); now.codes.delete(key); now.asked.delete(key); now.lost.delete(key); any = true; } if (any) now.ended.clear(); return any; };
+  function applyAnswer(at, keys, answer){
+    const whole = answer && answer.errors && answer.errors['*'], why = new Set();
+    for (const key of keys){ const r = answer && answer.results && answer.results[key];
+      if (r && typeof r === 'object'){ at.results.set(key, r); at.errors.delete(key); at.codes.delete(key); }
+      else { const e = (answer && answer.errors && answer.errors[key]) || whole || 'the backend gave no answer for it'; at.errors.set(key, e); at.results.delete(key);
+        const c = answer && answer.codes && typeof answer.codes === 'object' ? answer.codes[key] : null;
+        if (c && typeof c === 'object' && c.code === 'ended' && typeof c.node === 'string' && Number.isSafeInteger(c.tick)){ at.codes.set(key, { code: 'ended', node: c.node, tick: c.tick });
+          if (!at.ended.has(c.node)){ at.ended.set(c.node, c.tick); let s = null; try { s = ended(at.graph, c.node, c.tick); } catch { s = null; } why.add(typeof s === 'string' && s ? s : e); } }
+        else if (c && typeof c === 'object' && typeof c.code === 'string' && typeof c.node === 'string') at.codes.set(key, { code: c.code, node: c.node }); else why.add(e); } }
+    if (Array.isArray(answer && answer.recomputed) && answer.recomputed.length){
+      let s = null; try { s = recomputed(at.graph, answer.recomputed, at.tick); } catch { s = null; }
+      why.add(typeof s === 'string' && s ? s : `No matching checkpoint at tick ${at.tick.toLocaleString('en-US')}: worked out from tick 0`); }
+    return { whole, why };
+  }
   function send(){
-    timer = null; const at = now; if (!at || !there) return;
+    timer = null; const at = now; if (!at || !there || run) return;
     const want = [...at.wants].filter(([key]) => !at.asked.has(key)); if (!want.length) return;
     for (const [key] of want) at.asked.add(key);
     const name = project(); let given = {}; try { given = counts(at.graph) || {}; } catch { given = {}; }      /* the counts the page has settled exactly, which the backend is not asked to find */
+    const check = checkNext; checkNext = false;
     Promise.resolve().then(() => fetch('api/backend/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: at.tick, ...(name ? { project: name } : {}), ...(Object.keys(given).length ? { counts: given } : {}) }) })).then(said)
+      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: at.tick, ...(name ? { project: name } : {}), ...(Object.keys(given).length ? { counts: given } : {}), ...(check ? { check: true } : {}) }) })).then(said)
       .then(answer => { if (now !== at) return;      /* an answer for an older graph: dropped */
-        const whole = answer && answer.errors && answer.errors['*'], why = new Set();
-        for (const [key] of want){ const r = answer && answer.results && answer.results[key];
-          if (r && typeof r === 'object') at.results.set(key, r); else { const e = (answer && answer.errors && answer.errors[key]) || whole || 'the backend gave no answer for it'; at.errors.set(key, e);
-            /* a promise broken by a number the backend worked out (backend/run.py: codes): the error type, in the page's own sentence. It is no failure of the backend's, so it is written where the numbers would be and not said in the readout */
-            const c = answer && answer.codes && typeof answer.codes === 'object' ? answer.codes[key] : null;
-            /* and a stream that has ended (codes: ended): which, and from which tick. Said once for each stream, in the page's words where it has them */
-            if (c && typeof c === 'object' && c.code === 'ended' && typeof c.node === 'string' && Number.isSafeInteger(c.tick)){ at.codes.set(key, { code: 'ended', node: c.node, tick: c.tick });
-              if (!at.ended.has(c.node)){ at.ended.set(c.node, c.tick); let s = null; try { s = ended(at.graph, c.node, c.tick); } catch { s = null; } why.add(typeof s === 'string' && s ? s : e); } }
-            else if (c && typeof c === 'object' && typeof c.code === 'string' && typeof c.node === 'string') at.codes.set(key, { code: c.code, node: c.node }); else why.add(e); } }
+        const { whole, why } = applyAnswer(at, want.map(([key]) => key), answer);
         if (why.size) told([...why]); changed(); if (whole) self.health(); },      /* refused whole: it may be that the backend is gone, and the server said so */
       e => { if (now !== at) return;      /* a failure of a run for an older graph: dropped */
         const why = 'the backend could not be asked: ' + (e && e.message ? e.message : e);
         for (const [key] of want){ at.errors.set(key, why); at.lost.add(key); } told([why]); changed(); self.health(); });
   }
-  const soon = () => { if (timer !== null) cancel(timer); timer = later(send, delay); };
+  const soon = () => { if (run) return; if (timer !== null) cancel(timer); timer = later(send, delay); };
   const whole = () => { let t = 0; try { t = tick(); } catch { t = 0; } return Number.isSafeInteger(t) && t >= 0 ? t : 0; };
   const cur = graph => (now && now.graph === graph && now.tick === whole() ? now : null);      /* what is known of this graph at this tick */
-  function at(graph){
-    if (cur(graph)) return now;
+  function at(graph, forcedTick = null){
+    const targetTick = forcedTick !== null ? forcedTick : whole();
+    if (now && now.graph === graph && now.tick === targetTick) return now;
     if (now){ const kept = new Map(); for (const [key, w] of now.wants){ const r = now.results.get(key) || before.get(w.slot); if (r) kept.set(w.slot, r); } before = kept; }      /* what was last known of what was last drawn, for dimming */
-    now = { graph, tick: whole(), wants: new Map(), results: new Map(), errors: new Map(), codes: new Map(), ended: new Map(), asked: new Set(), lost: new Set() };
+    now = { graph, tick: targetTick, wants: new Map(), results: new Map(), errors: new Map(), codes: new Map(), ended: new Map(), asked: new Set(), lost: new Set() };
     return now;
   }
-  const heard = answer => { const was = there, wasOlder = older, alive = !!(answer && answer.ok === true);
+  const heard = ({ answer, headers }) => { const was = there, wasOlder = older, wasServerOld = serverOld, wasPlayOld = playOld, alive = !!(answer && answer.ok === true);
     /* the version of graph it reads (backend/run.py: health). One that says none is older than any that says one */
     older = alive && version !== null && !(typeof answer.version === 'number' && answer.version >= version);
+    const hasHeaders = !!(headers && typeof headers.get === 'function');
+    serverOld = hasHeaders && headers.get('X-Smart-Factory-Play') !== '1';
     const ok = alive && !older; there = ok; asking = null;
+    playOld = ok && requirePlay && answer.play !== true;
+    canPlay = ok && !serverOld && answer.play === true;
+    maxSeconds = ok && Number.isSafeInteger(answer.ceiling) && answer.ceiling >= 1 ? answer.ceiling : null;
     if (older && !wasOlder) told([OLDER]);      /* said once, when it is found: and again only after one that was not older has answered between */
+    else if (playOld && !wasPlayOld) told([OLDER]);
+    if (serverOld && !wasServerOld) told([OLDER_SERVER]);
     if (beat !== null) cancel(beat); beat = gone ? null : later(() => { beat = null; due = true; self.health(); }, every);
     const regular = due; due = false;
     const again = !!(ok && now) && (was === false ? afresh(now.errors.keys()) : regular && afresh(now.lost));      /* back, or there after all: what it gave no numbers for, or could not be asked for, is asked for again */
     if (ok && now && (was !== true || again)) soon();
     if (was === true && !ok && !older) told(['the backend has stopped answering']);
-    if (was !== ok || again) changed();
+    if (was !== ok || again || wasServerOld !== serverOld || wasPlayOld !== playOld) changed();
     return ok; };
+  function clearRun(){
+    if (!run) return;
+    if (run.timer !== null){ cancel(run.timer); run.timer = null; }
+    run = null;
+  }
+  function schedulePoll(r){
+    if (run !== r || r.stopping) return;
+    r.timer = later(() => { r.timer = null; pollOnce(r); }, pollEvery);
+  }
+  function pollOnce(r){
+    if (run !== r) return;
+    const q = r.after !== null ? `?after=${r.after}` : '';
+    Promise.resolve().then(() => fetch(`api/backend/play/${encodeURIComponent(r.id)}${q}`)).then(said).then(answer => {
+      if (run !== r) return;
+      if (answer && answer.error){ clearRun(); told([answer.error]); changed(); return; }
+      const why = new Set();
+      if (answer && Number.isSafeInteger(answer.tick)){
+        r.after = answer.tick;
+        const a = at(r.graph, answer.tick);
+        for (const [key, w] of r.wants){ a.wants.set(key, w); a.asked.add(key); }
+        const got = applyAnswer(a, [...r.wants.keys()], answer);
+        for (const w of got.why) why.add(w);
+        try { onTick(answer.tick); } catch {}
+      }
+      if (answer && answer.reason) why.add(answer.reason);
+      if (!answer || !answer.running){ clearRun(); if (why.size) told([...why]); changed(); return; }
+      if (why.size) told([...why]);
+      changed();
+      schedulePoll(r);
+    }, e => {
+      if (run !== r) return;
+      clearRun();
+      told(['the backend could not be asked: ' + (e && e.message ? e.message : e)]);
+      changed();
+      self.health();
+    });
+  }
   const self = {
     health(){ if (gone) return Promise.resolve(false);
-      return asking ||= Promise.resolve().then(() => fetch('api/backend/health')).then(r => r.ok ? r.json() : null).then(j => (j && typeof j === 'object' ? j : null), () => null).then(heard); },
-    absent(){ const was = there; there = false; gone = true; if (beat !== null){ cancel(beat); beat = null; } if (was !== false) changed(); },
+      return asking ||= Promise.resolve().then(() => fetch('api/backend/health')).then(r => (r.ok ? r.json().then(j => ({ answer: j && typeof j === 'object' ? j : null, headers: r.headers }), () => ({ answer: null, headers: r.headers })) : { answer: null, headers: r.headers }), () => ({ answer: null, headers: null })).then(heard); },
+    absent(){ const was = there; there = false; canPlay = false; gone = true; clearRun(); if (beat !== null){ cancel(beat); beat = null; } if (was !== false) changed(); },
     available: () => there,
-    older: () => older,
+    older: () => older || playOld,
+    serverOlder: () => serverOld,
+    playable: () => canPlay,
+    playing: () => !!run,
+    ceiling: () => maxSeconds,
+    checkNext(){ checkNext = true; },
     ask(graph, node, binding, cells, slot = null){
       if (there === false) return null;
       const a = at(graph), key = keyFor(node, binding); slot = slot === null ? key : slot;
       if (!a.wants.has(key)){ a.wants.set(key, { node, binding: binding || null, cells, slot });
-        if (there) soon(); }
+        if (there && !run) soon(); }
       if (a.results.has(key)) return { result: a.results.get(key), stale: false };
       if (a.errors.has(key)) return null;
       return before.has(slot) ? { result: before.get(slot), stale: true } : null;
+    },
+    play(graph, { from = whole(), to = null, seconds = null } = {}){
+      if (!canPlay) return Promise.resolve(false);
+      if (run) return Promise.resolve(false);
+      if (timer !== null){ cancel(timer); timer = null; }
+      const a = at(graph, from), wants = new Map(a.wants), name = project();
+      let given = {}; try { given = counts(graph) || {}; } catch { given = {}; }
+      const body = { graph, want: [...wants].map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), from, to, ...(name ? { project: name } : {}), ...(Object.keys(given).length ? { counts: given } : {}), ...(Number.isSafeInteger(seconds) && seconds >= 1 ? { seconds } : {}) };
+      const pending = { id: null, graph, wants, after: from - 1, timer: null, stopping: false };
+      run = pending;
+      changed();
+      return Promise.resolve().then(() => fetch('api/backend/play', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).then(said).then(answer => {
+        if (run !== pending) return false;
+        if (!answer || answer.error || typeof answer.run !== 'string'){ clearRun(); told([answer && answer.error ? answer.error : 'the backend could not start playing']); changed(); return false; }
+        pending.id = answer.run;
+        if (answer.capped && Number.isSafeInteger(answer.seconds)) told([`The backend granted ${answer.seconds} ${answer.seconds === 1 ? 'second' : 'seconds'} per pass (its ceiling is ${answer.ceiling}), less than the ${seconds} requested in .backend`]);
+        schedulePoll(pending);
+        return true;
+      }, e => {
+        if (run !== pending) return false;
+        clearRun();
+        told(['the backend could not be asked: ' + (e && e.message ? e.message : e)]);
+        changed();
+        self.health();
+        return false;
+      });
+    },
+    stop(){
+      const r = run; if (!r) return Promise.resolve(null);
+      r.stopping = true;
+      if (r.timer !== null){ cancel(r.timer); r.timer = null; }
+      const id = r.id;
+      clearRun();
+      changed();
+      if (!id) return Promise.resolve(null);
+      return Promise.resolve().then(() => fetch('api/backend/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run: id }) })).then(said).then(answer => {
+        if (answer && Number.isSafeInteger(answer.tick)){ try { onTick(answer.tick); } catch {} changed(); return answer.tick; }
+        return null;
+      }, () => null);
+    },
+    checkpoint(graph, atTick = whole()){
+      if (!canPlay) return Promise.resolve(null);
+      const name = project(); if (!name) return Promise.resolve(null);
+      let given = {}; try { given = counts(graph) || {}; } catch { given = {}; }
+      return Promise.resolve().then(() => fetch('api/backend/checkpoint', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ graph, tick: atTick, project: name, ...(Object.keys(given).length ? { counts: given } : {}) }) })).then(said).catch(() => null);
     },
     problem(graph, node, binding){ return cur(graph) ? now.errors.get(keyFor(node, binding)) || null : null; },
     ended(graph){ return cur(graph) ? new Map(now.ended) : new Map(); },
     /* the cell at which the backend's run of a loop was stopped by its stop block (backend/run.py: stopped), or null: where it has not answered, or the loop ran to its count */
     stopped(graph, node, binding){ const r = cur(graph) ? now.results.get(keyFor(node, binding)) : null; return r && Number.isInteger(r.stopped) && r.stopped >= 1 ? r.stopped : null; },
     broke(graph, node, binding){ return cur(graph) ? now.codes.get(keyFor(node, binding)) || null : null; },
-    forget(){ if (timer !== null){ cancel(timer); timer = null; } now = null; before = new Map(); },
+    forget(){ if (run) self.stop(); if (timer !== null){ cancel(timer); timer = null; } now = null; before = new Map(); },
     pending: () => now ? [...now.wants.keys()].filter(k => !now.results.has(k) && !now.errors.has(k)).length : 0,
   };
   return self;
