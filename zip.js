@@ -34,21 +34,38 @@ export function zip(files){
   return bytes;
 }
 
+const MAX_UNZIPPED = 128 << 20;      /* 128 MB in all across a zip: enough for a project with data files, not a zip bomb */
+
 export async function unzip(bytes){
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), dec = new TextDecoder();
   let end = bytes.length - 22; while (end >= 0 && v.getUint32(end, true) !== 0x06054b50) end--;
   if (end < 0) throw new Error('not a zip file');
-  const count = v.getUint16(end + 10, true), files = []; let p = v.getUint32(end + 16, true);
+  const count = v.getUint16(end + 10, true), files = []; let p = v.getUint32(end + 16, true), total = 0;
   for (let i = 0; i < count; i++){
-    if (v.getUint32(p, true) !== 0x02014b50) throw new Error('damaged zip file');
+    if (p + 46 > bytes.length || v.getUint32(p, true) !== 0x02014b50) throw new Error('damaged zip file');
     const method = v.getUint16(p + 10, true), packed = v.getUint32(p + 20, true), nameLen = v.getUint16(p + 28, true), extraLen = v.getUint16(p + 30, true), commentLen = v.getUint16(p + 32, true), local = v.getUint32(p + 42, true);
+    if (p + 46 + nameLen + extraLen + commentLen > bytes.length) throw new Error('damaged zip file');
     const path = dec.decode(bytes.subarray(p + 46, p + 46 + nameLen));
     p += 46 + nameLen + extraLen + commentLen;
     if (path.endsWith('/')) continue;
-    const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true), data = bytes.subarray(start, start + packed);
-    if (method === 0) files.push({ path, text: binary(path) ? base64Of(data) : dec.decode(data) });
-    else if (method === 8){ const out = new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))); files.push({ path, text: binary(path) ? base64Of(new Uint8Array(await out.arrayBuffer())) : await out.text() }); }
-    else throw new Error(path + ' is packed in a way this cannot read');
+    if (local + 30 > bytes.length || v.getUint32(local, true) !== 0x04034b50) throw new Error('damaged zip file');
+    const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true);
+    if (start + packed > bytes.length) throw new Error('damaged zip file');
+    const data = bytes.subarray(start, start + packed);
+    if (method === 0){
+      total += data.length;
+      if (total > MAX_UNZIPPED) throw new Error('the zip unpacks to more than 128 MB');
+      files.push({ path, text: binary(path) ? base64Of(data) : dec.decode(data) });
+    } else if (method === 8){
+      const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader(), chunks = [];
+      for (;;){ const { value, done } = await reader.read(); if (done) break;
+        total += value.byteLength;
+        if (total > MAX_UNZIPPED){ await reader.cancel(); throw new Error('the zip unpacks to more than 128 MB'); }
+        chunks.push(value); }
+      const flat = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
+      let at = 0; for (const c of chunks){ flat.set(c, at); at += c.byteLength; }
+      files.push({ path, text: binary(path) ? base64Of(flat) : dec.decode(flat) });
+    } else throw new Error(path + ' is packed in a way this cannot read');
   }
   return files;
 }

@@ -123,6 +123,28 @@ class Files(unittest.TestCase):
             self.assertEqual(f.read(), '1,2\n')      # nothing outside was written
         self.assertEqual(sorted(os.listdir(self.outside)), ['passwd.csv', 'project.json'])
 
+    def test_concurrent_uploads_respect_the_limits_and_keep_identical_files_idempotent(self):
+        import concurrent.futures
+        from backend import limits
+        # two simultaneous uploads of the exact same file both succeed cleanly
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda _: data.take('mine', 'data/same.csv', b'1,2\n3,4\n', self.root), range(4)))
+        self.assertEqual(results, [(2, 2, 0)] * 4)
+        # concurrent uploads past MAX_DATA_FILES never exceed the cap
+        for k in range(limits.MAX_DATA_FILES - 2):
+            data.keep('mine', 'data/pre%d.csv' % k, b'%d\n' % k, self.root)
+
+        def put(i):
+            try:
+                data.keep('mine', 'data/race%d.csv' % i, b'%d\n' % i, self.root)
+                return True
+            except data.Refused:
+                return False
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            ok = list(pool.map(put, range(6)))
+        self.assertEqual(ok.count(True), 1)      # same.csv + 62 pre files = 63; exactly 1 more fits
+        self.assertEqual(len(os.listdir(os.path.join(self.root, 'mine', 'data'))), limits.MAX_DATA_FILES)
+
 
 class Tables(unittest.TestCase):
     def test_numbers_with_or_without_a_header(self):

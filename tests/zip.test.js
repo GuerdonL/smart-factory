@@ -48,6 +48,13 @@ test('a damaged zip is refused', async () => {
   const at = new DataView(bytes.buffer).getUint32(end + 16, true);      /* where the list of files begins */
   bytes[at] = 0;
   await assert.rejects(unzip(bytes), /damaged zip file/);
+  const badOffset = zip(FILES.slice(0, 1));
+  new DataView(badOffset.buffer).setUint32(badOffset.length - 22 + 16, badOffset.length + 100, true);
+  await assert.rejects(unzip(badOffset), /damaged zip file/);
+  const badLocal = zip(FILES.slice(0, 1));
+  const cd = new DataView(badLocal.buffer).getUint32(badLocal.length - 22 + 16, true);
+  new DataView(badLocal.buffer).setUint32(cd + 42, badLocal.length + 100, true);
+  await assert.rejects(unzip(badLocal), /damaged zip file/);
 });
 
 test('a zip made here opens with a computer\'s own tools', { skip: !has('python3') && 'python3 is not installed' }, () => inTemp(dir => {

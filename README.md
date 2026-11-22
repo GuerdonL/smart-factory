@@ -22,7 +22,7 @@ what else of such a project was changed here gives way, file by file, to what th
 
 On the machine, in a checkout of this repository on the branch to follow:
 
-    sed "s#/root/smart-factory#$PWD#g; s#^User=root#User=$USER#" smart-factory.service | sudo tee /etc/systemd/system/smart-factory.service
+    sed "s#/srv/smart-factory#$PWD#g; s#^User=smart-factory#User=$USER#; s#^Group=smart-factory#Group=$(id -gn)#" smart-factory.service | sudo tee /etc/systemd/system/smart-factory.service
     sudo systemctl daemon-reload && sudo systemctl enable --now smart-factory
     journalctl -u smart-factory -f       # "serving … on port 8000", then "updated to …" after each push
 
@@ -937,11 +937,11 @@ token goes, and `projects/`. Change the user and the path (`/srv/smart-factory` 
   (`backend/data.py`). A unit cannot name `projects/*/data` for projects not yet made, so the unit holds it to
   `projects/` and the backend's own rule to `data/` within it.
 - The backend makes `data/` inside a project's directory, so that directory has to be its user's to write in, and
-  `server.py` has to read the token. Both are so where `server.py` runs as the same user: `User=smart-factory` in
-  the server's unit as well, `projects/` owned by that user, and the same `Environment=` line for the token
-  (`systemctl edit smart-factory` adds both without changing the file). A server left running as root reads the
-  token but makes project directories the backend cannot put a file in: choosing a file is then refused ("could
-  not be kept"), and nothing else is affected.
+  `server.py` has to read the token. Both are so where `server.py` runs as the same user (`smart-factory.service`
+  already defaults to `User=smart-factory` and `Group=smart-factory`), `projects/` is owned by that user, and the
+  server's unit carries the same `Environment=` line for the token (`systemctl edit smart-factory` adds it without
+  changing the file). A server run as root reads the token but makes project directories the backend cannot put a
+  file in: choosing a file is then refused ("could not be kept"), and nothing else is affected.
 
 **On the page.** The page asks, as it loads, whether there is a backend, and asks again every quarter of a minute
 and at once after a run that could not be asked for, so one started or stopped later is noticed without loading

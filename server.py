@@ -62,6 +62,7 @@ SWALLOWED, SWALLOW_FOR = 64 << 20, 10                              # how much of
 clock = time.monotonic                                             # the clock the counting goes by: its own name, so a test can set it and nothing else's
 # address -> { since: when its first wrong PIN came, seen: the different wrong PINs since (as digests), until: when it may try again, 0 if it still may }
 wrong, wrong_lock = {}, threading.Lock()
+project_lock = threading.RLock()                                   # serializes project directory swaps, reads, git updates and restarts
 
 
 def read_pin():
@@ -124,30 +125,31 @@ def project_files(name):
     A project's top .config is set on each machine and is not in the repository. One that has none yet (a project that
     came with the repository and has not been saved here) is given the one the repository has for it: the file
     <name>.config beside its directory. The first save writes a .config of the project's own, and that is used after."""
-    base, out = os.path.join(PROJECTS, name), []
-    given = os.path.join(PROJECTS, name + '.config')
-    if not os.path.isfile(os.path.join(base, '.config')) and os.path.isfile(given):
-        with open(given, encoding='utf8') as text:
-            out.append({'path': '.config', 'text': text.read()})
-    for folder, _, files in os.walk(base):
-        for f in sorted(files):
-            full = os.path.join(folder, f)
-            path = os.path.relpath(full, base).replace(os.sep, '/')
-            if os.path.islink(full):                               # a link is no file of the project: what it points at is never read
-                continue
-            if f.endswith('.json') or f == '.config':
-                with open(full, encoding='utf8') as text:
-                    out.append({'path': path, 'text': text.read()})
-            elif DATA.fullmatch(path) and path.endswith('.npy'):   # an array: its bytes, in base64 (the page holds every file as text)
-                with open(full, 'rb') as data:
-                    out.append({'path': path, 'text': base64.b64encode(data.read()).decode('ascii')})
-            elif DATA.fullmatch(path):                             # a data file, at the top of the project
-                try:
-                    with open(full, encoding='utf8', newline='') as data:
-                        out.append({'path': path, 'text': data.read()})
-                except ValueError:                                 # not text: it is no table of numbers, and the page could not hold it
-                    pass
-    return out
+    with project_lock:
+        base, out = os.path.join(PROJECTS, name), []
+        given = os.path.join(PROJECTS, name + '.config')
+        if not os.path.isfile(os.path.join(base, '.config')) and os.path.isfile(given):
+            with open(given, encoding='utf8') as text:
+                out.append({'path': '.config', 'text': text.read()})
+        for folder, _, files in os.walk(base):
+            for f in sorted(files):
+                full = os.path.join(folder, f)
+                path = os.path.relpath(full, base).replace(os.sep, '/')
+                if os.path.islink(full):                               # a link is no file of the project: what it points at is never read
+                    continue
+                if f.endswith('.json') or f == '.config':
+                    with open(full, encoding='utf8') as text:
+                        out.append({'path': path, 'text': text.read()})
+                elif DATA.fullmatch(path) and path.endswith('.npy'):   # an array: its bytes, in base64 (the page holds every file as text)
+                    with open(full, 'rb') as data:
+                        out.append({'path': path, 'text': base64.b64encode(data.read()).decode('ascii')})
+                elif DATA.fullmatch(path):                             # a data file, at the top of the project
+                    try:
+                        with open(full, encoding='utf8', newline='') as data:
+                            out.append({'path': path, 'text': data.read()})
+                    except ValueError:                                 # not text: it is no table of numbers, and the page could not hold it
+                        pass
+        return out
 
 
 def checked(files):
@@ -203,16 +205,17 @@ def write_project(name, files):
             with open(full, 'w', encoding='utf8', newline='') as out:      # as sent, line ends and all: a data file is kept as it is
                 out.write(text)
         target = os.path.join(PROJECTS, name)
-        if os.path.exists(target):
-            old = tempfile.mkdtemp(prefix='.old-', dir=PROJECTS)
-            os.rename(target, os.path.join(old, 'was'))
-        try:
-            os.rename(fresh, target)
-        except OSError:
-            if old:
-                os.rename(os.path.join(old, 'was'), target)        # the new one did not go in: the old one goes back
-            raise
-        os.chmod(target, 0o755)
+        with project_lock:
+            if os.path.exists(target):
+                old = tempfile.mkdtemp(prefix='.old-', dir=PROJECTS)
+                os.rename(target, os.path.join(old, 'was'))
+            try:
+                os.rename(fresh, target)
+            except OSError:
+                if old:
+                    os.rename(os.path.join(old, 'was'), target)        # the new one did not go in: the old one goes back
+                raise
+            os.chmod(target, 0o755)
     finally:
         for left in (fresh, old):
             if left:
@@ -273,7 +276,7 @@ class Handler(SimpleHTTPRequestHandler):
         """A line in the log about this request, whatever its address: log_message below keeps to saves and loads."""
         SimpleHTTPRequestHandler.log_message(self, '%s: "%s"', what, self.requestline)
 
-    def refuse(self, status, why, headers):
+    def refuse(self, status, why, headers, drain=True):
         data = b'' if self.command == 'HEAD' else json.dumps({'error': why}).encode()
         self.send_response(status)
         for name, value in headers.items():
@@ -285,7 +288,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
         self.wfile.flush()
         self.close_connection = True
-        self.swallow()
+        if drain:
+            self.swallow()
         return False
 
     def swallow(self):
@@ -339,15 +343,18 @@ class Handler(SimpleHTTPRequestHandler):
         if self.backend():
             return
         if path == '/api/projects':
-            names = sorted(n for n in os.listdir(PROJECTS) if os.path.isfile(os.path.join(PROJECTS, n, 'project.json'))) if os.path.isdir(PROJECTS) else []
+            with project_lock:
+                names = sorted(n for n in os.listdir(PROJECTS) if os.path.isfile(os.path.join(PROJECTS, n, 'project.json'))) if os.path.isdir(PROJECTS) else []
             return self.reply(200, names)
         if path.startswith('/api/projects/'):
             name = self.project()
             if name is None:
                 return
-            if not os.path.isfile(os.path.join(PROJECTS, name, 'project.json')):
-                return self.reply(404, {'error': 'no project called ' + name})
-            return self.reply(200, project_files(name))
+            with project_lock:
+                if not os.path.isfile(os.path.join(PROJECTS, name, 'project.json')):
+                    return self.reply(404, {'error': 'no project called ' + name})
+                files = project_files(name)
+            return self.reply(200, files)
         if path.startswith('/api/') or self.hidden():              # nothing else under /api, and no dot-files (.git)
             return self.reply(404, {'error': 'not found'})
         super().do_GET()
@@ -378,7 +385,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return True
             body = self.read_within(length, READ)
             if body is None:
-                self.refuse(408, 'the request took longer than %d seconds to arrive' % READ, {})
+                self.refuse(408, 'the request took longer than %d seconds to arrive' % READ, {}, drain=False)
                 return True
         if to == '/data':                                          # the two things a file's address says, written out again: nothing else of it goes on
             asked = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
@@ -395,6 +402,8 @@ class Handler(SimpleHTTPRequestHandler):
                 r = c.getresponse()
                 status, answer = r.status, b''
                 while len(answer) <= ANSWER:
+                    if r.isclosed():                               # Python 3.12+ closes the socket as soon as read1 finishes a Connection: close response
+                        break
                     left = until - time.monotonic()
                     if left <= 0:
                         raise TimeoutError('it took longer than %d seconds' % WAIT)
@@ -461,19 +470,23 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def do_PUT(self):
-        if not self.path.startswith('/api/projects/'):
+        if not self.address().startswith('/api/projects/'):
             return self.reply(404, {'error': 'not found'})
         name = self.project()
         if name is None:
             return
         # The length is looked at before anything is read: a negative one would be read until the client hung up.
         # Where it is no good the body is not read at all, so the answer goes the way a refusal does (see swallow).
+        if self.headers.get('Transfer-Encoding'):
+            return self.refuse(400, 'a save says how long it is: Content-Length is a whole number of bytes, not chunked', {})
         length = self.headers.get('Content-Length', '').strip()
         if not (length.isascii() and length.isdigit()):
             return self.refuse(400, 'a save says how long it is: Content-Length is a whole number of bytes, not %r' % length[:40], {})
         if len(length) > 18 or int(length) > MAX_SAVE:
             return self.refuse(413, 'a save may be %d bytes at most, and this one is %s' % (MAX_SAVE, length[:40]), {})
-        sent = self.rfile.read(int(length))
+        sent = self.read_within(int(length), READ)
+        if sent is None:
+            return self.refuse(408, 'the save took longer than %d seconds to arrive' % READ, {}, drain=False)
         try:
             files = checked(json.loads(sent))
             write_project(name, files)
@@ -499,41 +512,42 @@ def update():
     file under projects/ changed both here and on the branch is put back as it was, and the update goes in. Nothing
     outside projects/ is ever put back: if a file changed here stands in the way there, the update waits, as before.
     A file the branch no longer keeps (a .config, from when they were kept in the repository) stays as it is here."""
-    merged = git('merge', '--ff-only', 'FETCH_HEAD')
-    if not merged.returncode:
+    with project_lock:
+        merged = git('merge', '--ff-only', 'FETCH_HEAD')
+        if not merged.returncode:
+            return None
+        why = merged.stderr.strip() or merged.stdout.strip() or 'git would not merge'
+        names = lambda *args: {p for p in git(*args, '-z').stdout.split('\0') if p}
+        theirs = names('diff', '--name-only', 'HEAD', 'FETCH_HEAD')
+        way = (names('diff', '--name-only', 'HEAD') | names('ls-files', '--others', '--exclude-standard')) & theirs      # changed here, or made here, and changed there
+        if not way or not all(p.startswith('projects/') for p in way):
+            return why
+        kept = {}                                                      # what the branch has let go of: put back afterwards, as it is here
+        for p in way:
+            full = os.path.join(ROOT, *p.split('/'))
+            if os.path.isfile(full) and git('cat-file', '-e', 'FETCH_HEAD:' + p).returncode:
+                with open(full, 'rb') as f:
+                    kept[full] = f.read()
+        tracked = sorted(p for p in way if not git('cat-file', '-e', 'HEAD:' + p).returncode)
+        if tracked and git('checkout', 'HEAD', '--', *tracked).returncode:
+            return why
+        for p in way - set(tracked):                                   # made here where the branch now has a file of its own: the branch's is taken
+            full = os.path.join(ROOT, *p.split('/'))
+            if os.path.isfile(full):
+                os.remove(full)
+        merged = git('merge', '--ff-only', 'FETCH_HEAD')
+        for full, data in kept.items():
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'wb') as f:
+                f.write(data)
+        if merged.returncode:
+            return merged.stderr.strip() or why
+        taken = sorted(p for p in way if os.path.join(ROOT, *p.split('/')) not in kept)
+        if taken:
+            print('changed here and on the branch, under projects/: the branch\'s taken (%s)' % ', '.join(taken), flush=True)
+        if kept:
+            print('no longer kept on the branch, and left as it is here: %s' % ', '.join(sorted(os.path.relpath(full, ROOT) for full in kept)), flush=True)
         return None
-    why = merged.stderr.strip() or merged.stdout.strip() or 'git would not merge'
-    names = lambda *args: {p for p in git(*args, '-z').stdout.split('\0') if p}
-    theirs = names('diff', '--name-only', 'HEAD', 'FETCH_HEAD')
-    way = (names('diff', '--name-only', 'HEAD') | names('ls-files', '--others', '--exclude-standard')) & theirs      # changed here, or made here, and changed there
-    if not way or not all(p.startswith('projects/') for p in way):
-        return why
-    kept = {}                                                      # what the branch has let go of: put back afterwards, as it is here
-    for p in way:
-        full = os.path.join(ROOT, *p.split('/'))
-        if os.path.isfile(full) and git('cat-file', '-e', 'FETCH_HEAD:' + p).returncode:
-            with open(full, 'rb') as f:
-                kept[full] = f.read()
-    tracked = sorted(p for p in way if not git('cat-file', '-e', 'HEAD:' + p).returncode)
-    if tracked and git('checkout', 'HEAD', '--', *tracked).returncode:
-        return why
-    for p in way - set(tracked):                                   # made here where the branch now has a file of its own: the branch's is taken
-        full = os.path.join(ROOT, *p.split('/'))
-        if os.path.isfile(full):
-            os.remove(full)
-    merged = git('merge', '--ff-only', 'FETCH_HEAD')
-    for full, data in kept.items():
-        os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, 'wb') as f:
-            f.write(data)
-    if merged.returncode:
-        return merged.stderr.strip() or why
-    taken = sorted(p for p in way if os.path.join(ROOT, *p.split('/')) not in kept)
-    if taken:
-        print('changed here and on the branch, under projects/: the branch\'s taken (%s)' % ', '.join(taken), flush=True)
-    if kept:
-        print('no longer kept on the branch, and left as it is here: %s' % ', '.join(sorted(os.path.relpath(full, ROOT) for full in kept)), flush=True)
-    return None
 
 
 def follow(every=30):
@@ -555,7 +569,8 @@ def follow(every=30):
             print(('could not update: ' + failed) if failed else ('updated to ' + there[:7]), flush=True)
             if not failed and os.path.getmtime(__file__) != me:
                 print('the server itself changed: restarting', flush=True)
-                os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
+                with project_lock:                                 # wait for any in-flight project swap to finish before replacing the process
+                    os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
         except Exception as e:                                     # a lost connection, a slow fetch: try again next time
             print('update check failed: %s' % e, flush=True)
 

@@ -269,6 +269,8 @@ test('inner data: the drawn entries are asked for at every inner position, and a
   assert.equal(drawn({ cols: 3, rows: 1, inner: [{ length: 2, name: 'key' }, { length: 4, name: null }] }).length, 24);
   const big = drawn({ cols: 8, rows: 8, inner: [{ length: 100, name: null }, { length: 100, name: null }] });
   assert.equal(big.length, MOST_ASKED); assert.deepEqual(big[0], [1, 1, 1, 1]); assert.deepEqual(big[64], [1, 1, 1, 2]);
+  const deep = drawn({ cols: 2, rows: 2, inner: Array.from({ length: 6 }, () => ({ length: 100, name: null })) });
+  assert.equal(deep.length, MOST_ASKED); assert.deepEqual(deep[0], [1, 1, 1, 1, 1, 1, 1, 1]); assert.deepEqual(deep[4], [1, 1, 1, 1, 1, 1, 1, 2]);
   const answer = { type: { cols: 2, rows: 1, inner: [{ length: 2, name: null }] }, deferred: true, backend: true };
   assert.deepEqual([...merged(answer, new Map(), { cells: [[1, 1, 1, 0.5], [2, 1, 2, 'inf'], [1, 1], 'x'] })], [['1,1,1', { f: 0.5 }], ['2,1,2', { f: Infinity }]]);
 });

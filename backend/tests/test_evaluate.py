@@ -404,6 +404,26 @@ class Refused(unittest.TestCase):
         self.assertEqual(out['results']['two']['cells'], [[1, 1, 1.0]])
         self.assertNotIn('ZeroDivision', json.dumps(out))
 
+    def test_a_bound_function_input_is_held_to_the_same_size_and_memory_limits(self):
+        p = {'op': 'param', 'inputs': [], 'type': T(1, 1), 'within': ['f:f']}
+        body = {'op': 'transpose', 'inputs': ['p'], 'type': T(1, 1), 'within': ['f:f']}
+        huge = {'op': 'source', 'inputs': [], 'type': T(100000, 10000), 'kind': 'ones'}
+        g = graph_of({'p': p, 'body': body, 'huge': huge}, {'f:f': {'input': 'p', 'body': 'body'}})
+        began = time.monotonic()
+        out = ask(g, [{'node': 'body', 'cells': [[1, 1]], 'binding': {'params': {'f:f': {'of': 'huge', 'range': {'col': 0, 'row': 0, 'cols': 1, 'rows': 1}}}}}])
+        self.assertLess(time.monotonic() - began, 1)
+        self.assertEqual(out['errors'], {'body': '100,000 × 10,000 numbers in what it is worked out from, more than the 16,000,000 that are worked out'})
+        # and a bound chain that fits MAX_ENTRIES per node but exceeds the run's memory room is refused before anything is made
+        n = 4000
+        nodes = {'p': p, 'body': body, 'n0': {'op': 'source', 'inputs': [], 'type': T(n, n), 'kind': 'ones'}, 'm': {'op': 'source', 'inputs': [], 'type': T(n, n), 'kind': 'identity'}}
+        for k in range(1, 41):
+            nodes['n%d' % k] = {'op': 'add', 'inputs': ['n%d' % (k - 1), 'm'], 'type': T(n, n)}
+        chain = graph_of(nodes, {'f:f': {'input': 'p', 'body': 'body'}})
+        began = time.monotonic()
+        out = ask(chain, [{'node': 'body', 'cells': [[1, 1]], 'binding': {'params': {'f:f': {'of': 'n40', 'range': {'col': 0, 'row': 0, 'cols': 1, 'rows': 1}}}}}], room=977 << 20)
+        self.assertLess(time.monotonic() - began, 1)
+        self.assertIn('more than the 977 MB this backend may take for a run', out['errors']['body'])
+
 
 def whole_error(graph, node):
     out = ask(graph, [{'node': node, 'cells': [[1, 1]]}])

@@ -1,15 +1,21 @@
 # Runs the editor's server and keeps it running. Install with:
-#   sudo cp smart-factory.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now smart-factory
-# Change User and the two paths below if the repository is not at /root/smart-factory.
+#   sed "s#/srv/smart-factory#$PWD#g; s#^User=smart-factory#User=$USER#; s#^Group=smart-factory#Group=$(id -gn)#" smart-factory.service | sudo tee /etc/systemd/system/smart-factory.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now smart-factory
+# Change User, Group and the paths below if the repository is not at /srv/smart-factory.
 [Unit]
 Description=Smart Factory editor
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=root
-WorkingDirectory=/root/smart-factory
-ExecStart=/usr/bin/python3 /root/smart-factory/server.py 8000
+User=smart-factory
+Group=smart-factory
+WorkingDirectory=/srv/smart-factory
+ExecStart=/usr/bin/python3 -B /srv/smart-factory/server.py 8000
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+ReadWritePaths=/srv/smart-factory
 Restart=always
 RestartSec=2
 
