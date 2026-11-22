@@ -311,7 +311,7 @@ export function fixtures(){
     /* what the page defers for its steps is worked out here with more steps allowed, so that the backend is held to it there too */
     const worked = (id, options = {}) => { const r = evaluate(g, id, options); return r.deferred && r.steps !== undefined ? evaluate(g, id, { ...options, maxSteps: 4096 }) : r; };
     graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(worked(id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(worked(b.node, { binding: b.binding })) })) }); };
-  for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$|\.txt$/.test(f.path)), ...given(name)])));
+  for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => !f.path.startsWith('data/checkpoints/') && /\.json$|(^|\/)\.(?:config|backend)$|\.csv$|\.txt$/.test(f.path)), ...given(name)])));
   for (const [name, s] of Object.entries({ ...CASES, ...LOOPS, ...STREAMS })) add(name, build(s));
   for (const [name, g] of Object.entries({ ...HAND, ...BY_HAND_LOOPS })) add(name, g);
   return { graphs: JSON.parse(JSON.stringify(graphs)), mutations: mutations(graphs.map(x => JSON.parse(JSON.stringify(x.graph)))) };

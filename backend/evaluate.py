@@ -537,8 +537,10 @@ def state_in(run, tile, outer, k):
         run.stepped_cells[key] = tuple((c['x'], c['y']) for c in outer.cells)
     f = run.functions[n['fn']]
     j = max(kept) + 1 if kept else 2
+    steps = 0
     while j <= k:
-        if j - 1 > MAX_STEPS:
+        steps += 1
+        if steps > MAX_STEPS:
             raise Trouble('not stopped after %s steps: a loop is stopped then' % format(MAX_STEPS, ','))
         if n['fn'] in outer.active:
             raise Trouble('a function applies itself')
@@ -611,7 +613,21 @@ def v_loop(n, at):
         count = math.inf
     state = lambda k: state_in(run, tile, at.env, k) if k > 1 else A.part(whole_cell(run, tile, n, at.env, 1), int(n['state']['row']), int(n['state']['col']), int(n['state']['rows']), int(n['state']['cols']))
     if count == math.inf and n['until'] is None:      # it has no last cell: it takes one step each tick, and is the state of the cell after as many
-        return state(run.tick + 1)
+        k = run.tick + 1
+        if k > 1 and not at.env.params and not at.env.cells and run.read_checkpoint is not None:
+            key = tile + '||'
+            kept = run.stepped.get(key)
+            if not (kept and (k in kept or max(kept) == k - 1)):
+                loaded = run.read_checkpoint(at.id, run.tick)
+                if loaded is not None:
+                    run.let_go(lambda other: other == key)
+                    run.stepped[key] = {k: loaded}
+                    run.stepped_cells[key] = ()
+                    run.stepped_held += A.size(loaded)
+                    run.restored.add(at.id)
+                    return loaded
+                run.missed.add(at.id)
+        return state(k)
     k = 1
     while n['until'] is not None and k <= count:
         if k - 1 > MAX_STEPS:
@@ -756,8 +772,9 @@ def too_many(nodes, need, node):
 
 
 class Run:
-    def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST, counts=None, read_roll=None):
+    def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST, counts=None, read_roll=None, read_checkpoint=None):
         self.read_roll, self.rolls, self.rolls_held = read_roll, OrderedDict(), 0      # the files streams read, as their units: (kind, path) -> a roll, and the bytes of them all
+        self.read_checkpoint, self.restored, self.missed = read_checkpoint, set(), set()      # checkpoint restore callback and which infinite loops hit or missed it
         self.counts = counts or {}      # loop -> its count, where the page settled it exactly (run.py: counts)
         self.graph, self.nodes, self.functions, self.tick = graph, graph['nodes'], graph['functions'], tick
         self.room, self._weights, self._masked = room, {}, {}      # room: the bytes its arrays may take in all
@@ -767,6 +784,32 @@ class Run:
         self._needs, self._follows, self._carries, self._homes, self.repeats = {}, {}, {}, None, {}
         self.stepped_cells, self.stepped_held = {}, 0      # for each kept list of states, the outer cells it is under; and the bytes of all the states kept, counted against the room beside what is remembered
         self.loops, self.state_ids, self.stepped, self.stops = {}, {}, {}, {}      # tiles with a step: tile -> the node that says its pattern, state and function; a state block -> { tile: where it lies in the state }; the states kept; where each loop stopped
+
+    def advance(self, tick):
+        """Advances a long-lived Run to a new tick while keeping top-level ticking loop states and loaded stream rolls."""
+        self.homes()
+        self.tick = tick
+        self.kept.clear()
+        self.held = 0
+        self.finished.clear()
+        self.stops.clear()
+        self.restored.clear()
+        self.missed.clear()
+        keep_keys = {tile + '||' for tile in self.loops if self.ticking(tile)}
+        self.let_go(lambda key: key not in keep_keys)
+
+    def ticking_states(self):
+        """Yields (loop_id, state_array) for every top-level infinite loop whose state at self.tick + 1 is held."""
+        self.homes()
+        k = self.tick + 1
+        if k <= 1:
+            return
+        for tile, loop_id in self.loops.items():
+            if not self.ticking(tile):
+                continue
+            kept = self.stepped.get(tile + '||')
+            if kept and k in kept:
+                yield loop_id, kept[k]
 
     def let_go(self, which):
         """Forgets the states kept under every key that which(key) picks (state_in): they are worked out again if asked for."""

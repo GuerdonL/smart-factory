@@ -415,7 +415,7 @@ class Tick(Project):
         self.assertEqual(read[3:], ['data/long.csv', 'data/longer.csv'])
 
     def test_every_fixture_with_a_stream_is_taken_and_the_health_says_version_6(self):
-        self.assertEqual(R.health(), {'ok': True, 'version': 6})
+        self.assertEqual(R.health(), {'ok': True, 'version': 6, 'play': True})
         self.put('table.csv', b'1,2,3\n4,5,6\n7,8,9\n10,11,12\n')
         self.npy('cube.npy', np.arange(12, dtype=np.float32).reshape(2, 3, 2))
         g = named('streams: one of each kind')

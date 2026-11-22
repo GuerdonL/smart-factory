@@ -53,7 +53,8 @@ NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}')            # a project's 
 DATA = re.compile(r'data/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.(?:csv|txt|npy)')    # a data file: data/ and one .csv, .txt or .npy name with no two dots together (sources.js: dataPath; backend/check.py: data_path)
 # what is passed on to the backend: how much of a request's body is read for each address, in bytes (the backend's own
 # limits: backend/limits.py), how much of its answer, and how many seconds it is waited on
-PASSED = {'/health': 0, '/run': 5 * 1024 * 1024, '/data': 50 * 1024 * 1024}
+PASSED = {'/health': 0, '/run': 5 * 1024 * 1024, '/data': 50 * 1024 * 1024, '/play': 5 * 1024 * 1024, '/stop': 64 * 1024, '/checkpoint': 5 * 1024 * 1024}
+PLAY_POLL = re.compile(r'^/play/([a-f0-9]{8,64})$')
 ANSWER, WAIT, READ = 8 * 1024 * 1024, 90, 60                  # (READ: seconds a proxied request's body may take to arrive, in all)
 TOKEN = os.environ.get('SMART_FACTORY_BACKEND_TOKEN') or os.path.join(ROOT, 'backend', '.token')      # the file the backend's token is in
 MAX_SAVE = 64 << 20                                                # the most a save's body may be, in bytes
@@ -131,13 +132,15 @@ def project_files(name):
         if not os.path.isfile(os.path.join(base, '.config')) and os.path.isfile(given):
             with open(given, encoding='utf8') as text:
                 out.append({'path': '.config', 'text': text.read()})
-        for folder, _, files in os.walk(base):
+        for folder, dirs, files in os.walk(base):
+            if folder == os.path.join(base, 'data') and 'checkpoints' in dirs:
+                dirs.remove('checkpoints')                         # checkpoints are a backend cache, never project files
             for f in sorted(files):
                 full = os.path.join(folder, f)
                 path = os.path.relpath(full, base).replace(os.sep, '/')
                 if os.path.islink(full):                               # a link is no file of the project: what it points at is never read
                     continue
-                if f.endswith('.json') or f == '.config':
+                if f.endswith('.json') or f in ('.config', '.backend'):
                     with open(full, encoding='utf8') as text:
                         out.append({'path': path, 'text': text.read()})
                 elif DATA.fullmatch(path) and path.endswith('.npy'):   # an array: its bytes, in base64 (the page holds every file as text)
@@ -168,7 +171,7 @@ def checked(files):
                 raise ValueError("a file's %s is text, not %s" % (key, json.dumps(f[key])[:60]))
         path, parts = f['path'], f['path'].split('/')
         csv = path.endswith(('.csv', '.txt', '.npy'))             # a data file a file source or a stream reads: only data/<name>.csv, .txt or .npy, at the project's top
-        if not (path.endswith('.json') or parts[-1] == '.config' or csv) or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts) or (csv and not DATA.fullmatch(path)):
+        if not (path.endswith('.json') or parts[-1] in ('.config', '.backend') or csv) or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts) or (csv and not DATA.fullmatch(path)):
             raise ValueError('not a path a project may contain: %r' % path)
         if path.endswith('.npy'):                                 # an array comes as its bytes in base64, and is written as the bytes
             try:
@@ -215,6 +218,11 @@ def write_project(name, files):
                 if old:
                     os.rename(os.path.join(old, 'was'), target)        # the new one did not go in: the old one goes back
                 raise
+            if old:
+                old_ckpts = os.path.join(old, 'was', 'data', 'checkpoints')
+                if os.path.isdir(old_ckpts) and not os.path.islink(old_ckpts):      # checkpoints are a backend cache: saving never deletes them
+                    os.makedirs(os.path.join(target, 'data'), exist_ok=True)
+                    os.rename(old_ckpts, os.path.join(target, 'data', 'checkpoints'))
             os.chmod(target, 0o755)
     finally:
         for left in (fresh, old):
@@ -308,11 +316,13 @@ class Handler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             pass
 
-    def reply(self, status, body, kind='application/json'):
+    def reply(self, status, body, kind='application/json', headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(status)
         self.send_header('Content-Type', kind + '; charset=utf-8')
         self.send_header('Content-Length', str(len(data)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         if self.command != 'HEAD':
             self.wfile.write(data)
@@ -368,7 +378,12 @@ class Handler(SimpleHTTPRequestHandler):
         if not path.startswith('/api/backend/') and path != '/api/backend':
             return False
         to = path[len('/api/backend'):]
-        if to not in PASSED or (self.command == 'GET') != (to == '/health'):
+        poll = PLAY_POLL.fullmatch(to)
+        if poll:
+            if self.command != 'GET':
+                self.reply(404, {'error': 'not found'})
+                return True
+        elif to not in PASSED or (self.command == 'GET') != (to == '/health'):
             self.reply(404, {'error': 'not found'})
             return True
         body = b''
@@ -381,15 +396,23 @@ class Handler(SimpleHTTPRequestHandler):
                 self.refuse(411, 'the request has to say how long it is', {})
                 return True
             if length > PASSED[to]:
-                self.refuse(413, 'that is larger than the %d MB the backend takes' % (PASSED[to] >> 20), {})
+                cap = '%d MB' % (PASSED[to] >> 20) if PASSED[to] >= (1 << 20) else '%d KB' % (PASSED[to] >> 10)
+                self.refuse(413, 'that is larger than the %s the backend takes' % cap, {})
                 return True
             body = self.read_within(length, READ)
             if body is None:
                 self.refuse(408, 'the request took longer than %d seconds to arrive' % READ, {}, drain=False)
                 return True
+        is_health = to == '/health'
         if to == '/data':                                          # the two things a file's address says, written out again: nothing else of it goes on
             asked = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
             to += '?project=%s&path=%s' % (quote((asked.get('project') or [''])[-1], safe=''), quote((asked.get('path') or [''])[-1], safe=''))
+        elif poll:
+            asked = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            after = (asked.get('after') or [''])[-1]
+            if after:
+                to += '?after=' + quote(after, safe='')
+        extra = {'X-Smart-Factory-Play': '1'} if is_health else None
         try:
             token = backend_token()
             until = time.monotonic() + WAIT                        # the whole wait, not each step of it
@@ -418,14 +441,14 @@ class Handler(SimpleHTTPRequestHandler):
             why = 'the backend is not answering (%s)' % (getattr(e, 'strerror', None) or str(e) or type(e).__name__)
             # that there is none is an answer and not a failure: the page asks on every load, and a browser writes every
             # failed request to its console. Each address is answered in its own form, with why.
-            self.reply(200, {'ok': False, 'error': why, **({'results': {}, 'errors': {'*': why}} if to == '/run' else {})})
+            self.reply(200, {'ok': False, 'error': why, **({'results': {}, 'errors': {'*': why}} if to == '/run' else {})}, headers=extra)
             return True
         if 300 <= status < 400:                                    # it is never followed: the request goes to the backend and nowhere else
             self.reply(502, {'error': 'the backend answered by sending the request elsewhere, which is not followed'})
         elif len(answer) > ANSWER:
             self.reply(502, {'error': 'the backend answered with more than %d MB' % (ANSWER >> 20)})
         else:
-            self.reply(status, answer)
+            self.reply(status, answer, headers=extra)
         return True
 
     def read_within(self, length, seconds):

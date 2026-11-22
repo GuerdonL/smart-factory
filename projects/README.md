@@ -17,7 +17,9 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project, and holds its tick (`"tick": 0`), the project's clock.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 8. Format 8 adds to format 7 `"stream"` on a shape, beside its `"source"` (`{ "length", "start", "step",
+The format is 9. Format 9 adds to format 8 the `.backend` frame file, saved with the project (holding backend settings
+such as `.seconds_per_pass`, typed with a number space). A format 8 project has none and opens as it is using backend
+defaults; a program from before format 9 refuses a format 9 project rather than drop `.backend`. Format 8 adds to format 7 `"stream"` on a shape, beside its `"source"` (`{ "length", "start", "step",
 "end" }`: see streams/ below), `"tick"` in `project.json`, and `.txt` and `.npy` files under `data/`. A format 7 project
 has none of them and opens as it is, at tick 0; a program from before streams refuses a format 8 project rather than
 read its streams as blocks that never move on. Format 7 adds to format 6, on a tile's `"repeat"`: `"step"`, the id of the arrow that is the tile's
@@ -370,6 +372,15 @@ tick k − 1: so at tick 3 `add` gives 8, the sum of the first three rows, and t
 
 In a file a stream is `"stream": { "length": 2, "start": 0, "step": 2, "end": "wrap" }` beside the shape's
 `"source"`. Where it stands is never written: it is `start + tick × step`.
+
+## running/
+
+Running the clock, `.backend`, and checkpoints, beside a copy of the default Menu's `.config`. `Walk` is an infinite
+tile whose pattern is a normal noise stream `draw` over state `S` (starting at `0`), with step arrow `add` summing
+them. Press **Play** beside the tick to advance it continuously on the backend (one step per tick in the playing
+worker) and **Stop** to pause; saving writes loop checkpoints under `data/checkpoints/` so reopening at a high tick
+restores immediately. The `.backend` frame holds `.seconds_per_pass` (`30`, promised `natural`), saved with the
+project and undoable.
 
 ## none-and-spaces/
 

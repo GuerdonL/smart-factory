@@ -64,7 +64,7 @@ class Service(unittest.TestCase):
 
     def test_health_and_a_run(self):
         from backend.check import VERSION
-        self.assertEqual(self.request('GET', '/health'), (200, {'ok': True, 'version': VERSION}))      # the service reads the number off check.py's text, importing nothing of the graph
+        self.assertEqual(self.request('GET', '/health'), (200, {'ok': True, 'version': VERSION, 'play': True, 'ceiling': self.server.max_seconds}))      # the service reads the number off check.py's text, importing nothing of the graph
         from backend import service
         self.assertEqual((service.GRAPH_VERSION, service.graph_version()), (VERSION, VERSION))
         self.assertEqual(self.run_graph(SMALL, [{'node': 's', 'cells': [[1, 1], [2, 1]]}]),

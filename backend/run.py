@@ -58,10 +58,11 @@ import math
 import sys
 
 from . import arrays as A
+from . import checkpoints as C
 from .check import VERSION, file_kind, is_int, is_obj, lengths, validate
 from .data import NAME, Refused, inspect, looked, read_bytes, read_text, taken, text_of
 from .evaluate import Broken, Ended, Run, Trouble, too_many
-from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
+from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_CHECKPOINT_BYTES, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
 NO_VALUE = 'that has no value'
 NO_MEMORY = 'the run needs more memory than the backend may take'
@@ -70,7 +71,7 @@ WHOLE = '*'
 
 
 def health():
-    return {'ok': True, 'version': VERSION}      # the version of graph it writes and reads (check.py: VERSIONS has every one it accepts)
+    return {'ok': True, 'version': VERSION, 'play': True}      # the version of graph it writes and reads, and that it can play (service.py adds ceiling)
 
 
 def refuse(why):
@@ -105,33 +106,7 @@ def run(body, root=None, room=None):
         return refuse(BROKEN)
 
 
-def answer(body, root, room):
-    if len(body) > MAX_BODY:
-        return refuse('the request is larger than %s' % megabytes(MAX_BODY))
-    try:
-        asked = json.loads(body.decode('utf8'), parse_constant=no_constant)
-    except RecursionError:
-        return refuse('the request is nested too deep to be read')
-    except ValueError as e:
-        return refuse('the request is not JSON (%s)' % e)
-    if not is_obj(asked) or not is_obj(asked.get('graph')):
-        return refuse('the request holds no graph')
-    graph, want, tick, project = asked['graph'], asked.get('want'), asked.get('tick', 0), asked.get('project')
-    if is_obj(graph.get('nodes')) and len(graph['nodes']) > MAX_NODES:
-        return refuse('the graph has %s, more than %s' % (plural(len(graph['nodes']), 'node'), format(MAX_NODES, ',')))
-    if not isinstance(want, list) or len(want) > MAX_WANTS:
-        return refuse('want is a list of at most %s' % plural(MAX_WANTS, 'node'))
-    asked_cells = sum(len(w['cells']) for w in want if is_obj(w) and isinstance(w.get('cells'), list))
-    if asked_cells > MAX_ALL_CELLS:
-        return refuse('the request asks for %s in all, more than the %s one run gives' % (plural(asked_cells, 'entry').replace('entrys', 'entries'), format(MAX_ALL_CELLS, ',')))
-    if not is_int(tick) or tick < 0 or tick >= 2 ** 53:
-        return refuse('tick is a whole number, from 0')
-    if project is not None and not (isinstance(project, str) and NAME.fullmatch(project)):
-        return refuse('project is not the name of a project')
-    wrong = validate(graph)
-    if wrong:
-        return refuse('the graph is not well formed: ' + '; '.join(wrong[:3]) + ('; and %d more' % (len(wrong) - 3) if len(wrong) > 3 else ''))
-
+def _readers(graph, project, root, counts):
     def read_file(path):
         if project is None:
             raise Trouble('%s: the project has to be saved under a name before its data files can be read' % path)
@@ -155,10 +130,25 @@ def answer(body, root, room):
         except Refused as e:
             raise Trouble(str(e))
 
+    def read_checkpoint(loop_id, tick):
+        if project is None or tick <= 0:
+            return None
+        fp = C.fingerprint(graph, loop_id, tick, project, root, counts)
+        if not fp:
+            return None
+        return C.load(project, root, fp, C.expected_shape(graph['nodes'][loop_id]))
+
+    return read_file, read_roll, read_checkpoint if project is not None else None
+
+
+def _parse_counts(graph, asked):
     counts = asked.get('counts', {})
     if not is_obj(counts) or not all(is_obj(graph['nodes'].get(i)) and graph['nodes'][i]['op'] == 'loop' and is_obj(graph['nodes'][i]['count']) and is_int(v) and not isinstance(v, bool) and 1 <= v < 2 ** 53 for i, v in counts.items()):
-        return refuse('counts gives a whole number, at least 1, to loops whose count is settled when they are run')
-    work = Run(graph, read_file, int(tick), room, {i: int(v) for i, v in counts.items()}, read_roll)
+        return None
+    return {i: int(v) for i, v in counts.items()}
+
+
+def _eval_wants(work, graph, want):
     results, errors, codes, ended = {}, {}, {}, []
     last = {}      # of several wants under one key the last is the answer, as it always was
     for k, w in enumerate(want):
@@ -193,12 +183,180 @@ def answer(body, root, room):
             errors[key] = BROKEN
             results.pop(key, None)
             codes.pop(key, None)
+    return results, errors, codes, ended
+
+
+def answer(body, root, room):
+    if len(body) > MAX_BODY:
+        return refuse('the request is larger than %s' % megabytes(MAX_BODY))
+    try:
+        asked = json.loads(body.decode('utf8'), parse_constant=no_constant)
+    except RecursionError:
+        return refuse('the request is nested too deep to be read')
+    except ValueError as e:
+        return refuse('the request is not JSON (%s)' % e)
+    if not is_obj(asked) or not is_obj(asked.get('graph')):
+        return refuse('the request holds no graph')
+    graph, want, tick, project = asked['graph'], asked.get('want'), asked.get('tick', 0), asked.get('project')
+    if is_obj(graph.get('nodes')) and len(graph['nodes']) > MAX_NODES:
+        return refuse('the graph has %s, more than %s' % (plural(len(graph['nodes']), 'node'), format(MAX_NODES, ',')))
+    if not isinstance(want, list) or len(want) > MAX_WANTS:
+        return refuse('want is a list of at most %s' % plural(MAX_WANTS, 'node'))
+    asked_cells = sum(len(w['cells']) for w in want if is_obj(w) and isinstance(w.get('cells'), list))
+    if asked_cells > MAX_ALL_CELLS:
+        return refuse('the request asks for %s in all, more than the %s one run gives' % (plural(asked_cells, 'entry').replace('entrys', 'entries'), format(MAX_ALL_CELLS, ',')))
+    if not is_int(tick) or tick < 0 or tick >= 2 ** 53:
+        return refuse('tick is a whole number, from 0')
+    if project is not None and not (isinstance(project, str) and NAME.fullmatch(project)):
+        return refuse('project is not the name of a project')
+    wrong = validate(graph)
+    if wrong:
+        return refuse('the graph is not well formed: ' + '; '.join(wrong[:3]) + ('; and %d more' % (len(wrong) - 3) if len(wrong) > 3 else ''))
+    counts = _parse_counts(graph, asked)
+    if counts is None:
+        return refuse('counts gives a whole number, at least 1, to loops whose count is settled when they are run')
+    read_file, read_roll, read_checkpoint = _readers(graph, project, root, counts)
+    work = Run(graph, read_file, int(tick), room, counts, read_roll, read_checkpoint)
+    results, errors, codes, ended = _eval_wants(work, graph, want)
     out = {'results': results, 'errors': errors}
     if codes:
         out['codes'] = codes
     if ended:
         out['ended'] = ended
+    if work.missed and project is not None and (asked.get('check') or C.has_any(project, root)):
+        out['recomputed'] = sorted(work.missed)
     return out
+
+
+def checkpoint(body, root=None, room=None, budget=MAX_CHECKPOINT_BYTES):
+    """Writes checkpoints for all top-level infinite loops in `graph` at `tick` (POST /checkpoint)."""
+    if len(body) > MAX_BODY:
+        return {'error': 'the request is larger than %s' % megabytes(MAX_BODY)}
+    try:
+        asked = json.loads(body.decode('utf8'), parse_constant=no_constant)
+    except RecursionError:
+        return {'error': 'the request is nested too deep to be read'}
+    except ValueError as e:
+        return {'error': 'the request is not JSON (%s)' % e}
+    if not is_obj(asked) or not is_obj(asked.get('graph')):
+        return {'error': 'the request holds no graph'}
+    graph, tick, project = asked['graph'], asked.get('tick', 0), asked.get('project')
+    if is_obj(graph.get('nodes')) and len(graph['nodes']) > MAX_NODES:
+        return {'error': 'the graph has %s, more than %s' % (plural(len(graph['nodes']), 'node'), format(MAX_NODES, ','))}
+    if not is_int(tick) or tick < 0 or tick >= 2 ** 53:
+        return {'error': 'tick is a whole number, from 0'}
+    if not (isinstance(project, str) and NAME.fullmatch(project)):
+        return {'error': 'a checkpoint needs a saved project'}
+    if C.checkpoint_dir(project, root) is None:
+        return {'error': 'there is no saved project called %s' % project}
+    wrong = validate(graph)
+    if wrong:
+        return {'error': 'the graph is not well formed: ' + '; '.join(wrong[:3])}
+    counts = _parse_counts(graph, asked)
+    if counts is None:
+        return {'error': 'counts gives a whole number, at least 1, to loops whose count is settled when they are run'}
+    tick = int(tick)
+    if tick <= 0:
+        return {'ok': True, 'written': 0, 'tick': tick}
+    room = memory_for_arrays() if room is None else room
+    read_file, read_roll, read_checkpoint = _readers(graph, project, root, counts)
+    work = Run(graph, read_file, tick, room, counts, read_roll, read_checkpoint)
+    work.homes()
+    written_count = 0
+    for tile, loop_id in list(work.loops.items()):
+        if not work.ticking(tile):
+            continue
+        n = graph['nodes'][loop_id]
+        if n.get('within'):      # only top-level infinite loops (outside functions / outer tiles)
+            continue
+        fp = C.fingerprint(graph, loop_id, tick, project, root, counts)
+        if not fp:
+            continue
+        if C.load(project, root, fp, C.expected_shape(n)) is not None:
+            continue
+        need = work.needs(loop_id)
+        if need['most'] > MAX_ENTRIES or need['bad']:
+            continue
+        if work.bytes_for(loop_id, ROOM_TO_WORK, BYTES_AN_ENTRY) > work.room:
+            continue
+        try:
+            state = work.value(loop_id)
+        except Trouble:
+            continue
+        if C.save(project, root, fp, state, tick, loop_id, budget):
+            written_count += 1
+    return {'ok': True, 'written': written_count, 'tick': tick}
+
+
+class PlaySession:
+    """Long-lived incremental play state held inside the playing worker process."""
+
+    def __init__(self, body, root, room, budget=MAX_CHECKPOINT_BYTES):
+        if len(body) > MAX_BODY:
+            raise Trouble('the request is larger than %s' % megabytes(MAX_BODY))
+        try:
+            asked = json.loads(body.decode('utf8'), parse_constant=no_constant)
+        except RecursionError:
+            raise Trouble('the request is nested too deep to be read')
+        except ValueError as e:
+            raise Trouble('the request is not JSON (%s)' % e)
+        if not is_obj(asked) or not is_obj(asked.get('graph')):
+            raise Trouble('the request holds no graph')
+        graph, want, project = asked['graph'], asked.get('want'), asked.get('project')
+        if is_obj(graph.get('nodes')) and len(graph['nodes']) > MAX_NODES:
+            raise Trouble('the graph has %s, more than %s' % (plural(len(graph['nodes']), 'node'), format(MAX_NODES, ',')))
+        if not isinstance(want, list) or len(want) > MAX_WANTS:
+            raise Trouble('want is a list of at most %s' % plural(MAX_WANTS, 'node'))
+        asked_cells = sum(len(w['cells']) for w in want if is_obj(w) and isinstance(w.get('cells'), list))
+        if asked_cells > MAX_ALL_CELLS:
+            raise Trouble('the request asks for %s in all, more than the %s one run gives' % (plural(asked_cells, 'entry').replace('entrys', 'entries'), format(MAX_ALL_CELLS, ',')))
+        from_tick = asked.get('from', 0)
+        to_tick = asked.get('to', None)
+        if not is_int(from_tick) or from_tick < 0 or from_tick >= 2 ** 53:
+            raise Trouble('from is a whole number, from 0')
+        if to_tick is not None and (not is_int(to_tick) or to_tick < from_tick or to_tick >= 2 ** 53):
+            raise Trouble('to is a whole number, at least from, or null')
+        if project is not None and not (isinstance(project, str) and NAME.fullmatch(project)):
+            raise Trouble('project is not the name of a project')
+        wrong = validate(graph)
+        if wrong:
+            raise Trouble('the graph is not well formed: ' + '; '.join(wrong[:3]) + ('; and %d more' % (len(wrong) - 3) if len(wrong) > 3 else ''))
+        counts = _parse_counts(graph, asked)
+        if counts is None:
+            raise Trouble('counts gives a whole number, at least 1, to loops whose count is settled when they are run')
+        seconds = asked.get('seconds', None)
+        if seconds is not None and (not is_int(seconds) or isinstance(seconds, bool) or seconds < 1 or seconds >= 2 ** 53):
+            raise Trouble('seconds per pass is a natural number, at least 1')
+        self.graph, self.want, self.project, self.root, self.counts = graph, want, project, root, counts
+        self.from_tick, self.to_tick, self.budget = int(from_tick), None if to_tick is None else int(to_tick), budget
+        self.requested_seconds = None if seconds is None else int(seconds)
+        read_file, read_roll, read_checkpoint = _readers(graph, project, root, counts)
+        self.work = Run(graph, read_file, self.from_tick, room, counts, read_roll, read_checkpoint)
+        self.last_tick = None
+
+    def step(self, tick):
+        if self.last_tick is not None:
+            self.work.advance(tick)
+        else:
+            self.work.tick = tick
+        results, errors, codes, ended = _eval_wants(self.work, self.graph, self.want)
+        self.last_tick = tick
+        out = {'tick': tick, 'results': results, 'errors': errors, 'ended': ended}
+        if codes:
+            out['codes'] = codes
+        if self.work.missed and self.project is not None and C.has_any(self.project, self.root):
+            out['recomputed'] = sorted(self.work.missed)
+        return out
+
+    def save_checkpoints(self):
+        if self.project is None or self.last_tick is None or self.last_tick <= 0:
+            return 0
+        count = 0
+        for loop_id, state in self.work.ticking_states():
+            fp = C.fingerprint(self.graph, loop_id, self.last_tick, self.project, self.root, self.counts)
+            if fp and C.save(self.project, self.root, fp, state, self.last_tick, loop_id, self.budget):
+                count += 1
+        return count
 
 
 def roll_of(body, path):

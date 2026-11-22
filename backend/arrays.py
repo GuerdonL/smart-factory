@@ -256,6 +256,47 @@ def beside(parts):
     return np.concatenate(parts, axis=-1)
 
 
+def save_checkpoint(a):
+    """Serializes an array (or Held with a None mask) as 32-bit float .npy bytes (+ optional bool mask .npy bytes)."""
+    values, none = _split(a)
+    buf = io.BytesIO()
+    np.save(buf, np.ascontiguousarray(values, dtype=F), allow_pickle=False)
+    if none is None:
+        return buf.getvalue(), None
+    mbuf = io.BytesIO()
+    np.save(mbuf, np.ascontiguousarray(none, dtype=bool), allow_pickle=False)
+    return buf.getvalue(), mbuf.getvalue()
+
+
+def _read_npy_exact(body, expected_shape, kind, itemsize):
+    f = io.BytesIO(body)
+    try:
+        version = np.lib.format.read_magic(f)
+        shape, fortran, dtype = NPY_HEADERS[tuple(version)](f)
+    except Exception:
+        raise ValueError('not a valid .npy file')
+    if dtype.hasobject or dtype.kind != kind or dtype.itemsize != itemsize:
+        raise ValueError('unexpected checkpoint dtype')
+    if tuple(int(n) for n in shape) != tuple(int(n) for n in expected_shape):
+        raise ValueError('unexpected checkpoint shape')
+    count = 1
+    for n in shape:
+        count *= int(n)
+    if len(body) - f.tell() != count * itemsize:
+        raise ValueError('truncated checkpoint')
+    arr = np.frombuffer(body, dtype=dtype, count=count, offset=f.tell()).reshape(shape, order='F' if fortran else 'C')
+    return np.ascontiguousarray(arr, dtype=F if kind == 'f' else bool)
+
+
+def load_checkpoint(body, expected_shape, mask_body=None):
+    """Loads a 32-bit float .npy checkpoint (+ optional bool mask .npy) matching expected_shape."""
+    values = _read_npy_exact(body, expected_shape, 'f', 4)
+    if mask_body is None:
+        return values
+    none = _read_npy_exact(mask_body, expected_shape, 'b', 1)
+    return _held(values, none)
+
+
 def row(values):
     if any(v is None for v in values):
         return Held(np.asarray([0.0 if v is None else v for v in values], dtype=F)[None, :], np.asarray([v is None for v in values], dtype=bool)[None, :])

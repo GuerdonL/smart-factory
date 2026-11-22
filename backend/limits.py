@@ -26,6 +26,33 @@ BYTES_AN_ENTRY = 4                  # a 32-bit float
 ROOM_TO_WORK = 6                    # how many arrays the size of the largest a step may hold at once while it works (a formula's steps, a power worked out in 64 bits)
 MAX_WAIT = 30                       # seconds a run waits for a free worker before it is refused
 MAX_ANSWER = 8 * 1024 * 1024        # bytes in an answer (server.py reads no more of one)
+UNPOLLED_SECONDS = 10               # seconds a playing run may go without a poll before it is stopped
+CHECKPOINT_IDLE_SECONDS = 2.0       # seconds between idle checkpoints while playing
+MAX_CHECKPOINT_BYTES = 512 * 1024 * 1024      # default cache budget under one project's data/checkpoints/ (oldest evicted first)
+
+
+def max_seconds_ceiling(given=None):
+    """The host-level ceiling on seconds per pass (SMART_FACTORY_BACKEND_MAX_SECONDS), outside any project."""
+    if given is not None and str(given).strip():
+        try:
+            n = int(str(given).strip())
+            if n >= 1:
+                return n
+        except ValueError:
+            pass
+    return MAX_SECONDS
+
+
+def checkpoint_budget(given=None):
+    """The cache size budget in bytes for one project's data/checkpoints/ (SMART_FACTORY_BACKEND_CHECKPOINT_BYTES)."""
+    if given is not None and str(given).strip():
+        try:
+            n = int(str(given).strip())
+            if n >= 0:
+                return n
+        except ValueError:
+            pass
+    return MAX_CHECKPOINT_BYTES
 
 
 def physical_memory():
