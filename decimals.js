@@ -75,8 +75,14 @@ export function drawn(type){
   const out = []; if (!type || !(type.cols >= 1) || !(type.rows >= 1)) return out;
   /* a matrix whose entries hold inner data is drawn as brackets, and its numbers are seen once an entry is opened: the
      entries that are drawn, at every inner position, the first axis slowest, up to MOST_ASKED of them */
-  let tails = [[]]; for (const a of Array.isArray(type.inner) ? type.inner : []) tails = tails.flatMap(t => Array.from({ length: a.length }, (_, k) => [...t, k + 1]).slice(0, MOST_ASKED));
-  for (const t of tails) for (const r of side(type.rows)) for (const c of side(type.cols)){ if (out.length >= MOST_ASKED) return out; out.push([c, r, ...t]); }
+  const cols = side(type.cols), rows = side(type.rows), need = Math.ceil(MOST_ASKED / (cols.length * rows.length));
+  let tails = [[]];
+  for (const a of Array.isArray(type.inner) ? type.inner : []){
+    const next = [];
+    for (const t of tails){ for (let k = 1; k <= a.length && next.length < need; k++) next.push([...t, k]); if (next.length >= need) break; }
+    tails = next;
+  }
+  for (const t of tails) for (const r of rows) for (const c of cols){ if (out.length >= MOST_ASKED) return out; out.push([c, r, ...t]); }
   return out;
 }
 export const level = f => !(f > 0) ? 0 : f >= 1 ? 1 : f;

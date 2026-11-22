@@ -90,6 +90,7 @@ test('no input waits long: past a bound the answer is an error that says so', ()
   is('^', 10, 5000, large); is('^', combine('^', 2, 4000), 2, large); is('+', combine('^', 2, 80), q(2, 1, 1), large); is('*', sym('1+sqrt(2)'), combine('^', 2, 80), large);
   is('^', combine('^', 2, 80), q(2, 1, 1), large); is('^', 2, combine('/', 1, combine('^', 2, 80)), large); is('^', combine('^', 2, 200), q(1, 1025 * 3), large);
   assert.deepEqual(apply('exp', combine('^', 2, 80)), large); assert.deepEqual(typedNumber('1' + '0'.repeat(1300)), large); assert.equal(kind(typedNumber('1' + '0'.repeat(1200))), 'symbolic');
+  assert.deepEqual(typedNumber('0.' + '0'.repeat(5000) + '1'), large); assert.equal(typedNumber('1.' + '0'.repeat(5000)), 1); assert.equal(typedNumber('0'.repeat(5000) + '7'), 7);
   let deep = 2; for (let i = 0; i < 7; i++) deep = combine('^', deep, q(1, 2)); assert.deepEqual(deep, sym('2^(1/128)'));      /* under more than six roots: the solver's, as text */
   is('>', combine('^', 2, 80), sym('1+sqrt(2)'), true); is('<', sym('1+sqrt(2)'), combine('^', 2, 80), true);      /* one side large, far from the other: told */
   assert.ok(performance.now() - t0 < 3000, `took ${(performance.now() - t0).toFixed(0)}ms`);
@@ -198,6 +199,10 @@ test('comparing: the band where nothing is decided is relative to the size of wh
   const big = apply('exp', 1000), less = apply('exp', 999);
   is('>', big, 1, true); is('>', big, less, true); is('<', less, big, true); is('==', big, big, true); is('max', big, less, big);
   is('<', apply('neg', big), apply('neg', less), true); is('>', big, apply('neg', big), true); is('<', apply('neg', big), 0, true);
+  /* negative exponents stay negative when estimating term size */
+  is('<', apply('exp', -50), 1, true); is('>', apply('exp', -20), 0, true);
+  is('<', combine('+', apply('exp', -100), q(2, 1, 1)), q(3, 1, 1), true);
+  is('<', combine('-', 0, combine('^', q(1, 2), apply('erf', -2))), 1, true);
 });
 
 test('written writes every kind, and never a decimal for an exact value', () => {
