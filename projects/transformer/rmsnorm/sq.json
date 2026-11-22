@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf003",
+  "type": "arrow",
+  "name": "sq",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": 4,
+    "y": 0
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 1,
+  "arrow": {
+    "input": {
+      "id": "btf002",
+      "as": "block"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 4,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": "x^2"
+  }
+}

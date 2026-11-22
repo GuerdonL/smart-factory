@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf081",
+  "type": "arrow",
+  "name": "causal_exp",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": 7,
+    "y": 0
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 3,
+  "arrow": {
+    "input": {
+      "id": "btf079",
+      "as": "result"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 4,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": "select(i <= j, exp(x), 0)"
+  }
+}

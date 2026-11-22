@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf031",
+  "type": "tensor",
+  "name": "Q",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": 1,
+    "y": 0
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Q/",
+  "order": 1
+}

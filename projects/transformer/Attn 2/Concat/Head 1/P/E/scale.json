@@ -1,0 +1,31 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf080",
+  "type": "tensor",
+  "name": "scale",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": {
+        "expr": "1/sqrt(2)"
+      }
+    }
+  },
+  "order": 0
+}

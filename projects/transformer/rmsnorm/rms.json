@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf007",
+  "type": "arrow",
+  "name": "rms",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": 13,
+    "y": 0
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 5,
+  "arrow": {
+    "input": {
+      "id": "btf006",
+      "as": "result"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 4,
+    "gap": 4,
+    "gapName": null,
+    "output": null,
+    "formula": "sqrt(x + 1/100000)"
+  }
+}

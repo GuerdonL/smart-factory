@@ -1,0 +1,32 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf049",
+  "type": "tensor",
+  "name": "X",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 0,
+  "variable": 100,
+  "source": {
+    "file": "data/x.csv"
+  },
+  "reference": true
+}

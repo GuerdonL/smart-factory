@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf004",
+  "type": "tensor",
+  "name": "Sq",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": 8,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 2,
+  "seat": "btf003"
+}

@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf023",
+  "type": "tensor",
+  "name": "Z",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": 4,
+    "y": 4
+  },
+  "size": {
+    "cols": 1,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Z/",
+  "order": 1
+}

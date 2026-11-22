@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf125",
+  "type": "tensor",
+  "name": "Down",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Down/",
+  "order": 0
+}

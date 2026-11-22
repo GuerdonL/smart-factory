@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf027",
+  "type": "tensor",
+  "name": "V",
+  "named": true,
+  "commented": false,
+  "color": "variable-4",
+  "position": {
+    "x": 4,
+    "y": 0
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "V/",
+  "order": 1
+}

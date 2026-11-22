@@ -1003,3 +1003,23 @@ test('read: a tile whose step or stop block names what is none of its own has it
   /* a stop block of the pattern is kept */
   const kept = read(withFrame(d => { d.repeat.until = d.shapes[0].id; })); assert.deepEqual(kept.unstepped, []); assert.equal(kept.top.groups.find(g => g.repeat).repeat.until, c.shapes[0].id);
 });
+
+test('projects/transformer: a 2-layer Pre-RMSNorm causal Transformer with multi-head attention and GELU MLP opens, validates, and round-trips identically', () => {
+  const files = shipped('transformer'), p = read(files), g = build(p);
+  assert.equal(p.converted, 0); assert.equal(p.changed, 0); assert.deepEqual(p.unheld, []); assert.deepEqual(p.resized, []);
+  assert.deepEqual(validate(g), []);
+  const varErrs = Object.values(g.nodes).filter(n => n.op === 'variable' && n.error);
+  assert.deepEqual(varErrs, []);
+  assert.deepEqual(p.top.groups.filter(gr => gr.name && !gr.name.startsWith('.')).map(gr => gr.name), ['Layer 1', 'Layer 2']);
+  const by = name => p.top.shapes.find(d => d.name === name);
+  for (const name of ['X', 'N1', 'Attn 1', 'H1_attn', 'M1', 'MLP 1', 'H1', 'N2', 'Attn 2', 'H2_attn', 'M2', 'MLP 2', 'Out']) {
+    assert.ok(by(name), `missing top-level block ${name}`);
+    assert.deepEqual({ cols: g.nodes[g.blocks[by(name).id]].type.cols, rows: g.nodes[g.blocks[by(name).id]].type.rows }, { cols: 4, rows: 4 }, name);
+  }
+  const rmsCalls = Object.values(g.nodes).filter(n => n.op === 'apply');
+  assert.equal(rmsCalls.length, 4);      /* one shared rmsnorm function applied 4 times across both layers */
+  assert.equal(new Set(rmsCalls.map(n => n.fn)).size, 1);
+  const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
+  assert.deepEqual(paths(write(p)), paths(files));
+  assert.deepEqual(write(read(write(p))), write(p));
+});

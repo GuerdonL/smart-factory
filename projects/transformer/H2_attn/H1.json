@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf111",
+  "type": "tensor",
+  "name": "H1",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "order": 0,
+  "variable": 107,
+  "reference": true
+}

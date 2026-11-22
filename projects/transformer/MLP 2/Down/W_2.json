@@ -1,0 +1,30 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf124",
+  "type": "data-in",
+  "name": "W_2",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": 8,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 8
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 1,
+  "source": {
+    "file": "data/l2_w2.csv"
+  }
+}

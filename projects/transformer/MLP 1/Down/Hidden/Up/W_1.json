@@ -1,0 +1,30 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf055",
+  "type": "data-in",
+  "name": "W_1",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": 4,
+    "y": 0
+  },
+  "size": {
+    "cols": 8,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 1,
+  "source": {
+    "file": "data/l1_w1.csv"
+  }
+}

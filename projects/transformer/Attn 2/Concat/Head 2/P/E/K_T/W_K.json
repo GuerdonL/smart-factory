@@ -1,0 +1,31 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf094",
+  "type": "data-in",
+  "name": "W_K",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 0,
+  "source": {
+    "file": "data/l2_h2_wk.csv"
+  },
+  "transposed": true
+}

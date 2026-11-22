@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf061",
+  "type": "tensor",
+  "name": "Hidden",
+  "named": true,
+  "commented": false,
+  "color": "variable-4",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 8,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Hidden/",
+  "order": 0
+}
