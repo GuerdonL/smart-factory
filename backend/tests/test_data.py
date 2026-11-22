@@ -180,6 +180,20 @@ class Tables(unittest.TestCase):
         with self.assertRaises(data.Refused) as e:
             data.decode(b'1' * (MAX_UPLOAD + 1))
         self.assertIn('larger than 50 MB', str(e.exception))
+        # read_bytes enforces MAX_UPLOAD via fstat after O_NOFOLLOW open
+        old_max = data.MAX_UPLOAD
+        try:
+            data.MAX_UPLOAD = 10
+            with tempfile.TemporaryDirectory() as root:
+                p = os.path.join(root, 'p', 'data', 'big.txt')
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, 'wb') as f:
+                    f.write(b'x' * 11)
+                with self.assertRaises(data.Refused) as e:
+                    data.read_bytes('p', 'data/big.txt', root)
+                self.assertIn('larger than', str(e.exception))
+        finally:
+            data.MAX_UPLOAD = old_max
         wide = ','.join(['1'] * 4001) + '\n'
         with self.assertRaises(data.Refused) as e:
             data.inspect(wide * 4000)      # 16,004,000 numbers

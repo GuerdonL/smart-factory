@@ -7,7 +7,7 @@ import { build, validate, VERSION, OPS, readsIndex } from '../graph.js';
 import { evaluate, carry, promiseOf, truthAt } from '../evaluate.js';
 import { createBackend } from '../backend.js';
 import * as sources from '../sources.js';
-import { total, counting, B, space, arrow } from './looping.js';
+import { total, counting, B, space, arrow, adds } from './looping.js';
 import { STREAMS, streamTotal, st, noisy, filed } from './streaming.js';
 
 const one = a => a.entries && a.entries['1,1'];
@@ -305,4 +305,16 @@ test('projects/streams: one stream of each kind, a plain noise block, and the ru
   const t = g.spaces.top.tiles.find(t => t.loop); assert.equal(g.nodes[t.loop].count, 'inf'); assert.equal(g.nodes[t.loop].until, null);
   assert.deepEqual(evaluate(g, t.loop, { tick: 3 }), { type: g.nodes[t.loop].type, deferred: true, backend: true });
   for (const name of ['Noise', 'Draws', 'Rows', 'Letters', 'Cube']) assert.equal(evaluate(g, 'v:' + by(name).id, { tick: 3 }).backend, true, name);
+});
+
+test('graph and evaluate: a stream outside an infinite tile read from inside it validates and defers to the backend', () => {
+  const g = made({ top: space([
+    B('O', -4, 0, 1, 1, { source: filed('data/total.csv', st()) }),
+    B('x', 0, 0, 1, 1, { entries: { '1,1': { expr: '@[O:m]' } } }),
+    B('S', 0, 1, 1, 1, { entries: { '1,1': 0 } }),
+    arrow('step', { id: 'T', as: 'tile' }, {}, { inside: adds() })],
+  [{ id: 'T', name: 'Total', members: [1, 2], groups: [], repeat: { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'step' } }]) });
+  const t = g.spaces.top.tiles[0];
+  assert.ok(!t.blocks.includes('O'));
+  assert.deepEqual(evaluate(g, t.loop, { tick: 3 }), { type: g.nodes[t.loop].type, deferred: true, backend: true });
 });

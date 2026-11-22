@@ -371,6 +371,24 @@ class Tick(Project):
         self.assertEqual(self.at(g, 7, loop), [[18]])      # round again: 14, and then 3 and 1
         self.assertEqual(self.at(g, 1000, loop), [[200 * 14]])
 
+    def test_a_stream_outside_an_infinite_tile_stands_at_the_clocks_tick(self):
+        # O is a stream of total.csv (3, 1, 4, 1, 5) lying OUTSIDE infinite tile T; C inside T reads O by formula,
+        # over state S (0), and the step adds them. Unlike a stream inside T (cell k -> tick k - 1), O stands at the
+        # clock's tick in every cell, so at tick t the loop adds O(t) to S t times: 0, 1*1, 2*4, 3*1, 4*5.
+        g = named('streams: the running total of a stream')
+        s, tx = g['nodes']['v:x']['inputs'][0], copy.deepcopy(g['nodes']['v:x']['type'])
+        g['nodes'][s]['path'] = 'data/total.csv'
+        g['nodes']['v:O'] = {'op': 'variable', 'inputs': [s], 'type': copy.deepcopy(tx), 'name': 'O', 'named': True, 'defined': 'source', 'entries': {}, 'within': ['t:T']}
+        g['nodes']['v:x'] = {'op': 'variable', 'inputs': ['v:O'], 'type': tx, 'name': 'x', 'named': True, 'defined': 'entries', 'entries': {'1,1': {'expr': '$1'}}, 'within': ['t:T']}
+        g['blocks']['O'] = 'v:O'
+        g['spaces']['top']['pieces'].append({'blocks': ['O'], 'rule': None, 'node': 'v:O', 'error': None})
+        self.assertEqual(validate(g), [])
+        loop = g['spaces']['top']['tiles'][0]['loop']
+        self.assertEqual([self.at(g, t, loop) for t in range(5)], [[[0]], [[1]], [[8]], [[3]], [[20]]])
+        cell = lambda k: {'cells': [{'x': k - 1, 'y': 0, 'dx': 0, 'dy': 0, 'cx': k, 'cy': 1, 'of': ['t:T']}]}
+        drawn = self.full(g, [{'node': 'v:x', 'as': 'x%d' % k, 'cells': [[1, 1]], 'binding': cell(k)} for k in (1, 2, 3)], 4)
+        self.assertEqual({k: v['cells'][0][2] for k, v in drawn['results'].items()}, {'x1': 5, 'x2': 5, 'x3': 5})      # every cell sees O at tick 4
+
     def test_a_streams_file_is_counted_against_the_runs_room_and_let_go(self):
         self.put('long.csv', ('\n'.join('%d' % r for r in range(5000)) + '\n').encode())      # 5,000 numbers: 20,000 bytes
         self.put('longer.csv', ('\n'.join('%d' % r for r in range(6000)) + '\n').encode())

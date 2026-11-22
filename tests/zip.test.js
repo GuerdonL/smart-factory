@@ -85,3 +85,17 @@ test('an array file (.npy) is its bytes in the zip, and base64 on either side of
   const packed = zip(files); assert.ok(packed.length < text.length + 400);      /* the bytes themselves, not their base64 */
   assert.deepEqual(await unzip(packed), files);
 });
+
+test('a deflated .npy file opens from a zip as base64 of its bytes', { skip: !has('zip') && 'zip is not installed' }, async () => {
+  const { base64Of } = await import('../zip.js');
+  const bytes = new Uint8Array(4096).map((_, i) => (i * 17 + 3) % 256), text = base64Of(bytes);
+  const packed = inTemp(dir => {
+    mkdirSync(join(dir, 'tree/data'), { recursive: true });
+    writeFileSync(join(dir, 'tree/project.json'), '{}\n');
+    writeFileSync(join(dir, 'tree/data/cube.npy'), bytes);
+    execFileSync('zip', ['-q', '-r', '../deflated.zip', '.'], { cwd: join(dir, 'tree') });
+    return new Uint8Array(readFileSync(join(dir, 'deflated.zip')));
+  });
+  const got = await unzip(packed);
+  assert.equal(got.find(f => f.path === 'data/cube.npy')?.text, text);
+});
