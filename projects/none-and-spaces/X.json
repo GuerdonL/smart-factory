@@ -1,0 +1,32 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bnsx001",
+  "type": "tensor",
+  "name": "X",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": -30,
+    "y": -3
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 1,
+      "2,1": 2,
+      "1,2": 3,
+      "2,2": 4
+    }
+  },
+  "order": 6
+}

@@ -7,7 +7,11 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, validate, OPS, CODES, indexAt, VERSION } from '../graph.js';
+import { build as valued, validate, OPS, CODES, indexAt, VERSION } from '../graph.js';
+/* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
+   without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
+   tests/graph.test.js); a type with no value is a type still (graph.js: Number spaces). */
+const build = snapshot => { const g = valued(snapshot); for (const n of Object.values(g.nodes)){ const { value, ...size } = n.type; n.type = size; } return g; };
 import { read } from '../project.js';
 
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -304,7 +308,7 @@ test('every error code', () => {
   assert.deepEqual(see(seat.nodes['v:H'].error), { code: 'seat', note: 'no-source' });
   const unknown = make(snap([B('Row', 0, 0, 4, 1), arrow('out', { id: 't1', as: 'tile' }), B('Tau', 0, 20, 1, 1)], [tile({ down: { expr: '@[Tau:m]' } })]));      /* a mass not yet given */
   assert.deepEqual(see(unknown.spaces.top.arrows[0].error), { code: 'size-unknown', note: '@[Tau:m]' });
-  assert.deepEqual([...seen].sort(), [...CODES].sort());
+  assert.deepEqual([...seen].sort(), CODES.filter(c => c !== 'type').sort());      /* (type is never written by build: a promise is held against the values, which evaluate.js has) */
 });
 test('a loop through a formula is in the graph as an error on each variable round it, and never a cycle', () => {
   const g = make(snap([B('S', 0, 0, 1, 1, { entries: { '1,1': { expr: '@[T:m] * 2' } } }), B('T', 9, 0, 1, 1, { entries: { '1,1': { expr: '@[S:x]' } } }), B('U', 20, 0, 1, 1, { entries: { '1,1': { expr: '@[T:m]' } } })]));
@@ -444,8 +448,14 @@ test('validate accepts what build made, of every operation', () => {
 });
 test('validate refuses a graph that is not one', () => {
   for (const g of [null, 7, 'graph', {}, { version: 1 }, { version: 1, nodes: [], functions: {}, spaces: {}, blocks: {} }]) assert.ok(validate(g).length > 0);
-  refused(g => { g.version = 3; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
-  for (const v of [1, 2]){ const g = JSON.parse(JSON.stringify(good())); g.version = v; assert.deepEqual(validate(g), [], 'a version 1 graph is a version 2 graph as it stands'); }
+  refused(g => { g.version = 4; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
+  /* a version 1 or 2 graph is a version 3 graph as it stands, where it holds nothing a later version added: a graph that says a version too low for what it holds is refused (ruled 21 November 2026) */
+  const plain = v => { const g = JSON.parse(JSON.stringify(build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': 1, '2,1': 2 } })])))); g.version = v; return g; }, bare = g => { for (const n of Object.values(g.nodes)) delete n.type.value; return g; };
+  for (const v of [1, 2, 3]) assert.deepEqual(validate(bare(plain(v))), [], 'version ' + v);
+  const valued = v => { const g = bare(plain(v)); g.nodes['v:A'].type.value = 'natural'; return g; };
+  assert.deepEqual(validate(valued(2)), ['v:A: it holds a number space, which needs version 3, and the graph says version 2']); assert.deepEqual(validate(valued(3)), []);
+  for (const v of [1, 2, 3]){ const g = bare(JSON.parse(JSON.stringify(good()))); g.version = v; assert.equal(validate(g).length === 0, v >= 2, 'inner data needs version 2: version ' + v); }
+  assert.ok(validate({ ...bare(JSON.parse(JSON.stringify(good()))), version: 1 }).some(w => w.includes('it holds inner data, which needs version 2, and the graph says version 1')));
   const inf = good(); inf.nodes['v:A'].entries['1,1'] = Infinity; assert.ok(validate(inf).length > 0);      /* an infinity is written "inf" */
   const undef = good(); undef.nodes['v:A'].entries['1,1'] = undefined; assert.ok(validate(undef).length > 0);
 });
@@ -805,4 +815,16 @@ test('after review (phase 7): a formula in a graph is bounded as the backend bou
     const v = Object.values(g.nodes).find(n => n.op === 'variable' && n.inputs.length && Object.values(n.entries).some(e => e && e.expr));
     for (const k of Object.keys(v.entries)) if (v.entries[k] && v.entries[k].expr) v.entries[k] = { expr };
     assert.equal(validate(g).length === 0, ok, expr.slice(0, 30) + '… (' + expr.length + ')'); }
+});
+
+/* ---- None (phase 9) ---- */
+test('None: an entry that holds None is kept in the graph as { none: true }, in that one form, and both older versions are still read', () => {
+  const g = build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': { none: true }, '2,1': { expr: 'none + 1' } } })]));
+  assert.equal(g.version, 3); assert.equal(VERSION, 3); assert.deepEqual(validate(g), []);
+  assert.deepEqual(g.nodes['v:A'].entries, { '1,1': { none: true }, '2,1': { expr: 'none + 1' } });
+  for (const v of [{ none: 1 }, { none: false }, { none: true, sym: 'x' }, { none: true, more: 1 }, 'none']){ const h = JSON.parse(JSON.stringify(g)); h.nodes['v:A'].entries['1,1'] = v; assert.ok(validate(h).length > 0, JSON.stringify(v)); }
+  const older = version => { const h = JSON.parse(JSON.stringify(g)); h.version = version; for (const n of Object.values(h.nodes)) delete n.type.value; return h; };
+  assert.deepEqual(validate(older(3)), []);      /* and a version below 3 cannot hold None (ruled 21 November 2026) */
+  for (const version of [1, 2]) assert.deepEqual(validate(older(version)), ['v:A: it holds None, which needs version 3, and the graph says version ' + version]);
+  assert.ok(validate({ ...g, version: 4 }).length > 0);
 });

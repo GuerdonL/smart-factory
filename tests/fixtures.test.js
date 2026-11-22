@@ -5,12 +5,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fixtures } from '../backend/fixtures/generate.mjs';
+import { fixtures, spaceTable } from '../backend/fixtures/generate.mjs';
 
 const kept = name => JSON.parse(readFileSync(new URL('../backend/fixtures/' + name, import.meta.url), 'utf8'));
 test('the backend\'s fixtures are what graph.js and evaluate.js make now', () => {
   const made = fixtures();
   assert.deepEqual(kept('graphs.json'), made.graphs); assert.deepEqual(kept('mutations.json'), made.mutations);
+});
+test('the number spaces the backend is held to are what spaces.js makes now', () => {
+  assert.deepEqual(kept('spaces.json'), JSON.parse(JSON.stringify(spaceTable())));
 });
 test('the fixtures hold every kind of answer, and changed graphs of both kinds', () => {
   const graphs = kept('graphs.json'), mutations = kept('mutations.json'), answers = graphs.flatMap(g => [...Object.values(g.nodes), ...g.bound.map(b => b.answer)]);

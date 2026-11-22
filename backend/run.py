@@ -3,6 +3,11 @@
     run(body, root=None)                  -> what POST /run answers, for the bytes it was sent:
                                              { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean } },
                                                "errors":  { key: "why" } }
+                                             and, only where a promise is broken by a number worked out here
+                                             (a variable's holds, what a function's input promises to take),
+                                               "codes":   { key: { "code": "type", "node": "<id>" } }
+                                             beside that key's error, which is then the page's own sentence,
+                                             "W is not natural: it holds ∞ at 3, 1"; node is whose promise it is.
                                              A node whose entries hold inner data answers with inner too, the
                                              lengths of its inner axes ({ cols, rows, inner: [2, 4], cells, … }),
                                              and its cells are [[c, r, k1, k2, value], …]: one more number, from
@@ -11,7 +16,7 @@
                                              with the request as a whole is under the key "*".
     upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" } (and "small" where it has numbers too small for 32 bits); raises
                                              data.Refused(why)
-    health()                              -> { "ok": true, "version": 2 }: the graph version (check.py: VERSION)
+    health()                              -> { "ok": true, "version": 3 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
@@ -24,7 +29,8 @@ The request to /run:
       "tick": 0,                          which draw of the noise: a whole number, 0 where left out
       "project": "<name>" }               the project whose data/ a file source reads; may be left out where there is none
 A value is a number; "inf" or "-inf"; or { "err": "that has no value" } for an entry that has none (a division by
-zero, ∞ − ∞). min, max and mean are of the entries that have a value, written the same way (null where none has).
+zero, ∞ − ∞); or { "none": true } for an entry that is None. min, max and mean are of the entries that have a
+value and are not None, written the same way (null where none has).
 
 Nothing in a request is executed: the graph is data, a formula is read by formula.py, and a file's path is
 resolved inside the named project's data/ directory by data.py."""
@@ -35,7 +41,7 @@ import sys
 from . import arrays as A
 from .check import VERSION, is_int, is_obj, lengths, validate
 from .data import NAME, Refused, inspect, read_text, take
-from .evaluate import Run, Trouble
+from .evaluate import Broken, Run, Trouble
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
 NO_VALUE = 'that has no value'
@@ -118,7 +124,7 @@ def answer(body, root, room):
         return A.table(text, skip)
 
     work = Run(graph, read_file, int(tick), room)
-    results, errors = {}, {}
+    results, errors, codes = {}, {}, {}
     for w in want:
         key = w.get('as', w.get('node')) if is_obj(w) else None
         if not isinstance(key, str):
@@ -127,16 +133,21 @@ def answer(body, root, room):
         try:
             results[key] = one(work, graph, w)
             errors.pop(key, None)
+            codes.pop(key, None)
         except Trouble as e:
             errors[key] = str(e)
             results.pop(key, None)
+            codes.pop(key, None)
+            if isinstance(e, Broken):      # a promise broken by a number worked out here: the error type, and whose promise it is
+                codes[key] = {'code': e.code, 'node': e.node}
         except (MemoryError, RecursionError):
             raise
         except Exception as e:      # this one alone has no answer; the others have theirs. What went wrong is the log's to say, not the answer's
             sys.stderr.write('%s could not be worked out: %s: %s\n' % (key, type(e).__name__, e))
             errors[key] = BROKEN
             results.pop(key, None)
-    return {'results': results, 'errors': errors}
+            codes.pop(key, None)
+    return {'results': results, 'errors': errors, 'codes': codes} if codes else {'results': results, 'errors': errors}
 
 
 def one(work, graph, w):
@@ -162,12 +173,14 @@ def one(work, graph, w):
     if need['bad']:
         raise Trouble(need['bad'])
     # refused before anything is made: what it is worked out from, all held at once, and room to work on the largest of it
-    wanted = BYTES_AN_ENTRY * (work.weight(node) + ROOM_TO_WORK * need['most'])
+    wanted = work.bytes_for(node, ROOM_TO_WORK, BYTES_AN_ENTRY)      # 4 bytes a number, and one more where an entry may be None
     if wanted > work.room:
         raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(work.weight(node), ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
     value = work.value(node, w.get('binding'))
     least, most, mean = A.summary(value)
-    read = lambda c: [int(x) for x in c] + [written(A.item(value, int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:])))]
+    def read(c):
+        at = (int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:]))
+        return [int(x) for x in c] + [{'none': True} if A.is_none(value, *at) else written(A.item(value, *at))]
     out = {'cols': cols, 'rows': rows}
     if inner:
         out['inner'] = list(inner)      # only where it holds inner data: a node that holds none answers as it always did

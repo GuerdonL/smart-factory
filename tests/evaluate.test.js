@@ -8,7 +8,11 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluate, carry, MOST, tooLarge, toMap } from '../evaluate.js';
-import { build, validate } from '../graph.js';
+import { build as valued, validate } from '../graph.js';
+/* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
+   without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
+   tests/graph.test.js); a type with no value is a type still (graph.js: Number spaces). */
+const build = snapshot => { const g = valued(snapshot); for (const n of Object.values(g.nodes)){ const { value, ...size } = n.type; n.type = size; } return g; };
 import { read } from '../project.js';
 import { valueText } from '../algebra.js';
 
@@ -17,7 +21,7 @@ const t = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsN
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
 const V = (rows, more = {}) => ({ op: 'variable', inputs: [], type: t(rows[0].length, rows.length), name: 'v', named: true, defined: 'entries', entries: rowsOf(rows), ...more });
 /* a graph written by hand. tiles: [[tile id, the repeat that is its matrix]]: a repeat is always some tile's */
-const G = (nodes, functions = {}, tiles = []) => { const g = { version: 1, nodes, functions, blocks: {},
+const G = (nodes, functions = {}, tiles = []) => { const g = { version: 3, nodes, functions, blocks: {},
     spaces: tiles.length ? { top: { owner: null, pieces: [], arrows: [], tiles: tiles.map(([tile, node]) => ({ tile, blocks: [], arrows: [], node, error: null })) } } : {} };
   assert.deepEqual(validate(g), []); return g; };
 const N = (op, inputs, type, more = {}) => ({ op, inputs, type, ...more });
@@ -498,4 +502,54 @@ test('after review: two arrows of one function on different rows of one input ea
   const g = made(); assert.deepEqual(validate(g), []);
   assert.deepEqual([column(g, 0), column(g, 1)], [[11, 110], [1100, 11000]]);
   const again = made(); assert.deepEqual([column(again, 1), column(again, 0)], [[1100, 11000], [11, 110]]);      /* asked the other way round */
+});
+
+/* ---- None (phase 9) ---- */
+const NONE = { none: true };
+test('None: a product entry with one None term is None, wherever among the terms it stands; an error or an unknown term comes first', () => {
+  const dot = (row, col) => worked(G({ a: V([row]), b: V(col.map(v => [v])), p: N('matmul', ['a', 'b'], t(1, 1)) }), 'p')['1,1'];
+  assert.deepEqual(dot([0, NONE], [5, 7]), NONE); assert.deepEqual(dot([NONE, 0], [5, 7]), NONE); assert.deepEqual(dot([2, 3], [NONE, 0]), NONE); assert.deepEqual(dot([NONE], [NONE]), NONE);
+  assert.deepEqual(dot([NONE, 'inf'], ['inf', 1]), NONE);      /* None against an infinity is None, not ∞ × 0 */
+  for (const row of [['inf', NONE, '-inf'], ['inf', '-inf', NONE], [NONE, 'inf', '-inf']]) assert.equal(dot(row, [1, 1, 1]).err, '∞ − ∞ has no value');
+  assert.equal(dot([0, NONE], ['inf', 1]).err, '0 × ∞ has no value');
+  assert.equal(dot([NONE, 2], [1, null]), undefined); assert.equal(dot([null, NONE], [1, 1]), undefined);      /* None against unknown is unknown: the entry is absent */
+  assert.deepEqual(worked(product([[1, NONE], [3, 4]], [[5, 6], [7, 8]]), 'p'), rowsOf([[NONE, NONE], [43, 50]]));
+});
+test('None: a sum, a scale, entry by entry, a formula and a measure follow the table', () => {
+  const g = G({ a: V([[NONE, 1, 0]]), b: V([[1, NONE, { expr: '1/0' }]]), s: V([[NONE]]), sum: N('add', ['a', 'b'], t(3, 1)), sc: N('scale', ['s', 'b'], t(3, 1)),
+    over: N('ewise', ['b', 'a'], t(3, 1), { fn: 'div', broadcast: 'none' }), f: V([[{ expr: 'select($1, 1, 2)' }, { expr: '$1 == none' }, { expr: '!$1 + ($1 || 3)' }]], { inputs: ['s'] }),
+    side: N('measure', ['s'], t(1, 1), { side: 'x' }), mass: N('measure', ['s'], t(1, 1), { side: 'm' }), m: N('map', ['a'], t(3, 1), { formula: 'select(x == none, -1, x + 1)' }) });
+  assert.deepEqual(text(worked(g, 'sum')), { '1,1': '∅', '2,1': '∅', '3,1': '!' });
+  assert.deepEqual(text(worked(g, 'sc')), { '1,1': '∅', '2,1': '∅', '3,1': '!' });
+  assert.deepEqual(text(worked(g, 'over')), { '1,1': '∅', '2,1': '∅', '3,1': '!' });      /* 1 / None is None, not a division by zero */
+  assert.deepEqual(worked(g, 'f'), rowsOf([[2, true, 2]]));
+  assert.deepEqual(worked(g, 'side'), { '1,1': NONE }); assert.deepEqual(worked(g, 'mass'), { '1,1': NONE });
+  assert.deepEqual(worked(g, 'm'), rowsOf([[-1, 2, 1]]));
+});
+
+/* ---- ruled 21 November 2026: special values in a sum or product of several terms are order-free ---- */
+test('several shapes added or multiplied entry by entry are looked at all together: an error two of them make comes before unknown, and unknown before None, whatever their order', () => {
+  const NONE = { none: true }, perms = xs => xs.length < 2 ? [xs] : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map(p => [x, ...p]));
+  const says = v => v === undefined ? 'unknown' : v && v.err ? 'error' : v && v.none ? 'None' : valueText(v === 'inf' ? Infinity : v === '-inf' ? -Infinity : v);
+  const one = v => V([[v]]), T = t(1, 1);
+  const sum = terms => { const g = G({ ...Object.fromEntries(terms.map((v, k) => ['v' + k, one(v)])), s: N('add', terms.map((_, k) => 'v' + k), T) }); return says(evaluate(g, 's').entries['1,1']); };
+  /* a times of several is one node made of another, as a canvas makes it; and a sum made of a sum, and a scale of a times */
+  const nested = (op, more) => terms => { const nodes = Object.fromEntries(terms.map((v, k) => ['v' + k, one(v)])); let acc = 'v0';
+    terms.slice(1).forEach((_, k) => { nodes['n' + k] = N(op, [acc, 'v' + (k + 1)], T, more); acc = 'n' + k; }); return says(evaluate(G(nodes), acc).entries['1,1']); };
+  const times = nested('ewise', { fn: 'mul', broadcast: 'none' }), sums = nested('add'), scales = terms => { const nodes = Object.fromEntries(terms.map((v, k) => ['v' + k, one(v)])); let acc = 'v' + (terms.length - 1);
+    for (let k = terms.length - 2; k >= 0; k--){ nodes['n' + k] = N('scale', ['v' + k, acc], T); acc = 'n' + k; } return says(evaluate(G(nodes), acc).entries['1,1']); };
+  for (const [terms, want] of [[[NONE, 'inf', '-inf'], 'error'], [[null, 'inf', '-inf'], 'error'], [[NONE, null, 'inf', '-inf'], 'error'], [[NONE, null, 3], 'unknown'], [[NONE, 1, 2], 'None'], [[NONE, 'inf', 'inf'], 'None'], [[1, 2, 3], '6'], [[NONE, { err: 'x' }, 1], 'error']])
+    for (const p of perms(terms)){ assert.equal(sum(p), want, 'a sum of ' + JSON.stringify(p)); assert.equal(sums(p), want, 'a sum made of sums, ' + JSON.stringify(p)); }
+  for (const [terms, want] of [[[NONE, 0, 'inf'], 'error'], [[null, 0, '-inf'], 'error'], [[NONE, null, 0, 'inf'], 'error'], [[NONE, null, 0], 'unknown'], [[NONE, 2, 3], 'None'], [[NONE, 0, 0], 'None'], [[2, 3, 4], '24'], [[NONE, 1, 'inf'], 'None']])
+    for (const p of perms(terms)){ assert.equal(times(p), want, 'a times of ' + JSON.stringify(p)); assert.equal(scales(p), want, 'scales of ' + JSON.stringify(p)); }
+  /* what is set aside is read only by a sum made directly of a sum: through a variable, or by a product, None is None */
+  const g = G({ a: one(NONE), b: one('inf'), c: one('-inf'), s: N('add', ['a', 'b'], T), named: N('variable', ['s'], T, { name: 'S', named: true, defined: 'definition', entries: {} }), u: N('add', ['named', 'c'], T), z: one(0),
+    m: N('ewise', ['s', 'z'], T, { fn: 'mul', broadcast: 'none' }) });
+  assert.equal(says(evaluate(g, 'u').entries['1,1']), 'None'); assert.equal(says(evaluate(g, 'm').entries['1,1']), 'None');
+});
+test('a product entry\'s terms are looked at together: ∞ − ∞ among them is an error beside a None or an unknown term, wherever they stand', () => {
+  const NONE = { none: true }, at = (row, col) => { const r = evaluate(product([row], col.map(v => [v])), 'p'); const v = r.entries['1,1']; return v === undefined ? 'unknown' : v.err ? 'error' : v.none ? 'None' : v; };
+  for (const row of [['inf', NONE, '-inf'], [NONE, 'inf', '-inf'], ['inf', '-inf', NONE], ['inf', null, '-inf'], [null, 'inf', '-inf'], ['inf', '-inf', null], [null, NONE, 'inf', '-inf']]) assert.equal(at(row, row.map(() => 1)), 'error', JSON.stringify(row));
+  assert.equal(at([null, NONE, 2], [1, 1, 1]), 'unknown'); assert.equal(at([NONE, null, 2], [1, 1, 1]), 'unknown'); assert.equal(at([NONE, 2, 3], [1, 1, 1]), 'None'); assert.equal(at([1, 2, 3], [1, 1, 1]), 6);
+  assert.equal(at([NONE, 'inf', 5], [1, 0, 1]), 'error');      /* a term that is itself an error: 0 × ∞ */
 });

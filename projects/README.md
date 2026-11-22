@@ -16,7 +16,10 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 4. Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
+The format is 5. Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
+nothing, said outright, which is not the same as an entry never given), and `"holds"` on a shape, the number space it
+promises (`"integer"`, `"natural?"`: see the README). A format 4 project has neither and opens as it is.
+Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
 `size` (the lengths of the inner axes, at most six) and in its `sides` (their names, `null` where unnamed), as in
 `"size": { "cols": 3, "rows": 1, "inner": [2, 4] }, "sides": { "cols": null, "rows": null, "inner": ["key", "embed"] }`;
 its entries are keyed `"column,row,k1,k2,…"`, one more number from 1 for each inner axis (`"2,1,1,3"` is entry 2,1,
@@ -276,3 +279,26 @@ the arrow, and its panel writes it out, `≈2.71828175`, with `exp(1)`, the exac
 
 In a file, a noise block has `"source": { "noise": { "seed": 0, "dist": "uniform" } }`, a file block
 `"source": { "file": "data/weights.csv" }`, and neither has entries: nothing the backend worked out is ever saved.
+
+## none-and-spaces/
+
+None and the number spaces, beside a copy of the default Menu's `.config`.
+
+`W` holds 1, `∅`, 3 and 4: the second entry was typed `none`. Select `W` and its **Holds** row reads `natural`, with
+**or None** ticked: it promises natural numbers or None, and keeps the promise. Untick the box and the row turns to
+the warning colour and says which entry breaks it.
+
+`Pick` holds the formula `select(none, 2, 3)` and shows 3: None counts as false, so `select` takes its other side.
+Its Holds row is greyed, `natural (from its entries)`: it promises nothing, and that is what it is worked out as.
+`V`, holding 1 and 2, reads the same.
+
+`Bad` holds 2 and -3 and promises `natural`. Its row says "Bad is not natural: it holds -3 at 2, 1", and anything
+made of it has no value until the promise is changed or the entry is.
+
+At the bottom, `X` is read by the arrow `linear`, whose function multiplies its input by `Wf`, and `Out` is seated
+on the output. Select the arrow: **Takes** is `natural`, what the function's `in` block promises, held against what
+`X` gives it; **Gives** is `whole`, what `Out` promises. Type -4 into `X` and Takes says which entry breaks it:
+the arrow's output then has no value, and nor has `Out`.
+
+In a file, `W` has `"holds": "natural?"` and the entry `"2,1": { "none": true }`; a shape that promises nothing has
+no `holds`.
