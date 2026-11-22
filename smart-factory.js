@@ -2946,8 +2946,11 @@ async function sendSaved(name, files, what){
 
 /* opening replaces everything on the page */
 function openFrom(files, name = null){ let data; try { data = project.read(files); } catch (e){ hud.say('Could not open: ' + (e && e.message ? e.message : e)); return shown(); }      /* what is no project this program reads is said, and nothing is replaced */
-   backend.forget();      /* what was wanted of the project before is wanted no more: nothing of it is sent under this one's name */
    dataFiles.clear(); dataSmall.clear(); tick = data.tick || 0; clock.show(tick); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo; its tick is the one it was saved at */
+   /* What was wanted of the project before is wanted no more: nothing of it is sent under this one's name. (Forgotten
+      here, once the page is this project's: while it was being rebuilt it was drawn, and asked, as the old one still.
+      Drawn again, it asks for what this one needs.) */
+   backend.forget(); shown();
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
   asOpened.notes = new Map(); for (const u of data.streamed || []) if (u.id) asOpened.notes.set(u.id, [...(asOpened.notes.get(u.id) || []), u.why]);
   const head = `Opened ${name ? name + ': ' : ''}${count(data)} shapes`, saidOpen = text => { asOpened.said = text === head ? null : text; asOpened.at = Date.now(); hud.say(text); };

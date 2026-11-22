@@ -350,7 +350,7 @@ function mutations(graphs){
     /* a choose and a source of None hold their operation's fields and no other */
     for (const id of ids.filter(id => g.nodes[id].op === 'choose' || (g.nodes[id].op === 'source' && g.nodes[id].kind === 'none')).slice(0, 4))
       for (const [k, set] of [['fn', 'mul'], ['formula', 'x'], ['kind', 'zeros'], ['seed', 1], ['holds', 'any'], ['entries', {}], ['name', 'A'], ['within', ['f:x']]]) push({ path: ['nodes', id, k], set });
-    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 5, 6, 0, '2']) push({ path: ['version'], set: v }); });
+    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 5, 6, 7, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }
 
