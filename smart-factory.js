@@ -23,7 +23,7 @@ import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText, truthOf } from './algebra.js';
 import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION, CODES, said as inWords } from './graph.js';
-import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, truthAt, stoppedAt, settledCounts, MOST as MOST_HERE } from './evaluate.js';
+import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, truthAt, stoppedAt, stuckAt, settledCounts, MOST as MOST_HERE } from './evaluate.js';
 import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
@@ -2090,21 +2090,30 @@ function setUntil(id){
 }
 /* an error of the graph in words: its note, or what its code means. The code loop is a cycle (a thing that depends on itself): the word loop is kept for a tile with a step */
 const errorSaid = e => inWords(e);      /* (graph.js: said) */
+/* why a tile's loop could not tell whether to stop, as a sentence: its stop block is an error or not known in some
+   cell (evaluate.js: stuckAt), or its variable has no value at all; null where it could, or has no stop block */
+function stopSaid(s, g, gr, node){
+  const r = s.repeats.get(g), stop = r && r.until ? s.blocks.find(k => k.id === r.until) : null; if (!stop || !node) return null;
+  const a = workOut(gr, node), name = bare(stop.name), mine = gr.blocks[stop.id];
+  if (a.error && mine && (a.error.node === mine || (gr.nodes[mine] && gr.nodes[mine].op === 'transpose' && gr.nodes[mine].inputs[0] === a.error.node))) return tiles.STEP.stopLost(name, a.error.code === 'type' ? a.error.note : inWords(a.error));
+  const stuck = stuckAt(gr, node); return stuck && a.entries ? tiles.STEP.stuck(name, stuck.cell, stuck.err) : null;
+}
 /* what there is to say of a tile's step in the tile's panel: which arrow it is, why it does not fit, the stop block, and the cell it stopped at */
 function stepNotes(s, g){
   const r = s.repeats.get(g); if (!r || (!r.step && !r.until)) return [];
   const a = r.step ? s.blocks.find(k => k.id === r.step) : null, stop = r.until ? s.blocks.find(k => k.id === r.until) : null, out = [];
-  const found = steadily(() => { const gr = graphNow(), f = findIn(gr), e = a ? f.arrows.get(a.id) : null, t = f.tiles.get('t:' + g); if (e && e.node) workOut(gr, e.node); return { e, t, at: e && e.node ? stoppedAt(gr, e.node) : null }; }) || {};
+  const found = steadily(() => { const gr = graphNow(), f = findIn(gr), e = a ? f.arrows.get(a.id) : null, t = f.tiles.get('t:' + g); if (e && e.node) workOut(gr, e.node); return { e, t, at: e && e.node ? stoppedAt(gr, e.node) : null, stuck: e && e.node ? stopSaid(s, g, gr, e.node) : null }; }) || {};
   if (a) out.push(found.e && found.e.error ? (found.e.error.code === 'size-unknown' ? 'Its step has no count to run by' + (tileInfo(s, g).warn ? ': ' + tileInfo(s, g).warn : '') : 'Its step does not fit: ' + errorSaid(found.e.error)) : `It has a step${isNamed(a) ? ', ' + bare(a.name) : ''}: its cells are worked out in order, each from the one before`);
   if (stop) out.push(`It stops at the first cell where ${bare(stop.name) || 'its stop block'} is true` + (found.at ? `: that is cell ${found.at}` : ''));
+  if (found.stuck) out.push(found.stuck);
   return out;
 }
 /* what there is to say of an arrow that is a tile's step, in the arrow's panel */
 function stepSaid(a){
   const g = stepTile(a), r = g !== null ? space.repeats.get(g) : null; if (!r || r.step !== a.id) return [];
-  const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) : null }; }) || {};
+  const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) : null, stuck: e && e.node ? stopSaid(space, g, gr, e.node) : null }; }) || {};
   const mapWarn = mapWarnIn(space, g);      /* an arrow its tile's cells are made from cannot be repeated: the cells, and so the step, have no value */
-  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(found.e.error.code === 'size-unknown' ? tiles.STEP.noCount(tileInfo(space, g).warn) : errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : [])];
+  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(found.e.error.code === 'size-unknown' ? tiles.STEP.noCount(tileInfo(space, g).warn) : errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : []), ...(found.stuck ? [found.stuck] : [])];
 }
 function tileInfo(s, g, all = tilesIn(s)){
   const rep = s.repeats.get(g); if (!rep) return null;

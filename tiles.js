@@ -264,6 +264,8 @@ export const STEP = {
   openMapped: 'an arrow cannot be repeated in a tile that does not end, or whose count is settled only when it is run',
   eastTaken: name => `${name || 'This tile'} has a step, the one arrow its east side takes: set the arrow against another side of the tile`,
   openPull: how => `Its count ${how === 'inf' ? 'does not end' : 'is settled only when it is run'}: pulling the edge changes a count that is a number. Type the count in the tile's panel`,
+  stuck: (name, cell, err) => `Its stop block${name ? ' ' + name : ''} ${err ? `is an error in cell ${cell} (${err})` : `is not known in cell ${cell}`}, so it cannot be told whether the tile stops there: what the step gives is not known`,
+  stopLost: (name, why) => `Its stop block${name ? ' ' + name : ''} has no value (${why}), so it cannot be told where the tile stops`,
   noCount: warn => 'its tile has no count to run it by' + (warn ? ` (${warn})` : ''),
 };
 /* whether an arrow may be set against a side of a tile: the east side of a tile with a step takes that step and no

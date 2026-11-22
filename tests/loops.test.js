@@ -241,3 +241,17 @@ test('a count that is no count is never said by its stored text; the east side o
   assert.match(tiles.pullable('inf').refused, /does not end.*Type the count in the tile's panel/); assert.match(tiles.pullable('run').refused, /settled only when it is run/);
   assert.deepEqual(tiles.pullable(null), { ok: true }); assert.deepEqual(tiles.pullable(undefined), { ok: true });
 });
+
+import { stuckAt } from '../evaluate.js';
+test('loop: a stop block that is an error or not known says which cell and why', () => {
+  const stopping = entries => { const more = { stop: V(ty(1, 1), entries, { inputs: ['s'], within: ['t:T'] }) };
+    const g = total({ count: 'inf', across: 'inf', until: 2, more, loop: { inputs: ['c', 's', 'stop'], at: [{ col: 0, row: 0 }, { col: 0, row: 1 }, { col: 0, row: 2 }], pattern: { cols: 1, rows: 3 } } });
+    g.nodes['param(f:1)'].type = ty(1, 3); g.spaces.top.tiles[0].blocks.push('stop'); g.blocks.stop = 'stop'; return g; };
+  let g = stopping({ '1,1': { expr: '0 / (3 - $1)' } });      /* states 0, 1, 3: 0/3 and 0/2 are false, and 0/0 in the third cell is an error */
+  assert.deepEqual(evaluate(g, 'lp').entries, {}); assert.equal(stuckAt(g, 'lp').cell, 3); assert.match(stuckAt(g, 'lp').err, /zero|no value/);
+  const h = stopping({ '1,1': { expr: '0 / (3 - $1)' } }); h.nodes.other = V(ty(1, 1), { '1,1': 7 }); carry(g, h); assert.equal(stuckAt(h, 'lp').cell, 3);      /* and it is carried with the answer */
+  g = stopping({ '1,1': { expr: '$1 >= 3' } }); assert.equal(one(evaluate(g, 'lp')), 3); assert.equal(stuckAt(g, 'lp'), null);
+  assert.equal(tiles.STEP.stuck('Stop', 3, 'division by zero'), 'Its stop block Stop is an error in cell 3 (division by zero), so it cannot be told whether the tile stops there: what the step gives is not known');
+  assert.match(tiles.STEP.stuck('', 1, null), /^Its stop block is not known in cell 1, so/);
+  assert.match(tiles.STEP.stopLost('Stop', 'a cycle: it depends on itself'), /^Its stop block Stop has no value \(a cycle: it depends on itself\)/);
+});

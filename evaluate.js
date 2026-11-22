@@ -43,6 +43,8 @@
                                                by its stop block, or null
    settledCounts(graph)                        the counts of loops settled only when run, where they are whole
                                                numbers here: sent to the backend with a run (see the function)
+   stuckAt(graph, id)                          the cell at which a loop last worked out here could not tell whether
+                                               to stop, and the error its stop block holds there (or null: not known)
    STEPS                                       256, the default maxSteps: the most steps of a loop worked out here
    MOST                                        4096, the default maxEntries: the most numbers the browser works out
    tooLarge(type, most)                        the sentence that says so of a result that size
@@ -141,7 +143,7 @@ const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && O
 const nodeAt = (graph, id) => own(graph.nodes, id) && graph.nodes[id] && typeof graph.nodes[id] === 'object' && own(OPS, graph.nodes[id].op) && Array.isArray(graph.nodes[id].inputs) && graph.nodes[id].type ? graph.nodes[id] : null;
 const fnAt = (graph, id) => own(graph.functions, id) && graph.functions[id] && typeof graph.functions[id] === 'object' ? graph.functions[id] : null;
 const states = new WeakMap();                   /* a graph -> what has been worked out of it: values and answers by node id, then by binding */
-const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map(), carries: new Map(), stepped: new Map(), stops: new Map() }); return states.get(graph); };
+const stateOf = graph => { if (!states.has(graph)) states.set(graph, { values: new Map(), needs: new Map(), answers: new Map(), follows: new Map(), carries: new Map(), stepped: new Map(), stops: new Map(), stuck: new Map() }); return states.get(graph); };
 /* whether a node's value follows the cell it is worked out in: a formula of its own reads the index, or what it is made of does.
    (The graph marks such a node with its tiles; this is asked of the node itself, so that a value is never remembered under too little.) */
 function follows(graph, st, id){
@@ -331,7 +333,10 @@ function run(graph, st, id, env){
     stopped(k){ const tile = (homesOf(graph, st).repeats.get(id) || [])[0]; if (!tile) throw new Error('a loop that is no tile\'s');
       if (k - 1 > env.steps) throw { later: { steps: env.steps } };
       const c = run(graph, st, n.inputs[n.until], cellEnv(graph, st, tile, n, env, k, n.until)), t = truthOf(c.values());
-      return t === false && c.size < numbers(graph.nodes[n.inputs[n.until]].type) ? null : t; },      /* an entry never given is absent: with none true, not known */
+      const told = t === false && c.size < numbers(graph.nodes[n.inputs[n.until]].type) ? null : t;      /* an entry never given is absent: with none true, not known */
+      /* where it cannot be told, which cell that was and why is kept for whoever says so (stuckAt): an entry that is an error, or one not known */
+      if (told === null){ const bad = [...c.values()].find(v => v && typeof v === 'object' && typeof v.err === 'string'); st.stuck.set(id, { cell: k, err: bad ? bad.err : null }); } else st.stuck.delete(id);
+      return told; },
     forever(){ throw { later: { forever: true } }; },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */
@@ -496,6 +501,9 @@ export function settledCounts(graph, options = {}){
   return out;
 }
 
+/* where a loop last worked out here could not tell whether to stop: { cell (from 1), err: the error its stop block holds there, or null where an entry of it is not known }; null where it could */
+export const stuckAt = (graph, id) => { const st = graph && typeof graph === 'object' ? states.get(graph) : null; return st && st.stuck.has(id) ? st.stuck.get(id) : null; };
+
 const texts = new WeakMap();
 export function carry(from, to){
   const a = from && typeof from === 'object' ? states.get(from) : null; if (!a || !to || typeof to !== 'object' || from === to) return 0;
@@ -520,6 +528,7 @@ export function carry(from, to){
   for (const [id, mine] of a.values){ if (!mine.has('') || !sameAt(id)) continue; under(b.values, id).set('', mine.get('')); n++; }
   for (const [id, mine] of a.answers) if (sameAt(id)) for (const [key, answer] of mine) if (key.endsWith('\n')) under(b.answers, id).set(key, answer);
   for (const [id, need] of a.needs) if (sameAt(id)) b.needs.set(id, need);
-  for (const [id, cell] of a.stops) if (sameAt(id)) b.stops.set(id, cell);      /* and the cell a loop stopped at goes with its answer, which is not worked out again */
+  for (const [id, cell] of a.stops) if (sameAt(id)) b.stops.set(id, cell);
+  for (const [id, why] of a.stuck) if (sameAt(id)) b.stuck.set(id, why);      /* and the cell a loop stopped at goes with its answer, which is not worked out again */
   return n;
 }
