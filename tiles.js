@@ -262,7 +262,16 @@ export const STEP = {
   stopGone: 'its stop block is gone: it is no block of the pattern',
   second: 'this tile has a step already: a tile has one',
   openMapped: 'an arrow cannot be repeated in a tile that does not end, or whose count is settled only when it is run',
+  eastTaken: name => `${name || 'This tile'} has a step, the one arrow its east side takes: set the arrow against another side of the tile`,
+  openPull: how => `Its count ${how === 'inf' ? 'does not end' : 'is settled only when it is run'}: pulling the edge changes a count that is a number. Type the count in the tile's panel`,
+  noCount: warn => 'its tile has no count to run it by' + (warn ? ` (${warn})` : ''),
 };
+/* whether an arrow may be set against a side of a tile: the east side of a tile with a step takes that step and no
+   other arrow (two there lie one on the other). repeat: the tile's; id: the arrow's, null for a new one. */
+export const sideFree = (repeat, side, id = null, name = null) => repeat && repeat.step && side === 'e' && repeat.step !== id ? { refused: STEP.eastTaken(name) } : { ok: true };
+/* whether a count can be changed by pulling the tile's edge: one that is open (it does not end, or is settled only
+   when it is run) is typed, never pulled, so that it is not replaced by a number without a word. */
+export const pullable = how => how ? { refused: STEP.openPull(how) } : { ok: true };
 const keptCount = v => whole1(v) || v === INF ? v : v && typeof v === 'object' && typeof v.expr === 'string' && v.expr.trim() ? { expr: v.expr } : 1;
 const keptId = v => typeof v === 'string' && v ? v : null;
 export function kept(repeat){

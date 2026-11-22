@@ -227,3 +227,17 @@ test('settledCounts: a count the page has exactly is sent to the backend, which 
   await b.health(); b.ask(g, 'lp', null, [[1, 1]], 'a'); while (waits.length) waits.shift()(); await new Promise(r => setTimeout(r, 0));
   assert.equal(sent.length, 1); assert.deepEqual(sent[0].counts, { lp: 3 });
 });
+
+test('a count that is no count is never said by its stored text; the east side of a tile with a step; a count that is not pulled', () => {
+  for (const note of ['@[bf8vc0b:m]', '2 * @[b1:x]', '0']){ const t = said({ code: 'size-unknown', note }); assert.ok(!/@\[|bf8vc0b/.test(t) && t.length > 8, t); }
+  assert.equal(tiles.STEP.noCount('across: a count is a whole number, at least 1, and that comes to 0'), 'its tile has no count to run it by (across: a count is a whole number, at least 1, and that comes to 0)');
+  /* a second arrow on the east side of a tile with a step is refused; the step itself, another side, and a tile with no step are not */
+  const rep = { x: 0, y: 0, cols: 1, rows: 2, across: 4, down: 1, step: 'a1' };
+  assert.equal(tiles.sideFree(rep, 'e', null, 'Total').refused, 'Total has a step, the one arrow its east side takes: set the arrow against another side of the tile');
+  assert.match(tiles.sideFree(rep, 'e', 'a2').refused, /^This tile has a step/);
+  assert.deepEqual(tiles.sideFree(rep, 'e', 'a1'), { ok: true }); assert.deepEqual(tiles.sideFree(rep, 's', null), { ok: true });
+  assert.deepEqual(tiles.sideFree({ ...rep, step: undefined }, 'e', null), { ok: true }); assert.deepEqual(tiles.sideFree(undefined, 'e'), { ok: true });
+  /* an open count is typed, not pulled */
+  assert.match(tiles.pullable('inf').refused, /does not end.*Type the count in the tile's panel/); assert.match(tiles.pullable('run').refused, /settled only when it is run/);
+  assert.deepEqual(tiles.pullable(null), { ok: true }); assert.deepEqual(tiles.pullable(undefined), { ok: true });
+});

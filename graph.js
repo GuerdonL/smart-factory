@@ -247,6 +247,7 @@ const SAID = { mismatch: 'it does not fit', 'not-a-row': 'its shapes are not a s
 export function said(e){
   const has = k => typeof k === 'string' && Object.prototype.hasOwnProperty.call(SAID, k), note = e && typeof e.note === 'string' ? e.note.trim() : '', code = e && has(e.code) ? e.code : null;
   if (code === 'pieces' && /^\d+ pieces$/.test(note)) return `its space holds ${note}, and not one matrix`;
+  if (code === 'size-unknown') return SAID[code];      /* (its note is the count as it is stored, a formula with ids in it: whoever shows it says the count as the page writes it) */
   if (note && !has(note)) return note;
   return (code ? SAID[code] : 'it has no value') + (note && note !== code ? ': ' + SAID[note] : '');
 }

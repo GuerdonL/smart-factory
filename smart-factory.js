@@ -477,6 +477,7 @@ function whyNot(b){
   /* a block seated on an arrow that has no output says why the arrow has none, in the arrow's own sentence; and a note that is another error's code is said in words */
   const on = n.error.code === 'seat' && b.seat ? findIn(g).arrows.get(b.seat) : null;
   if (on && on.error) return 'The arrow it is seated on has no output: ' + inWords(on.error);
+  if (n.error.code === 'size-unknown') return 'A size it depends on is not settled: ' + (/@\[/.test(n.error.note || '') ? 'a count of a tile comes to no whole number, at least 1' : n.error.note || 'a count of a tile');      /* (never the stored text of a formula, which holds ids) */
   return WHY[n.error.code](CODES.includes(n.error.note) ? inWords({ code: n.error.note, note: '' }) : n.error.note);
 }
 /* a block's entries: what the evaluator says its node comes to, exactly (what is drawn of them is laidOf's). plain: the variable's own way round, whatever this use is */
@@ -1293,7 +1294,7 @@ function paint(){
   /* the properties of the one shape selected: its name, its shape, its value */
   if (pickedTile && space.repeats.has(pickedTile)){ const t = tileInfo(space, pickedTile), r = t.rep, typedAs = v => typeof v === 'object' ? v.expr : String(v);
     const row = k => ({ key: k, label: k, text: typedAs(r[k]), seen: refs(typedAs(r[k])).map(fields.look), result: typeof r[k] === 'object' ? String(t[k]) : null });
-    const read = space.blocks.some(a => isArrow(a) && a.arrow.input.as === 'tile' && a.arrow.input.id === pickedTile), mapWarn = mapWarnIn(space, pickedTile), up = tileUp(space, pickedTile);
+    const read = space.blocks.some(a => isArrow(a) && a.arrow.input.as === 'tile' && a.arrow.input.id === pickedTile && a.id !== r.step), mapWarn = mapWarnIn(space, pickedTile), up = tileUp(space, pickedTile);
     properties.show({ id: 'tile ' + pickedTile, name: space.groupNames.get(pickedTile) || 'tile', color: '', cols: r.cols, rows: r.rows, scalar: false, plain: true, fixed: true,
       shape: `tile: a ${r.cols} × ${r.rows} pattern, ${countSaid(t, 'across')} across × ${countSaid(t, 'down')} down` + (t.matrix.error ? '' : `. Its matrix is ${t.matrix.cols} wide × ${t.matrix.rows} tall`)
         + (up !== undefined && !t.over ? `. It is inside ${space.groupNames.get(up) || 'a tile'}'s pattern, and is repeated with it` : ''),
@@ -2094,7 +2095,7 @@ function stepNotes(s, g){
   const r = s.repeats.get(g); if (!r || (!r.step && !r.until)) return [];
   const a = r.step ? s.blocks.find(k => k.id === r.step) : null, stop = r.until ? s.blocks.find(k => k.id === r.until) : null, out = [];
   const found = steadily(() => { const gr = graphNow(), f = findIn(gr), e = a ? f.arrows.get(a.id) : null, t = f.tiles.get('t:' + g); if (e && e.node) workOut(gr, e.node); return { e, t, at: e && e.node ? stoppedAt(gr, e.node) : null }; }) || {};
-  if (a) out.push(found.e && found.e.error ? 'Its step does not fit: ' + errorSaid(found.e.error) : `It has a step${isNamed(a) ? ', ' + bare(a.name) : ''}: its cells are worked out in order, each from the one before`);
+  if (a) out.push(found.e && found.e.error ? (found.e.error.code === 'size-unknown' ? 'Its step has no count to run by' + (tileInfo(s, g).warn ? ': ' + tileInfo(s, g).warn : '') : 'Its step does not fit: ' + errorSaid(found.e.error)) : `It has a step${isNamed(a) ? ', ' + bare(a.name) : ''}: its cells are worked out in order, each from the one before`);
   if (stop) out.push(`It stops at the first cell where ${bare(stop.name) || 'its stop block'} is true` + (found.at ? `: that is cell ${found.at}` : ''));
   return out;
 }
@@ -2103,7 +2104,7 @@ function stepSaid(a){
   const g = stepTile(a), r = g !== null ? space.repeats.get(g) : null; if (!r || r.step !== a.id) return [];
   const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) : null }; }) || {};
   const mapWarn = mapWarnIn(space, g);      /* an arrow its tile's cells are made from cannot be repeated: the cells, and so the step, have no value */
-  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : [])];
+  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(found.e.error.code === 'size-unknown' ? tiles.STEP.noCount(tileInfo(space, g).warn) : errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : [])];
 }
 function tileInfo(s, g, all = tilesIn(s)){
   const rep = s.repeats.get(g); if (!rep) return null;
@@ -2263,6 +2264,7 @@ function dragTile(g, edge, from, shift = false){
   const up = tileUp(space, g), outer = up !== undefined && !shift ? space.repeats.get(up) : null, size = tiles.filled(rep, had.across, had.down); let said = false;
   if (pickedTile !== g) bus.send('tile.pick', { frame: g });
   if (!edge && tiles.movable(mapsAny(space, g)).refused){ hud.say(tiles.movable(true).refused); return { move(){}, end(){} }; }
+  if (edge && tiles.pullable(had.open && had.open[edge]).refused){ hud.say(tiles.pullable(had.open[edge]).refused); return { move(){}, end(){} }; }      /* a count that is ∞, or settled only when run, is typed: it is never replaced by a number without a word */
   return { move(p){
       if (edge) rep[edge] = edge === 'across' ? tiles.dragged(had.across, rep.cols, (p.x - from.x) / u) : tiles.dragged(had.down, rep.rows, (p.y - from.y) / u);      /* by the patterns the pointer has moved, whatever is drawn */
       else { let dx = Math.round((p.x - from.x) / u), dy = Math.round((p.y - from.y) / u);
@@ -2581,6 +2583,7 @@ function addArrow({ input, side, start = 1, span = 1, gap = 2, of = null, builti
   const from = of ? blockOf(of) : null, read = readOf(space, input);
   if (!read) return hud.say('There is nothing there to set an arrow against');
   let arrow = { input: { id: input.id, as: input.as === 'result' ? 'result' : input.as === 'tile' ? 'tile' : 'block', ...(input.as === 'result' && input.hollow ? { hollow: input.hollow } : {}) }, side, start, span, gap, gapName: null, output: null };
+  if (input.as === 'tile'){ const can = tiles.sideFree(space.repeats.get(input.id), side, null, space.groupNames.get(input.id)); if (can.refused) return hud.say(can.refused); }      /* the east side of a tile with a step takes the step alone */
   if (input.as === 'tile' && sized(read)) arrow = tiles.whole(arrow, read);      /* an arrow on a tile reads all of it */
   const can = settable(arrow, s => !sized(read) ? null : along(s) === 'rows' ? read.rows : read.cols, {});
   if (can.refused) return hud.say(can.refused);
@@ -2601,6 +2604,7 @@ function setArrow({ id, ...patch }){
   const input = sized(inputOf(a)), n = side => input ? (along(side) === 'rows' ? input.rows : input.cols) : null, geo = {};
   for (const k of ['side', 'start', 'span', 'gap', 'output']) if (k in patch) geo[k] = patch[k];
   if (a.arrow.input.as === 'tile' && tiles.spanned(a.arrow, geo).refused){ hud.say(tiles.spanned(a.arrow, geo).refused); return shown(); }
+  if (a.arrow.input.as === 'tile' && 'side' in geo){ const can = tiles.sideFree(space.repeats.get(a.arrow.input.id), geo.side, a.id, space.groupNames.get(a.arrow.input.id)); if (can.refused){ hud.say(can.refused); return shown(); } }
   if ('side' in geo && !('start' in geo) && !('span' in geo) && input && SIDES.includes(geo.side)) Object.assign(geo, sided(a.arrow, geo.side, n(a.arrow.side), n(geo.side)));      /* turned to another side: it covers what it can of that one */
   const got = settable(a.arrow, n, geo);
   if (got.refused){ hud.say(got.refused); return shown(); }
@@ -3199,7 +3203,11 @@ bus.on('cut', going(cut), changes); bus.on('delete', going(remove), changes);
 bus.on('transpose', chosen(transpose), changes);
 /* the boolean tool: the new blocks' ids are made in the handler, from the project's own source, so the same message makes the same ids again */
 bus.on('difference', chosen(differenceOf), changes); bus.on('intersect', chosen(intersectOf), changes); bus.on('revert', going(revert), changes);
-bus.on('paste', ({ at, pasted }) => { if (unnameable(...namesOf(pasted))) return shown(); paste(at, pasted); }, changes);
+bus.on('paste', ({ at, pasted }) => { if (unnameable(...namesOf(pasted))) return shown();
+  /* an arrow copied without the tile it reads would read that tile again: on the east side of a tile with a step it would lie on the step */
+  for (const pic of pasted || []) if (pic.arrow && pic.arrow.input && pic.arrow.input.as === 'tile' && !pasted.some(q => (q.groups || []).some(g => g.id === pic.arrow.input.id))){
+    const can = tiles.sideFree(space.repeats.get(pic.arrow.input.id), pic.arrow.side, null, space.groupNames.get(pic.arrow.input.id)); if (can.refused){ hud.say(can.refused); return shown(); } }
+  paste(at, pasted); }, changes);
 /* what comes from outside the program is a message too, so the log says so: the theme the computer asks for */
 bus.on('theme', ({ set }) => { if (set !== undefined) hostTheme = set; defaults = null; shown(); });
 bus.on('rename', ({ id, name, color }) => { const b = blockOf(id); if (!b) return;
