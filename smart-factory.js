@@ -1318,7 +1318,7 @@ function paint(){
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
-      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(strays.has(one) ? [acrossNote(space, one) || 'It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(stateSaid(one) ? [stateSaid(one)] : []), ...(strays.has(one) ? [acrossNote(space, one) || 'It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values: once(values, all, quiet), transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
@@ -2097,6 +2097,13 @@ function stopSaid(s, g, gr, node){
   const a = workOut(gr, node), name = bare(stop.name), mine = gr.blocks[stop.id];
   if (a.error && mine && (a.error.node === mine || (gr.nodes[mine] && gr.nodes[mine].op === 'transpose' && gr.nodes[mine].inputs[0] === a.error.node))) return tiles.STEP.stopLost(name, a.error.code === 'type' ? a.error.note : inWords(a.error));
   const stuck = stuckAt(gr, node); return stuck && a.entries ? tiles.STEP.stuck(name, stuck.cell, stuck.err) : null;
+}
+/* a block that is state of its tile's loop says so in its panel: which blocks of a pattern are state is graph.js's to
+   say (the loop's state rectangle), and nothing else on the page shows it */
+function stateSaid(b){
+  const g = tileOf(b, space); if (g === undefined || isArrow(b) || !space.repeats.get(g)?.step) return null;
+  return steadily(() => { const gr = graphNow(), t = findIn(gr).tiles.get('t:' + g), n = t && t.loop ? gr.nodes[t.loop] : null, k = n ? n.inputs.indexOf(gr.blocks[b.id]) : -1;
+    return n && k >= 0 && k < n.at.length && tiles.inState(n.at[k], n.state) ? `It is state of ${space.groupNames.get(g) || 'its tile'}'s loop: in each cell after the first it holds what the step made of the cell before` : null; }) || null;
 }
 /* what there is to say of a tile's step in the tile's panel: which arrow it is, why it does not fit, the stop block, and the cell it stopped at */
 function stepNotes(s, g){

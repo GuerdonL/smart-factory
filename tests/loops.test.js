@@ -298,3 +298,9 @@ test('backend.js: the cell the backend\'s run of a loop stopped at is there to b
   await b.health(); assert.equal(b.stopped(g, 'lp', null), null); b.ask(g, 'lp', null, [[1, 1]], 'a'); while (waits.length) waits.shift()(); await new Promise(r => setTimeout(r, 0));
   assert.equal(b.stopped(g, 'lp', null), 4); assert.equal(b.stopped(g, 'rep', null), null); assert.equal(b.stopped({}, 'lp', null), null);
 });
+
+test('tiles.inState: which parts of a pattern are state', () => {
+  const state = { col: 0, row: 1, cols: 1, rows: 1 };
+  assert.equal(tiles.inState({ col: 0, row: 1 }, state), true); assert.equal(tiles.inState({ col: 0, row: 0 }, state), false); assert.equal(tiles.inState({ col: 1, row: 1 }, state), false);
+  assert.equal(tiles.inState(null, state), false); assert.equal(tiles.inState({ col: 0, row: 1 }, null), false);
+});

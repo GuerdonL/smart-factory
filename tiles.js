@@ -271,6 +271,8 @@ export const STEP = {
 /* whether an arrow may be set against a side of a tile: the east side of a tile with a step takes that step and no
    other arrow (two there lie one on the other). repeat: the tile's; id: the arrow's, null for a new one. */
 export const sideFree = (repeat, side, id = null, name = null) => repeat && repeat.step && side === 'e' && repeat.step !== id ? { refused: STEP.eastTaken(name) } : { ok: true };
+/* whether a part of a pattern, at { col, row } in it, lies in the loop's state rectangle { col, row, cols, rows } (the state blocks fill it exactly, so a part that begins in it is one of them) */
+export const inState = (at, state) => !!at && !!state && at.col >= state.col && at.col < state.col + state.cols && at.row >= state.row && at.row < state.row + state.rows;
 /* whether a count can be changed by pulling the tile's edge: one that is open (it does not end, or is settled only
    when it is run) is typed, never pulled, so that it is not replaced by a number without a word. */
 export const pullable = how => how ? { refused: STEP.openPull(how) } : { ok: true };
