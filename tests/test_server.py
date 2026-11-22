@@ -176,7 +176,54 @@ class ServerTest(ServerCase):
         for length in ['-1', '-%d' % len(body), 'ten', '1.5', '0x10', '+5', '', '²', '5 5']:
             status, _, text = self.request('PUT', '/api/projects/attention', body, {'Content-Length': length})
             self.assertEqual(status, 400, length); self.assertIn('Content-Length', json.loads(text)['error'], length)
+        status, _, text = self.request('PUT', '/api/projects/attention', body, {'Content-Length': str(len(body)), 'Transfer-Encoding': 'chunked'})
+        self.assertEqual(status, 400); self.assertIn('Content-Length', json.loads(text)['error'])
         self.assertEqual(self.on_disk('attention'), sorted(f['path'] for f in FILES))
+        self.assert_nothing_left_over()
+
+    def test_a_slow_save_is_refused_past_its_time(self):
+        import socket, time
+        self.save('attention', FILES)
+        kept = server.READ
+        try:
+            server.READ = 1
+            s = socket.create_connection(('127.0.0.1', self.httpd.server_address[1]))
+            s.sendall(b'PUT /api/projects/attention HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n')
+            began = time.monotonic()
+            for _ in range(6):
+                time.sleep(0.3)
+                try:
+                    s.sendall(b'[')
+                except OSError:
+                    break
+            s.settimeout(5)
+            answer = s.recv(4096).decode()
+            s.close()
+            self.assertIn(' 408 ', answer.split('\r\n')[0])
+            self.assertIn('took longer than 1 seconds to arrive', answer)
+            self.assertLess(time.monotonic() - began, 3)
+        finally:
+            server.READ = kept
+        self.assertEqual(self.on_disk('attention'), sorted(f['path'] for f in FILES))
+        self.assert_nothing_left_over()
+
+    def test_concurrent_saves_and_reads_never_drop_a_project(self):
+        import concurrent.futures
+        self.save('attention', FILES)
+
+        def step(i):
+            if i % 2 == 0:
+                status, _, _ = self.save('attention', [HEAD, {'path': 'V%d.json' % i, 'text': '{"v": %d}\n' % i}])
+                return ('put', status)
+            status, _, got = self.ask('GET', '/api/projects/attention')
+            return ('get', status, any(f['path'] == 'project.json' for f in got) if status == 200 else False)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(step, range(24)))
+        for item in results:
+            self.assertEqual(item[1], 200, item)
+            if item[0] == 'get':
+                self.assertTrue(item[2], item)
         self.assert_nothing_left_over()
 
     def test_a_project_with_no_config_of_its_own_is_given_the_one_beside_its_directory(self):
