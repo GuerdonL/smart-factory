@@ -1,0 +1,41 @@
+{
+  "format": "smart-factory/shape",
+  "version": 7,
+  "id": "bh8p8eu",
+  "type": "arrow",
+  "name": "add",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -16,
+    "y": -9
+  },
+  "size": {
+    "cols": 2,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "add/",
+  "order": 41,
+  "arrow": {
+    "input": {
+      "id": "gqmo9dp",
+      "as": "tile"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 2,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": null
+  }
+}

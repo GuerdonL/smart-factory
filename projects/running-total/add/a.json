@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 7,
+  "id": "bzjv28g",
+  "type": "tensor",
+  "name": "a",
+  "named": true,
+  "commented": false,
+  "color": "variable-5",
+  "position": {
+    "x": -8,
+    "y": -1
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 3,
+  "seat": "bwcbads"
+}

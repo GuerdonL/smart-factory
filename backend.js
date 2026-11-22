@@ -1,7 +1,7 @@
 /* The page's side of the backend: when it is asked, for what, and which answers are kept. No drawing here; the
    network and the clock are handed in, so this is tested without either.
 
-   createBackend({ fetch, later, cancel, delay = 500, every = 15000, changed, told, project, version }) -> { health(), absent(), available(), older(), ask(graph, node, binding, cells, slot), problem(graph, node, binding), broke(graph, node, binding), pending() }
+   createBackend({ fetch, later, cancel, delay = 500, every = 15000, changed, told, project, version }) -> { health(), absent(), available(), older(), ask(graph, node, binding, cells, slot), problem(graph, node, binding), stopped(graph, node, binding), broke(graph, node, binding), pending() }
      fetch      (path, options) -> a promise of a Response, as the browser's: asked for 'api/backend/health' and 'api/backend/run'
      later, cancel   setTimeout and clearTimeout
      delay      how long after the last change the backend is asked: half a second
@@ -10,6 +10,9 @@
      told       called with why ([sentence, …], each once) when the backend gives no numbers for something asked of
                 it, as the reasons arrive, and when a backend that was answering no longer is
      project    () -> the name of the project that is open, or null: sent with a run, for its data files
+     counts     graph -> { "<loop's id>": whole number }: the counts of loops that are settled only when run and
+                that the page has worked out exactly (evaluate.js: settledCounts); sent with a run as "counts"
+                where there are any, so that a natural is never looked for in 32-bit floats
 
      health()   asks whether there is a backend: a promise of true or false. Asked when the page loads, again every
                 `every` after that, and at once after a run that could not be asked or was refused whole, so that a
@@ -42,6 +45,7 @@
                 no longer the one being asked about is dropped, and so is a failure. Nothing here waits: ask returns
                 at once, always.
      problem(graph, node, binding)   why the backend gave no numbers for it ("unknown entries in Keys"), or null
+     stopped(graph, node, binding)   the cell at which a loop the backend finished was stopped by its stop block, or null
      broke(graph, node, binding)     { code: 'type', node } where that reason is a promise broken by a number the
                                      backend worked out (node: whose promise), else null. problem is then the
                                      sentence, "W is not natural: it holds ∞ at 3, 1", and told is not called for it
@@ -52,7 +56,7 @@ export const DELAY = 500, EVERY = 15000;
 export const keyFor = (node, binding) => binding ? node + '\n' + JSON.stringify(binding) : node;
 
 export const OLDER = 'the backend is older than this page: restart it';
-export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, changed = () => {}, told = () => {}, project = () => null, version = null }){
+export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, changed = () => {}, told = () => {}, project = () => null, version = null, counts = () => ({}) }){
   let older = false;                            /* a backend answers, and reads an older graph than this page writes: it is asked for no run */
   let there = null, now = null, before = new Map(), timer = null, beat = null, asking = null, gone = false, due = false;      /* due: this asking of its health is the regular one, at which what could not be asked for is tried again */
   /* now: { graph, wants: key -> { node, binding, cells, slot }, results: key -> result, errors: key -> why, asked: the keys sent, lost: the keys that could not be asked for }. before: the last answers, by slot, for dimming */
@@ -62,9 +66,9 @@ export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout
     timer = null; const at = now; if (!at || !there) return;
     const want = [...at.wants].filter(([key]) => !at.asked.has(key)); if (!want.length) return;
     for (const [key] of want) at.asked.add(key);
-    const name = project();
+    const name = project(); let given = {}; try { given = counts(at.graph) || {}; } catch { given = {}; }      /* the counts the page has settled exactly, which the backend is not asked to find */
     Promise.resolve().then(() => fetch('api/backend/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: 0, ...(name ? { project: name } : {}) }) })).then(said)
+      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: 0, ...(name ? { project: name } : {}), ...(Object.keys(given).length ? { counts: given } : {}) }) })).then(said)
       .then(answer => { if (now !== at) return;      /* an answer for an older graph: dropped */
         const whole = answer && answer.errors && answer.errors['*'], why = new Set();
         for (const [key] of want){ const r = answer && answer.results && answer.results[key];
@@ -112,6 +116,8 @@ export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout
       return before.has(slot) ? { result: before.get(slot), stale: true } : null;
     },
     problem(graph, node, binding){ return now && now.graph === graph ? now.errors.get(keyFor(node, binding)) || null : null; },
+    /* the cell at which the backend's run of a loop was stopped by its stop block (backend/run.py: stopped), or null: where it has not answered, or the loop ran to its count */
+    stopped(graph, node, binding){ const r = now && now.graph === graph ? now.results.get(keyFor(node, binding)) : null; return r && Number.isInteger(r.stopped) && r.stopped >= 1 ? r.stopped : null; },
     broke(graph, node, binding){ return now && now.graph === graph ? now.codes.get(keyFor(node, binding)) || null : null; },
     pending: () => now ? [...now.wants.keys()].filter(k => !now.results.has(k) && !now.errors.has(k)).length : 0,
   };

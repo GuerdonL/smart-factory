@@ -16,7 +16,9 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 6. Format 6 adds to format 5 `"choose"` on an arrow (`{ "then", "else" }`: the two frames of its definition
+The format is 7. Format 7 adds to format 6, on a tile's `"repeat"`: `"step"`, the id of the arrow that is the tile's
+step; `"until"`, the id of its stop block; and a count of `"inf"`. A format 6 project has none of them and opens as it
+is; a program from before loops refuses a format 7 project rather than strip it. Format 6 adds to format 5 `"choose"` on an arrow (`{ "then", "else" }`: the two frames of its definition
 space a condition chooses between) and a frame file that holds no shapes, the empty side. A format 5 project has neither
 and opens as it is; a program from before conditions refuses a format 6 project rather than strip it.
 Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
@@ -308,6 +310,31 @@ has. `Open` has an entry never given: its truth is not known, and it stands too.
 A conditional arrow's file carries `"choose": { "then": "<frame id>", "else": "<frame id>" }` in its `"arrow"`, and
 its definition directory holds `in.json`, `true.frame.json` and `false.frame.json`; the empty side is a frame file
 with no shapes.
+
+## running-total/
+
+A loop, beside a copy of the default Menu's `.config`. It was made by mouse, from New > Tensor, Function and Tile.
+
+`X` holds 3, 1, 4, 1. Under its first column is the arrow `take`, and the block `x` is seated on its output; under
+`x` is `S`, holding 0. The tile `Total` is drawn round `x` and `S` and is 4 across. The arrow east of the tile,
+`add`, is the tile's **step** (right-click an arrow on a tile's east side, Step): it is given one whole cell, `x`
+over `S`, and gives the state of the next cell. Open it: two arrows cut `in` into its two rows, and the blocks
+seated on them, `a` over `b`, are a sum.
+
+`S` is the tile's state, because its value is its own typed entry; `x` is worked out afresh in each cell, and since
+it lies in the pattern of a tile with a step it holds the k-th column of `X` in cell k. So the cells show `S` as
+0, 3, 4, 8, the total so far, and the step's output, east of the fourth cell, shows 9. An arrow on any other side of
+the tile reads its whole matrix, every cell with its state.
+
+Change an entry of `X`, or type another number into `S`, and every later cell follows. Type `inf` for the tile's
+`across` and the arrow `take` cannot be repeated, since an arrow cannot be repeated in a tile that does not end:
+the tile and the arrow are drawn in the warning colour, the cells are blank, and the tile's, the arrow's and the
+step's panels say why. The same is so where the tile has more cells than `X` has columns, or repeats down. (A tile
+that does not end and reads nothing outside it shows its first three cells, and its step's panel says that it runs
+until stopped.) Right-click a block of a pattern and choose Stop when true, and the tile stops at the first cell where
+that block is true.
+
+In a file the tile's `"repeat"` has `"step"`, the arrow's id.
 
 ## none-and-spaces/
 

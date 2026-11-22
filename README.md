@@ -708,7 +708,7 @@ In the graph a node's type carries `"value": "integer?"`, both validators check 
 inputs, and a variable that promises carries `"holds"`, which is how the promise reaches the backend. Where a number
 it works out breaks one, its answer has, beside that result's error (the sentence), `"codes": { key: { "code":
 "type", "node": id } }`. A graph that says a version too low for what it holds is refused by both validators (None,
-a value and a promise need version 3; inner data needs 2; a `choose` and a source of None need 4), and a page that finds the backend's `/health` saying an
+a value and a promise need version 3; inner data needs 2; a `choose` and a source of None need 4; a `loop` and a `repeat` with a step need 5), and a page that finds the backend's `/health` saying an
 older version than its own asks it for no run and says "the backend is older than this page: restart it".
 
 ## Conditions, and truth as height
@@ -755,6 +755,38 @@ chooses entry by entry and works both sides out. In a file it is one field on an
 "then": "<frame id>", "else": "<frame id>" }`, naming two frames of the arrow's definition space
 (`projects/README.md`). `choose` and a source of None need graph version 4.
 
+## Loops
+
+A tile is a loop once it has a **step**: an arrow on the tile's east side, made its step by right-clicking it and
+choosing **Step** (the same command takes it off). A step is not handed the tile's matrix, as any other arrow on a
+tile is: its `in` block is one whole cell, the pattern's size, and what its space comes to is the state of the next
+cell. `projects/running-total` is the example (`projects/README.md`).
+
+- **State.** The blocks of the pattern whose value is their own typed entries are the tile's state, and together
+  they must fill one rectangle; the step's output is that rectangle's size. Every other block of the pattern (one
+  with a formula, a source, noise, a seated block) is worked out afresh in each cell. Each drawn cell shows its
+  own state. Nothing is changed in place: cell k + 1 holds what the step made of cell k.
+- **What the step gives.** After the last cell, the state the step made of it: for a tile 4 across, the state of a
+  fifth cell. An arrow on any other side of the tile still reads the whole matrix, every cell with its state.
+- **Reading a block outside.** In a tile with a step, the block seated on a repeated arrow's output may lie inside
+  the pattern, and in cell k it holds the arrow's k-th run. (In a tile with no step such an arrow gives one strip
+  beside the tile, as before.)
+- **Counts.** A count may be typed `inf`: the tile does not end, is drawn as its first three cells and an ellipsis
+  with `∞` on it, and has no matrix. In a tile with a step a count may also be a formula that is settled only when
+  the model is run (it reads an attribute, or a mass that is worked out). Such a tile repeats one way only.
+- **Stop when true.** Right-click a block of the pattern: the tile stops at the first cell where that block is
+  true as a whole matrix, and the step's output is that cell's state, that cell included. The panel says which
+  cell. A stop block that is not known gives an output that is not known.
+- **Limits.** The browser takes at most 256 steps, then says "Not stopped after 256 steps: needs the backend"; the
+  backend takes up to 1,000,000. A tile that does not end and has no stop block "runs until stopped".
+- **Order.** Cells go left to right, then the next row down. A tile inside a tile's pattern with a step of its own
+  starts again from its first cell in every cell of the outer tile.
+- The index cannot be read in a step (a function's space is in no tile); a block of the pattern reads it.
+
+In the graph this is the operation `loop` (the pattern's nodes, `at`, `pattern`, `state`, `fn`, `count`, `until`
+and `across`), and a `repeat` with `fn` and `state` for the tile's matrix; both need graph version 5. In a file it
+is `"step"` and `"until"` on the tile's `"repeat"`, and a count of `"inf"`; the project format is 7.
+
 ## The graph and the evaluator
 
 The page does no arithmetic. The whole project is built into a graph (`graph.js`), once for each state of the
@@ -770,14 +802,14 @@ of the model that anything else is to read: the backend (see "The backend"), an 
                                                // (deferred with backend: true: made of noise or a data file, which only the backend has)
 
 - A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
-  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack`, `entry` and `choose`; its `inputs` are the nodes it is
+  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack`, `entry`, `choose` and `loop`; its `inputs` are the nodes it is
   worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`, holds no
   other name but `index.x`, `index.y`, `k1` to `k6` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
 - A node's `type` is `{ cols, rows, colsName, rowsName }`, with `inner`, the list of its inner axes
   (`[{ "length": 2, "name": "key" }, …]`), where its entries hold inner data, and no other key. An entry's key is
   then `"column,row,k1,k2,…"`. The rules stay two-dimensional: the evaluator runs each once for every inner
   position. `stack` puts matrices into the entries of one, `entry` takes one out, and a `transpose` with `order`
-  turns the axes. These need a graph of `version` 2 (the graph's version is now 4: see above); a version 1 graph holds none of this and is still accepted.
+  turns the axes. These need a graph of `version` 2 (the graph's version is now 5: see above); a version 1 graph holds none of this and is still accepted.
 - A `matmul`'s first input has as many columns as its second has rows, a single entry included: a single entry
   against a single row or column is a product, and against anything else it is a `scale`, which is another node.
   `validate` and the backend's check refuse any other product in the same words ("a product of 1 columns and 3
@@ -906,7 +938,7 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 4 }` (the version of graph it reads; it still takes a version 1, 2 or 3 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 5 }` (the version of graph it reads; it still takes a version 1, 2, 3 or 4 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean", "truth" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
@@ -930,7 +962,7 @@ and each answer is `[c, r, k1, …, value]`; it holds every array with rows and 
 - Noise is the generator written out at the top of `backend/arrays.py`, the same on any machine.
 - All array code is in `backend/arrays.py`, the one module that imports NumPy, so another library can take its place.
 - It refuses what is outsized, with the reason: a request of more than 5 MB; a graph of more than 20,000 nodes; any
-  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; an uploaded file
+  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; a loop that has not stopped after 1,000,000 steps, which is stopped too ("not stopped after 1,000,000 steps: a loop is stopped then"); (measured on the machine it was built on, a loop whose step adds two numbers takes about 5,000 to 6,000 steps a second, so some 150,000 to 170,000 fit in the 30 seconds and through `/run` it is the 30 seconds that stop a long loop, not the million steps: both limits stay as specified); an uploaded file
   of more than 50 MB. The five numbers are together at the top of `backend/limits.py`, with its smaller bounds
   beneath them: a run that would hold more in arrays than a worker may (see above), more than 65,536 entries asked
   for in one run, more than 64 files or 200 MB under one project's `data/`.

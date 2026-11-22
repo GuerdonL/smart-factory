@@ -61,7 +61,7 @@ class Validate(unittest.TestCase):
         return G({'c': v(tc or T(1, 1)), 'a': v(ta), 'b': v(tb), 'ch': {'op': 'choose', 'inputs': ['c', 'a', 'b'], 'type': out or ta}}, version=version)
 
     def test_the_version_is_4_and_the_older_ones_are_read(self):
-        self.assertEqual(VERSION, 4)
+        self.assertEqual(VERSION, 5)
         for version in (1, 2, 3, 4):
             self.assertEqual(validate(G({'a': variable(1, 1, [[7]])}, version=version)), [])
 
@@ -205,7 +205,7 @@ class Chosen(unittest.TestCase):
 
     def test_a_condition_that_is_an_error_is_an_error(self):
         g = G(dict(sides(), bad=dict(variable(1, 1, [[1]], 'Bad'), error={'code': 'loop', 'note': ''}), c=CH('bad', 'a', 'b')))
-        self.assertEqual(whole(g, 'c'), 'Bad has no value (loop)')
+        self.assertEqual(whole(g, 'c'), 'Bad has no value (a cycle)')      # the error code loop is said as a cycle: a loop is a tile with a step
 
     def test_an_error_on_the_side_not_chosen_does_no_harm(self):
         bad = dict(variable(2, 2, [[1, 1], [1, 1]], 'Bad'), error={'code': 'size', 'note': '5 × 6 ≠ 2 × 2'})

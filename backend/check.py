@@ -20,8 +20,12 @@ no other key. A variable's holds is a promise in the same words, and is then its
 the two drawn sides and is repeated at each inner position; whether two shapes' inner data agrees is nested, which
 is algebra.js's nested again.
 
+A tile with a step: a repeat may carry fn and state, both or neither, and a loop carries them with count, until
+and across; step_fits says what graph.js's stepFits says, and a state block follows its cell (tiles_of). Both need
+version 5. Which operations have a function for a body is said by the table ('body': the field that holds its id).
+
 Also here, since the evaluator asks the same things: T, same, one, inner_of, lengths, numbers, fn_whole, covered,
-covered_type, run_of, reads_index, tiles_of, data_path, as_int."""
+covered_type, run_of, reads_index, tiles_of, data_path, as_int, applies, state_at."""
 import math
 import re
 
@@ -29,8 +33,8 @@ from . import spaces as S
 from .formula import DOLLAR, INNER, SPACE as BLANK, Wrong, axis_of, formula_ok, parse as read_formula, reads_index as text_reads_index
 from .limits import MAX_JSON_DEPTH
 
-VERSION = 4                 # 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value; 4 choose and a source of kind none. An older graph is a version 4 graph as it stands
-VERSIONS = (1, 2, 3, 4)
+VERSION = 5                 # 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value; 4 choose and a source of kind none. An older graph is a version 4 graph as it stands
+VERSIONS = (1, 2, 3, 4, 5)
 AXES = 6                    # the most inner axes a type has
 CODES = ('mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type')
 PIECE_CODES = ('mismatch', 'not-a-row', 'mixed', 'size-unknown')
@@ -597,11 +601,74 @@ def apply_type(n, ins, g):
     return t if isinstance(t, str) else T(t['cols'], t['rows'], t['colsName'], t['rowsName'], inner_of(t))
 
 
+# ---- a tile with a step: a repeat with fn and state, and a loop (graph.js says each of these in the same words) ----
+STEP_FIELDS = 'fn is a function id and state is { col, row, cols, rows }, both or neither'
+
+
+def state_at(n, k, t):
+    """Where input k (of that type) lies in the state rectangle, from 0, or None where it does not lie wholly in it
+    (graph.js: stateAt)."""
+    s, at = n.get('state'), n.get('at')
+    a = at[k] if isinstance(at, list) and k < len(at) else None
+    if not is_obj(s) or not is_obj(a) or not t:
+        return None
+    if a['col'] >= s['col'] and a['row'] >= s['row'] and a['col'] + t['cols'] <= s['col'] + s['cols'] and a['row'] + t['rows'] <= s['row'] + s['rows']:
+        return {'col': a['col'] - s['col'], 'row': a['row'] - s['row'], 'cols': t['cols'], 'rows': t['rows']}
+    return None
+
+
+def own_entries(i):
+    return (i.get('op') == 'variable' and i.get('defined') == 'entries' and 'error' not in i and is_obj(i.get('entries'))
+            and not any(is_obj(v) and ('expr' in v or 'err' in v) for v in i['entries'].values()))
+
+
+def ok_state(n):
+    return isinstance(n.get('fn'), str) and ok_range(n.get('state')) and len(n['state']) == 4
+
+
+def ok_step(n):
+    return ('fn' not in n and 'state' not in n) or ok_state(n)
+
+
+def size_of(t):
+    return '%s × %s' % (t['cols'], t['rows']) + (' · ' + ' × '.join(str(a['length']) for a in inner_of(t)) if inner_of(t) else '')
+
+
+def step_fits(n, ins, g):
+    """The state rectangle's type, or why the step does not fit (graph.js: stepFits)."""
+    s, p = n['state'], n['pattern']
+    if s['col'] + s['cols'] > p['cols'] or s['row'] + s['rows'] > p['rows']:
+        return 'its state runs past its pattern'
+    inner = agreed([inner_of(i['type']) for i in ins]) or []
+    mine = [i for k, i in enumerate(ins) if state_at(n, k, i['type'])]
+    if sum(i['type']['cols'] * i['type']['rows'] for i in mine) != s['cols'] * s['rows']:
+        return 'its state blocks do not fill its state exactly'
+    if not all(own_entries(i) for i in mine):
+        return 'a state block holds something other than its own typed entries'
+    f = g['fn'](n['fn'])
+    param, b = (g['node'](f['input']), g['node'](f['body'])) if f else (None, None)
+    if not f or not param or not b:
+        return 'its function is not in the graph'
+    cell, state = T(p['cols'], p['rows'], None, None, inner), T(s['cols'], s['rows'], None, None, inner)
+    if not same(param['type'], cell):
+        return 'its step takes %s and one cell is %s' % (size_of(param['type']), size_of(cell))
+    if not same(b['type'], state):
+        return 'its step gives %s and its state is %s' % (size_of(b['type']), size_of(state))
+    return state
+
+
+def step_space(n, ins, g):
+    f = g['fn'](n['fn'])
+    body, takes = value_of(g['node'](f['body']) if f else None), value_of(g['node'](f['input']) if f else None)
+    return body if S.within(S.both(all_of(ins), body), takes) else S.ANY
+
+
 def repeat_fields(n):
     p = n.get('pattern')
     return ([] if ok_places(n) else ['at is not one { col, row } for each input']) \
         + ([] if is_obj(p) and whole1(p.get('cols')) and whole1(p.get('rows')) else ['pattern is not { cols, rows }']) \
-        + ([] if whole1(n.get('across')) and whole1(n.get('down')) else ['across and down are whole numbers, at least 1'])
+        + ([] if whole1(n.get('across')) and whole1(n.get('down')) else ['across and down are whole numbers, at least 1']) \
+        + ([] if ok_step(n) else [STEP_FIELDS])
 
 
 def repeat_type(n, ins, g):
@@ -611,7 +678,48 @@ def repeat_type(n, ins, g):
     inner = agreed([inner_of(i['type']) for i in ins])
     if inner is None:
         return 'its inputs do not hold the same inner data'
+    if 'fn' in n:
+        fits = step_fits(n, ins, g)
+        if isinstance(fits, str):
+            return fits
     return T(p['cols'] * n['across'], p['rows'] * n['down'], None, None, inner)
+
+
+def by_input(n):
+    return is_obj(n.get('count'))
+
+
+def loop_fields(n):
+    at, p, c, u, bad = n.get('at'), n.get('pattern'), n.get('count'), n.get('until', MISSING), []
+    if not (isinstance(at, list) and len(at) >= 1 and len(at) == len(n['inputs']) - (1 if by_input(n) else 0) and all(ok_at(a) for a in at)):
+        return ['at is not one { col, row } for each input of its pattern']
+    if not (is_obj(p) and whole1(p.get('cols')) and whole1(p.get('rows'))):
+        bad.append('pattern is not { cols, rows }')
+    if not ok_state(n):
+        bad.append(STEP_FIELDS)
+    if not (whole1(c) or (isinstance(c, str) and c == 'inf') or (is_obj(c) and len(c) == 1 and is_int(c.get('input')) and c['input'] == len(n['inputs']) - 1)):
+        bad.append('count is a whole number, at least 1, "inf", or { input } naming its last input')
+    if not (u is None or (is_int(u) and 0 <= u < len(at))):
+        bad.append('until is null or the place of the stop block among its inputs')
+    if not (whole1(n.get('across')) or (isinstance(n.get('across'), str) and n['across'] == 'inf')):
+        bad.append('across is a whole number, at least 1, or "inf"')
+    return bad + stray(n, ('at', 'pattern', 'state', 'fn', 'count', 'until', 'across'), 'a loop')
+
+
+def loop_type(n, ins, g):
+    pat, p = ins[:len(n['at'])], n['pattern']
+    if not covers([i['type'] for i in pat], n['at'], p['cols'], p['rows']):
+        return 'its inputs do not cover its pattern exactly'
+    if agreed([inner_of(i['type']) for i in pat]) is None:
+        return 'its inputs do not hold the same inner data'
+    if len(pat) < len(ins) and not one(ins[-1]['type']):
+        return 'its count is not a single number'
+    return step_fits(n, pat, g)
+
+
+def loop_space(n, ins, g):
+    pat = ins[:len(n['at'])]
+    return S.both(all_of([i for k, i in enumerate(pat) if state_at(n, k, i['type'])]), step_space(n, pat, g))
 
 
 def ok_through(v):
@@ -750,10 +858,11 @@ RULES = {
     'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g), 'space': lambda n, ins, g: 'probability' if n['dist'] == 'uniform' else 'real'},
     'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type, 'space': measure_space},
     'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type, 'space': lambda n, ins, g: space_in(n['formula'], ins, 1, value_of(ins[0]))},
-    'apply': {'inputs': (1, 1), 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type, 'space': lambda n, ins, g: body_of(n, g, ins[0])},
+    'apply': {'inputs': (1, 1), 'body': 'fn', 'fields': lambda n: [] if isinstance(n.get('fn'), str) else ['fn is not a function id'], 'type': apply_type, 'space': lambda n, ins, g: body_of(n, g, ins[0])},
     'param': {'inputs': (0, 0), 'fields': none, 'type': lambda n, ins, g: n['type'] if ok_type(n.get('type')) else 'it has no size of its own', 'space': lambda n, ins, g: value_of(n)},
-    'repeat': {'inputs': (1, INF), 'fields': repeat_fields, 'type': repeat_type, 'space': lambda n, ins, g: all_of(ins)},
-    'mapalong': {'inputs': (1, INF), 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g, ins[0]) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
+    'repeat': {'inputs': (1, INF), 'body': 'fn', 'fields': repeat_fields, 'type': repeat_type, 'space': lambda n, ins, g: S.both(all_of(ins), step_space(n, ins, g)) if 'fn' in n else all_of(ins)},
+    'loop': {'inputs': (1, INF), 'body': 'fn', 'fields': loop_fields, 'type': loop_type, 'space': loop_space},
+    'mapalong': {'inputs': (1, INF), 'body': 'fn', 'fields': mapalong_fields, 'type': mapalong_type, 'space': lambda n, ins, g: body_of(n, g, ins[0]) if 'fn' in n else space_in(n['formula'], ins, 1, value_of(ins[0]))},
     'stack': {'inputs': (1, INF), 'fields': stack_fields, 'type': stack_type, 'space': lambda n, ins, g: all_of(ins)},
     'entry': {'inputs': (1, 1), 'fields': entry_fields, 'type': entry_type, 'space': lambda n, ins, g: value_of(ins[0])},
     'choose': {'inputs': (3, 3), 'fields': lambda n: stray(n, (), 'a choose'), 'type': choose_type, 'space': lambda n, ins, g: S.choice(value_of(ins[1]), value_of(ins[2]))},
@@ -761,7 +870,10 @@ RULES = {
 
 
 def applies(n):
-    return n.get('op') in ('apply', 'mapalong') and 'fn' in n
+    """Whether a node has a function for its body (graph.js: fnOf): its operation's table entry says which field
+    holds the function's id ('body'), and the node has that field. Nothing else says which operations have one."""
+    rule = RULES.get(n.get('op')) if isinstance(n.get('op'), str) else None
+    return bool(rule) and 'body' in rule and rule['body'] in n
 
 
 def functions_of(within):
@@ -786,9 +898,20 @@ def scopes(n, ins, fn):
 def tiles_of(node_of, spaces, blocks):
     """The tiles each node belongs to (graph.js: tilesOf): node id -> the set of its tiles ("t:<id>")."""
     follows = {}
+    arr = lambda v: v if isinstance(v, list) else []
+    states = set()      # a state block of a tile with a step follows its cell too: it holds what the step made of the cell before
+    for s in spaces.values():
+        for t in arr(s.get('tiles')) if is_obj(s) else []:
+            for i in (t.get('node'), t.get('loop')) if is_obj(t) else ():
+                n = node_of(i) if isinstance(i, str) else None
+                if n and 'fn' in n and is_obj(n.get('state')) and isinstance(n.get('at'), list):
+                    for k in range(len(n['at'])):
+                        x = node_of(n['inputs'][k])
+                        if x and state_at(n, k, x['type']):
+                            states.add(n['inputs'][k])
 
     def cellular(start):      # whether its value follows the cell it is worked out in; walked with a list of its own
-        todo = [start]
+        todo, opened = [start], set()
         while todo:
             i = todo[-1]
             if i in follows:
@@ -797,11 +920,12 @@ def tiles_of(node_of, spaces, blocks):
             n = node_of(i)
             if not n:
                 follows[i] = False
-            elif reads_index(n):
+            elif i in states or reads_index(n):
                 follows[i] = True
             else:
-                waiting = [k for k in n['inputs'] if isinstance(k, str) and k not in follows and k not in todo]
+                waiting = [k for k in n['inputs'] if isinstance(k, str) and k not in follows and k not in opened]      # (one that is opened and not yet told is on the way to this one: a cycle, and it says nothing)
                 if waiting:
+                    opened.add(i)
                     todo.extend(waiting)
                     continue
                 follows[i] = any(follows.get(k, False) for k in n['inputs'] if isinstance(k, str))
@@ -809,7 +933,6 @@ def tiles_of(node_of, spaces, blocks):
         return follows[start]
 
     out = {}
-    arr = lambda v: v if isinstance(v, list) else []
     for s in spaces.values():
         for t in arr(s.get('tiles')) if is_obj(s) else []:
             if not is_obj(t) or not isinstance(t.get('tile'), str):
@@ -875,6 +998,10 @@ def version_for(n):
     """The version a node needs for what it holds (graph.js: versionFor): a choose and a source of kind none need 4;
     None among its entries, a number space or a promise need 3; inner data, a stack, an entry and a transpose's order
     need 2. -> (version, what), or None."""
+    if n['op'] == 'loop':
+        return (5, 'a loop')
+    if n['op'] == 'repeat' and ('fn' in n or 'state' in n):
+        return (5, 'a step')
     if n['op'] == 'choose':
         return (4, 'a choose')
     if n['op'] == 'source' and n.get('kind') == 'none':
@@ -958,7 +1085,7 @@ def check(graph):
         n = nodes[i]
         out = [k for k in n['inputs'] if has(k)] if isinstance(n.get('inputs'), list) else []
         if applies(n) and fn_ok(n['fn']):
-            out.append(functions[n['fn']]['body'])
+            out.extend((functions[n['fn']]['body'], functions[n['fn']]['input']))      # (its input too: a body that does not read its input comes before it by no other way, and the function is typed before what applies it)
         return out
 
     state, after, cyclic = {}, [], False
@@ -1017,7 +1144,7 @@ def check(graph):
     for b, i in graph['blocks'].items():
         if not has(i):
             bad.append('block %s: its node %s is not in the graph' % (b, i))
-    repeats = set()
+    repeats, loops = set(), {}
     for key, s in graph['spaces'].items():
         if not is_obj(s) or 'owner' not in s or not (s['owner'] is None or has(s['owner'])) or not all(isinstance(s.get(k), list) for k in ('pieces', 'arrows', 'tiles')):
             bad.append('space %s: it is not { owner, pieces, arrows, tiles }' % key)
@@ -1051,10 +1178,25 @@ def check(graph):
                 bad.append(at + 'it has either a repeat for its node or an error, one of them')
             elif t.get('node'):
                 repeats.add(t['node'])
+            # a tile with a step names its arrow and its loop, both or neither; the loop is the tile's own
+            if 'step' in t or 'loop' in t:
+                if is_num(graph.get('version')) and graph['version'] in VERSIONS and graph['version'] < 5:
+                    bad.append(at + 'it has a step, which needs version 5, and the graph says version %s' % graph['version'])
+                elif not isinstance(t.get('step'), str) or not has(t.get('loop')) or nodes[t['loop']].get('op') != 'loop':
+                    bad.append(at + 'its step is an arrow and its loop a loop, both or neither')
+                elif t['loop'] in loops:
+                    bad.append(at + "its loop is another tile's")
+                else:
+                    loops[t['loop']] = t['tile']
+                    l, m = nodes[t['loop']], nodes[t['node']] if isinstance(t.get('node'), str) and has(t['node']) else None
+                    if m and t['loop'] in typed and t['node'] in typed and not (m.get('fn') == l['fn'] and [m.get('state'), m['pattern'], m['at'], m['inputs']] == [l['state'], l['pattern'], l['at'], l['inputs'][:len(l['at'])]]):
+                        bad.append(at + 'its loop and its matrix are not of one pattern, state and step')
     # every node is marked with the tiles it belongs to, exactly; and every repeat is some tile's matrix
     for i in typed:
         if nodes[i]['op'] == 'repeat' and i not in repeats:
             bad.append("%s: a repeat that is no tile's matrix: spaces names no tile for it" % i)
+        if nodes[i]['op'] == 'loop' and i not in loops:
+            bad.append("%s: a loop that is no tile's: spaces names no tile for it" % i)
     marks = tiles_of(lambda i: nodes[i] if isinstance(i, str) and i in typed else None, graph['spaces'], graph['blocks'])
     for i in typed:
         want = sorted(marks.get(i, ()))

@@ -1,0 +1,32 @@
+{
+  "format": "smart-factory/shape",
+  "version": 7,
+  "id": "bv347n8",
+  "type": "tensor",
+  "name": "X",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -20,
+    "y": -12
+  },
+  "size": {
+    "cols": 4,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 3,
+      "2,1": 1,
+      "3,1": 4,
+      "4,1": 1
+    }
+  },
+  "order": 37
+}

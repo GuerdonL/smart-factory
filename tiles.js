@@ -5,8 +5,18 @@
        repeat: { x, y,            where the pattern's top-left corner is, in units from the space's origin
                  cols, rows,      the pattern's size in whole units, fixed when the tile is drawn. Blank space
                                   inside it is part of the pattern
-                 across, down }   how many times the pattern is set side by side and one under the other: each a
-                                  whole number of at least 1, or a formula { expr } that comes to one
+                 across, down,    how many times the pattern is set side by side and one under the other: each a
+                                  whole number of at least 1, a formula { expr } that comes to one, or "inf":
+                                  it does not end
+                 step,            where the tile has a step, the id of the arrow that is its progression function
+                                  (graph.js: loop); left out where it has none
+                 until }          where it has a stop block (Stop when true), that block's id; left out likewise
+
+   An open count. A count of "inf" has no number, and neither has a formula that is settled only when the model is
+   run (it reads a mass that is worked out, an attribute), which a tile with a step may have: its loop takes the
+   count as a value. Such a count is open: count gives it as 1 with open: 'inf' or 'run', so that everything that
+   lays a tile out has a number, and the tile is drawn as its first three cells and an ellipsis. A tile with an open
+   count has no matrix.
 
    Only the blocks in the first cell, the top-left one, exist. Every other cell is a drawn copy. A cell has a place,
    counted from 1: (cx, cy). The filled tile is the pattern's size times the counts.
@@ -49,8 +59,8 @@
                                     worked out some other way (seated, a part, a measure, defined in its space).
                                     An attribute, a gap, a whole shape, a bare name in a scalar's formula (its own
                                     x or mass), and a mass that is unknown or worked out are refused.
-   typed(text, lookup, options)  -> { value } | { refused }: what typing text for a count stores: a whole number, or
-                                    { expr } where it names a size. Arithmetic on numbers alone is kept as what it
+   typed(text, lookup, options)  -> { value } | { refused }: what typing text for a count stores: a whole number,
+                                    "inf" (typed inf, infinity or ∞), or { expr } where it names a size. Arithmetic on numbers alone is kept as what it
                                     comes to. Refused where count would refuse it (options are count's), or nothing
                                     was typed.
    counts(repeat, lookup, { across, down }) -> { across, down, formula: { across, down }, warn }: both counts as
@@ -74,7 +84,8 @@
    What is drawn
    slots(across, down, formula, limit) -> { xs, ys }: which cells are drawn in each direction, in order: { cell: k } or
                                     { dots: true }. A direction whose count is a formula is one pattern and an
-                                    ellipsis on the side it repeats toward. Otherwise every cell is drawn while
+                                    ellipsis on the side it repeats toward. A direction whose count is open
+                                    (formula.open, as counts gives it) is its first three cells and an ellipsis. Otherwise every cell is drawn while
                                     there are no more than limit of them (LIMIT, unless the tile is inside
                                     another: see laid); beyond that each direction longer than four is its first
                                     three cells, an ellipsis and its last, or, where the limit is under 16 and
@@ -235,11 +246,44 @@ export const NO_INDEX = { err: 'not in a tile: there is no index' };
 const whole1 = v => Number.isInteger(v) && v >= 1;
 const along = side => side === 'e' || side === 'w' ? 'rows' : 'cols';
 
-const keptCount = v => whole1(v) ? v : v && typeof v === 'object' && typeof v.expr === 'string' && v.expr.trim() ? { expr: v.expr } : 1;
+export const INF = 'inf';
+/* why a tile with an open count, or with a step that does not fit, has no matrix; and each thing that is wrong with a step, a sentence each */
+export const ENDLESS = 'it does not end: it has no matrix', AT_RUN = 'its count is settled only when it is run: it has no matrix', BAD_STEP = 'its step does not fit';
+export const STEP = {
+  gone: 'its step is gone: the arrow that was its step is not there',
+  east: 'a step is an arrow on its own tile\'s east side',
+  formula: 'a step is an arrow with a definition: a formula says each entry by itself, and a step is given one whole cell',
+  none: 'it has no state: a step carries on the blocks of the pattern whose value is their own typed entries, and there is none',
+  rectangle: 'its state blocks do not fill one rectangle: the blocks of the pattern whose value is their own typed entries are the state, and together they are one rectangle',
+  takes: (has, cell) => `its in block is ${has} and one cell of the tile is ${cell}: a step is given one whole cell`,
+  gives: (has, state) => `it gives ${has} and the state is ${state}: a step gives the state of the next cell`,
+  index: 'the index is not readable in a step: a function\'s space is in no tile. Count the steps with a state block that adds 1, or a block of the pattern that holds index.x',
+  oneWay: 'a tile that does not end, or whose count is settled only when it is run, repeats one way only: the other count is 1',
+  stopGone: 'its stop block is gone: it is no block of the pattern',
+  second: 'this tile has a step already: a tile has one',
+  openMapped: 'an arrow cannot be repeated in a tile that does not end, or whose count is settled only when it is run',
+  eastTaken: name => `${name || 'This tile'} has a step, the one arrow its east side takes: set the arrow against another side of the tile`,
+  openPull: how => `Its count ${how === 'inf' ? 'does not end' : 'is settled only when it is run'}: pulling the edge changes a count that is a number. Type the count in the tile's panel`,
+  stuck: (name, cell, err) => `Its stop block${name ? ' ' + name : ''} ${err ? `is an error in cell ${cell} (${err})` : `is not known in cell ${cell}`}, so it cannot be told whether the tile stops there: what the step gives is not known`,
+  stopLost: (name, why) => `Its stop block${name ? ' ' + name : ''} has no value (${why}), so it cannot be told where the tile stops`,
+  noCount: warn => 'its tile has no count to run it by' + (warn ? ` (${warn})` : ''),
+};
+/* whether an arrow may be set against a side of a tile: the east side of a tile with a step takes that step and no
+   other arrow (two there lie one on the other). repeat: the tile's; id: the arrow's, null for a new one. */
+export const sideFree = (repeat, side, id = null, name = null) => repeat && repeat.step && side === 'e' && repeat.step !== id ? { refused: STEP.eastTaken(name) } : { ok: true };
+/* whether a part of a pattern, at { col, row } in it, lies in the loop's state rectangle { col, row, cols, rows } (the state blocks fill it exactly, so a part that begins in it is one of them) */
+export const inState = (at, state) => !!at && !!state && at.col >= state.col && at.col < state.col + state.cols && at.row >= state.row && at.row < state.row + state.rows;
+/* whether a count can be changed by pulling the tile's edge: one that is open (it does not end, or is settled only
+   when it is run) is typed, never pulled, so that it is not replaced by a number without a word. */
+export const pullable = how => how ? { refused: STEP.openPull(how) } : { ok: true };
+const keptCount = v => whole1(v) ? v : typeof v === 'string' && /^\s*(inf|infinity|∞)\s*$/i.test(v) ? INF :      /* (read in any capitals, as it may be typed; written "inf") */
+  v && typeof v === 'object' && typeof v.expr === 'string' && v.expr.trim() ? { expr: v.expr } : 1;
+const keptId = v => typeof v === 'string' && v ? v : null;
 export function kept(repeat){
   if (!repeat || typeof repeat !== 'object') return null;
   const n = (v, least) => Math.max(least, Math.round(+v || 0)), place = v => Math.round(+v || 0);
-  return { x: place(repeat.x), y: place(repeat.y), cols: n(repeat.cols, 1), rows: n(repeat.rows, 1), across: keptCount(repeat.across), down: keptCount(repeat.down) };
+  return { x: place(repeat.x), y: place(repeat.y), cols: n(repeat.cols, 1), rows: n(repeat.rows, 1), across: keptCount(repeat.across), down: keptCount(repeat.down),
+    ...(keptId(repeat.step) ? { step: repeat.step } : {}), ...(keptId(repeat.until) ? { until: repeat.until } : {}) };
 }
 
 const NOT = v => `a count is a whole number, at least 1, and that comes to ${isError(v) ? 'an error (' + v.err + ')' : v === null || v === undefined ? 'nothing yet' : valueText(v)}`;
@@ -263,16 +307,18 @@ export function settled(text, entryOf = () => undefined, depth = 0, inner = fals
     const within = settled(held.expr, entryOf, depth + 1, true); if (within.refused) return within; }
   return { ok: true };
 }
-export function count(stored, lookup = () => undefined, { loops = false, entryOf = () => undefined } = {}){
+export function count(stored, lookup = () => undefined, { loops = false, entryOf = () => undefined, step = false } = {}){
+  if (stored === INF) return { count: 1, formula: false, open: 'inf' };
   if (typeof stored === 'number') return whole1(stored) ? { count: stored, formula: false } : { refused: NOT(stored) };
   if (!stored || typeof stored !== 'object' || typeof stored.expr !== 'string') return { refused: NOT(stored) };
   if (loops) return { refused: 'it depends on itself: what it reads follows this tile\'s own size' };
-  const from = settled(stored.expr, entryOf); if (from.refused) return from;
+  const from = settled(stored.expr, entryOf); if (from.refused) return step && stored.expr.trim() ? { count: 1, formula: true, open: 'run' } : from;      /* a tile with a step takes such a count as a value, when it is run */
   const got = evaluate(stored.expr, lookup);
   if (got.empty) return { refused: 'nothing was typed' };
   return whole1(got.value) && isInteger(got.value) ? { count: got.value, formula: true } : { refused: NOT(got.value) };
 }
 export function typed(text, lookup = () => undefined, options = {}){
+  if (/^\s*(inf|infinity|∞)\s*$/i.test(String(text))) return { value: INF };      /* it does not end */
   const got = entered(text, lookup, { settle: true });
   if (got.clear) return { refused: 'nothing was typed' };
   if (got.refused) return got;
@@ -281,7 +327,7 @@ export function typed(text, lookup = () => undefined, options = {}){
 }
 export function counts(repeat, lookup = () => undefined, each = {}){
   const a = count(repeat.across, lookup, each.across), d = count(repeat.down, lookup, each.down);
-  return { across: a.refused ? 1 : a.count, down: d.refused ? 1 : d.count, formula: { across: !!a.formula, down: !!d.formula },
+  return { across: a.refused ? 1 : a.count, down: d.refused ? 1 : d.count, formula: { across: !!a.formula, down: !!d.formula }, open: { across: a.open || null, down: d.open || null },
     warn: a.refused ? 'across: ' + a.refused : d.refused ? 'down: ' + d.refused : null };
 }
 export const filled = (repeat, across, down) => ({ cols: repeat.cols * across, rows: repeat.rows * down });
@@ -295,9 +341,10 @@ export const movable = mapped => mapped ? { refused: 'An arrow is repeated in th
 export const dragged = (count, size, moved) => Math.max(1, count + Math.round(moved / size));
 
 export function slots(across, down, formula = {}, limit = LIMIT){
-  const fa = !!formula.across, fd = !!formula.down, many = (fa ? 1 : across) * (fd ? 1 : down) > limit;
-  const one = (n, isFormula) => isFormula || (many && limit < 16 && n > 1) ? [{ cell: 1 }, { dots: true }] : many && n > 4 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }, { cell: n }] : Array.from({ length: n }, (_, i) => ({ cell: i + 1 }));
-  return { xs: one(across, fa), ys: one(down, fd) };
+  /* an open count (formula.open: it does not end, or is settled only when it is run) is its first three cells and an ellipsis, each showing its state; under a small limit, its first cell and an ellipsis */
+  const open = formula.open || {}, fa = !!formula.across && !open.across, fd = !!formula.down && !open.down, many = (fa ? 1 : open.across ? 3 : across) * (fd ? 1 : open.down ? 3 : down) > limit;
+  const one = (n, isFormula, isOpen) => isOpen && limit >= 16 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }] : isOpen || isFormula || (many && limit < 16 && n > 1) ? [{ cell: 1 }, { dots: true }] : many && n > 4 ? [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }, { cell: n }] : Array.from({ length: n }, (_, i) => ({ cell: i + 1 }));
+  return { xs: one(across, fa, !!open.across), ys: one(down, fd, !!open.down) };
 }
 export function layout(repeat, across, down, formula = {}, limit = LIMIT){
   const s = slots(across, down, formula, limit), set = (list, size) => { let at = 0; return [list.map(o => { const one = { ...o, at, size: o.dots ? 1 : size }; at += one.size; return one; }), at]; };
@@ -427,7 +474,8 @@ export const spanned = (arrow, patch) => ('start' in patch && patch.start !== ar
   ? { refused: 'An arrow on a tile reads all of it: seat a block on its output, and take rows or columns from that' } : { ok: true };
 
 export const startIn = (arrow, k) => arrow.start + (k - 1) * arrow.span;
-export function mapped(arrow, repeat, across, down, n, { tile = false, outer = [] } = {}){
+export function mapped(arrow, repeat, across, down, n, { tile = false, outer = [], open = false } = {}){
+  if (open) return { count: 1, through: [], warn: STEP.openMapped };      /* a tile with a step whose count is open: there is no count to repeat the arrow by */
   if (tile) return { count: 1, through: [], warn: 'it is in a tile and reads another tile, all of it, so it cannot be repeated along it: seat a block on that tile\'s output outside this one, and repeat an arrow along the block' };
   const rows = along(arrow.side) === 'rows', times = rows ? down : across, other = rows ? across : down, size = rows ? repeat.rows : repeat.cols;
   const way = rows ? 'down' : 'across', edge = rows ? 'rows' : 'columns';

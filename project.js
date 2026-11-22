@@ -162,7 +162,10 @@
                                                            x, y: where the pattern's top-left corner is, in units;
                                                            cols, rows: the pattern's size; across, down: how many
                                                            times it is repeated each way, a whole number of at least
-                                                           1 or a formula that comes to one from sizes alone. Its
+                                                           1 or a formula that comes to one from sizes alone, or
+                                                           "inf" (it does not end); with "step", the id of the
+                                                           arrow that is its step, and "until", the id of its
+                                                           stop block, each only where it has one (tiles.js). Its
                                                            shapes are those of the first cell: the copies, and what
                                                            the counts come to, are never written. A tile may hold no
                                                            shapes. A frame inside another may be a tile too; a
@@ -205,9 +208,16 @@
    read's project also carries converted: how many old stacks were fused on the way in, and changed: how many other
    pieces of an old project now read differently (see below for both); each 0 for a project of this format. And
    resized: the references that were drawn at another size than their variable's and have been set to it (see
-   oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
+   oneSize), [{ name, cols, rows, was }]; empty for every project a page saved. And unstepped: the tiles whose
+   "step" or "until" named what is no step or stop block of theirs and has been dropped (see unstepped),
+   [{ tile, key }]; empty for every project a page saved.
 
-   The format is 6. Format 6 adds to format 5 the field "choose" on an arrow, { then, else }, and with it a frame file
+   The format is 7. Format 7 adds to format 6, on a tile's "repeat": "step", the id of the arrow that is the tile's
+   progression function; "until", the id of its stop block; and a count of "inf", one that does not end (tiles.js).
+   A format 6 project has none of the three and is read exactly as it is; saved again it differs only in the
+   format number. The number went up so that a program from before loops refuses such a project ("saved by a newer
+   version") where it would have opened it, dropped the step and the stop block, read "inf" as 1, and saved it so.
+   Format 6 adds to format 5 the field "choose" on an arrow, { then, else }, and with it a frame file
    that holds no shapes (an empty side of a condition). A format 5 project has neither and is read exactly as it is;
    saved again it differs only in the format number. The number went up so that a program from before conditions
    refuses such a project ("saved by a newer version") where it would have opened it, dropped every choose and the
@@ -282,7 +292,7 @@ import { parse as spaceOf, promise as promiseOf } from './spaces.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 6;
+export const FORMAT = 7;
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
 const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
 const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */
@@ -463,7 +473,7 @@ export function read(files){
   look(project.top);
   const shown = d => d.variable != null && [...inSpace].some(v => !v.arrow && v.variable === d.variable);
   for (const s of spaces) for (const o of s.operations || []) for (const d of o.sources) if (d.holds !== undefined && !shown(d)){ unheld.push({ name: d.name, holds: d.holds, why: 'it is kept off the canvas by a cut, where a promise can be neither seen nor taken off' }); delete d.holds; }
-  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld };
+  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld, unstepped: unstepped(spaces) };
 }
 
 /* Every use of a variable is one size: the size of the shape the variable was made as, the other way round where one
@@ -475,6 +485,22 @@ export function read(files){
    part (its size is its source's to say), a seated block, a function's input and a fused shape are left as they are,
    and so is every use of a variable that has no one shape it was made as, or more than one. A definition is read
    once for a variable, from the first use that carries it, as the page reads it: what another use carries is a copy. */
+/* A tile's step is an arrow of its own space that reads the tile from its east side, and its stop block a block of
+   its pattern (one directly in the tile, or in a frame of it that is no tile). A repeat whose "step" or "until"
+   names anything else (the arrow or the block is gone, the arrow is on another side or reads something else) has
+   that key dropped, so that nothing is left naming what is not there, and it is said: no page saves one.
+   -> [{ tile: the tile's name or null, key: 'step' | 'until' }] */
+function unstepped(spaces){
+  const out = [];
+  for (const s of spaces){
+    const tile = g => { const r = g.repeat;
+      if (r && r.step){ const a = s.shapes.find(d => d.id === r.step); if (!a || !a.arrow || !a.arrow.input || a.arrow.input.as !== 'tile' || a.arrow.input.id !== g.id || (a.arrow.side ?? 'e') !== 'e'){ delete r.step; out.push({ tile: g.name || null, key: 'step' }); } }
+      if (r && r.until){ const own = [], gather = f => { own.push(...f.members); for (const k of f.groups || []) if (!k.repeat) gather(k); }; gather(g);
+        const b = own.map(i => s.shapes[i]).find(d => d && d.id === r.until); if (!b || b.arrow){ delete r.until; out.push({ tile: g.name || null, key: 'until' }); } }
+      (g.groups || []).forEach(tile); };
+    (s.groups || []).forEach(tile); }
+  return out;
+}
 function oneSize(top){
   const uses = new Map(), read = new Set(), out = [];
   const walk = s => { const one = d => { if (d.variable != null && !d.arrow) uses.set(d.variable, [...(uses.get(d.variable) || []), d]);

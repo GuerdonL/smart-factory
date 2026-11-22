@@ -72,9 +72,12 @@ class SameAnswers(unittest.TestCase):
                     self.assertIsNotNone(err, at)
                     self.assertIn('unknown', err, at)
                     unknown += 1
+                elif err is not None and 'its count comes to' in err:      # a count that is no whole number: every entry is that error on the page, and here it is refused with the number
+                    self.assertTrue(all(v == 'err' for v in flat(a['rows'])), at)
+                    errors += 1
                 elif err is not None:      # the browser has every entry, and this reads a variable some of whose other entries are unknown: refused, never guessed
                     self.assertIn('unknown entries in', err, at)
-                    self.assertIn(G['name'], ('unknown entries',), at)
+                    self.assertIn(G['name'], ('unknown entries', 'loops: a stop block that is not known'), at)
                     unknown += 1
                 else:
                     cells = {tuple(cell[:-1]): cell[-1] for cell in res['cells']}
