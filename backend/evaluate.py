@@ -817,7 +817,7 @@ class Run:
             todo.pop()
         return self._needs[start]
 
-    def weight(self, start):
+    def weight(self, start, extra=()):
         """How many entries there are in everything a run of a node may come to hold at once: itself and what its
         value is worked out from, each node counted once. Walked with lists of its own, each node visited once.
         Of a choose's two sides only one is worked out, so of what is made through one side alone (and through
@@ -826,6 +826,8 @@ class Run:
         count is of the nodes that may be made, and is never less than what is. A choose whose condition is inside a
         function, or follows its cell, has a truth for each thing the function is given and each cell, and may take
         both sides in one run: both are counted."""
+        if extra:
+            return self.count(start, extra)[0]
         if start not in self._weights:
             self._weights[start], self._masked[start] = self.count(start)
         return self._weights[start]
@@ -834,19 +836,20 @@ class Run:
         """Everything a node may be worked out from: a side of a choose is ('side', choose, k), a step of its own on
         the way to that input, so that what is reached through one side alone can be told (count)."""
         if not isinstance(i, str):
-            return [self.nodes[i[1]]['inputs'][i[2]]]
+            return list(i[1]) if i[0] == 'root' else [self.nodes[i[1]]['inputs'][i[2]]]
         n = self.nodes[i]
         deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
         if applies(n):
             deps.append(self.functions[n['fn']]['body'])
         return deps + [('side', i, k) for k in range(1, len(n['inputs']))] if n['op'] == 'choose' else deps
 
-    def count(self, start):
+    def count(self, start, extra=()):
         """-> (entries, bytes of masks) for weight. With no choose it is the sum over what is reached. With one, each
         thing reached has the one nearest thing that every way to it from start passes through (its dominator: in a
         graph with no loop, the nearest common one of all that read it), and a count is passed up that tree: a
         choose takes the heavier of what hangs under its two sides alone."""
-        order, seen, done, todo, chooses, loops = [], {start}, set(), [(start, iter(self.deps(start)))], False, False
+        root = ('root', tuple(dict.fromkeys([start] + list(extra)))) if extra else start
+        order, seen, done, todo, chooses, loops = [], {root}, set(), [(root, iter(self.deps(root)))], False, False
         while todo:      # every node after all it is worked out from
             i, rest = todo[-1]
             d = None
@@ -861,7 +864,7 @@ class Run:
                 order.append(todo.pop()[0])
             else:
                 seen.add(d)
-                chooses = chooses or not isinstance(d, str)
+                chooses = chooses or (not isinstance(d, str) and d[0] == 'side')
                 todo.append((d, iter(self.deps(d))))
         own = {}
         for i in order:
@@ -877,9 +880,9 @@ class Run:
             return sum(w for w, _ in own.values()), sum(m for _, m in own.values())
         order.reverse()      # every node before all it is worked out from
         # the tree, with a second way up from each node that skips ahead, so that the nearest thing above two nodes is found in few steps
-        above, depth, skip, readers = {start: start}, {start: 0}, {start: start}, {}
+        above, depth, skip, readers = {root: root}, {root: 0}, {root: root}, {}
         for i in order:
-            if i != start:
+            if i != root:
                 up = None
                 for r in readers[i]:
                     if up is None:
@@ -904,7 +907,7 @@ class Run:
                 both = bool(functions_of(self.nodes[c])) or self.follows(c)
                 took = [sum(x) for x in zip(*sides[i])] if both else max(sides[i], key=lambda side: BYTES_AN_ENTRY * side[0] + side[1])
                 w, m = w + took[0], m + took[1]
-            if i != start:
+            if i != root:
                 if isinstance(i, str):
                     up = total[above[i]]
                     total[above[i]] = (up[0] + w, up[1] + m)
@@ -920,12 +923,17 @@ class Run:
         value = t.get('value')
         return value.endswith('?') or value == S.NONE if isinstance(value, str) else self.graph.get('version', 0) >= 3
 
-    def bytes_for(self, start, room_to_work, bytes_an_entry):
+    def bytes_for(self, start, room_to_work, bytes_an_entry, extra=()):
         """The bytes a run of a node may come to hold at once: everything it is worked out from, held together, and
         room to work on the largest of it; with the byte an entry that says which entries are None, where one may."""
-        weight, need = self.weight(start), self.needs(start)
-        most = self.nodes[need['room_where']]['type']
-        return bytes_an_entry * (weight + room_to_work * need['room']) + self._masked[start] + (room_to_work * need['room'] if self.may_be_none(most) else 0)
+        weight, masked = self.count(start, extra) if extra else (self.weight(start), self._masked[start])
+        room, room_where = 0, start
+        for s in [start] + list(extra):
+            need = self.needs(s)
+            if need['room'] > room:
+                room, room_where = need['room'], need['room_where']
+        most = self.nodes[room_where]['type']
+        return bytes_an_entry * (weight + room_to_work * room) + masked + (room_to_work * room if self.may_be_none(most) else 0)
 
     def homes(self):
         """The tiles each block's node is itself in, and which tiles each repeat is the matrix of (evaluate.js: homesOf)."""

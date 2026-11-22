@@ -81,6 +81,9 @@ def worker(conn, root, room, address, parent):
         os._exit(1)
     threading.Thread(target=watch, daemon=True).start()
     signal.signal(signal.SIGINT, signal.SIG_IGN)      # (the server is told to stop, and ends its workers itself)
+    # Keep BLAS/OpenMP single-threaded by default so thread-pool arenas do not exhaust RLIMIT_AS on many-core hosts.
+    for var in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+        os.environ.setdefault(var, '1')
     try:
         import resource
         if address:
@@ -90,33 +93,52 @@ def worker(conn, root, room, address, parent):
     from . import run
     from .data import Refused
     sys.setrecursionlimit(1_000_000)
+
+    def execute(job, body):
+        try:
+            if job['kind'] == 'data':
+                try:
+                    return run.upload(job['project'], job['path'], body, root)
+                except Refused as e:
+                    return {'error': str(e)}
+            return run.run(body, root, room)
+        except MemoryError:
+            return run.refuse(run.NO_MEMORY) if job['kind'] == 'run' else {'error': run.NO_MEMORY}
+        except BaseException as e:
+            sys.stderr.write('a worker could not finish: %s: %s\n' % (type(e).__name__, e))
+            return run.refuse(run.BROKEN) if job['kind'] == 'run' else {'error': run.BROKEN}
+
+    # One long-lived thread with a 256 MB stack runs every job (a graph may be 20,000 nodes deep) without reserving a
+    # fresh stack on every request.
+    inbox, outbox = queue.Queue(maxsize=1), queue.Queue(maxsize=1)
+
+    def loop():
+        while True:
+            item = inbox.get()
+            if item is None:
+                return
+            outbox.put(execute(*item))
+
     threading.stack_size(STACK)
+    runner = threading.Thread(target=loop, daemon=True)
+    try:
+        runner.start()
+    except (MemoryError, RuntimeError):
+        runner = None
     while True:
         try:
             job = json.loads(conn.recv_bytes().decode('utf8'))
             body = conn.recv_bytes()
         except (EOFError, OSError):
+            if runner is not None:
+                inbox.put(None)
             return
-        out = []
-
-        def work():
-            try:
-                if job['kind'] == 'data':
-                    try:
-                        out.append(run.upload(job['project'], job['path'], body, root))
-                    except Refused as e:
-                        out.append({'error': str(e)})
-                else:
-                    out.append(run.run(body, root, room))
-            except MemoryError:
-                out.append(run.refuse(run.NO_MEMORY) if job['kind'] == 'run' else {'error': run.NO_MEMORY})
-            except BaseException as e:
-                sys.stderr.write('a worker could not finish: %s: %s\n' % (type(e).__name__, e))
-                out.append(run.refuse(run.BROKEN) if job['kind'] == 'run' else {'error': run.BROKEN})
-        t = threading.Thread(target=work)
-        t.start()
-        t.join()
-        conn.send_bytes(json.dumps(out[0]).encode())
+        if runner is not None:
+            inbox.put((job, body))
+            answer = outbox.get()
+        else:
+            answer = run.refuse(run.NO_MEMORY) if job['kind'] == 'run' else {'error': run.NO_MEMORY}
+        conn.send_bytes(json.dumps(answer).encode())
 
 
 class Workers:
@@ -209,7 +231,8 @@ class Handler(BaseHTTPRequestHandler):
         """Whether the request is server.py's: for this address, from no web page, and carrying the token. Nothing
         else is answered but this refusal, which says nothing of what is here."""
         host = (self.headers.get('Host') or '').strip().lower()
-        ours = ('127.0.0.1:%d' % self.server.server_address[1], 'localhost:%d' % self.server.server_address[1])
+        port = self.server.server_address[1]
+        ours = ('127.0.0.1:%d' % port, 'localhost:%d' % port) + (('127.0.0.1', 'localhost') if port == 80 else ())
         given = self.headers.get(HEADER) or ''
         if self.headers.get('Origin') is not None or host not in ours or not hmac.compare_digest(given.encode('utf8', 'replace'), self.server.token.encode()):
             self.reply(403, {'error': 'the backend answers server.py on this machine, and nothing else'})

@@ -286,6 +286,22 @@ function numeric(N, text){
    against the size of what was subtracted, so the band inside which nothing is decided is 1e-12 of the larger of 1,
    the two sides, and the terms of the difference as the solver left it (all taken as positive): (1+√2)(1+√3)·10⁶
    against its own expansion differs by 1e-9 of floating-point noise, and is not decided by it. */
+/* a difference with every additive minus turned positive, keeping signs inside exponents and function calls intact,
+   so e^(-50) is not turned into e^(+50) while estimating the size of subtracted terms */
+function positive(t){
+  let out = '';
+  for (let i = 0; i < t.length; i++){
+    const c = t[i];
+    if ((c === '^' || /[a-zA-Z_]/.test(c)) && t[i + 1] === '('){
+      let j = i + 1, d = 0;
+      for (; j < t.length; j++){ if (t[j] === '(') d++; else if (t[j] === ')' && !--d){ j++; break; } }
+      out += t.slice(i, j); i = j - 1;
+    } else if (c === '^' && t[i + 1] === '-'){ out += '^-'; i++; }
+    else if (c === '-') out += !out || /[(+*/]\s*$/.test(out) ? '' : '+';
+    else out += c;
+  }
+  return out;
+}
 const UNDECIDED = 'cannot be compared exactly';
 function compare(a, b){
   if (typeof a === 'number' && typeof b === 'number') return a < b ? -1 : a > b ? 1 : 0;      /* whole numbers and infinities */
@@ -302,7 +318,7 @@ function compare(a, b){
   const exactly = numberOf(d); if (exactly) return sign(exactly);
   const na = numeric(N, A), nb = numeric(N, B_);
   if (Number.isNaN(na) || Number.isNaN(nb)) return err(UNDECIDED);
-  if (Number.isFinite(na) && Number.isFinite(nb)) return within(numeric(N, d.sym), na, nb, numeric(N, d.sym.replace(/-/g, '+')));
+  if (Number.isFinite(na) && Number.isFinite(nb)) return within(numeric(N, d.sym), na, nb, numeric(N, positive(d.sym)));
   /* one side is past what a floating-point number holds (exp(1000)). Against a side that is not, that settles it; two
      such sides of one sign are compared by their logarithms, which the solver reduces (ln(exp(1000)) is 1000). */
   if (na !== nb) return na < nb ? -1 : 1;
@@ -418,7 +434,11 @@ export function apply(fn, a){
 }
 
 export function typedNumber(text){
-  const [whole, part = ''] = String(text).split('.');
+  const [rawWhole = '', rawPart = ''] = String(text).split('.');
+  const whole = rawWhole.replace(/^0+/, ''), part = rawPart.replace(/0+$/, '');
+  if (!whole && !part) return 0;
+  /* past 1,300 whole digits or 4,100 fractional digits, no reduced fraction can fit inside MAXBITS (4096 bits) */
+  if (whole.length > 1300 || part.length > 4100) return err(LARGE);
   return valueOf(norm(B((whole || '0') + part), 10n ** B(part.length), 0));
 }
 
