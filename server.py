@@ -12,13 +12,15 @@ What it does:
     A save that is no good is answered with why, as {"error": ...}, and changes nothing.
     A project's own .config is this machine's: it is not kept in the repository. Until a project has one, it is given
     the file projects/<name>.config, if the repository has that (see project_files).
-    A project's files are its .json files, its .config files and, under data/ at its top, the .csv files its file
-    sources read (data/weights.csv): no other path is kept, and none that climbs out of the project.
+    A project's files are its .json files, its .config files and, under data/ at its top, the data files its file
+    sources and streams read: .csv and .txt, which are text, and .npy, which is not (data/weights.csv): no other
+    path is kept, and none that climbs out of the project. Every file passes to and from the page as text, so a
+    .npy file's "text" is its bytes in base64: it is written to disk as the bytes, and read back into base64.
   - passes three addresses on to the backend (backend/, a separate process that works a model out in floating point):
         GET  /api/backend/health      -> the backend's /health, or { "ok": false, "error": why } where there is none
                                          (a run or a file sent while there is none is answered likewise, with why)
         POST /api/backend/run         -> its /run
-        POST /api/backend/data?project=<name>&path=data/<file>.csv     -> its /data
+        POST /api/backend/data?project=<name>&path=data/<file>.csv     -> its /data (.csv, .txt or .npy)
     The backend's address is the SMART_FACTORY_BACKEND environment variable (default http://127.0.0.1:8001). These
     go through the PIN like everything else, so the backend is never reached through here without it. The backend
     itself answers only what carries its token: 32 random bytes it writes, each time it starts, to a file only its
@@ -48,7 +50,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PROJECTS = os.path.join(ROOT, 'projects')
 NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}')            # a project's name: one plain directory name. Used with fullmatch: all of the name has to fit ($ lets a last newline by)
-DATA = re.compile(r'data/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')    # a data file: data/ and one .csv name with no two dots together (sources.js: dataPath; backend/check.py: data_path)
+DATA = re.compile(r'data/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.(?:csv|txt|npy)')    # a data file: data/ and one .csv, .txt or .npy name with no two dots together (sources.js: dataPath; backend/check.py: data_path)
 # what is passed on to the backend: how much of a request's body is read for each address, in bytes (the backend's own
 # limits: backend/limits.py), how much of its answer, and how many seconds it is waited on
 PASSED = {'/health': 0, '/run': 5 * 1024 * 1024, '/data': 50 * 1024 * 1024}
@@ -138,6 +140,9 @@ def project_files(name):
                 if f.endswith('.json') or f == '.config':
                     with open(full, encoding='utf8') as text:
                         out.append({'path': path, 'text': text.read()})
+                elif DATA.fullmatch(path) and path.endswith('.npy'):   # an array: its bytes, in base64 (the page holds every file as text)
+                    with open(full, 'rb') as data:
+                        out.append({'path': path, 'text': base64.b64encode(data.read()).decode('ascii')})
                 elif DATA.fullmatch(path):                             # a data file, at the top of the project
                     try:
                         with open(full, encoding='utf8', newline='') as data:
@@ -162,9 +167,14 @@ def checked(files):
             if not isinstance(f[key], str):
                 raise ValueError("a file's %s is text, not %s" % (key, json.dumps(f[key])[:60]))
         path, parts = f['path'], f['path'].split('/')
-        csv = path.endswith('.csv')                               # a data file a file source reads: only data/<name>.csv, at the project's top
+        csv = path.endswith(('.csv', '.txt', '.npy'))             # a data file a file source or a stream reads: only data/<name>.csv, .txt or .npy, at the project's top
         if not (path.endswith('.json') or parts[-1] == '.config' or csv) or any(p in ('', '.', '..') or '\\' in p or '\0' in p for p in parts) or (csv and not DATA.fullmatch(path)):
             raise ValueError('not a path a project may contain: %r' % path)
+        if path.endswith('.npy'):                                 # an array comes as its bytes in base64, and is written as the bytes
+            try:
+                base64.b64decode(f['text'], validate=True)
+            except ValueError:
+                raise ValueError('%r is not base64: a .npy file is sent as its bytes in base64' % path)
         if path in out:
             raise ValueError('two files called %r' % path)
         out[path] = f['text']
@@ -188,6 +198,10 @@ def write_project(name, files):
         for path, text in files.items():
             full = os.path.join(fresh, *path.split('/'))
             os.makedirs(os.path.dirname(full), exist_ok=True)
+            if path.endswith('.npy') and DATA.fullmatch(path):
+                with open(full, 'wb') as out:                         # an array: the bytes its base64 stands for
+                    out.write(base64.b64decode(text, validate=True))
+                continue
             with open(full, 'w', encoding='utf8', newline='') as out:      # as sent, line ends and all: a data file is kept as it is
                 out.write(text)
         target = os.path.join(PROJECTS, name)

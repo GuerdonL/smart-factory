@@ -61,7 +61,7 @@ class Validate(unittest.TestCase):
         return G({'c': v(tc or T(1, 1)), 'a': v(ta), 'b': v(tb), 'ch': {'op': 'choose', 'inputs': ['c', 'a', 'b'], 'type': out or ta}}, version=version)
 
     def test_the_version_is_4_and_the_older_ones_are_read(self):
-        self.assertEqual(VERSION, 5)
+        self.assertEqual(VERSION, 6)
         for version in (1, 2, 3, 4):
             self.assertEqual(validate(G({'a': variable(1, 1, [[7]])}, version=version)), [])
 

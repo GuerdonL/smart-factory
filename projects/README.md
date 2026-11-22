@@ -11,12 +11,16 @@ A saved project is a directory in here. Shapes and files are the same tree:
 - a space where Difference or Intersect has cut something has one more file, `operations.json`, holding each cut
   with the two shapes it took off the canvas, whole, and where each was (its place in the order and its frames).
 
-- the files its file sources read are in `data/` at the top: `data/weights.csv`. Numeric CSV, kept as it was chosen.
+- the files its file sources and streams read are in `data/` at the top: `data/weights.csv`, a numeric CSV; and, for
+  streams, `data/words.txt` (text, UTF-8) and `data/cube.npy` (an array of 32-bit floats). Each is kept as it was chosen.
 
-`project.json` at the top marks the directory as a project.
+`project.json` at the top marks the directory as a project, and holds its tick (`"tick": 0`), the project's clock.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 7. Format 7 adds to format 6, on a tile's `"repeat"`: `"step"`, the id of the arrow that is the tile's
+The format is 8. Format 8 adds to format 7 `"stream"` on a shape, beside its `"source"` (`{ "length", "start", "step",
+"end" }`: see streams/ below), `"tick"` in `project.json`, and `.txt` and `.npy` files under `data/`. A format 7 project
+has none of them and opens as it is, at tick 0; a program from before streams refuses a format 8 project rather than
+read its streams as blocks that never move on. Format 7 adds to format 6, on a tile's `"repeat"`: `"step"`, the id of the arrow that is the tile's
 step; `"until"`, the id of its stop block; and a count of `"inf"`. A format 6 project has none of them and opens as it
 is; a program from before loops refuses a format 7 project rather than strip it. Format 6 adds to format 5 `"choose"` on an arrow (`{ "then", "else" }`: the two frames of its definition
 space a condition chooses between) and a frame file that holds no shapes, the empty side. A format 5 project has neither
@@ -330,11 +334,42 @@ Change an entry of `X`, or type another number into `S`, and every later cell fo
 `across` and the arrow `take` cannot be repeated, since an arrow cannot be repeated in a tile that does not end:
 the tile and the arrow are drawn in the warning colour, the cells are blank, and the tile's, the arrow's and the
 step's panels say why. The same is so where the tile has more cells than `X` has columns, or repeats down. (A tile
-that does not end and reads nothing outside it shows its first three cells, and its step's panel says that it runs
-until stopped.) Right-click a block of a pattern and choose Stop when true, and the tile stops at the first cell where
+that does not end and reads nothing outside it shows its first three cells, and takes one step each tick: at tick t
+its step gives the state of cell t + 1, which its panel says. `streams/` has one.) Right-click a block of a pattern and choose Stop when true, and the tile stops at the first cell where
 that block is true.
 
 In a file the tile's `"repeat"` has `"step"`, the arrow's id.
+
+## streams/
+
+Streams and the tick, beside a copy of the default Menu's `.config`. Its numbers are the backend's: with none
+running, every block here says "needs the backend". It was made in the browser, by messages and the file chooser.
+
+The **tick** is the project's clock, top-centre: a whole number, typed or stepped by one with − and +. This project
+was saved at tick 3. It is saved with the project and is no step of undo.
+
+`Noise` is a plain noise block: it holds the same eight numbers at every tick. `Draws` beside it is a **noise
+stream** (New > Data in > Noise stream): four values of 2 × 2 side by side, with a line between them. Step the tick
+and the window moves on by its `step`, 1: what the second value showed, the first now shows.
+
+`Rows` is a **file stream** of `data/rows.csv`, ten rows of two numbers. One value is as wide as the file's columns,
+which cannot be typed, and as tall as the block is pulled: here 2 rows, so its `step` is 2 and the next value begins
+where the last ended. It shows 2 values at once (`length`), and its `end` is `wrap`: past the tenth row it begins
+again. At tick 3 it shows rows 7 to 10. Type 1 for its step and successive values overlap; type `stop` for its end,
+and at tick 4 it has no value and the readout says that the stream has ended, and at which tick.
+
+`Letters` reads `data/letters.txt` as text, one Unicode code point to a character: five characters a value. `Cube`
+reads `data/cube.npy`, an array of 4 by 3 by 2 32-bit floats: one value for each index along its first axis, each
+3 rows of 2.
+
+`Total` is the running total of a stream's rows. It is a tile that does not end (`across` is `inf`) round `x`, a
+stream of `data/total.csv` (3, 1, 4, 1, 5), over `S`, which holds 0 and is the tile's state; `add`, east of it, is
+its step and adds the two. Such a tile takes one step each tick, and in cell k the stream stands where it stood at
+tick k − 1: so at tick 3 `add` gives 8, the sum of the first three rows, and the three cells drawn show 3, 1, 4 over
+0, 3, 4.
+
+In a file a stream is `"stream": { "length": 2, "start": 0, "step": 2, "end": "wrap" }` beside the shape's
+`"source"`. Where it stands is never written: it is `start + tick × step`.
 
 ## none-and-spaces/
 

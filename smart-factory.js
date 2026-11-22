@@ -23,7 +23,18 @@ import { createTile } from './components/tile.js';
 import * as tiles from './tiles.js';
 import { touches, zoneOf, joins, pieces, turnedPlaces, nested as innerAgree, resultHollows, pieceHollows, typeOf, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf, initials, readSide, rootOf as rootValue, isInteger, isError, isFormula, storable, sideOf, combine, valueText, truthOf } from './algebra.js';
 import { build as buildGraph, indexAt, VERSION as GRAPH_VERSION, CODES, said as inWords } from './graph.js';
-import { evaluate as workOut, carry, toMap, tooLarge, promiseOf, judged, seenFrom, truthAt, stoppedAt, stuckAt, settledCounts, MOST as MOST_HERE } from './evaluate.js';
+import { evaluate as workOutAt, carry, toMap, tooLarge, promiseOf as promiseAt, judged as judgedAt, seenFrom, truthAt as truthAtTick, stoppedAt, stuckAt, settledCounts as settledAt, MOST as MOST_HERE } from './evaluate.js';
+/* The tick: the project's clock, a whole number from 0. It is kept here, saved with the project (project.json) and
+   sent with every run; it is no change that undo records, so it is in no message that is one, and putting a state
+   back leaves it where it is. Everything the evaluator is asked is asked at this tick: these five are the only way
+   this file reaches it. (What follows the tick here is a loop with no end and no stop block; a stream's numbers
+   are the backend's.) */
+let tick = 0;
+const workOut = (g, id, options) => workOutAt(g, id, { ...options, tick });
+const promiseOf = (g, id, options) => promiseAt(g, id, { ...options, tick });
+const judged = (g, id, holds, name, options) => judgedAt(g, id, holds, name, { ...options, tick });
+const truthAt = (g, id, options) => truthAtTick(g, id, { ...options, tick });
+const settledCounts = (g, options) => settledAt(g, { ...options, tick });
 import { SPACES as NUMBER_SPACES, NONE as NONE_SPACE, RESERVED, promise as promiseRead } from './spaces.js';
 const SPACES = [...NUMBER_SPACES, NONE_SPACE];      /* what a shape may promise: one of the ten number spaces, or None alone */
 import * as project from './project.js';
@@ -33,7 +44,8 @@ import { createHistory } from './history.js';
 import { SYSTEM, FUNCTIONS, SLOTS, OLD, CONFIG, COLORS, DARK, DARK_DOWN, isColour, leaf } from './system.js';
 import { SIDES, along, covered, coveredType, strip, triangle, free, edgeAt, adjust, settable, sided, standing, names as formulaNames, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, conditionAt, conditionSaid } from './arrows.js';
 import { zip, unzip } from './zip.js';
-import { SOURCES, DATA, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable } from './sources.js';
+import { SOURCES, DATA, STREAMS, ENDS, DISTS, kept as sourceKept, kindOf as sourceKind, labelOf as sourceLabel, noise as noiseOf, seedOf, dataName, dataPath, fileKind, tooSmall, smallSays, faceOf, values as sourceValues, typable, holds, sizable as sourceSizable, stream as streamNew, streamOf, streamKind, spanOf, valueOf as streamValue, pulled as streamPulled, resized as streamResized } from './sources.js';
+import { createClock } from './components/clock.js';
 import { wanted, laid, noted, drawn as cellsDrawn, level as levelOf } from './decimals.js';
 import { createBackend, OLDER as OLDER_BACKEND } from './backend.js';
 import { squares } from './components/matrix.js';
@@ -359,13 +371,25 @@ function answerOf(node, binding = null){
    every quarter of a minute, so one started or stopped later is noticed. */
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
   changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null), version: GRAPH_VERSION, counts: g => settledCounts(g),
-  told: why => hud.say((/^the backend /.test(why[0]) ? cap(why[0]) : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
+  tick: () => tick, ended: (g, node, at) => endedSays(g, node, at),
+  /* (what a project said as it opened is not written over by the first answer that comes: it stays in front for as long as the readout shows a sentence) */
+  told: why => hud.say((asOpened.said && Date.now() - asOpened.at < 5000 ? asOpened.said + '. ' : '') + (/^the backend /.test(why[0]) ? cap(why[0]) : /^The stream /.test(why[0]) ? why[0] : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
+/* What the project said as it was opened, where it had more to say than its name: kept for the few seconds the readout
+   shows it. And notes, block id -> what its stream's file words were read as (project.js: streamed): written in that
+   block's panel until its stream is set again or another project is opened, since the readout's sentence is soon gone. */
+const asOpened = { said: null, at: 0, notes: new Map() };
+/* which stream ended, and at which tick, in a sentence: the backend names its node (backend.js: ended), and the
+   block is the one whose variable that node defines */
+function endedSays(g, node, at){
+  const id = Object.keys(g.blocks || {}).find(id => { const n = g.nodes[g.blocks[id]]; return n && n.op === 'variable' && n.inputs[0] === node; }), b = id ? everyKnown().find(k => k.id === id) : null;
+  const file = g.nodes[node] && g.nodes[node].path;
+  return b ? `The stream ${bare(b.name)} ended at tick ${at.toLocaleString('en-US')}: it is past the last value of ${file || 'its file'}, where it stops. Set its end to wrap, or the tick below ${at.toLocaleString('en-US')}` : null;
+}
 const laidKept = new WeakMap();                /* an evaluator's answer -> what was last laid over it, and from what */
 const slotAt = (slot, binding) => slot + (binding && binding.cells ? ' ' + binding.cells.map(c => c.cx + ',' + c.cy).join(' ') : '');      /* what is drawn in one place, in one cell: the previous numbers there are dimmed while the new are waited for */
 function laidAt(node, binding = null, slot = null){
   const exact = answerOf(node, binding); if (exact === null) return null;
   const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined); if (!wanted(r)) return exact;
-  if (r.forever) return RUNS_UNTIL;      /* a loop with no last cell: there is nothing to ask the backend for until something runs it */
   const there = backend.available(), got = there === false ? null : backend.ask(g, node, binding, cellsDrawn(r.type), slot === null ? null : slotAt(slot, binding)), why = got ? null : backend.problem(g, node, binding);      /* only the entries that are drawn are asked for */
   const was = laidKept.get(r); if (was && was.there === there && was.result === (got ? got.result : null) && was.stale === (got ? got.stale : false) && was.why === why) return was.map;
   const map = laid(r, exact, { there, got, why }); laidKept.set(r, { there, result: got ? got.result : null, stale: got ? got.stale : false, why, map }); return map;
@@ -373,15 +397,12 @@ function laidAt(node, binding = null, slot = null){
 const deferredAt = (node, binding = null) => !!node && !!workOut(graphNow(), node, binding ? { binding } : undefined).deferred;
 /* what to say, in the panel, of a node whose numbers are not shown: that it needs the backend, why the backend gave
    none, or (for one that is only too large) that it is; null where its numbers are shown, or it has an error of its own */
-const RUNS_UNTIL = noted('runs until stopped');
-const RUNS_ON = 'It runs until stopped: its count is infinite and it has no stop block. Its first cells show their state';
 const notStopped = steps => `Not stopped after ${steps} steps: needs the backend`;
 function unshown(node, binding = null, slot = null){
   if (!node) return null;
   const g = graphNow(), r = workOut(g, node, binding ? { binding } : undefined);
   if (r.error && r.error.code === 'type' && r.error.node !== node) return 'It has no value: ' + r.error.note;      /* worked out from a shape whose promise a value breaks (that shape says so itself, in its Holds row) */
   if (!wanted(r)) return null;
-  if (r.forever) return RUNS_ON;      /* a loop with no last cell: nothing gives it a value while nothing runs it */
   if (backend.available() === false && backend.older()) return r.backend || r.deferred ? cap(OLDER_BACKEND) : null;      /* one is running, and reads an older graph than this page writes: said on each result that needs it */
   if (backend.available() === false) return r.backend ? 'It needs the backend: its numbers are made there, and none is running (README: The backend)' : r.steps !== undefined ? notStopped(r.steps) : r.deferred ? tooLarge(r.type) : null;
   const why = backend.problem(g, node, binding), far = why ? backend.broke(g, node, binding) : null;
@@ -645,7 +666,26 @@ const autoSide = (b, dim) => { if (!isNamed(b) || isArrow(b)) return null; const
    by the shape's name with .mass. ('m' stands for it wherever 'w' and 'h' stand for the sides.) */
 /* a block that reads a data file is the file's size (sources.js: sizable): why its size cannot be changed, or null
    where it can. A shape fused from such a block is held by it too: pulled, it would pull the block. */
-const fileHeld = b => { const can = sourceSizable(b.source, bare(b.name)); return can.refused || (b.members || []).map(m => fileHeld(m.block)).find(Boolean) || null; };
+const fileHeld = b => { const can = sourceSizable(b.source, bare(b.name)); return can.refused || streamHeld(b) || (b.members || []).map(m => fileHeld(m.block)).find(Boolean) || null; };
+/* A stream (sources.js) is drawn as a tile: one value's size is its pattern and its length the count across, so its
+   block is length values wide. Neither follows a named length, and no length is typed on its measurement: its two
+   sizes are set in its panel (stream.set) or by pulling an edge (sources.js: pulled, in the grip and in place). */
+const streamHeld = b => streamOf(b.source) ? `${bare(b.name)} is a stream: its size is one value's size by its length. Set them in its panel, or pull it by an edge` : null;
+const heldSays = b => streamOf(b.source) ? 'is a stream, so its size is its value\'s by its length' : 'reads a data file, so its size is the file\'s';
+/* a stream block's size, its variable's own way round */
+const streamSize = b => { const u = view.unit, over = turned(b); return { cols: Math.round((over ? b.rect.h : b.rect.w) / u), rows: Math.round((over ? b.rect.w : b.rect.h) / u) }; };
+/* a stream set to what pulled or resized gave: every use of the variable takes the source, and the block the size */
+function restream(b, got){ const u = view.unit, over = turned(b); for (const k of kinOf(b)) k.source = got.source;
+  b.set({ ...b.rect, w: (over ? got.rows : got.cols) * u, h: (over ? got.cols : got.rows) * u }); agree(b); }
+/* where a stream stands at this tick, for its panel: the unit its first value begins at (a whole number however far on: no float is asked) */
+const UNIT_OF = { noise: 'draw', csv: 'row', text: 'character', npy: 'index' };
+function streamSays(b){ const st = streamOf(b.source); if (!st) return null; const size = streamSize(b), v = streamValue(b.source, size.cols, size.rows), kind = streamKind(b.source);
+  const at = st.start === null || st.step === null ? null : BigInt(st.start) + BigInt(tick) * BigInt(st.step);
+  return `${st.length === 1 ? '1 value' : st.length.toLocaleString('en-US') + ' values'} of ${v.cols} × ${v.rows}` + (at === null ? '' : ` · at tick ${tick.toLocaleString('en-US')} from ${UNIT_OF[kind] || 'unit'} ${at.toLocaleString('en-US')}`); }
+/* a stream's settings as rows of its panel */
+function streamRows(b){ const st = streamOf(b.source); if (!st) return []; const size = streamSize(b), v = streamValue(b.source, size.cols, size.rows), unknown = { error: 'not known: the stream has no value until one is typed' };
+  return [{ key: 'slength', label: 'length', text: String(st.length) }, { key: 'scols', label: 'value columns', text: String(v.cols) }, { key: 'srows', label: 'value rows', text: String(v.rows) },
+    { key: 'sstart', label: 'start', text: st.start === null ? '' : String(st.start), ...(st.start === null ? unknown : {}) }, { key: 'sstep', label: 'step', text: st.step === null ? '' : String(st.step), ...(st.step === null ? unknown : {}) }, { key: 'send', label: 'end', text: st.end }]; }
 const single = b => !b.members && !isArrow(b) && b.rect.w === view.unit && b.rect.h === view.unit && !dataOf(b).length;      /* a scalar: one number and nothing else. A one by one block that holds inner data (a part cut down to one entry) is no scalar */
 /* ---- inner data ----
    Each entry of a shape may itself be an array (inner.js): the shape then has inner axes, block.inner, a list of
@@ -753,7 +793,7 @@ function agree(b){
       k.sides = over ? { w: c.sides.h, h: c.sides.w } : { ...c.sides }; if (k.rect.w !== w || k.rect.h !== h){ k.set({ ...k.rect, w, h }); todo.push(k); } }      /* one variable, one size */
     const s = everySpace().find(s => withKept(s).includes(c)); if (!s) continue;
     for (const dim of ['w', 'h', 'm', ...axesOf(c).map((_, i) => 'k' + i)]) if (sideName(c, dim)){ const group = sidesCalled(sideName(c, dim), s), boss = group.find(([o, d]) => d[0] !== 'k' && rootSide(o) !== null) || group.find(pinned);      /* a single entry's number settles the length: it is not resized to suit the others. So does a part's shortened side */
-      if (boss && pinned(boss) && c !== boss[0] && lenOf(c, dim) !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and ${fileHeld(boss[0]) ? 'reads a data file, so its size is the file\'s' : `is part of ${partOf(boss[0])}, so its size cannot change`}`);
+      if (boss && pinned(boss) && c !== boss[0] && lenOf(c, dim) !== boss[0].rect[boss[1]]) hud.say(`${sideName(c, dim)} stays ${Math.round(boss[0].rect[boss[1]] / view.unit)}u: ${bare(boss[0].name)} carries that name and ${fileHeld(boss[0]) ? heldSays(boss[0]) : `is part of ${partOf(boss[0])}, so its size cannot change`}`);
       const length = boss ? sideLength(boss[0], boss[1]) : lenOf(c, dim);
       if (!boss && dim === 'm') continue;
       if (length === null){      /* the entry's side is not a whole number now: no side can be that long, so the sides that carried its name let go of it and stay as they are */
@@ -761,7 +801,7 @@ function agree(b){
           else if (rootSide(o) === null && o.sides[d]){ hud.say(`${o.sides[d]} is not a whole number now: ${bare(o.name)} no longer follows it`); o.sides[d] = null; }
         continue; }
       for (const [o, d] of group) if ((d[0] === 'k' || (rootSide(o) === null && !unset(o))) && lenOf(o, d) !== length){
-        if (d[0] !== 'k' && fileHeld(o)){ hud.say(`${o.sides[d]} is ${Math.round(length / view.unit)}u, and ${bare(o.name)} is the size of its file: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* another length than its file's: it lets go of the name, and stays */
+        if (d[0] !== 'k' && fileHeld(o)){ hud.say(`${o.sides[d]} is ${Math.round(length / view.unit)}u, and ${bare(o.name)} ${heldSays(o)}: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* another length than its file's: it lets go of the name, and stays */
         if (d[0] !== 'k' && madeOne(o, d === 'w' ? length : o.rect.w, d === 'h' ? length : o.rect.h)){ hud.say(`${o.sides[d]} is 1 now, and ${bare(o.name)} holds inner data, so it cannot be one by one: it no longer follows ${o.sides[d]}`); o.sides[d] = null; continue; }      /* a named length that comes to 1 */
         setLen(o, d, length); done.delete(o); todo.push(o); } }
   }
@@ -1189,8 +1229,8 @@ function attributesOf(b){
   if (one && !made){ const stored = measures(b) || rangedOf(b) ? undefined : b.values.get('1,1'), text = isFormula(stored) ? stored.expr : v === null ? symbolOf(b) : isError(v) ? '' : typedText(v);      /* a formula as it was typed; not yet given a value: its symbol */
     fixed.push({ key: 'mass', label: massName(b) || 'mass', text, ...seen(text), ...told(text, isFormula(stored) || isError(v) ? v : null) }); }
   /* noise has a seed and a distribution, and nothing else */
-  if (sourceKind(b.source) === 'noise') return [...fixed, { key: 'seed', label: 'seed', text: String(b.source.noise.seed) }, { key: 'dist', label: 'distribution', text: b.source.noise.dist }];
-  if (sourceKind(b.source) === 'file') return fixed;
+  if (sourceKind(b.source) === 'noise') return [...fixed, { key: 'seed', label: 'seed', text: String(b.source.noise.seed) }, { key: 'dist', label: 'distribution', text: b.source.noise.dist }, ...streamRows(b)];
+  if (sourceKind(b.source) === 'file') return [...fixed, ...streamRows(b)];
   return [...fixed, ...attrsOf(b).map((a, i) => ({ key: 'a' + i, custom: true, label: a.name, text: a.text, ...seen(a.text), ...told(a.text, attrValue(b, a)) }))];
 }
 /* the block an entry of the selected shape's matrix really belongs to, and its key there */
@@ -1221,6 +1261,11 @@ const properties = createProperties({ ...fields,
     if (key === 'seed'){ const got = readTyped(b, text), seed = got.refused ? got : isError(got.value) ? { refused: got.value.err } : seedOf(got.value);      /* a whole number, or a formula that comes to one now */
       if (seed.refused){ hud.say(/^A seed/.test(seed.refused) ? seed.refused : `seed: ${seed.refused}`); return shown(); } return bus.send('source.set', { id: b.id, seed: seed.seed }); }
     if (key === 'dist'){ const dist = text.trim().toLowerCase(); if (!DISTS.includes(dist)){ hud.say(`A distribution is ${DISTS.join(' or ')}`); return shown(); } return bus.send('source.set', { id: b.id, dist }); }
+    /* a stream's settings: each a whole number, or a formula that comes to one now (its end: one of two words) */
+    if (/^s(length|cols|rows|start|step)$/.test(key) && streamOf(b.source)){ const got = readTyped(b, text), bad = got.refused || (isError(got.value) ? got.value.err : null);
+      if (bad){ hud.say(`${{ slength: 'length', scols: 'value columns', srows: 'value rows', sstart: 'start', sstep: 'step' }[key]}: ${bad}`); return shown(); }
+      return bus.send('stream.set', { id: b.id, [key.slice(1)]: got.value }); }
+    if (key === 'send' && streamOf(b.source)) return bus.send('stream.set', { id: b.id, end: text.trim().toLowerCase() });
     if (key[0] === 'a') return bus.send('attr.set', { id: b.id, index: +key.slice(1), text });
     /* the number of data dimensions: a whole number from 0 to 6, or a formula that comes to one now. It is worked out once, here, and the number kept (inner.js) */
     if (key === 'dims'){ const got = readTyped(b, text), n = got.refused ? got : nesting.counted(got.value);
@@ -1314,11 +1359,11 @@ function paint(){
     const says = nesting.described(cols, rows, data), sized = `${cols} wide × ${rows} tall` + (says ? ` · ${says}` : '');      /* what it is, and never a count of dimensions */
     const kind = sourceKind(one.source), node = steadily(() => graphNow().blocks[one.id]), quiet = node ? steadily(() => unshown(node, bindingOf([one], spaceWith(one)), 'b ' + one.id)) : null;
     properties.show({ id: one.id, name: one.name, color: getComputedStyle(one.el).getPropertyValue('--block').trim(), cols: at.cols, rows: at.rows, scalar, attributes: attributesOf(one), spaces: [holdsRow(one)], words: SPACES, reserved: Object.keys(RESERVED), fixed: !!one.source,
-      shape: one.source ? `${[...SOURCES, ...DATA].find(s => s.kind === kind).label.toLowerCase()}${kind === 'file' ? ' (' + (one.source.file || 'no file chosen') + ')' : ''}: ${sized}` : data.length ? sized : undefined,
+      shape: one.source ? `${(streamOf(one.source) ? STREAMS : [...SOURCES, ...DATA]).find(s => s.kind === kind).label.toLowerCase()}${kind === 'file' ? ' (' + (one.source.file || 'no file chosen') + ')' : ''}: ${sized}${streamOf(one.source) ? ' · ' + streamSays(one) : ''}` : data.length ? sized : undefined,
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
-      ...(kind === 'file' ? { actions: [{ key: 'file', label: one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
-      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(stateSaid(one) ? [stateSaid(one)] : []), ...(strays.has(one) ? [acrossNote(space, one) || 'It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && one.source.file && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      ...(kind === 'file' ? { actions: [{ key: 'file', label: streamOf(one.source) ? (one.source.file ? 'Choose another file…' : 'Choose a CSV, a text or a .npy file…') : one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(asOpened.notes.get(originOf(one).id) || []).map(why => 'As it was opened: ' + why), ...(stateSaid(one) ? [stateSaid(one)] : []), ...(strays.has(one) ? [acrossNote(space, one) || 'It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && fileKind(one.source.file) === 'csv' && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values: once(values, all, quiet), transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
@@ -1354,7 +1399,9 @@ function paint(){
   /* in a product the left block gives its rows and the right block its columns, so the left one is banded across
      and the right one down; a block in the middle of a chain does both */
   for (const b of space.blocks){ const i = active.indexOf(b), rows = i >= 0 && js.some(j => j.ok && j.left === i), cols = i >= 0 && js.some(j => j.ok && j.right === i);
-    b.stripes(rows && cols ? 'both' : rows ? 'rows' : cols ? 'cols' : null, u); }
+    b.stripes(rows && cols ? 'both' : rows ? 'rows' : cols ? 'cols' : null, u);
+    /* a stream is drawn as a tile: one band to each value, side by side (as many as its length) */
+    if (b.cells){ const st = streamOf(b.source); b.cells(st ? st.length : 0, turned(b)); } }
   view.world.append(...marks.map(j => j.el));
   /* how a piece's matrix is written. One block: its own initials, colour and numbers. A product: each entry as the
      row it takes from the first block against the column it takes from the last, each in its block's colour. A sum
@@ -2105,6 +2152,9 @@ function stateSaid(b){
   return steadily(() => { const gr = graphNow(), t = findIn(gr).tiles.get('t:' + g), n = t && t.loop ? gr.nodes[t.loop] : null, k = n ? n.inputs.indexOf(gr.blocks[b.id]) : -1;
     return n && k >= 0 && k < n.at.length && tiles.inState(n.at[k], n.state) ? `It is state of ${space.groupNames.get(g) || 'its tile'}'s loop: in each cell after the first it holds what the step made of the cell before` : null; }) || null;
 }
+/* a tile with no end and no stop block takes one step each tick: said in its panel and in its step's, with the cell the clock is at */
+const ticksSaid = (s, g) => { const r = s.repeats.get(g), info = r && r.step && !r.until ? tileInfo(s, g) : null;
+  return info && info.open && Object.values(info.open).includes('inf') ? `It takes one step each tick: at tick ${tick.toLocaleString('en-US')} its step gives the state of cell ${(tick + 1).toLocaleString('en-US')}. Its first cells show their state` : null; };
 /* what there is to say of a tile's step in the tile's panel: which arrow it is, why it does not fit, the stop block, and the cell it stopped at */
 function stepNotes(s, g){
   const r = s.repeats.get(g); if (!r || (!r.step && !r.until)) return [];
@@ -2113,6 +2163,7 @@ function stepNotes(s, g){
   if (a) out.push(found.e && found.e.error ? (found.e.error.code === 'size-unknown' ? 'Its step has no count to run by' + (tileInfo(s, g).warn ? ': ' + tileInfo(s, g).warn : '') : 'Its step does not fit: ' + errorSaid(found.e.error)) : `It has a step${isNamed(a) ? ', ' + bare(a.name) : ''}: its cells are worked out in order, each from the one before`);
   if (stop) out.push(`It stops at the first cell where ${bare(stop.name) || 'its stop block'} is true` + (found.at ? `: that is cell ${found.at}` : ''));
   if (found.stuck) out.push(found.stuck);
+  if (a && ticksSaid(s, g)) out.push(ticksSaid(s, g));
   return out;
 }
 /* what there is to say of an arrow that is a tile's step, in the arrow's panel */
@@ -2120,7 +2171,7 @@ function stepSaid(a){
   const g = stepTile(a), r = g !== null ? space.repeats.get(g) : null; if (!r || r.step !== a.id) return [];
   const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) ?? backend.stopped(gr, e.node, bindingOf(readBy(a, space), space, false, a)) : null, stuck: e && e.node ? stopSaid(space, g, gr, e.node) : null }; }) || {};
   const mapWarn = mapWarnIn(space, g);      /* an arrow its tile's cells are made from cannot be repeated: the cells, and so the step, have no value */
-  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(found.e.error.code === 'size-unknown' ? tiles.STEP.noCount(tileInfo(space, g).warn) : errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : []), ...(found.stuck ? [found.stuck] : [])];
+  return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(found.e.error.code === 'size-unknown' ? tiles.STEP.noCount(tileInfo(space, g).warn) : errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : []), ...(found.stuck ? [found.stuck] : []), ...(ticksSaid(space, g) ? [ticksSaid(space, g)] : [])];
 }
 function tileInfo(s, g, all = tilesIn(s)){
   const rep = s.repeats.get(g); if (!rep) return null;
@@ -2753,7 +2804,7 @@ function gather(light = false){      /* light: each block's entries as their sta
   /* the groups of s directly inside group `up` (undefined: inside none), each with the blocks and groups directly inside it */
   const tree = (s, up) => [...framesIn(s)].filter(g => s.groupUp.get(g) === up)
     .map(g => ({ id: g, name: s.groupNames.get(g) || null, members: s.blocks.map((b, i) => s.groupOf.get(b) === g ? i : -1).filter(i => i >= 0), groups: tree(s, g), ...(s.repeats.has(g) ? { repeat: repeatCopy(s.repeats.get(g)) } : {}) }));      /* a tile: its repeat, and never what it comes to */
-  const out = { top: plain(top), saved: new Date().toISOString(), ids: ids.state() };
+  const out = { top: plain(top), saved: new Date().toISOString(), ids: ids.state(), tick };
   if (light) return out;
   /* the data files some block reads, as they are: saved with the project, and no others */
   const data = {}; for (const b of everyKnown()) if (sourceKind(b.source) === 'file' && b.source.file && dataFiles.has(b.source.file)) data[b.source.file] = dataFiles.get(b.source.file);
@@ -2778,17 +2829,25 @@ function chooseFile(b){
   if (backend.available() !== true) return hud.say('Choosing a file needs the backend, which reads it: none is running (README: The backend)');
   /* the file goes into the project's directory on the server, so there has to be one: the project saved, under the name it has now */
   if (!kept || !current || !kept.includes(current)) return hud.say(`Save the project${kept && current ? ' as ' + current : ' under a name'} first: a data file is kept in the project's directory, and there is none yet`);
-  choosingFor = b.id; filePicker.click();
+  choosingFor = b.id; filePicker.accept = streamOf(b.source) ? '.csv,.txt,.npy,text/csv,text/plain' : '.csv,text/csv'; filePicker.click();
 }
+const base64Of = bytes => { let out = ''; for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(out); };
 filePicker.addEventListener('change', async () => { const file = filePicker.files[0], id = choosingFor; filePicker.value = ''; choosingFor = null; if (!file || !id) return;
   try {
     if (file.size > 50 * 1024 * 1024) throw new Error('it is larger than 50 MB');
-    const text = await file.text(), same = [...dataFiles].find(([, t]) => t === text), path = same ? same[0] : dataName(file.name, dataFiles);
-    const r = await fetch(`api/backend/data?project=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: text });
+    /* what kind of file it is, is said by its name's ending: a CSV (and whatever ends in nothing known), a text, an array. A plain file block reads a CSV; a stream any of the three */
+    const ending = (file.name.match(/\.(csv|txt|npy)$/i) || [null, 'csv'])[1].toLowerCase(), b = blockOf(id), streamed = !!(b && streamOf(b.source));
+    if (!streamed && ending !== 'csv') throw new Error(`it is ${ending === 'txt' ? 'a text' : 'an array'}, and a plain file block reads a CSV: make a File stream (Data in) to read it`);
+    /* the file is sent as its bytes, and held here as text: a text read strictly as UTF-8 (what is not UTF-8 is refused, never mended), an array as its bytes in base64 */
+    const bytes = new Uint8Array(await file.arrayBuffer()); let text;
+    if (ending === 'npy') text = base64Of(bytes);
+    else { try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw new Error('it is not UTF-8 text: a data file that is text is read as UTF-8'); } }
+    const same = [...dataFiles].find(([p, t]) => t === text && p.endsWith('.' + ending)), path = same ? same[0] : dataName(file.name, dataFiles);
+    const r = await fetch(`api/backend/data?project=${encodeURIComponent(current)}&path=${encodeURIComponent(path)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
     const said = await r.json().catch(() => ({}));
     if (!r.ok || said.error || !(said.cols >= 1)) throw new Error(said.error || 'the server answered ' + r.status);
     dataFiles.set(path, text); if (Number.isSafeInteger(said.small)) dataSmall.set(path, said.small);
-    bus.send('source.set', { id, file: path, cols: said.cols, rows: said.rows });
+    bus.send('source.set', { id, file: path, cols: said.cols, rows: said.rows, length: said.length });
   } catch (e) { hud.say(`Could not take ${file.name}: ${e.message || e}`); } });
 /* the reverse: everything on the page is replaced by what the data describes */
 function rebuild(data){
@@ -2887,9 +2946,15 @@ async function sendSaved(name, files, what){
 
 /* opening replaces everything on the page */
 function openFrom(files, name = null){ let data; try { data = project.read(files); } catch (e){ hud.say('Could not open: ' + (e && e.message ? e.message : e)); return shown(); }      /* what is no project this program reads is said, and nothing is replaced */
-   dataFiles.clear(); dataSmall.clear(); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo */
+   dataFiles.clear(); dataSmall.clear(); tick = data.tick || 0; clock.show(tick); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo; its tick is the one it was saved at */
+   /* What was wanted of the project before is wanted no more: nothing of it is sent under this one's name. (Forgotten
+      here, once the page is this project's: while it was being rebuilt it was drawn, and asked, as the old one still.
+      Drawn again, it asks for what this one needs.) */
+   backend.forget(); shown();
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
-  hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
+  asOpened.notes = new Map(); for (const u of data.streamed || []) if (u.id) asOpened.notes.set(u.id, [...(asOpened.notes.get(u.id) || []), u.why]);
+  const head = `Opened ${name ? name + ': ' : ''}${count(data)} shapes`, saidOpen = text => { asOpened.said = text === head ? null : text; asOpened.at = Date.now(); hud.say(text); };
+  saidOpen(head + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
     + (data.changed ? `. ${data.changed === 1 ? '1 piece reads' : data.changed + ' pieces read'} differently now: shapes that meet at a corner, or stand under one in a product, touch` : '')
     /* a use that the files drew at another size than its variable's: project.js has set it to its variable's, and says which (no page saves one) */
@@ -2897,6 +2962,9 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
     + (data.unheld && data.unheld.length ? `. ${data.unheld.slice(0, 3).map(u => `${bare(u.name)}'s promise "${u.holds}" is not kept: ${u.why}`).join('; ')}${data.unheld.length > 3 ? `; and ${data.unheld.length - 3} more` : ''}` : '')
     /* a tile whose step or stop block named what is none of its own: project.js has dropped it, and says which tile (no page saves one) */
     + (data.unstepped && data.unstepped.length ? `. ${data.unstepped.slice(0, 3).map(u => `${u.tile ? 'The tile ' + u.tile : 'A tile'} named ${u.key === 'step' ? 'a step that is no arrow on its east side: it has no step now' : 'a stop block that is no block of its pattern: it has no stop block now'}`).join('; ')}${data.unstepped.length > 3 ? `; and ${data.unstepped.length - 3} more` : ''}` : '')
+    /* what was written for a stream and is not read as written, and a tick that was none: project.js says which (no page saves one) */
+    + (data.streamed && data.streamed.length ? `. ${data.streamed.slice(0, 3).map(u => `The stream ${bare(u.name)}: ${u.why}`).join('; ')}${data.streamed.length > 3 ? `; and ${data.streamed.length - 3} more` : ''}` : '')
+    + (data.ticked !== null && data.ticked !== undefined ? `. Its tick was written as ${data.ticked}, which is no whole number from 0: it is read as 0` : '')
     + (data.resized && data.resized.length ? `. ${data.resized.slice(0, 3).map(r => `${bare(r.name)} was drawn ${r.was.cols} × ${r.was.rows} and its variable is ${r.cols} × ${r.rows}`).join('; ')}${data.resized.length > 3 ? `; and ${data.resized.length - 3} more` : ''}: every use of a variable is its size, so ${data.resized.length === 1 ? 'it has' : 'they have'} been set to it` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
@@ -2958,7 +3026,7 @@ function dragged(el, from, e){
   const end = () => { cursor(''); settle(); };
   const grip = el.dataset.grip;
   if (grip && rangedOf(b)){ hud.say(`${bare(b.name)} is part of ${partOf(b)}: its size is that part's`); return { end(){}, move(){} }; }      /* it is as large as its range, and cannot be pulled larger or smaller */
-  if (grip && fileHeld(b)){ hud.say(fileHeld(b)); return { end(){}, move(){} }; }      /* it is as large as its file */
+  if (grip && fileHeld(b) && !streamOf(b.source)){ hud.say(fileHeld(b)); return { end(){}, move(){} }; }      /* it is as large as its file */
   if (grip && orderOf(b)){ hud.say(`${bare(b.name)} is turned here: its sides are its variable's axes. Change them on the shape it was made as`); return { end(){}, move(){} }; }
   if (grip){                                    /* the opposite side or corner stays where it is; never smaller than one square */
     if (!selected.has(b) || selected.size > 1) pick([b]);
@@ -2969,6 +3037,12 @@ function dragged(el, from, e){
       const y0 = grip.includes('n') ? Math.min(snap(p.y), bottom - g) : r.y, y1 = grip.includes('s') ? Math.max(snap(p.y), r.y + g) : bottom;
       /* what touches its right side follows that side; pulling its own left side away from a neighbour is allowed */
       if (madeOne(b, x1 - x0, y1 - y0)){ hud.say(nesting.sizable(1, 1, 1).refused); return; }      /* pulled down to one square: it stays as it was */
+      if (streamOf(b.source)){      /* a stream is pulled by whole values (sources.js: pulled): the size it comes to is drawn, and the message at the end sets it */
+        const over = turned(b), was = { cols: Math.round((over ? r.h : r.w) / g), rows: Math.round((over ? r.w : r.h) / g) }, to = { cols: Math.round((over ? y1 - y0 : x1 - x0) / g), rows: Math.round((over ? x1 - x0 : y1 - y0) / g) };
+        const got = streamPulled(b.source, was, to, bare(b.name)); if (got.refused){ hud.say(got.refused); return; }
+        const w = (over ? got.rows : got.cols) * g, h = (over ? got.cols : got.rows) * g;
+        keepTouching(() => { b.set({ x: grip.includes('w') ? right - w : r.x, y: grip.includes('n') ? bottom - h : r.y, w, h }); }, (left, right) => right === b || (left === b && !grip.includes('e')));
+        return shown(); }
       keepTouching(() => { b.set({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }); agree(b); }, (left, right) => right === b || (left === b && !grip.includes('e') && !b.sides.w));
       shown(); } };
   }
@@ -3193,13 +3267,27 @@ bus.on('project.open', ({ name }) => openKept(name)); bus.on('project.pick', () 
 /* changing the project */
 bus.on('project.load', ({ files, name = null }) => openFrom(files, name), changes);
 /* a source's settings. Noise: its seed, its distribution. A file: which file of the project it reads, and the size that file has, which the block takes. Every use of the variable is the one source. */
-bus.on('source.set', ({ id, seed, dist, file, cols, rows }) => { const b = blockOf(id), kind = b && sourceKind(b.source); if (!b || (kind !== 'noise' && kind !== 'file')) return;
-  const next = kind === 'noise' ? noiseOf(seed === undefined ? b.source.noise.seed : seed, dist === undefined ? b.source.noise.dist : dist) : sourceKept({ file });
-  if (kind === 'file' && !next.file) return hud.say('That is not a file a project may hold: a data file is data/ and one name ending .csv');
+bus.on('source.set', ({ id, seed, dist, file, cols, rows, length }) => { const b = blockOf(id), kind = b && sourceKind(b.source); if (!b || (kind !== 'noise' && kind !== 'file')) return;
+  const st = streamOf(b.source), streamed = st ? { stream: st } : {};      /* a stream stays one: its settings are its own (stream.set) */
+  for (const k of kinOf(b)) asOpened.notes.delete(k.id);
+  const next = kind === 'noise' ? { ...noiseOf(seed === undefined ? b.source.noise.seed : seed, dist === undefined ? b.source.noise.dist : dist), ...streamed } : sourceKept({ file, ...(st ? { stream: { ...st, step: 1 } } : {}) });      /* (a stream given a file begins at one value of it a tick: its step is that value's span, which is 1) */
+  if (kind === 'file' && !next.file) return hud.say(st ? 'That is not a file a project may hold: a data file is data/ and one name ending .csv, .txt or .npy' : 'That is not a file a plain file block reads: it reads data/ and one name ending .csv (a text or a .npy file is read by a File stream)');
   for (const k of kinOf(b)) k.source = next;
   if (kind === 'file' && Number.isInteger(cols) && Number.isInteger(rows) && cols >= 1 && rows >= 1){ const u = view.unit, o = originOf(b), over = turned(o);
-    o.set({ ...o.rect, w: (over ? rows : cols) * u, h: (over ? cols : rows) * u }); agree(o); hud.say(`${bare(b.name)} reads ${next.file}: ${cols} wide × ${rows} tall`); }
+    if (st){      /* the stream takes the file's value: a CSV's columns in one row, one character of a text, a .npy's value whole; as many of them as its length */
+      const fk = fileKind(next.file), v = fk === 'csv' ? { cols, rows: 1 } : fk === 'text' ? { cols: 1, rows: 1 } : { cols, rows }, many = Number.isSafeInteger(length) ? ` of its ${length.toLocaleString('en-US')} ${{ csv: length === 1 ? 'row' : 'rows', text: length === 1 ? 'character' : 'characters', npy: length === 1 ? 'value' : 'values' }[fk]}` : '';
+      o.set({ ...o.rect, w: (over ? v.rows : v.cols * st.length) * u, h: (over ? v.cols * st.length : v.rows) * u }); agree(o);
+      hud.say(`${bare(b.name)} reads ${next.file}: ${st.length === 1 ? 'one value' : st.length + ' values'} of ${v.cols} × ${v.rows} at a time${many}`); }
+    else { o.set({ ...o.rect, w: (over ? rows : cols) * u, h: (over ? cols : rows) * u }); agree(o); hud.say(`${bare(b.name)} reads ${next.file}: ${cols} wide × ${rows} tall`); } }
   shown(); }, changes);
+/* a stream's settings: one of length, cols and rows (a value's), start, step, end. What cannot be is refused with its sentence (sources.js: resized), and nothing changes. Every use of the variable is the one stream. */
+bus.on('stream.set', ({ id, ...set }) => { const b = blockOf(id); if (!b || !streamOf(b.source)) return;
+  const got = streamResized(b.source, streamSize(b), set, bare(b.name)); if (got.refused){ hud.say(got.refused); return shown(); }
+  for (const k of kinOf(b)) asOpened.notes.delete(k.id);
+  restream(b, got); shown(); }, changes);
+/* the tick: the project's clock. Not a change that undo records (it is sent with no `changes`): what the page shows is asked afresh at the new tick. */
+bus.on('tick', ({ tick: to }) => { if (!Number.isSafeInteger(to) || to < 0){ hud.say('The tick is a whole number, from 0'); clock.show(tick); return; }
+  tick = to; clock.show(tick); if (space.owner) write(); shown(); });
 bus.on('add', ({ type, rect, name, source = null }) => { if (unnameable(name)) return shown(); const b = makeBlock({ ...typeNamed(type) }, rect, name); if (sourceKept(source)) b.source = sourceKept(source); space.blocks.push(b); view.world.append(b.el); shown(); }, changes);
 /* place { rects, axes }: where blocks go, and how big: the end of a move or a resize. axes, where a side that was
    pulled carries the name of an inner axis: [{ id, index, length }], that axis of that block's variable at its new
@@ -3209,6 +3297,10 @@ bus.on('place', ({ rects, axes = [] }) => { const u = view.unit;
   for (const a of axes){ const b = blockOf(a.id), axis = b && (b.inner || [])[a.index]; if (axis && nesting.lengthOk(a.length).ok) axis.length = a.length; }
   for (const r of rects){ const b = blockOf(r.id); if (!b) continue;
     if (madeOne(b, r.w, r.h)){ hud.say(nesting.sizable(1, 1, 1).refused); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }
+    if ((r.w !== b.rect.w || r.h !== b.rect.h) && streamOf(b.source)){      /* a stream at another size: by whole values, its length or its value's sides with it (sources.js: pulled) */
+      const over = turned(b), got = streamPulled(b.source, streamSize(b), { cols: Math.round((over ? r.h : r.w) / u), rows: Math.round((over ? r.w : r.h) / u) }, bare(b.name));
+      if (got.refused){ hud.say(got.refused); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }
+      b.set({ ...b.rect, x: r.x, y: r.y }); restream(b, got); continue; }
     if ((r.w !== b.rect.w || r.h !== b.rect.h) && fileHeld(b)){ hud.say(fileHeld(b)); b.set({ ...b.rect, x: r.x, y: r.y }); continue; }      /* a block that reads a file goes where it is put, at the file's size */
     b.set({ x: r.x, y: r.y, w: r.w, h: r.h }); }
   shown(); }, changes);
@@ -3438,7 +3530,9 @@ const menu = createMenu([
   { label: 'New', items: () => shapes.map(shape => ({ label: shape.label || shape.name, run: () => bus.send('new', { type: shape.name }),
     ...(shape.name === 'tensor' ? { items: SOURCES.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind }) })) } : {}),
     /* Data in: the two sources whose numbers the backend has. Clicking it draws noise; resting on it offers a file too */
-    ...(shape.name === 'data-in' ? { run: () => bus.send('new', { type: shape.name, source: noiseOf() }), items: DATA.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind === 'noise' ? noiseOf() : { file: null } }) })) } : {}) }))
+    ...(shape.name === 'data-in' ? { run: () => bus.send('new', { type: shape.name, source: noiseOf() }), items: [...DATA.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind === 'noise' ? noiseOf() : { file: null } }) })),
+      /* and the two streams: noise, or a file, that moves on with the tick */
+      ...STREAMS.map(s => ({ label: s.label, run: () => bus.send('new', { type: shape.name, source: s.kind === 'noise' ? { ...noiseOf(), stream: streamNew() } : { file: null, stream: streamNew() } }) }))] } : {}) }))
     .concat([{ label: 'Tile', run: () => bus.send('new', { type: 'tile' }) }]) },      /* a tile is no kind of block: it is drawn round them */
   { label: 'Undo', hint: mod + 'Z', disabled: () => !history.canUndo(), run: () => bus.send('undo') },
   { label: 'Redo', hint: mod + (mod === '⌘' ? '⇧Z' : 'Y'), disabled: () => !history.canRedo(), run: () => bus.send('redo') },
@@ -3461,11 +3555,15 @@ const menu = createMenu([
 ], { onWhy: text => hud.say(text) });
 const hud = createHud({ onHome: () => bus.send('camera.home') });
 const crumbs = createCrumbs({ onGo: index => bus.send('space.go', { index }) });
+/* the clock: the tick shown, typed (a whole number from 0) and stepped by one */
+const clock = createClock({
+  onSet: text => { const t = text.trim().replace(/[,\s]/g, ''); if (!/^\d+$/.test(t) || !Number.isSafeInteger(Number(t))){ hud.say(`The tick is a whole number, from 0${/^\d+$/.test(t) ? ', and that is more than is counted exactly' : ''}: ${text.trim() ? '"' + text.trim().slice(0, 20) + '" is not one' : 'nothing was typed'}`); return clock.show(tick); } bus.send('tick', { tick: Number(t) }); },
+  onStep: by => { if (tick + by < 0) return hud.say('The tick is 0: it does not go below'); if (!Number.isSafeInteger(tick + by)) return hud.say('The tick is as large as is counted exactly'); bus.send('tick', { tick: tick + by }); } });
 const view = createView({
   onChange: camera => bus.send('camera', camera),
   onMenu: (x, y, el) => bus.send('menu.open', { x, y, id: blockAt(el)?.id ?? null }),
   onClick: clicked,                             /* these two read the pointer, and send what it amounts to */
   onDrag: dragged,
 });
-document.body.append(view.el, menu.el, hud.el, properties.el, crumbs.el, variables.el, warning.el);
+document.body.append(view.el, menu.el, hud.el, properties.el, crumbs.el, variables.el, warning.el, clock.el);
 hud.show(view.camera());

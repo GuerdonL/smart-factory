@@ -1,0 +1,36 @@
+{
+  "format": "smart-factory/shape",
+  "version": 8,
+  "id": "boqaewj",
+  "type": "data-in",
+  "name": "Rows",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": -24,
+    "y": -6
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 39,
+  "source": {
+    "file": "data/rows.csv"
+  },
+  "stream": {
+    "length": 2,
+    "start": 0,
+    "step": 2,
+    "end": "wrap"
+  }
+}

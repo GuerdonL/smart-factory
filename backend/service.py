@@ -2,7 +2,7 @@
 
     python -m backend [port]          (default 8001; run from the repository's root, with backend/requirements.txt installed)
 
-    GET  /health                      -> { "ok": true, "version": 5 }
+    GET  /health                      -> { "ok": true, "version": 6 }
     POST /run                         <- { "graph", "want", "tick", "project" }   -> { "results", "errors" }   (run.py has both in full)
     POST /data?project=<name>&path=data/<file>.csv     <- the file's bytes        -> { "path", "cols", "rows" } (and "small": see run.py), or { "error": why } where it is refused (413 where it is too large to be read at all)
 

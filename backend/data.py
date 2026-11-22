@@ -1,8 +1,10 @@
-"""A project's data files: where they are, and what a numeric CSV is. Standard library only.
+"""A project's data files: where they are, and what a numeric CSV and a text are. Standard library only.
 
-A file source reads a table of numbers kept with its project, at projects/<project>/data/<name>.csv. A path that
+A file source reads a table of numbers kept with its project, at projects/<project>/data/<name>.csv; a stream
+(graph.js) reads such a table row by row, or a text, data/<name>.txt, character by character, or an array,
+data/<name>.npy, index by index (what a .npy file is, is arrays.py's to say: run.py hands look to taken). A path that
 comes in a request is never joined to anything as it stands: the project's name has to be one plain directory name
-(as server.py has it), the path has to be "data/" and one .csv file name (check.py: data_path, the same rule as
+(as server.py has it), the path has to be "data/" and one .csv, .txt or .npy file name (check.py: data_path, the same rule as
 sources.js), and what the two then name has to lie inside the projects directory with no symbolic link on the way.
 So no request can read or write outside a project's own data/ directory.
 
@@ -16,6 +18,14 @@ So no request can read or write outside a project's own data/ directory.
                                         holds something else (the same bytes again are taken as said); and only
                                         while the project's data/ holds no more than MAX_DATA_FILES files and
                                         MAX_DATA_BYTES bytes in all. Written beside it first, then moved in.
+    read_bytes(project, path, root)  -> the file's bytes; raises Refused
+    text_of(body, path)              -> a text file's characters, as a str: UTF-8, a byte order mark at its head
+                                        passed over; raises Refused for what is not UTF-8, for an empty text and
+                                        for one of more than MAX_ENTRIES characters
+    taken(project, path, body, root, look) -> keeps an uploaded file as take does, whatever kind its path says it is,
+                                        and gives what look(body, path) gave: { cols, rows, length, … }. look
+                                        raises Refused for what is no such file; left out, it is looked (a CSV and
+                                        a text are looked at here; a .npy needs arrays.py, so run.py hands one in)
     inspect(text)                    -> (skip, cols, rows): how many lines at its head are a header (0 or 1), and the
                                         table's size; raises Refused where it is not a table of numbers
     survey(text)                     -> (skip, cols, rows, small): the same, and how many of its numbers are written
@@ -39,7 +49,7 @@ try:
 except ImportError:
     fcntl = None
 
-from .check import data_path
+from .check import data_path, file_kind
 from .limits import MAX_DATA_BYTES, MAX_DATA_FILES, MAX_ENTRIES, MAX_UPLOAD, megabytes
 
 PROJECTS = os.environ.get('SMART_FACTORY_PROJECTS') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'projects')
@@ -68,7 +78,7 @@ def where(project, path, root=None):
     if not isinstance(project, str) or not NAME.fullmatch(project) or project in ('.', '..'):
         raise Refused('a project name is letters, digits, spaces, _ . and -, up to 64, starting with a letter or digit')
     if data_path(path) is None:
-        raise Refused('a data file is at data/ and one name ending .csv, of letters, digits, spaces, _ . and -')
+        raise Refused('a data file is at data/ and one name ending .csv, .txt or .npy, of letters, digits, spaces, _ . and -')
     home = os.path.join(root, project)
     folder = os.path.join(home, 'data')
     full = os.path.join(folder, path[len('data/'):])
@@ -81,13 +91,44 @@ def where(project, path, root=None):
 
 
 def read_text(project, path, root=None):
+    return decode(read_bytes(project, path, root), path)
+
+
+def text_of(body, path='the file'):
+    if len(body) > MAX_UPLOAD:
+        raise Refused('%s is larger than %s' % (path, megabytes(MAX_UPLOAD)))
+    try:
+        text = body.decode('utf-8-sig')
+    except UnicodeDecodeError as e:
+        raise Refused('%s is not UTF-8 text: its byte %s is no part of a UTF-8 character. A text file is read as UTF-8, one code point to a character' % (path, format(e.start + 1, ',')))
+    if not text:
+        raise Refused('%s is empty: a text has at least one character' % path)
+    if len(text) > MAX_ENTRIES:
+        raise Refused('%s has %s characters, more than the %s a data file may hold' % (path, format(len(text), ','), format(MAX_ENTRIES, ',')))
+    return text
+
+
+def looked(body, path):
+    """What an uploaded file is, by its path's ending: { cols, rows, length } (and small, for a CSV); raises Refused."""
+    if file_kind(path) == 'text':
+        return {'cols': 1, 'rows': 1, 'length': len(text_of(body, path))}
+    if file_kind(path) != 'csv':
+        raise Refused('%s is not a kind of data file that is read here' % path)
+    _, cols, rows, small = survey(decode(body, path))
+    return {'cols': cols, 'rows': rows, 'length': rows, 'small': small}
+
+
+def read_bytes(project, path, root=None):
     full = where(project, path, root)
     try:
-        if os.path.getsize(full) > MAX_UPLOAD:
-            raise Refused('%s is larger than %s' % (path, megabytes(MAX_UPLOAD)))
         fd = os.open(full, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
         with os.fdopen(fd, 'rb') as f:
-            return decode(f.read(MAX_UPLOAD + 1), path)
+            if os.fstat(f.fileno()).st_size > MAX_UPLOAD:
+                raise Refused('%s is larger than %s' % (path, megabytes(MAX_UPLOAD)))
+            got = f.read(MAX_UPLOAD + 1)
+            if len(got) > MAX_UPLOAD:
+                raise Refused('%s is larger than %s' % (path, megabytes(MAX_UPLOAD)))
+            return got
     except FileNotFoundError:
         raise Refused('%s is not in the project %s: choose the file again' % (path, project))
     except OSError as e:
@@ -182,18 +223,25 @@ def _same_file(full, body):
 
 
 def take(project, path, body, root=None):
+    got = taken(project, path, body, root)
+    return got['cols'], got['rows'], got.get('small', 0)
+
+
+def taken(project, path, body, root=None, look=None):
     full = where(project, path, root)
     home = os.path.dirname(os.path.dirname(full))
     project_json = os.path.join(home, 'project.json')
     if not os.path.isfile(project_json):
         raise Refused('there is no saved project called %s: save the project under a name first, and its data files are kept with it' % project)
-    _, cols, rows, small = survey(decode(body, path))
+    if len(body) > MAX_UPLOAD:
+        raise Refused('%s is larger than %s' % (path, megabytes(MAX_UPLOAD)))
+    seen = (look or looked)(body, path)
     folder = os.path.dirname(full)
     try:
         with _project_lock(project_json):
             if os.path.lexists(full):      # never over what is there: the same file again is the file that is there
                 if _same_file(full, body):
-                    return cols, rows, small
+                    return seen
                 raise Refused('%s is already a file of %s, and holds something else: a data file is not replaced' % (path, project))
             there = [os.path.join(folder, n) for n in os.listdir(folder) if not n.startswith('.')] if os.path.isdir(folder) else []
             if len(there) >= MAX_DATA_FILES:
@@ -211,11 +259,11 @@ def take(project, path, body, root=None):
                 os.link(fresh, full)      # (a link fails where the name has been taken meanwhile: nothing is ever written over)
             except FileExistsError:
                 if os.path.isfile(full) and not os.path.islink(full) and _same_file(full, body):
-                    return cols, rows, small
+                    return seen
                 raise Refused('%s is already a file of %s: a data file is not replaced' % (path, project))
             finally:
                 if os.path.exists(fresh):
                     os.unlink(fresh)
     except OSError as e:
         raise Refused('%s could not be kept (%s)' % (path, e.strerror or 'the directory cannot be written'))
-    return cols, rows, small
+    return seen

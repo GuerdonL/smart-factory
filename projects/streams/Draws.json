@@ -1,0 +1,39 @@
+{
+  "format": "smart-factory/shape",
+  "version": 8,
+  "id": "bg2nlhj",
+  "type": "data-in",
+  "name": "Draws",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": -16,
+    "y": -12
+  },
+  "size": {
+    "cols": 8,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 38,
+  "source": {
+    "noise": {
+      "seed": 7,
+      "dist": "uniform"
+    }
+  },
+  "stream": {
+    "length": 4,
+    "start": 0,
+    "step": 1,
+    "end": "stop"
+  }
+}

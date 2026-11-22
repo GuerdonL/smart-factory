@@ -6,7 +6,7 @@
    A frame (several shapes framed together; once called a group) is one combined file holding all of its shapes.
 
        my-project/
-         project.json              what this is, and when it was saved
+         project.json              what this is, when it was saved, and its tick (see "The tick", below)
          Embedding.json            a shape
          Keys.json                 a shape with a definition ...
          Keys/                     ... which is this directory
@@ -15,7 +15,8 @@
          Pair.frame.json           a frame: several shapes in one file
          .config                   the frame called .config, under exactly that name (see below)
          operations.json           what Difference and Intersect have cut in this space, if anything (see below)
-         data/                     the files its file sources read: data/weights.csv (only here, at the top)
+         data/                     the files its file sources and streams read: data/weights.csv, data/words.txt,
+                                   data/cube.npy (only here, at the top)
 
    The project's own directory is the top space, the Menu.
 
@@ -68,6 +69,14 @@
          "source": { "noise": { "seed": 0, "dist": "uniform" } },
                                                  or noise: a whole number for its seed, and "uniform" or "normal"
          "source": { "file": "data/weights.csv" },   or the numbers of that file of the project (null: none chosen yet)
+         "stream": { "length": 8, "start": 0, "step": 1, "end": "stop" },
+                                                 beside a source of noise or of a file: it is a stream (sources.js),
+                                                 which shows length successive values side by side and moves on by
+                                                 step units each tick from start; end is "stop" or "wrap". Its size
+                                                 is all it shows: one value is its columns over length wide. Where
+                                                 it stands is never written: that follows from the tick. start and
+                                                 step may be null (not known). A stream's file may be a .csv, a .txt
+                                                 or a .npy; a plain file source's is a .csv. Format 8
          "attributes": [ { "name": "heads", "value": "2^(3) + 1" } ],
                                                  attributes given to the variable by hand: a name, and a value as it was
                                                  typed (a number, or a formula; ^( ) is a power). It may hold
@@ -201,18 +210,38 @@
    write(project) -> [{ path, text }]       paths are relative to the project's directory, with / between parts
    read(files)    -> project                files: [{ path, text }]; throws if there is no project.json
    project: { top: space, saved: an ISO date, ids: where the project's source of ids has got to (ids.js), kept in project.json,
+              tick: the project's clock, a whole number from 0 (0 where left out), kept in project.json,
               data: { "data/weights.csv": the file's text } }      the data files, written and read as they are: a path
-                                                                    that is not data/ and one .csv name (sources.js:
-                                                                    dataPath) is neither written nor read
+                                                                    that is not data/ and one .csv, .txt or .npy name
+                                                                    (sources.js: dataPath) is neither written nor
+                                                                    read. A .npy file's text is its bytes in base64
+                                                                    (server.py turns it to bytes and back)
+
+   The tick. project.json holds "tick": the project's clock, a whole number from 0. A stream's place and the state of
+   a loop with no end follow from it, and nothing else is kept of either. It is saved with the project and is not a
+   change that undo records. Reading, a tick that is no whole number from 0 is 0, and read says so (ticked).
 
    read's project also carries converted: how many old stacks were fused on the way in, and changed: how many other
    pieces of an old project now read differently (see below for both); each 0 for a project of this format. And
    resized: the references that were drawn at another size than their variable's and have been set to it (see
    oneSize), [{ name, cols, rows, was }]; empty for every project a page saved. And unstepped: the tiles whose
    "step" or "until" named what is no step or stop block of theirs and has been dropped (see unstepped),
-   [{ tile, key }]; empty for every project a page saved.
+   [{ tile, key }]; empty for every project a page saved. And streamed: what was written for a stream and is not
+   read as written, [{ id, name, why }] (the shape's id and name): a setting that is none (it is read as its default), a "stream" on what is
+   neither noise nor a file (dropped), a size that is no whole number of values (its length is read as 1), a text
+   more than one row tall (read as a text of one row is not: the block keeps its size, and says so itself), a file
+   that is not among the project's files, a file that is no data file this program reads (it is no file chosen);
+   empty for every project a page saved. And ticked: null, or the tick as it was written (its JSON text) where that
+   was no whole number from 0.
 
-   The format is 7. Format 7 adds to format 6, on a tile's "repeat": "step", the id of the arrow that is the tile's
+   The format is 8. Format 8 adds to format 7 "stream" on a shape, beside its source; "tick" in project.json; and
+   .txt and .npy files under data/. A format 7 project has none of the three and is read exactly as it is (its
+   tick is 0); saved again it differs only in the format number and in project.json saying "tick": 0. The number
+   went up so that a program from before streams refuses such a project ("saved by a newer version") where it would
+   have opened it, read every stream as a plain block that never moves on, dropped the tick and the text and array
+   files, and saved it so.
+
+   Format 7 adds to format 6, on a tile's "repeat": "step", the id of the arrow that is the tile's
    progression function; "until", the id of its stop block; and a count of "inf", one that does not end (tiles.js).
    A format 6 project has none of the three and is read exactly as it is; saved again it differs only in the
    format number. The number went up so that a program from before loops refuses such a project ("saved by a newer
@@ -289,10 +318,13 @@
 
 import { stacks, pieces, isFormula, isSurd, isInteger, storable } from './algebra.js';
 import { parse as spaceOf, promise as promiseOf } from './spaces.js';
-import { kept as sourceOf, dataPath } from './sources.js';
+import { kept as sourceOf, dataPath, streamRead, streamOf, streamKind } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 7;
+export const FORMAT = 8;
+const tickOf = t => (Number.isSafeInteger(t) && t >= 0 ? t : 0);
+/* a source as it is written: the source itself, and its stream beside it */
+const sourceOut = source => { const k = sourceOf(source); if (!k) return {}; if (typeof k === 'string' || !k.stream) return { source: k }; const { stream, ...rest } = k; return { source: rest, stream }; };
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
 const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
 const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */
@@ -377,7 +409,7 @@ export function write(project){
       if (inside){ if (v !== null) written.add(v); space(inside, dir + name + '/'); }
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.length) } : {}) },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.name) } : {}) }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(spaceOf(shape.holds) ? { holds: shape.holds } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}), ...(axesOf(shape) ? { axes: axesOf(shape) } : {}),
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.name) } : {}) }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(spaceOf(shape.holds) ? { holds: shape.holds } : {}), ...sourceOut(shape.source), ...(shape.transposed ? { transposed: true } : {}), ...(axesOf(shape) ? { axes: axesOf(shape) } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: fromOut(shape.from) } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
@@ -392,7 +424,7 @@ export function write(project){
     if (s.operations?.length) files.push({ path: dir + 'operations.json', text: JSON.stringify({ format: 'smart-factory/operations', version: FORMAT,
       operations: s.operations.map(o => ({ id: o.id, op: o.op, sources: o.sources.map(shape => config(shape, 0)[1]), results: [...o.results], ...(o.was ? { was: o.was.map(w => ({ order: w.order, frames: w.frames.map(f => ({ id: f.id, name: f.name ?? null })) })) } : {}) })) }, null, 2) + '\n' });
   };
-  files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, ...(project.ids ? { ids: project.ids } : {}) }, null, 2) + '\n' });
+  files.push({ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: FORMAT, saved: project.saved || null, ...(project.ids ? { ids: project.ids } : {}), tick: tickOf(project.tick) }, null, 2) + '\n' });
   space(project.top, '');
   for (const path of Object.keys(project.data || {}).sort()) if (dataPath(path) && typeof project.data[path] === 'string') files.push({ path, text: project.data[path] });      /* the data files, as they are */
   return files;
@@ -400,6 +432,17 @@ export function write(project){
 
 export function read(files){
   const unheld = [];                            /* the promises that could not be kept as written: [{ name, holds, why }] */
+  const streamed = [];                          /* what was written for a stream and is not read as written: [{ id, name, why }] */
+  /* a shape's source as it is read: with its stream, where "stream" is beside a source of noise or of a file */
+  const sourceBack = c => { const plain = sourceOf(c.source), name = String(c.name ?? 'Shape'), id = typeof c.id === 'string' ? c.id : null; if (c.stream === undefined || c.stream === null) return plain;
+    if (!plain || typeof plain === 'string'){ streamed.push({ id, name, why: 'it is written as a stream, and only noise and a data file are streamed: it is read as what it is without one' }); return plain; }
+    const r = streamRead(c.stream); for (const why of r.said) streamed.push({ id, name, why });
+    if (!r.stream) return plain;
+    const cols = Math.max(1, Math.round(+c.size?.cols || 1));
+    if (cols % r.stream.length){ streamed.push({ id, name, why: `it is ${cols} columns for a length of ${r.stream.length}, which is no whole number of values: its length is read as 1` }); r.stream.length = 1; }
+    const got = sourceOf({ ...c.source, stream: r.stream });
+    if (got && 'file' in got && got.file === null && c.source.file !== null && c.source.file !== undefined) streamed.push({ id, name, why: `it reads ${JSON.stringify(c.source.file).slice(0, 60)}, which is no data file this program reads (data/ and one name ending .csv, .txt or .npy): it has no file chosen` });
+    return got; };
   /* whatever directory project.json is in is the project's; everything is read relative to it */
   const all = files.map(f => ({ path: f.path.replace(/\\/g, '/').replace(/^\/+/, ''), text: f.text }));
   const head = all.filter(f => /(^|\/)project\.json$/.test(f.path)).sort((a, b) => a.path.length - b.path.length)[0];
@@ -427,7 +470,7 @@ export function read(files){
       const turned = axesOf({ reference: !!c.reference, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides, String(c.name ?? 'A shape')), axes: c.axes });
       return { ...(turned ? { axes: turned } : {}), id: typeof c.id === 'string' ? c.id : null, type: c.type || 'tensor', name: String(c.name ?? 'Shape'), color: c.color || null, x: +c.position?.x || 0, y: +c.position?.y || 0,
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides, String(c.name ?? 'A shape')),
-        entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
+        entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceBack(c), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
         reference: !!c.reference, from: fromBack(c.from), ...(spaceOf(c.holds) ? { holds: c.holds } : (c.holds !== undefined && unheld.push({ name: String(c.name ?? 'Shape'), holds: String(c.holds).slice(0, 40), why: (typeof c.holds === 'string' && promiseOf(c.holds).refused) || 'a promise is written as one word, a number space' }), {})),      /* a promise: only where there is one, and only a word that is a number space (complex is none); one that is no such word is dropped, and said (unheld) */
         arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
@@ -446,7 +489,8 @@ export function read(files){
   };
   const top = space('');
   const data = {}; for (const [path, text] of at) if (dataPath(path) && typeof text === 'string') data[path] = text;
-  let project = { top, saved: meta.saved || null, ids: meta.ids || null, data };
+  let project = { top, saved: meta.saved || null, ids: meta.ids || null, tick: tickOf(meta.tick), data };
+  const ticked = meta.tick === undefined || tickOf(meta.tick) === meta.tick ? null : JSON.stringify(meta.tick);
   if ((meta.version || 1) < 2 && [...at.keys()].some(p => p.startsWith('_settings/'))){      /* format 1: see the note above */
     const menu = space('_settings/');
     if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'variable-3', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
@@ -473,7 +517,9 @@ export function read(files){
   look(project.top);
   const shown = d => d.variable != null && [...inSpace].some(v => !v.arrow && v.variable === d.variable);
   for (const s of spaces) for (const o of s.operations || []) for (const d of o.sources) if (d.holds !== undefined && !shown(d)){ unheld.push({ name: d.name, holds: d.holds, why: 'it is kept off the canvas by a cut, where a promise can be neither seen nor taken off' }); delete d.holds; }
-  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld, unstepped: unstepped(spaces) };
+  /* a stream that reads a file the project has not got: said, so that it does not open as if nothing were missing */
+  const told = new Set(); for (const d of every){ const st = streamOf(d.source), file = st && d.source.file; if (file && !(file in data) && !told.has(d.name + file)){ told.add(d.name + file); streamed.push({ id: d.id || null, name: d.name, why: `it reads ${file}, which is not among the project's files: choose the file again` }); } }
+  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld, unstepped: unstepped(spaces), streamed, ticked };
 }
 
 /* Every use of a variable is one size: the size of the shape the variable was made as, the other way round where one

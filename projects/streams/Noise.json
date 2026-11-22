@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 8,
+  "id": "baxe4sn",
+  "type": "data-in",
+  "name": "Noise",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": -24,
+    "y": -12
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 37,
+  "source": {
+    "noise": {
+      "seed": 7,
+      "dist": "uniform"
+    }
+  }
+}

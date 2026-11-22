@@ -5,7 +5,7 @@ wherever the browser works a node out exactly, the numbers here are those, to wi
 Each operation's rule is an entry of OPS below, as it is an entry of OPS in graph.js; the rules ask arrays.py for
 every array and hold no number of their own. This file does not import NumPy.
 
-    Run(graph, read_file=None, tick=0)      one run over one graph that validate (check.py) has accepted
+    Run(graph, read_file=None, tick=0, room, counts, read_roll=None)      one run over one graph that validate (check.py) has accepted
       .needs(node)        -> { most, where, bad }: the most numbers (columns times rows times every inner length) of anything the node's value is worked out from
                              (and which node has them), and why it has no value where a variable it is worked out
                              from has an error
@@ -53,8 +53,20 @@ what a step's body came to is let go like any other value. What a loop and a ste
 at from no function or cell, is kept for the whole run (finished), and a cell's state asked for after the matrix is
 read off the matrix; run.py asks for a tile's matrix first, then its cells in order, then the rest, so that one
 pass serves them. Letting go never changes an answer: what is gone is worked out again, noise included. A loop is stopped after MAX_STEPS steps (limits.py), "not
-stopped after 1,000,000 steps: a loop is stopped then", as a run is at MAX_SECONDS; one with an infinite count and
-no stop block is refused, "it runs until stopped". A stop block with no truth is no value, as a condition is.
+stopped after 1,000,000 steps: a loop is stopped then", as a run is at MAX_SECONDS. A stop block with no truth is
+no value, as a condition is.
+
+The tick is the project's clock, a whole number the run is given. Three things read it. Noise does not: a noise
+block holds the same numbers at every tick. A loop with an infinite count and no stop block takes one step each
+tick: at tick t it is the state of cell t + 1, worked out from the first cell every run (any tick's value follows
+from the graph and the tick alone), and refused past MAX_STEPS like any loop. And a stream (v_stream) shows the
+values at its place, start + tick × step. Inside a tile that takes a step each tick, cell k is what the tile was at
+tick k - 1, so a stream there is read at that tick (tick_at): the running total of a stream's rows is such a tile.
+A stream that stops at its file's end and is asked for past it raises Ended, which run.py answers under "ended".
+
+A stream's file is read whole once for a run (roll) and kept as its units; what is kept of files counts against the
+run's room beside what is remembered (rolls_held), the oldest file is let go first where they outgrow it, and a
+file that alone is more than half the room is refused, as a node that would not fit is.
 
 What has been worked out is remembered for the run, up to half the room the run was given for its arrays (room, in
 bytes: limits.py says how it follows from the machine's memory): past that the oldest results are let go, and worked
@@ -79,6 +91,15 @@ MAX_KEPT = 50_000      # values a run keeps at once, however small: a loop of a 
 
 class Trouble(Exception):
     """A node has no value; str() says why, plainly."""
+
+
+class Ended(Trouble):
+    """A stream that stops at its end was asked for past it. node: the stream's id; tick: the first tick at which it
+    has no value."""
+
+    def __init__(self, why, node, tick):
+        Trouble.__init__(self, why)
+        self.node, self.tick = node, tick
 
 
 class Broken(Trouble):
@@ -382,7 +403,44 @@ def v_source(n, at):
 
 
 def v_noise(n, at):
-    return A.noise(int(n['seed']), n['key'], int(n['type']['rows']), int(n['type']['cols']), n['dist'], at.run.tick, [(c['cx'], c['cy']) for c in at.cells], lengths(n['type']))
+    # the same at every tick: a noise block does not move on with the clock (only a stream does)
+    return A.noise(int(n['seed']), n['key'], int(n['type']['rows']), int(n['type']['cols']), n['dist'], 0, [(c['cx'], c['cy']) for c in at.cells], lengths(n['type']))
+
+
+UNITS = {'csv': ('row', 'rows'), 'text': ('character', 'characters'), 'npy': ('value', 'values')}
+
+
+def v_stream(n, at):
+    """Successive values side by side (graph.js: stream; sources.js sets out the kinds). Value j begins at unit
+    start + tick × step + j × span. Noise: the generator's draw with the unit for its tick and no cell in its key.
+    A file: span units from there, of the file's roll."""
+    run, kind = at.run, n['kind']
+    rows, cols, length = int(n['type']['rows']), int(n['type']['cols']), int(n['length'])
+    wide = cols // length
+    for setting in ('start', 'step'):
+        if n[setting] is None:      # a setting that is not known: no value, never a guess
+            raise Trouble('its %s is not known: a stream with a setting that is not known has no value' % setting)
+    start, step = int(n['start']), int(n['step'])
+    first = start + run.tick_at(at.cells) * step
+    if kind == 'noise':
+        return A.beside([A.noise(int(n['seed']), n['key'], rows, wide, n['dist'], first + j, (), ()) for j in range(length)])
+    roll = run.roll(kind, n['path'])
+    most, (unit_rows, unit_cols) = A.units(roll), A.unit(roll)
+    one, many = UNITS[kind]
+    if kind == 'csv':
+        span, down, fits = rows, True, unit_cols == wide
+    elif kind == 'text':
+        span, down, fits = wide, False, True
+    else:
+        span, down, fits = 1, True, (unit_rows, unit_cols) == (rows, wide)
+    if not fits:
+        raise Trouble('%s holds values of %d × %d, and one value of its stream is %d × %d: choose the file again, and the stream takes its size' % (n['path'], unit_cols, unit_rows if kind == 'npy' else rows, wide, rows))
+    need = length * span      # the units its window takes in, from first
+    if n['end'] == 'stop' and first + need > most:
+        last = most - need - start      # the furthest its window can have moved on and still lie in the file
+        ended = 0 if last < 0 else last // step + 1
+        raise Ended('it ended at tick %s: %s has %s, and it stops at its end' % (format(ended, ','), n['path'], '%s %s' % (format(most, ','), one if most == 1 else many)), at.id, ended)
+    return A.window(roll, [(first + j * span) % most for j in range(length)], span, down)
 
 
 def v_measure(n, at):
@@ -551,9 +609,9 @@ def v_loop(n, at):
                 return A.full(int(t['rows']), int(t['cols']), NAN, lengths(t))
     if count == 'inf':
         count = math.inf
-    if count == math.inf and n['until'] is None:
-        raise Trouble('it runs until stopped: its count is infinite and it has no stop block')
     state = lambda k: state_in(run, tile, at.env, k) if k > 1 else A.part(whole_cell(run, tile, n, at.env, 1), int(n['state']['row']), int(n['state']['col']), int(n['state']['rows']), int(n['state']['cols']))
+    if count == math.inf and n['until'] is None:      # it has no last cell: it takes one step each tick, and is the state of the cell after as many
+        return state(run.tick + 1)
     k = 1
     while n['until'] is not None and k <= count:
         if k - 1 > MAX_STEPS:
@@ -660,6 +718,7 @@ OPS = {
     'slice': v_slice,
     'source': v_source,
     'noise': v_noise,
+    'stream': v_stream,
     'measure': v_measure,
     'map': v_map,
     'apply': positioned(lambda n, at: at.call(n['fn'], at.get(0), at.key_of(0))),
@@ -697,7 +756,8 @@ def too_many(nodes, need, node):
 
 
 class Run:
-    def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST, counts=None):
+    def __init__(self, graph, read_file=None, tick=0, room=MEMORY_LEAST, counts=None, read_roll=None):
+        self.read_roll, self.rolls, self.rolls_held = read_roll, OrderedDict(), 0      # the files streams read, as their units: (kind, path) -> a roll, and the bytes of them all
         self.counts = counts or {}      # loop -> its count, where the page settled it exactly (run.py: counts)
         self.graph, self.nodes, self.functions, self.tick = graph, graph['nodes'], graph['functions'], tick
         self.room, self._weights, self._masked = room, {}, {}      # room: the bytes its arrays may take in all
@@ -726,6 +786,43 @@ class Run:
                 raise Trouble('%s: a data file is read from a project, and the run names none' % path)
             self.files[path] = self.read_file(path)
         return self.files[path]
+
+    def roll(self, kind, path):
+        """A stream's file as its units (arrays.py: a roll), read once for the run. What is kept of files counts against
+        the run's room: the oldest are let go where they outgrow half of it (and are read again if asked for), and a
+        file that alone is more than that is refused."""
+        key = (kind, path)
+        if key in self.rolls:
+            self.rolls.move_to_end(key)
+            return self.rolls[key]
+        if data_path(path) is None or self.read_roll is None:
+            raise Trouble('%s: a data file is read from a project, and the run names none' % path)
+        got = self.read_roll(kind, path)
+        size = A.size(got)
+        if size > self.room // 2:
+            raise Trouble('%s holds %s numbers, which need about %d MB of memory, more than the %d MB a run may take for one file' % (path, format(size // BYTES_AN_ENTRY, ','), max(1, size >> 20), max(1, self.room >> 21)))
+        self.rolls[key] = got
+        self.rolls_held += size
+        while self.rolls_held > self.room // 2 and len(self.rolls) > 1:
+            _, gone = self.rolls.popitem(last=False)
+            self.rolls_held -= A.size(gone)
+        return got
+
+    def ticking(self, tile):
+        """Whether a tile takes one step each tick: its loop has an infinite count and no stop block."""
+        self.homes()
+        i = self.loops.get(tile)
+        n = self.nodes[i] if i is not None else None
+        return n is not None and n['op'] == 'loop' and n['count'] == 'inf' and n['until'] is None
+
+    def tick_at(self, cells):
+        """The tick a stream is read at, and a loop with no last cell stepped to, looked at from these cells: the
+        run's, but inside cell k of a tile that takes a step each tick it is k - 1, the innermost such tile's."""
+        for c in reversed(cells):
+            for tile in c['of'] or ():
+                if self.ticking(tile):
+                    return step_number(self.nodes[self.loops[tile]], c) - 1
+        return self.tick
 
     def follows(self, i):
         """Whether a node's value follows the cell it is worked out in (evaluate.js: follows)."""
@@ -1043,7 +1140,7 @@ class Run:
             self.finished[key] = value
             return value
         self.kept[key] = value
-        while (self.held + self.stepped_held > self.room // 2 or len(self.kept) > MAX_KEPT) and len(self.kept) > 1:      # the oldest are let go: they are worked out again if they are asked for
+        while (self.held + self.stepped_held + self.rolls_held > self.room // 2 or len(self.kept) > MAX_KEPT) and len(self.kept) > 1:      # the oldest are let go: they are worked out again if they are asked for
             _, gone = self.kept.popitem(last=False)
             self.held -= A.size(gone)
         return value

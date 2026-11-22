@@ -62,7 +62,7 @@ class Validate(unittest.TestCase):
             self.bad(g(inner), inner)
 
     def test_both_versions_are_read(self):
-        for version, good in ((1, True), (2, True), (3, True), (4, True), (5, True), (6, False), (0, False), ('2', False), (True, False)):
+        for version, good in ((1, True), (2, True), (3, True), (4, True), (5, True), (6, True), (7, False), (0, False), ('2', False), (True, False)):
             self.assertEqual(validate(graph_of({'a': variable(1, 1, [[1]])}, version=version)) == [], good, version)
 
     def test_an_entry_key_has_one_number_for_each_axis(self):

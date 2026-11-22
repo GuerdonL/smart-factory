@@ -1,0 +1,36 @@
+{
+  "format": "smart-factory/shape",
+  "version": 8,
+  "id": "b5xfbdp",
+  "type": "data-in",
+  "name": "Letters",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": -16,
+    "y": -6
+  },
+  "size": {
+    "cols": 5,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 40,
+  "source": {
+    "file": "data/letters.txt"
+  },
+  "stream": {
+    "length": 1,
+    "start": 0,
+    "step": 5,
+    "end": "wrap"
+  }
+}

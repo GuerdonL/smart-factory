@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 8,
+  "id": "b2oo8xj",
+  "type": "tensor",
+  "name": "in",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": -5,
+    "y": 0
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 0,
+  "in": true
+}
