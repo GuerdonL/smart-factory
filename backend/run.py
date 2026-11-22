@@ -154,18 +154,31 @@ def one(work, graph, w):
             raise Trouble('%s names %s, and an entry of it is named by %d: it is %s' % (json.dumps(c)[:40], plural(len(c), 'number'), len(most), said))
         if not (isinstance(c, list) and len(c) == len(most) and all(is_int(x) and 1 <= x <= m for x, m in zip(c, most))):
             raise Trouble('it has no entry %s: it is %s' % (json.dumps(c)[:40], said))
-    need = work.needs(node)
-    if need['most'] > MAX_ENTRIES:
-        at = graph['nodes'][need['where']]['type']
+    binding = w.get('binding')
+    bound = []
+    if is_obj(binding) and is_obj(binding.get('params')):
+        for fn, spec in binding['params'].items():
+            of = spec if isinstance(spec, str) else spec.get('of') if is_obj(spec) else None
+            if fn in graph['functions'] and isinstance(of, str) and of in graph['nodes']:
+                bound.append(of)
+    most, where, bad = 0, node, None
+    for s in [node] + bound:
+        need = work.needs(s)
+        if need['most'] > most:
+            most, where = need['most'], need['where']
+        bad = bad or need['bad']
+    if most > MAX_ENTRIES:
+        at = graph['nodes'][where]['type']
         raise Trouble('%s %s%s, more than the %s that are worked out' % (' × '.join(format(int(x), ',') for x in (at['cols'], at['rows']) + lengths(at)), 'numbers',
-                                                                         '' if need['where'] == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
-    if need['bad']:
-        raise Trouble(need['bad'])
+                                                                         '' if where == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
+    if bad:
+        raise Trouble(bad)
     # refused before anything is made: what it is worked out from, all held at once, and room to work on the largest of it
-    wanted = BYTES_AN_ENTRY * (work.weight(node) + ROOM_TO_WORK * need['most'])
+    total = work.weight(node, bound)
+    wanted = BYTES_AN_ENTRY * (total + ROOM_TO_WORK * most)
     if wanted > work.room:
-        raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(work.weight(node), ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
-    value = work.value(node, w.get('binding'))
+        raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(total, ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
+    value = work.value(node, binding)
     least, most, mean = A.summary(value)
     read = lambda c: [int(x) for x in c] + [written(A.item(value, int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:])))]
     out = {'cols': cols, 'rows': rows}

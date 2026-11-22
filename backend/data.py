@@ -28,10 +28,16 @@ with an optional point, sign and exponent (1, -2.5, .5, 3e-4), which may stand i
 word, "nan" or "inf" is refused: a missing number is never taken as zero. So is a number too large for a 32-bit
 float (past 3.4e38), which would be an infinity. One too small for it (1e-60) is read as 0, and is counted
 (survey), so that whoever chose the file can be told: a nought the file does not hold is never passed off in silence."""
+from contextlib import contextmanager
 import os
 import re
 import struct
 import tempfile
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 from .check import data_path
 from .limits import MAX_DATA_BYTES, MAX_DATA_FILES, MAX_ENTRIES, MAX_UPLOAD, megabytes
@@ -153,38 +159,63 @@ def keep(project, path, body, root=None):
     return take(project, path, body, root)[:2]
 
 
+@contextmanager
+def _project_lock(project_json):
+    """Serializes uploads into one project across worker processes using an advisory flock on project.json."""
+    if fcntl is None:
+        yield
+        return
+    fd = os.open(project_json, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _same_file(full, body):
+    with open(full, 'rb') as f:
+        return os.path.getsize(full) == len(body) and f.read() == body
+
+
 def take(project, path, body, root=None):
     full = where(project, path, root)
     home = os.path.dirname(os.path.dirname(full))
-    if not os.path.isfile(os.path.join(home, 'project.json')):
+    project_json = os.path.join(home, 'project.json')
+    if not os.path.isfile(project_json):
         raise Refused('there is no saved project called %s: save the project under a name first, and its data files are kept with it' % project)
     _, cols, rows, small = survey(decode(body, path))
     folder = os.path.dirname(full)
     try:
-        if os.path.lexists(full):      # never over what is there: the same file again is the file that is there
-            with open(full, 'rb') as f:
-                if os.path.getsize(full) == len(body) and f.read() == body:
+        with _project_lock(project_json):
+            if os.path.lexists(full):      # never over what is there: the same file again is the file that is there
+                if _same_file(full, body):
                     return cols, rows, small
-            raise Refused('%s is already a file of %s, and holds something else: a data file is not replaced' % (path, project))
-        there = [os.path.join(folder, n) for n in os.listdir(folder)] if os.path.isdir(folder) else []
-        if len(there) >= MAX_DATA_FILES:
-            raise Refused('%s already has %d data files, which is as many as a project keeps' % (project, len(there)))
-        if sum(os.path.getsize(f) for f in there if os.path.isfile(f) and not os.path.islink(f)) + len(body) > MAX_DATA_BYTES:
-            raise Refused('the data files of %s would come to more than %s' % (project, megabytes(MAX_DATA_BYTES)))
-        os.makedirs(folder, exist_ok=True)
-        if os.path.islink(folder) or os.path.islink(home):
-            raise Refused('that is not a directory of the project')
-        fd, fresh = tempfile.mkstemp(prefix='.uploading-', dir=folder)
-        try:
-            with os.fdopen(fd, 'wb') as f:
-                f.write(body)
-            os.chmod(fresh, 0o644)
-            os.link(fresh, full)      # (a link fails where the name has been taken meanwhile: nothing is ever written over)
-        except FileExistsError:
-            raise Refused('%s is already a file of %s: a data file is not replaced' % (path, project))
-        finally:
-            if os.path.exists(fresh):
-                os.unlink(fresh)
+                raise Refused('%s is already a file of %s, and holds something else: a data file is not replaced' % (path, project))
+            there = [os.path.join(folder, n) for n in os.listdir(folder) if not n.startswith('.')] if os.path.isdir(folder) else []
+            if len(there) >= MAX_DATA_FILES:
+                raise Refused('%s already has %d data files, which is as many as a project keeps' % (project, len(there)))
+            if sum(os.path.getsize(f) for f in there if os.path.isfile(f) and not os.path.islink(f)) + len(body) > MAX_DATA_BYTES:
+                raise Refused('the data files of %s would come to more than %s' % (project, megabytes(MAX_DATA_BYTES)))
+            os.makedirs(folder, exist_ok=True)
+            if os.path.islink(folder) or os.path.islink(home):
+                raise Refused('that is not a directory of the project')
+            fd, fresh = tempfile.mkstemp(prefix='.uploading-', dir=folder)
+            try:
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(body)
+                os.chmod(fresh, 0o644)
+                os.link(fresh, full)      # (a link fails where the name has been taken meanwhile: nothing is ever written over)
+            except FileExistsError:
+                if os.path.isfile(full) and not os.path.islink(full) and _same_file(full, body):
+                    return cols, rows, small
+                raise Refused('%s is already a file of %s: a data file is not replaced' % (path, project))
+            finally:
+                if os.path.exists(fresh):
+                    os.unlink(fresh)
     except OSError as e:
         raise Refused('%s could not be kept (%s)' % (path, e.strerror or 'the directory cannot be written'))
     return cols, rows, small

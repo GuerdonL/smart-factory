@@ -501,23 +501,31 @@ class Run:
             todo.pop()
         return self._needs[start]
 
-    def weight(self, start):
+    def weight(self, start, extra=()):
         """How many entries there are in everything a node's value is worked out from, itself included, each node
         counted once: what a run of it may come to hold at once. Walked with a list of its own."""
-        if start not in self._weights:
-            seen, todo, total = {start}, [start], 0
-            while todo:
-                n = self.nodes[todo.pop()]
-                total += numbers(n['type'])
-                deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
-                if n['op'] in ('apply', 'mapalong') and 'fn' in n:
-                    deps.append(self.functions[n['fn']]['body'])
-                for d in deps:
-                    if d not in seen:
-                        seen.add(d)
-                        todo.append(d)
+        if not extra and start in self._weights:
+            return self._weights[start]
+        seen = {start}
+        todo = [start]
+        for s in extra:
+            if s not in seen:
+                seen.add(s)
+                todo.append(s)
+        total = 0
+        while todo:
+            n = self.nodes[todo.pop()]
+            total += numbers(n['type'])
+            deps = list(reads(n, [self.nodes[k] for k in n['inputs']]))
+            if n['op'] in ('apply', 'mapalong') and 'fn' in n:
+                deps.append(self.functions[n['fn']]['body'])
+            for d in deps:
+                if d not in seen:
+                    seen.add(d)
+                    todo.append(d)
+        if not extra:
             self._weights[start] = total
-        return self._weights[start]
+        return total
 
     def homes(self):
         """The tiles each block's node is itself in, and which tiles each repeat is the matrix of (evaluate.js: homesOf)."""
