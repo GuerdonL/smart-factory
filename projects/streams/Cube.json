@@ -1,0 +1,36 @@
+{
+  "format": "smart-factory/shape",
+  "version": 8,
+  "id": "b4n0z7q",
+  "type": "data-in",
+  "name": "Cube",
+  "named": true,
+  "commented": false,
+  "color": "data-in",
+  "position": {
+    "x": -24,
+    "y": 1
+  },
+  "size": {
+    "cols": 2,
+    "rows": 3
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 41,
+  "source": {
+    "file": "data/cube.npy"
+  },
+  "stream": {
+    "length": 1,
+    "start": 0,
+    "step": 1,
+    "end": "wrap"
+  }
+}

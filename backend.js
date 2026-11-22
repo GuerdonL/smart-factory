@@ -1,7 +1,7 @@
 /* The page's side of the backend: when it is asked, for what, and which answers are kept. No drawing here; the
    network and the clock are handed in, so this is tested without either.
 
-   createBackend({ fetch, later, cancel, delay = 500, every = 15000, changed, told, project, version, counts, tick, ended }) -> { health(), absent(), available(), older(), ask(graph, node, binding, cells, slot), problem(graph, node, binding), stopped(graph, node, binding), broke(graph, node, binding), ended(graph), pending() }
+   createBackend({ fetch, later, cancel, delay = 500, every = 15000, changed, told, project, version, counts, tick, ended }) -> { health(), absent(), available(), older(), ask(graph, node, binding, cells, slot), problem(graph, node, binding), stopped(graph, node, binding), broke(graph, node, binding), ended(graph), forget(), pending() }
      fetch      (path, options) -> a promise of a Response, as the browser's: asked for 'api/backend/health' and 'api/backend/run'
      later, cancel   setTimeout and clearTimeout
      delay      how long after the last change the backend is asked: half a second
@@ -58,6 +58,10 @@
      ended(graph)                    the streams the backend said have ended, for this graph at this tick: a Map from
                                      a stream's node id to the first tick at which it has no value. broke gives
                                      { code: 'ended', node, tick } for what has no numbers because of one
+     forget()   drops everything wanted and everything answered, and whatever was waiting to be sent: for when
+                another project is opened. A run is sent with the name of the project that is open when it is sent,
+                so what was wanted of the project before must not be sent once that name is another's (its data
+                files would be looked for in the wrong project)
      pending()  how many nodes are wanted and not yet answered
 
    Nothing is kept beyond the answers of the graph being drawn and, for dimming, the ones before it. */
@@ -134,6 +138,7 @@ export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout
     /* the cell at which the backend's run of a loop was stopped by its stop block (backend/run.py: stopped), or null: where it has not answered, or the loop ran to its count */
     stopped(graph, node, binding){ const r = cur(graph) ? now.results.get(keyFor(node, binding)) : null; return r && Number.isInteger(r.stopped) && r.stopped >= 1 ? r.stopped : null; },
     broke(graph, node, binding){ return cur(graph) ? now.codes.get(keyFor(node, binding)) || null : null; },
+    forget(){ if (timer !== null){ cancel(timer); timer = null; } now = null; before = new Map(); },
     pending: () => now ? [...now.wants.keys()].filter(k => !now.results.has(k) && !now.errors.has(k)).length : 0,
   };
   return self;

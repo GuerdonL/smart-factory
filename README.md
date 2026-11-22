@@ -53,7 +53,7 @@ who can reach the port can read and overwrite the projects.
 - `algebra.js`, `project.js`, `zip.js`: what shapes mean (the four touches, pieces and their rules; what a cut leaves, and what
   a part of a shape is), how a project is written to files, and zip; no drawing.
 - `sources.js`, `tiles.js`: what a source is (zeros, ones, identity: an entry from its place alone; noise and a data
-  file, whose numbers the backend has), and what a tile
+  file, whose numbers the backend has; and a stream of either, with its settings and how it is pulled), and what a tile
   means (its counts, which cells are drawn, the index, its matrix, how an arrow is repeated in it, when one tile
   is inside another and which tiles overlap); no drawing.
 - `inner.js`: what a shape holds where each of its entries is itself an array (its inner axes as they are kept,
@@ -419,6 +419,34 @@ over: a second file of the same name is kept under a name of its own (`weights-2
 some block reads and those an undo or a redo can still come back to, so a step back never finds its file gone;
 a file nothing can come back to any more is let go at the next save after the project is opened again.
 
+### Streams, and the tick
+
+The **tick** is the project's clock: a whole number from 0, shown top-centre, where it is typed or stepped by one
+with − and +. It is saved with the project and is no step of undo. Three things follow it and nothing else does: a
+stream moves on, a tile that does not end takes a step (see "Loops"), and that is all: a plain noise block holds the
+same numbers at every tick.
+
+Resting on Data in also offers **Noise stream** and **File stream**. A stream shows successive values side by side
+and moves on with the tick. It is drawn as a tile is: one value's size is its pattern, and its **length**, how many
+values it shows at once, the count across, with a line between one value and the next. The two are changed
+independently, in its panel (length, value columns, value rows) or by pulling an edge. Where it stands is never
+kept: value j of its window (from 0) at tick t begins at unit `start + t × step + j × span`.
+
+| Kind | A unit | One value | Its size |
+| --- | --- | --- | --- |
+| Noise | a draw | the noise generator's draw at that place: the same place is the same draw in whichever cell of the window shows it. At tick 0 a stream of one value from 0 holds what a plain noise block of its seed and block would | any: pulling its east edge makes the value wider and keeps the length |
+| CSV (`.csv`) | a row | as many rows as the block is tall | as wide as the file's columns, which is not typed or pulled (pulling its east edge changes the length); 1 row tall at first, and pulled taller for more rows a value |
+| Text (`.txt`, UTF-8) | a character | as many characters as the value is wide, each as its Unicode code point | one row; 1 wide at first, and pulled wider for more characters a value |
+| `.npy` (32-bit floats) | an index along its first axis | the array at that index: its shape past the first axis (a number, a row, or a matrix) | the file's; only the length changes |
+
+`step` is how many units the window moves on each tick. It is one value's span until another is typed, so that the
+next value begins where the last ended: pull a CSV stream to 4 rows and its step is 4; type 1 and successive values
+overlap. `end` is `stop` or `wrap`: past its file's last unit a stream that stops has no value, and the readout
+says which stream ended and at which tick; one that wraps begins again. A text that is not UTF-8 is refused, and so
+is a `.npy` of anything but 32-bit floats (nothing is converted, since that could change its numbers). A plain File
+block still reads a CSV and nothing else. Video is not built: there is no decoder without a new dependency, and one
+frame is far more numbers than a matrix here holds. `projects/streams` is the example (`projects/README.md`).
+
 A source is drawn, moved, resized, named, referenced, fused and touched like any block, and its matrix shows its
 values. It stores no entries: resizing it, or tying a side to a named length, changes how many it has and never
 what they are. Typing an entry into one, standing a shape in its matrix (snap to matrix) and seating it on an
@@ -778,14 +806,21 @@ cell. `projects/running-total` is the example (`projects/README.md`).
   true as a whole matrix, and the step's output is that cell's state, that cell included. The panel says which
   cell. A stop block that is not known gives an output that is not known.
 - **Limits.** The browser takes at most 256 steps, then says "Not stopped after 256 steps: needs the backend"; the
-  backend takes up to 1,000,000. A tile that does not end and has no stop block "runs until stopped".
+  backend takes up to 1,000,000.
+- **The tick.** A tile that does not end and has no stop block takes one step each tick: at tick t its step gives
+  the state of cell t + 1, so stepping the clock steps the loop, and any tick's state follows from the tick alone.
+  In cell k of such a tile a stream stands where it stood at tick k − 1: a stream over a state block, with a step
+  that adds them, is the running total of the stream's values (`projects/streams`).
 - **Order.** Cells go left to right, then the next row down. A tile inside a tile's pattern with a step of its own
   starts again from its first cell in every cell of the outer tile.
 - The index cannot be read in a step (a function's space is in no tile); a block of the pattern reads it.
 
 In the graph this is the operation `loop` (the pattern's nodes, `at`, `pattern`, `state`, `fn`, `count`, `until`
 and `across`), and a `repeat` with `fn` and `state` for the tile's matrix; both need graph version 5. In a file it
-is `"step"` and `"until"` on the tile's `"repeat"`, and a count of `"inf"`; the project format is 7.
+is `"step"` and `"until"` on the tile's `"repeat"`, and a count of `"inf"` (project format 7). A stream is the
+operation `stream`, with no inputs (its kind, its seed or its file, `length`, `start`, `step` and `end`), and needs
+graph version 6; in a file it is `"stream"` beside the shape's `"source"`, and the tick is `"tick"` in
+`project.json` (project format 8).
 
 ## The graph and the evaluator
 
@@ -938,13 +973,17 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 5 }` (the version of graph it reads; it still takes a version 1, 2, 3 or 4 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 6 }` (the version of graph it reads; it still takes a version 1 to 5 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
 `{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean", "truth" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
 and each answer is `[c, r, k1, …, value]`; it holds every array with rows and columns as its last two axes);
-`POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`, and
-`"small"` where some of its numbers are too small for 32 bits and are read as 0: how many.
+`"tick"` is the project's clock, and `"counts"` may give the counts the page has settled exactly for loops whose count
+is settled only when run. Where a stream that stops was asked for past its file's end the answer also has
+`"ended": [the stream's node id]`, and `"codes"` says for each key which stream and from which tick.
+`POST /data?project=<name>&path=data/<file>.csv` (or `.txt`, or `.npy`), with the file as its body, gives
+`{ "path", "cols", "rows", "length" }` (length: its rows, its characters, or its values along the first axis), and
+`"small"` where some of a CSV's numbers are too small for 32 bits and are read as 0: how many.
 `backend/run.py` has each in full.
 
 **Its rules.**
@@ -959,7 +998,11 @@ and each answer is `[c, r, k1, …, value]`; it holds every array with rows and 
 - Numbers are 32-bit floats. For every graph the browser works out exactly, its numbers equal the exact ones within
   1e-5 of the value's size or 1e-6, whichever is larger: `backend/fixtures/` holds graphs and their exact results,
   generated by `node backend/fixtures/generate.mjs` from `evaluate.js`.
-- Noise is the generator written out at the top of `backend/arrays.py`, the same on any machine.
+- Noise is the generator written out at the top of `backend/arrays.py`, the same on any machine. A noise block does
+  not read the tick; a noise stream's value at a place is the generator with the place for its tick and no cell in
+  its key.
+- A stream's file is read whole once for a run and counted against the run's memory; a file that alone is more than
+  half of it is refused. A `.npy` is read by NumPy alone, its header held against its bytes before anything is made.
 - All array code is in `backend/arrays.py`, the one module that imports NumPy, so another library can take its place.
 - It refuses what is outsized, with the reason: a request of more than 5 MB; a graph of more than 20,000 nodes; any
   node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; a loop that has not stopped after 1,000,000 steps, which is stopped too ("not stopped after 1,000,000 steps: a loop is stopped then"); (measured on the machine it was built on, a loop whose step adds two numbers takes about 5,000 to 6,000 steps a second, so some 150,000 to 170,000 fit in the 30 seconds and through `/run` it is the 30 seconds that stop a long loop, not the million steps: both limits stay as specified); an uploaded file

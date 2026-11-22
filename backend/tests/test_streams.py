@@ -413,5 +413,29 @@ class Tick(Project):
         self.assertEqual(got[1], [f32(2 * n[1][0]), f32(2 * n[1][1])])
 
 
+@needs_numpy
+class Shipped(unittest.TestCase):
+    def test_projects_streams_at_the_tick_it_was_saved_at(self):
+        """The example that comes with the repository, read from its own data/ (the .npy among them, as its bytes): every
+        number below is worked out by hand from the files, or is the generator told a second time."""
+        from .support import ROOT
+        g = named('projects/streams')
+        root = os.path.join(ROOT, 'projects')
+        name = {n['name']: i for i, n in g['nodes'].items() if n['op'] == 'variable' and n.get('named')}
+        at = lambda block, tick=3: whole(g, name[block], root=root, project='streams', tick=tick)
+        self.assertEqual(at('Rows'), [[60, 61, 80, 81], [70, 71, 90, 91]])      # two values of two rows, from row 6: rows 7 to 10 of ten
+        self.assertEqual(at('Rows', 4), [[80, 81, 0, 1], [90, 91, 10, 11]])      # and round again
+        self.assertEqual(at('Letters'), [[32, 104, 233, 108, 108]])      # " héll": the fifteenth character on, the factory before it being one
+        self.assertEqual(at('Letters', 2), [[111, 114, 121, 32, 0x1F3ED]])      # "ory " and the factory, U+1F3ED
+        self.assertEqual(at('Cube'), [[18, 19], [20, 21], [22, 23]])
+        seed, key = 7, name['Draws'][2:]
+        self.assertEqual(at('Draws'), [[f32(noise_entry(seed, key, c, r, 'uniform', 3 + j)) for j in range(4) for c in (1, 2)] for r in (1, 2)])
+        plain = [[f32(noise_entry(7, name['Noise'][2:], c, r, 'uniform', 0)) for c in (1, 2, 3, 4)] for r in (1, 2)]
+        self.assertEqual([at('Noise', t) for t in (0, 3, 1000)], [plain, plain, plain])
+        loop = next(t['loop'] for t in g['spaces']['top']['tiles'] if 'loop' in t)
+        total = lambda tick: whole(g, loop, root=root, project='streams', tick=tick)
+        self.assertEqual([total(t) for t in (0, 1, 2, 3, 4, 5, 6)], [[[0]], [[3]], [[4]], [[8]], [[9]], [[14]], [[17]]])      # 3, 1, 4, 1, 5, and round again
+
+
 if __name__ == '__main__':
     unittest.main()

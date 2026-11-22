@@ -2941,6 +2941,7 @@ async function sendSaved(name, files, what){
 
 /* opening replaces everything on the page */
 function openFrom(files, name = null){ let data; try { data = project.read(files); } catch (e){ hud.say('Could not open: ' + (e && e.message ? e.message : e)); return shown(); }      /* what is no project this program reads is said, and nothing is replaced */
+   backend.forget();      /* what was wanted of the project before is wanted no more: nothing of it is sent under this one's name */
    dataFiles.clear(); dataSmall.clear(); tick = data.tick || 0; clock.show(tick); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo; its tick is the one it was saved at */
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
   hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')

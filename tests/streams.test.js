@@ -211,6 +211,13 @@ test('backend.js sends the tick, asks afresh when it changes, and tells of a str
   assert.equal(b.problem(g, loop, null), why); assert.deepEqual(b.broke(g, loop, null), { code: 'ended', node: stream, tick: 40 });
   assert.deepEqual([...b.ended(g)], [[stream, 40]]);
   tick = 39; assert.deepEqual([...b.ended(g)], []); assert.equal(b.problem(g, loop, null), null);      /* at another tick nothing of that is said */
+  /* another project opened while something is waiting to be sent: it is not sent under the new project's name */
+  { const out = [], later = []; let name = 'one';
+    const bb = createBackend({ fetch: (path, options) => { if (options) out.push(JSON.parse(options.body)); return Promise.resolve({ ok: true, json: () => Promise.resolve(path.endsWith('health') ? { ok: true, version: g.version } : { results: {}, errors: {} }) }); }, later: fn => { later.push(fn); return later.length; }, cancel: id => { later[id - 1] = () => {}; }, version: g.version, project: () => name });
+    await bb.health(); bb.ask(g, loop, null, [[1, 1]], 'a'); name = 'two'; bb.forget(); for (const fn of later.splice(0)) fn(); await new Promise(r => setTimeout(r, 0));
+    assert.deepEqual(out, []); assert.equal(bb.pending(), 0);
+    const h2 = JSON.parse(JSON.stringify(g)); bb.ask(h2, loop, null, [[1, 1]], 'a'); for (const fn of later.splice(0)) fn(); await new Promise(r => setTimeout(r, 0));
+    assert.equal(out.length, 1); assert.equal(out[0].project, 'two'); }
   /* with no tick handed in it is 0, as it was */
   const sent0 = [], b0 = createBackend({ fetch: (path, options) => { if (options) sent0.push(JSON.parse(options.body)); return Promise.resolve({ ok: true, json: () => Promise.resolve(path.endsWith('health') ? { ok: true, version: g.version } : { results: {}, errors: {} }) }); }, later: fn => { waits.push(fn); return waits.length; }, cancel: () => {}, version: g.version });
   await b0.health(); b0.ask(g, loop, null, [[1, 1]], 'a'); await flush(); assert.equal(sent0[0].tick, 0);
@@ -267,4 +274,34 @@ test('project: a project saved before streams opens as it was, with tick 0; a ti
     { name: 'D', why: 'it reads data/gone.csv, which is not among the project\'s files: choose the file again' }]);
   assert.deepEqual(read(write(odd)).streamed, [{ name: 'D', why: 'it reads data/gone.csv, which is not among the project\'s files: choose the file again' }]);      /* saved, only what is still so is said again */
   assert.throws(() => read([{ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: 9 }) }]), /saved by a newer version \(format 9\)/);
+});
+
+/* ---- the example that comes with the repository ---- */
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+test('projects/streams: one stream of each kind, a plain noise block, and the running total of a stream\'s rows, saved at tick 3', () => {
+  const here = fileURLToPath(new URL('../projects/', import.meta.url));
+  const tree = (dir, at = '') => readdirSync(join(dir, at)).flatMap(n => statSync(join(dir, at, n)).isDirectory() ? tree(dir, at + n + '/') : [{ path: at + n, text: n.endsWith('.npy') ? readFileSync(join(dir, at, n)).toString('base64') : readFileSync(join(dir, at, n), 'utf8') }]);
+  const files = [...tree(join(here, 'streams')), { path: '.config', text: readFileSync(join(here, 'streams.config'), 'utf8') }], p = read(files);
+  assert.equal(p.tick, 3); assert.deepEqual(p.streamed, []); assert.deepEqual(p.unstepped, []); assert.deepEqual(p.unheld, []); assert.deepEqual(p.resized, []);
+  const by = name => p.top.shapes.find(d => d.name === name), size = d => [d.cols, d.rows];
+  assert.deepEqual(by('Noise').source, { noise: { seed: 7, dist: 'uniform' } });
+  assert.deepEqual([by('Draws').source, size(by('Draws'))], [noisy(7, 'uniform', st(4)), [8, 2]]);
+  assert.deepEqual([by('Rows').source, size(by('Rows'))], [filed('data/rows.csv', st(2, 0, 2, 'wrap')), [4, 2]]);
+  assert.deepEqual([by('Letters').source, size(by('Letters'))], [filed('data/letters.txt', st(1, 0, 5, 'wrap')), [5, 1]]);
+  assert.deepEqual([by('Cube').source, size(by('Cube'))], [filed('data/cube.npy', st(1, 0, 1, 'wrap')), [2, 3]]);
+  assert.deepEqual(by('x').source, filed('data/total.csv', st(1, 0, 1, 'wrap')));
+  assert.deepEqual(Object.keys(p.data).sort(), ['data/cube.npy', 'data/letters.txt', 'data/rows.csv', 'data/total.csv']);
+  assert.equal(p.data['data/total.csv'], '3\n1\n4\n1\n5\n'); assert.equal([...p.data['data/letters.txt']].length, 22);
+  const tile = p.top.groups.find(g => g.repeat); assert.equal(tile.repeat.across, 'inf'); assert.equal(tile.repeat.step, by('add').id); assert.equal(tile.repeat.until, undefined);
+  /* saved again it is the files that are shipped */
+  const texts = list => Object.fromEntries(list.map(f => [f.path, f.text]));
+  assert.deepEqual(texts(write(p)), texts(files)); assert.deepEqual(write(read(write(p))), write(p));
+  /* its graph: five streams and a loop with no end, all the backend's */
+  const g = build(p); assert.deepEqual(validate(g), []);
+  assert.deepEqual(Object.values(g.nodes).filter(n => n.op === 'stream').map(n => n.kind).sort(), ['csv', 'csv', 'noise', 'npy', 'text']);
+  const t = g.spaces.top.tiles.find(t => t.loop); assert.equal(g.nodes[t.loop].count, 'inf'); assert.equal(g.nodes[t.loop].until, null);
+  assert.deepEqual(evaluate(g, t.loop, { tick: 3 }), { type: g.nodes[t.loop].type, deferred: true, backend: true });
+  for (const name of ['Noise', 'Draws', 'Rows', 'Letters', 'Cube']) assert.equal(evaluate(g, 'v:' + by(name).id, { tick: 3 }).backend, true, name);
 });
