@@ -1,8 +1,14 @@
 """One request answered: plain data in, plain data out. No sockets here (service.py has those).
 
     run(body, root=None)                  -> what POST /run answers, for the bytes it was sent:
-                                             { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean } },
+                                             { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean, truth } },
+                                             (and "stopped": k on a loop that its stop block ended at cell k),
                                                "errors":  { key: "why" } }
+                                             and, only where a promise is broken by a number worked out here
+                                             (a variable's holds, what a function's input promises to take),
+                                               "codes":   { key: { "code": "type", "node": "<id>" } }
+                                             beside that key's error, which is then the page's own sentence,
+                                             "W is not natural: it holds ∞ at 3, 1"; node is whose promise it is.
                                              A node whose entries hold inner data answers with inner too, the
                                              lengths of its inner axes ({ cols, rows, inner: [2, 4], cells, … }),
                                              and its cells are [[c, r, k1, k2, value], …]: one more number, from
@@ -11,7 +17,7 @@
                                              with the request as a whole is under the key "*".
     upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" } (and "small" where it has numbers too small for 32 bits); raises
                                              data.Refused(why)
-    health()                              -> { "ok": true, "version": 2 }: the graph version (check.py: VERSION)
+    health()                              -> { "ok": true, "version": 5 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
@@ -22,9 +28,17 @@ The request to /run:
                   "binding": { … },       where it is looked at from, inside a function or a tile (evaluate.js); may be left out
                   "as": "<key>" } ],      what to call the answer in results and errors; left out, the node's id
       "tick": 0,                          which draw of the noise: a whole number, 0 where left out
+      "counts": { "<loop's id>": 3 },     the counts the page has settled exactly, for loops whose count is settled
+                                          only when run: taken as given where the count's node is in no function
+                                          and no tile, so that a natural is not looked for in 32-bit floats; may be
+                                          left out, and then every such count is worked out here (evaluate.py: v_loop)
       "project": "<name>" }               the project whose data/ a file source reads; may be left out where there is none
 A value is a number; "inf" or "-inf"; or { "err": "that has no value" } for an entry that has none (a division by
-zero, ∞ − ∞). min, max and mean are of the entries that have a value, written the same way (null where none has).
+zero, ∞ − ∞); or { "none": true } for an entry that is None. min, max and mean are of the entries that have a
+value and are not None, written the same way (null where none has). truth is whether the whole matrix counts as
+true, every entry of it and not only those asked for (values.js: truthOf): true where any entry is a number other
+than 0; false where every entry is 0 or None; null where neither is so (an entry has no value, and none is true).
+The page draws a shape that is false sunk, and has only this to go by where it does not hold the numbers.
 
 Nothing in a request is executed: the graph is data, a formula is read by formula.py, and a file's path is
 resolved inside the named project's data/ directory by data.py."""
@@ -35,7 +49,7 @@ import sys
 from . import arrays as A
 from .check import VERSION, is_int, is_obj, lengths, validate
 from .data import NAME, Refused, inspect, read_text, take
-from .evaluate import Run, Trouble
+from .evaluate import Broken, Run, Trouble, too_many
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
 NO_VALUE = 'that has no value'
@@ -117,26 +131,59 @@ def answer(body, root, room):
             raise Trouble(str(e))
         return A.table(text, skip)
 
-    work = Run(graph, read_file, int(tick), room)
-    results, errors = {}, {}
-    for w in want:
+    counts = asked.get('counts', {})
+    if not is_obj(counts) or not all(is_obj(graph['nodes'].get(i)) and graph['nodes'][i]['op'] == 'loop' and is_obj(graph['nodes'][i]['count']) and is_int(v) and not isinstance(v, bool) and 1 <= v < 2 ** 53 for i, v in counts.items()):
+        return refuse('counts gives a whole number, at least 1, to loops whose count is settled when they are run')
+    work = Run(graph, read_file, int(tick), room, {i: int(v) for i, v in counts.items()})
+    results, errors, codes = {}, {}, {}
+    last = {}      # of several wants under one key the last is the answer, as it always was
+    for k, w in enumerate(want):
+        key = w.get('as', w.get('node')) if is_obj(w) else None
+        if isinstance(key, str):
+            last[key] = k
+    for k, w in sorted(enumerate(want), key=lambda kw: in_turn(graph, kw[1]) + (kw[0],)):
         key = w.get('as', w.get('node')) if is_obj(w) else None
         if not isinstance(key, str):
             errors[WHOLE] = 'want holds what names no node'
             continue
+        if last[key] != k:
+            continue
         try:
             results[key] = one(work, graph, w)
             errors.pop(key, None)
+            codes.pop(key, None)
         except Trouble as e:
             errors[key] = str(e)
             results.pop(key, None)
+            codes.pop(key, None)
+            if isinstance(e, Broken):      # a promise broken by a number worked out here: the error type, and whose promise it is
+                codes[key] = {'code': e.code, 'node': e.node}
         except (MemoryError, RecursionError):
             raise
         except Exception as e:      # this one alone has no answer; the others have theirs. What went wrong is the log's to say, not the answer's
             sys.stderr.write('%s could not be worked out: %s: %s\n' % (key, type(e).__name__, e))
             errors[key] = BROKEN
             results.pop(key, None)
-    return {'results': results, 'errors': errors}
+            codes.pop(key, None)
+    return {'results': results, 'errors': errors, 'codes': codes} if codes else {'results': results, 'errors': errors}
+
+
+def in_turn(graph, w):
+    """Where a want comes in the order they are worked out in, so that one pass over a tile with a step serves all
+    that is wanted of it (evaluate.py keeps a tile's last two states, and what its matrix came to): first the
+    matrices of tiles with a step, then what is looked at from a cell, the cells in order, then everything else as
+    it was asked. The answers are the same in any order; only the time differs."""
+    if not is_obj(w):
+        return (3, ())
+    n = graph['nodes'].get(w.get('node')) if isinstance(w.get('node'), str) else None
+    binding = w.get('binding')
+    cells = binding.get('cells') if is_obj(binding) and isinstance(binding.get('cells'), list) else []
+    if is_obj(n) and n.get('op') == 'repeat' and 'fn' in n and not cells:
+        return (0, ())
+    if cells:
+        number = lambda v: v if is_int(v) else 0
+        return (1, tuple((number(c.get('cy')), number(c.get('cx'))) if is_obj(c) else (0, 0) for c in cells))
+    return (2, ())
 
 
 def one(work, graph, w):
@@ -168,23 +215,24 @@ def one(work, graph, w):
             most, where = need['most'], need['where']
         bad = bad or need['bad']
     if most > MAX_ENTRIES:
-        at = graph['nodes'][where]['type']
-        raise Trouble('%s %s%s, more than the %s that are worked out' % (' × '.join(format(int(x), ',') for x in (at['cols'], at['rows']) + lengths(at)), 'numbers',
-                                                                         '' if where == node else ' in what it is worked out from', format(MAX_ENTRIES, ',')))
+        raise Trouble(too_many(graph['nodes'], {'most': most, 'where': where}, node))
     if bad:
         raise Trouble(bad)
     # refused before anything is made: what it is worked out from, all held at once, and room to work on the largest of it
-    total = work.weight(node, bound)
-    wanted = BYTES_AN_ENTRY * (total + ROOM_TO_WORK * most)
+    wanted = work.bytes_for(node, ROOM_TO_WORK, BYTES_AN_ENTRY, bound)      # 4 bytes a number, and one more where an entry may be None
     if wanted > work.room:
-        raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(total, ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
+        raise Trouble('it is worked out from %s entries in all, which needs about %s of memory, more than the %s this backend may take for a run' % (format(work.weight(node, bound), ','), megabytes(wanted) if wanted >= 2 ** 20 else 'a megabyte', megabytes(work.room)))
     value = work.value(node, binding)
     least, most, mean = A.summary(value)
-    read = lambda c: [int(x) for x in c] + [written(A.item(value, int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:])))]
+    def read(c):
+        at = (int(c[1]) - 1, int(c[0]) - 1, tuple(int(k) - 1 for k in c[2:]))
+        return [int(x) for x in c] + [{'none': True} if A.is_none(value, *at) else written(A.item(value, *at))]
     out = {'cols': cols, 'rows': rows}
     if inner:
         out['inner'] = list(inner)      # only where it holds inner data: a node that holds none answers as it always did
-    out.update({'cells': [read(c) for c in cells], 'min': written(least), 'max': written(most), 'mean': written(mean)})
+    if graph['nodes'][node]['op'] == 'loop' and not w.get('binding') and node in work.stops:
+        out['stopped'] = work.stops[node]      # the cell its stop block ended it at, from 1: for the page to say (only on a loop that was stopped so)
+    out.update({'cells': [read(c) for c in cells], 'min': written(least), 'max': written(most), 'mean': written(mean), 'truth': A.truth(value)})
     return out
 
 

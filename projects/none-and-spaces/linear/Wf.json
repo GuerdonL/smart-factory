@@ -1,0 +1,30 @@
+{
+  "format": "smart-factory/shape",
+  "version": 5,
+  "id": "bnsg001",
+  "type": "tensor",
+  "name": "Wf",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": -7,
+    "y": 0
+  },
+  "size": {
+    "cols": 1,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": 1,
+      "1,2": 2
+    }
+  },
+  "order": 1
+}

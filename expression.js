@@ -20,7 +20,7 @@
                                  infinity in the other does no harm
        max(a, b)  min(a, b)  abs(a)  sqrt(a)         worked out exactly
        exp(a)  ln(a)  tanh(a)  erf(a)                stay symbolic unless they come out (exp(0) is 1)
-       inf, infinity, ∞          infinity;   true, false
+       inf, infinity, ∞          infinity;   true, false;   none, ∅: None (values.js)
    An odd root of a negative number is the real one: (-8)^(1/3) is -2. An even root of one is an error.
    Nothing is ever rounded. The kinds of value, and how they combine, are set out in values.js.
    A name may have dots in it (Keys.x, index.x). What a name stands for is the lookup's to say: x, i and j in an
@@ -51,6 +51,8 @@
        undefined for a name it does not know, which is the error "unknown name: w". For a capsule, undefined is the
        error "missing variable".
    written(value)  -> a value as text (values.js): the one function that does that
+   treeOf(text)    -> the text as a tree, { num } | { name } | { ref } | { op, a, b } | { fn, args }, or null where it
+                      cannot be read: for telling a formula's number space without working it out (spaces.js)
    namesIn(text)   -> { why } where the text cannot be read, else { names, capsules, deep }: the names in it that are not
                       words of the language, its capsules, and how deep it nests (brackets, signs, roots and powers
                       one inside the next). For whoever must know what a formula depends on
@@ -61,11 +63,11 @@
                         { clear: true }        nothing typed: the entry goes back to being a symbol
                       | { value }              a literal value, or { expr: text }
                       | { refused: why }       the text cannot be read; nothing is stored
-       What was typed is kept as a literal where it is a value written out ("7", "-inf", "3/4", "2√3", "true"), and
+       What was typed is kept as a literal where it is a value written out ("7", "-inf", "3/4", "2√3", "true", "none"), and
        as a formula otherwise ("6/4", "exp(2) + 1", "1/0": a formula is kept whatever it comes to). With settle, a
-       formula that uses no name and no capsule and comes to a whole, infinite, exact or boolean value is kept as
+       formula that uses no name and no capsule and comes to a whole, infinite, exact or boolean value, or None, is kept as
        that value instead (for a number worked out from what was typed, such as a mass from a side).
-   typed(stored)   -> the text to type over: a formula's own text, a literal as it is written ("true" for true)
+   typed(stored)   -> the text to type over: a formula's own text, a literal as it is written ("true" for true, "none" for None)
 
    refs(text)                -> every capsule in a text: [{ id, measure, name, text }]
    refersTo(text, ids)       -> whether the text has a capsule naming one of these ids (a Set)
@@ -91,15 +93,25 @@
                                 characters can be given by its first ten), then the longest measure. A name no
                                 variable has, or a measure the variable has not, is refused.
 
+   nameable(name) -> { ok: true } | { refused: why }
+                                whether something can be called that. `none` is the word for the value None, so no
+                                shape, attribute, side or inner axis is called what a formula reads as None:
+                                none however it is capitalised, ∅, either with blanks the language passes over
+                                round it (a zero-width space among them), and whether or not the name is
+                                commented out, once or more (// none, // // none). The tokenizer is asked, so
+                                there is no second list of spellings to fall behind. A name that only has it in
+                                it (none_1, nonesuch) is a name like any other, and so, today, is every other
+                                word of the language. Every way a name is given asks here (smart-factory.js).
+
    guard() -> working(key, work): works out things that may depend on one another. working(key, work) gives work(),
        unless key is already being worked out further up, in which case the thing depends on itself and what it
        gives is the error "depends on itself". */
-import { combine, apply, truth, typedNumber, written, kind, isError, isFormula } from './values.js';
+import { combine, together, apply, truth, typedNumber, written, kind, isError, isFormula, isNone, NONE } from './values.js';
 export { written };
 
 class Wrong extends Error {}
 const ARITY = { select: 3, max: 2, min: 2, abs: 1, sqrt: 1, exp: 1, ln: 1, tanh: 1, erf: 1 };
-const CONSTANT = { inf: Infinity, infinity: Infinity, true: true, false: false };
+const CONSTANT = { inf: Infinity, infinity: Infinity, true: true, false: false, none: NONE };
 const SIGN = { '×': '*', '·': '*', '∙': '*', '÷': '/', '−': '-', '–': '-', '≠': '!=', '≤': '<=', '≥': '>=' };
 const ONE = /^@\[([^\]:\s]+)(?::([xymg]|d[1-6])|:a:([^\]]+))?\]/, CAPSULE = new RegExp(ONE.source.slice(1), 'g');
 const capsuleOf = m => ({ id: m[1], measure: m[3] !== undefined ? 'a' : m[2] || null, name: m[3] ?? null });
@@ -118,12 +130,12 @@ function tokens(text){
   for (let i = 0; i < s.length;){ const c = SIGN[s[i]] || s[i], rest = s.slice(i);
     if (/\s/.test(c) || c === '​'){ i++; continue; }
     if (c === '@'){ const m = rest.match(ONE); if (!m) throw new Wrong('after @, choose a variable from the list'); out.push({ t: 'ref', v: capsuleOf(m) }); i += m[0].length; continue; }
-    const n = rest.match(/^(\d+\.?\d*|\.\d+)/); if (n){ out.push({ t: 'num', v: typedNumber(n[0]) }); i += n[0].length; continue; }
+    const n = rest.match(/^(\d+\.?\d*|\.\d+)/); if (n){ out.push({ t: 'num', v: typedNumber(n[0]), long: n[0].length > 40 }); i += n[0].length; continue; }
     if (/[A-Za-z_]/.test(c)){ const id = rest.match(/^[A-Za-z_][\w.]*/)[0].replace(/\.+$/, ''); out.push({ t: 'name', v: id }); i += id.length; continue; }
     const input = rest.match(/^\$\d+/); if (input){ out.push({ t: 'name', v: input[0] }); i += input[0].length; continue; }      /* $1: an input, in a formula of the graph */
     const two = c.length === 2 ? c : (c + (s[i + 1] || ''));
     if (['==', '!=', '<=', '>=', '&&', '||'].includes(two)){ out.push({ t: two }); i += c.length === 2 ? 1 : 2; continue; }
-    if ('+-*/^(),<>!√∜∞'.includes(c)){ out.push({ t: c }); i++; continue; }
+    if ('+-*/^(),<>!√∜∞∅'.includes(c)){ out.push({ t: c }); i++; continue; }
     throw new Wrong(`cannot read "${s[i]}"`);
   }
   return out;
@@ -136,12 +148,13 @@ function parse(text){
   const inside = read => { deepest = Math.max(deepest, ++depth); try { return read(); } finally { depth--; } };
   const UNREAD = 'that cannot be read as arithmetic';
   const take = t => ts[i]?.t === t ? ts[i++] : null;
-  const starts = t => !!t && ['name', 'ref', '(', '√', '∜', '∞'].includes(t.t);      /* what, set straight against a number or a bracket, multiplies it */
+  const starts = t => !!t && ['name', 'ref', '(', '√', '∜', '∞', '∅'].includes(t.t);      /* what, set straight against a number or a bracket, multiplies it */
   const level = (next, ops) => () => { let a = next(); while (ts[i] && ops.includes(ts[i].t)) a = { op: ts[i++].t, a, b: next() }; return a; };
   function atom(){
     const t = ts[i++]; if (!t) throw new Wrong(UNREAD);
-    if (t.t === 'num') return { num: t.v };
+    if (t.t === 'num') return t.long ? { num: t.v, long: true } : { num: t.v };      /* long: typed with more than 40 characters (spaces.js) */
     if (t.t === '∞') return { num: Infinity };
+    if (t.t === '∅') return { num: NONE };
     if (t.t === 'ref') return { ref: t.v };
     if (t.t === '('){ const e = inside(or); if (!take(')')) throw new Wrong('a bracket is not closed'); return e; }
     if (t.t === '√' || t.t === '∜'){ const root = { fn: 'sqrt', args: [inside(under)] }; return t.t === '∜' ? { fn: 'sqrt', args: [root] } : root; }
@@ -180,6 +193,8 @@ const leaves = tree => { const out = [], todo = [tree];
   while (todo.length){ const n = todo.pop(); if (n.name !== undefined || n.ref) out.push(n); else { for (let i = (n.args || []).length - 1; i >= 0; i--) todo.push(n.args[i]); if (n.op){ todo.push(n.b); todo.push(n.a); } } }
   return out; };
 
+/* a text's tree, for whoever reads a formula without working it out (spaces.js: formula); null where it cannot be read */
+export const treeOf = text => read(String(text)).tree || null;
 /* what a text names, without working it out: { why } where it cannot be read, else { names, capsules }: every name in
    it that is not one of the words of the language (a function, inf, true, false), and every capsule */
 export function namesIn(text){
@@ -200,9 +215,23 @@ export function evaluate(text, lookup = () => undefined, { matrices = false } = 
     if (v === undefined) return unread('unknown name: ' + leaf.name);
     known.set(leaf, v);
   }
+  /* a + b + c and a * b * c are one sum and one product, their terms looked at all together (values.js: together):
+     None + ∞ − ∞ is an error wherever the None stands. The terms of a run of + and −, or the factors of a run of *,
+     are gathered through brackets too, with a list of its own. Where none of them is None or unknown, it is worked
+     out sign by sign as it is written, exactly as before. */
+  const family = n => n.op === '+' || n.op === '-' ? '+' : n.op === '*' ? '*' : null;
+  const chained = top => { const fam = family(top), leaves = [], signs = [], todo = [[top, 1]];
+    while (todo.length){ const [m, s] = todo.pop(); if (m.op && family(m) === fam){ todo.push([m.b, m.op === '-' ? -s : s]); todo.push([m.a, s]); } else { leaves.push(m); signs.push(s); } }
+    const values = leaves.map(run);
+    if (values.some(v => v === null || v === undefined || isNone(v))) return together(fam, values, signs).value;
+    const at = new Map(leaves.map((m, k) => [m, values[k]]));
+    const fold = n => { if (at.has(n)) return at.get(n); const spine = []; let m = n; while (!at.has(m) && !at.has(m.a)){ spine.push(m); m = m.a; }
+      let v = at.has(m) ? at.get(m) : combine(m.op, at.get(m.a), fold(m.b)); while (spine.length){ const up = spine.pop(); v = combine(up.op, v, fold(up.b)); } return v; };
+    return fold(top); };
   const run = n => {
     if ('num' in n) return n.num;
     if (known.has(n)) return known.get(n);
+    if (n.op && family(n) && (family(n.a) === family(n) || family(n.b) === family(n))) return chained(n);
     if (n.op && n.a.op){      /* a long run of signs is a tree deep on its left: it is gone down with a list, not the stack, and worked out coming back up */
       const spine = []; let at = n; while (at.op && at.a.op){ spine.push(at); at = at.a; }
       let v = run(at); while (spine.length){ const up = spine.pop(); v = combine(up.op, v, run(up.b)); } return v; }
@@ -221,12 +250,12 @@ export function entered(text, lookup = () => undefined, { settle = false, matric
   const got = evaluate(text, lookup, { matrices });
   if (got.empty) return { clear: true };
   if (got.unread) return { refused: got.value.err };
-  const v = got.value, k = kind(v), t = squeezed(text).toLowerCase(), literal = ['whole', 'infinity', 'exact', 'boolean'].includes(k);
-  const plain = literal && (t === squeezed(written(v)) || t === String(v) || (k === 'infinity' && /^[+-]?(inf|infinity|∞)$/.test(t)) || (k === 'whole' && /^[+-]?\d+$/.test(t)));
-  if (plain || (settle && literal && !leaves(read(text).tree).length)) return { value: v };
+  const v = got.value, k = kind(v), t = squeezed(text).toLowerCase(), literal = ['integer', 'infinity', 'exact', 'boolean', 'none'].includes(k);
+  const plain = literal && (t === squeezed(written(v)) || t === String(v) || (k === 'infinity' && /^[+-]?(inf|infinity|∞)$/.test(t)) || (k === 'integer' && /^[+-]?\d+$/.test(t)) || (k === 'none' && t === 'none'));
+  if (plain || (settle && literal && !leaves(read(text).tree).length)) return { value: isNone(v) ? { none: true } : v };      /* (an object of the entry's own, to be kept) */
   return { value: { expr: text } };
 }
-export const typed = stored => stored === null || stored === undefined ? '' : isFormula(stored) ? stored.expr : typeof stored === 'boolean' ? String(stored) : written(stored);
+export const typed = stored => stored === null || stored === undefined ? '' : isFormula(stored) ? stored.expr : typeof stored === 'boolean' ? String(stored) : isNone(stored) ? 'none' : written(stored);
 
 /* ---- choosing a variable ---- */
 export const measuresOf = v => [{ measure: 'x', name: null, label: 'x' }, { measure: 'y', name: null, label: 'y' }, ...(v.scalar ? [{ measure: 'm', name: null, label: 'mass' }] : []),
@@ -263,6 +292,14 @@ export function bound(text, variables, { matrices = false } = {}){
     out += capsuleText(capsule);
   }
   return { text: out };
+}
+
+/* Asked of the tokenizer, not of a list of spellings: a name is refused where the whole of it, its comment marks taken
+   off, is the one token the language reads as None. So whatever tokens() comes to read as None is refused here too. */
+export function nameable(name){
+  let ts; try { ts = tokens(String(name ?? '').replace(/^(\s*\/\/)+/, '')); } catch (e){ return { ok: true }; }      /* what cannot be read is no word of the language */
+  const none = ts.length === 1 && (ts[0].t === '∅' || (ts[0].t === 'name' && Object.hasOwn(CONSTANT, ts[0].v.toLowerCase()) && CONSTANT[ts[0].v.toLowerCase()] === NONE));
+  return none ? { refused: 'none is the word for no value, so nothing can be called it' } : { ok: true };
 }
 
 export function guard(){

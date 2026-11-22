@@ -60,8 +60,11 @@ who can reach the port can read and overwrite the projects.
   the number of data dimensions as it is typed, what an entry opened holds, and how it is all said); no drawing.
 - `arrows.js`: what an arrow means (where its output is, what it covers, whether its edge is free, what it comes
   to, whether an input fits it, what can be seated on it, its entries one by one); no drawing.
-- `values.js`, `expression.js`: what a value is (eight kinds) and how two combine; and a formula as it is typed, read
+- `values.js`, `expression.js`: what a value is (nine kinds, None among them) and how two combine; and a formula as it is typed, read
   and worked out. No drawing. `algebra.js` gives `combine` and the value helpers from `values.js` too.
+- `spaces.js`: the number spaces a shape may hold (boolean, ternary, natural, whole, integer, rational, probability,
+  real, any), which lies inside which, what each operation gives, and a promise held against values. No drawing.
+  `backend/spaces.py` is the same tables again, held to this one by `backend/fixtures/spaces.json`.
 - `graph.js`, `evaluate.js`: a whole project as one graph of matrix operations, plain JSON, and that graph worked
   out exactly. No drawing. Every exact number the page shows comes from these two: see "The graph and the evaluator".
 - `decimals.js`, `backend.js`: the backend's numbers on the page (which entries are asked for, what is drawn of an
@@ -83,7 +86,7 @@ who can reach the port can read and overwrite the projects.
 
 ## Tests
 
-    node --test                                # the JavaScript: values, expression, algebra, arrows, sources, tiles, inner data, graph, evaluate, project, bus, history, ids, zip
+    node --test                                # the JavaScript: values, expression, spaces, algebra, arrows, sources, tiles, inner data, graph, evaluate, project, bus, history, ids, zip
     python3 -B -m unittest discover tests      # the server: saving, opening, what it will not serve, the PIN, and what it passes on to the backend
     backend/.venv/bin/python -B -m unittest discover -s backend/tests -t .      # the backend, with NumPy (see "The backend" for the environment)
 
@@ -610,6 +613,180 @@ numbers in all. There are at most six. There are no lists: every entry of one sh
 
 `projects/inner-data` shows these.
 
+## None, and number spaces
+
+**None.** Type `none` (or `∅`) into an entry and it holds None: nothing, said outright. It is written `∅`, and saved
+as `{ "none": true }`. It is not an entry never given, which stays a symbol, and it is not zero. Since `none` is that
+word, nothing is called it: typed, sent or pasted as the name of a shape, an attribute, a side, an inner axis or an
+arrow's gap, however it is capitalised, it is refused with "none is the word for no value, so nothing can be called
+it", and nothing changes. So is `∅`, and so is either behind comment marks or beside a blank a formula passes over:
+a name is refused where a formula would read the whole of it as None. A name that only has it in it (`none_1`, `nonesuch`) is a name like any other, and a
+project saved before the rule opens as it is. None counts as false, and in arithmetic None with anything is None:
+
+| | |
+| --- | --- |
+| `none + 1`, `none * 0`, `1 / none`, `exp(none)`, `max(none, 3)`, `none < 1` | None |
+| `none == none` | true |
+| `none == 0`, `none == false` | false (and `!=` the other way round) |
+| `!none` | true |
+| `none && x` | false |
+| `none \|\| x` | whether `x` is true |
+| `select(none, a, b)` | `b`, and only `b` is worked out |
+| `x != none` | whether `x` holds a value: `!=` is the opposite of `==`, and never None |
+| a product entry with one None term | None |
+| None against an entry not given | not known |
+| None against an error | the error |
+| `none + inf - inf`, `none * 0 * inf`, in any order | an error: see below |
+
+The terms of one sum, or of one product, are looked at all together, so that what they come to does not turn on
+their order: an error among them, or one that two of them make between them (`inf - inf`, `0 * inf`), comes first,
+then an entry not given, then None. That holds for `a + b + c` and `a * b * c` in a formula, for a sum or a times
+of several shapes, and for the terms of a matrix product's entry, on the page and in the backend.
+
+So an optional bias is `select(b, x + b, x)`. The side of a single entry that holds None is None, as its mass is, and
+no side takes that length; a count, a span, a start and an axis's length that come to None are refused. The backend
+says which entries of an answer are None, and they are written `∅` among its squares.
+
+**Number spaces.** A shape's type is the space its numbers lie in. How a number is held, exactly or as the backend's
+decimal, is no part of it.
+
+| Space | Values | Lies inside |
+| --- | --- | --- |
+| `boolean` | 0, 1 (and true, false, which count as 1 and 0) | `whole`, `ternary`, `probability` |
+| `ternary` | -1, 0, 1 | `integer` |
+| `natural` | 1, 2, 3, … | `whole` |
+| `whole` | 0 and the naturals | `integer` |
+| `integer` | the wholes and their negatives | `rational` |
+| `rational` | a ratio of integers | `real` |
+| `probability` | a real from 0 to 1, both ends included | `real` |
+| `real` | any number on the line (no infinity) | `extended` |
+| `extended` | the reals and the two infinities, ∞ and -∞ | `any` |
+| `any` | nothing promised | |
+
+A space is written as its word, with `?` after it where None is admitted too (`integer?`). None has a space of its
+own, written `none`: a shape of only None reads "Holds: None", and None joined with a space is that space or None
+(`natural?`). Select a shape and the panel has a row **Holds**: a list of the ten words and **None**, and a box
+**or None**. Choosing a word promises that word alone: the box is unticked until it is ticked, whatever the entries
+hold. After them the list has `complex (not built)`: the word is kept back, and choosing it is refused with a
+sentence.
+
+- With nothing chosen the row is greyed and says what the shape is worked out as: `natural (from its entries)`. The
+  space of some values is the smallest that holds them all (0 and 1 are boolean, 2 is natural, -1 ternary, -2
+  integer, 1/2 a probability, 3/2 rational, √2 real); the space of a result follows from its inputs' by the
+  operation's rule (a sum of naturals is natural, a difference of them an integer, a quotient of integers
+  rational, a comparison boolean, a matrix product a sum of products, and so on: `spaces.js` has every rule, and
+  each gives the wider space where there was doubt).
+- Choose a word and the shape **promises** it. The promise is the variable's: every reference shares it, and it is
+  saved as `"holds": "natural"`. A promise is held against the values wherever the page has them: a value outside
+  it is an error, said with the entry (`W is not natural: it holds -3 at 1, 2`), in the warning colour, and what is
+  worked out from the shape then has no value. An entry not given, and one that is itself an error, break nothing.
+  On a transposed use, and on one turned through its inner axes, the sentence names the entry as that use draws it.
+  A value the solver leaves as it is written (`ln(8)/ln(2)`, which is 3) is asked whether it is the whole number it
+  comes nearest to; where that cannot be told it breaks nothing, and the row warns at most.
+- No promise lives where it cannot be seen. When the last use of a variable that lies in a space is fused into
+  another shape, or taken off the canvas by Difference or Intersect (which keep it), its promise is taken off and
+  the readout says so: the shape made is promised on its own. Undo puts it back; Revert gives the shapes back
+  without it.
+- Where the page has not got the values (a matrix too large for it, noise, a data file), the backend holds its own
+  numbers to the promise, and says so in the same sentence (`Nz is not probability: it holds -0.440393865 at 1, 1`).
+  Until it has, or with none running, the page goes by what the shape is worked out as: if that is not inside the
+  promise the row warns, and the shape keeps its value: `Nz cannot be shown to be probability: it is worked out as
+  real`. A shape whose values can be read off the graph (zeros, ones, an identity, entries all typed in) is held
+  by them at any size, with no backend.
+- A type never says what might be false. The space passed on to what is made of a shape is its promise only where
+  what it is worked out as lies inside the promise (or its entries say nothing yet); otherwise it is what is worked
+  out.
+- An arrow has **Takes** and **Gives**. What it takes is the promise of its function's `in` block, held against what
+  the arrow gives it: a value outside it is an error like a shape's own, the output has no value, and the sentence
+  names the entry (and the run, where the arrow is repeated). What it gives is the promise of the block seated on
+  its output. With no block seated there is nothing to hold that promise, and the row only says what the output is
+  worked out as. Where what an arrow is given is not known to lie in what it takes, nothing is said of its output
+  (`any or None`).
+- `complex` is a reserved word: it is refused with a sentence saying it is not built.
+
+In the graph a node's type carries `"value": "integer?"`, both validators check that it follows from the node's
+inputs, and a variable that promises carries `"holds"`, which is how the promise reaches the backend. Where a number
+it works out breaks one, its answer has, beside that result's error (the sentence), `"codes": { key: { "code":
+"type", "node": id } }`. A graph that says a version too low for what it holds is refused by both validators (None,
+a value and a promise need version 3; inner data needs 2; a `choose` and a source of None need 4; a `loop` and a `repeat` with a step need 5), and a page that finds the backend's `/health` saying an
+older version than its own asks it for no run and says "the backend is older than this page: restart it".
+
+## Conditions, and truth as height
+
+**Truth is shown as height.** A shape whose whole matrix is false is drawn sunk: pressed into the canvas, with no
+shadow under it, set down by the height of its lip, and its lit and shaded lips changed over. A matrix is false only
+when every entry is known and is zero, false or None; one true entry makes it true, and a shape with an entry not
+yet given (and none that is true) is not known. True and not known are drawn as a block always was. Every shape is
+asked, a setting in a `.config` included, so `.dark_mode` holding 0 sits sunk. A shape too large for the page to
+work out is judged by what it is known to hold (a source of zeros is false at any size); one whose numbers only the
+backend has is drawn by what the backend answers, once it has. An arrow is never sunk: a function is always true.
+
+**Make conditional.** Select the shapes of exactly one piece, right-click, **Make conditional**. The piece folds
+away into a new arrow, marked with a small `?` on its triangle, and where the piece stood there is now a single
+entry holding `true` with that arrow on its east side. The arrow's output is what the piece came to, for as long as
+the entry is true; make it false and the output is None (`∅`) at the same size. One step back undoes all of it.
+
+- The condition is whatever the arrow's base covers: a single `true` or `false`, a formula, or a whole matrix,
+  which counts by its truth as above. None is false. Where the truth is not known, the output keeps its size and
+  shows its symbols, and the arrow's panel says "Its condition is not known"; where an entry of the condition is an
+  error, it says which: "Its condition is an error: divide by zero at 1, 1".
+- Open the arrow (select it, then double-click) for its two sides: two frames called **true** and **false**, and
+  `in`, which shows the condition. Each frame holds one piece or nothing. An empty frame is None at the other
+  side's size, and is still drawn, so that a shape can be dragged into it. The side that is not chosen is faded;
+  neither is while the truth is not known. A shape in neither frame takes no part, and is drawn in the warning
+  colour, block or arrow.
+- The two sides have to be one size ("its two sides are not one size"); two pieces in one frame are "2 pieces".
+  A piece that lies across a frame's edge, some of its blocks in the frame and one that touches them outside it,
+  belongs to neither side: the arrow and those blocks are drawn in the warning colour, and the arrow says "a piece
+  lies across the edge of its true side: move its blocks wholly into that frame, or wholly out of it". A side is
+  None only where its frame holds nothing.
+  The frames cannot be unframed or renamed.
+- Only the chosen side is worked out, in the browser and in the backend: an error on the other side, or a side too
+  large to work out, does no harm.
+- It is an arrow like any other: a block can be seated on its output, it can be named and set against another
+  condition from the list, and in a tile it is repeated along a column or a row of conditions (clear its promise
+  there, as for any arrow: the promise is one run's size).
+- Refused, each with its sentence: nothing selected; more than one piece; part of a piece; a piece that comes to no
+  matrix; and a selection that holds an arrow, a function's `in` block or a seated block.
+
+In the graph this is the operation `choose`, over whole matrices: `[condition, then, else]`, its inputs read only
+when asked for, and a source of kind `none` for the empty side. The formula function `select` is another thing: it
+chooses entry by entry and works both sides out. In a file it is one field on an ordinary arrow, `"choose": {
+"then": "<frame id>", "else": "<frame id>" }`, naming two frames of the arrow's definition space
+(`projects/README.md`). `choose` and a source of None need graph version 4.
+
+## Loops
+
+A tile is a loop once it has a **step**: an arrow on the tile's east side, made its step by right-clicking it and
+choosing **Step** (the same command takes it off). A step is not handed the tile's matrix, as any other arrow on a
+tile is: its `in` block is one whole cell, the pattern's size, and what its space comes to is the state of the next
+cell. `projects/running-total` is the example (`projects/README.md`).
+
+- **State.** The blocks of the pattern whose value is their own typed entries are the tile's state, and together
+  they must fill one rectangle; the step's output is that rectangle's size. Every other block of the pattern (one
+  with a formula, a source, noise, a seated block) is worked out afresh in each cell. Each drawn cell shows its
+  own state. Nothing is changed in place: cell k + 1 holds what the step made of cell k.
+- **What the step gives.** After the last cell, the state the step made of it: for a tile 4 across, the state of a
+  fifth cell. An arrow on any other side of the tile still reads the whole matrix, every cell with its state.
+- **Reading a block outside.** In a tile with a step, the block seated on a repeated arrow's output may lie inside
+  the pattern, and in cell k it holds the arrow's k-th run. (In a tile with no step such an arrow gives one strip
+  beside the tile, as before.)
+- **Counts.** A count may be typed `inf`: the tile does not end, is drawn as its first three cells and an ellipsis
+  with `∞` on it, and has no matrix. In a tile with a step a count may also be a formula that is settled only when
+  the model is run (it reads an attribute, or a mass that is worked out). Such a tile repeats one way only.
+- **Stop when true.** Right-click a block of the pattern: the tile stops at the first cell where that block is
+  true as a whole matrix, and the step's output is that cell's state, that cell included. The panel says which
+  cell. A stop block that is not known gives an output that is not known.
+- **Limits.** The browser takes at most 256 steps, then says "Not stopped after 256 steps: needs the backend"; the
+  backend takes up to 1,000,000. A tile that does not end and has no stop block "runs until stopped".
+- **Order.** Cells go left to right, then the next row down. A tile inside a tile's pattern with a step of its own
+  starts again from its first cell in every cell of the outer tile.
+- The index cannot be read in a step (a function's space is in no tile); a block of the pattern reads it.
+
+In the graph this is the operation `loop` (the pattern's nodes, `at`, `pattern`, `state`, `fn`, `count`, `until`
+and `across`), and a `repeat` with `fn` and `state` for the tile's matrix; both need graph version 5. In a file it
+is `"step"` and `"until"` on the tile's `"repeat"`, and a count of `"inf"`; the project format is 7.
+
 ## The graph and the evaluator
 
 The page does no arithmetic. The whole project is built into a graph (`graph.js`), once for each state of the
@@ -625,14 +802,14 @@ of the model that anything else is to read: the backend (see "The backend"), an 
                                                // (deferred with backend: true: made of noise or a data file, which only the backend has)
 
 - A node is one matrix. Its `op` is one of `variable`, `matmul`, `scale`, `transpose`, `add`, `ewise`, `block`,
-  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack` and `entry`; its `inputs` are the nodes it is
+  `slice`, `source`, `noise`, `measure`, `map`, `apply`, `param`, `repeat`, `mapalong`, `stack`, `entry`, `choose` and `loop`; its `inputs` are the nodes it is
   worked out from, and nothing it depends on is anywhere else: a formula names its inputs `$1`, `$2`, holds no
   other name but `index.x`, `index.y`, `k1` to `k6` and an arrow's `x`, `i`, `j`, and `validate` reads every one to see that it is so.
 - A node's `type` is `{ cols, rows, colsName, rowsName }`, with `inner`, the list of its inner axes
   (`[{ "length": 2, "name": "key" }, …]`), where its entries hold inner data, and no other key. An entry's key is
   then `"column,row,k1,k2,…"`. The rules stay two-dimensional: the evaluator runs each once for every inner
   position. `stack` puts matrices into the entries of one, `entry` takes one out, and a `transpose` with `order`
-  turns the axes. The graph's `version` is 2; a version 1 graph holds none of this and is still accepted.
+  turns the axes. These need a graph of `version` 2 (the graph's version is now 5: see above); a version 1 graph holds none of this and is still accepted.
 - A `matmul`'s first input has as many columns as its second has rows, a single entry included: a single entry
   against a single row or column is a product, and against anything else it is a `scale`, which is another node.
   `validate` and the backend's check refuse any other product in the same words ("a product of 1 columns and 3
@@ -761,9 +938,9 @@ only too large to work out in the browser keeps its symbols, with "needs the bac
 on the canvas and the reason in its panel; nothing else changes. Where there is a backend and it gives no numbers, why is written in their place ("unknown entries in
 Keys", "asking the backend" while the first answer is waited for) and in the readout when the reason arrives.
 
-**What it answers.** `GET /health` gives `{ "ok": true, "version": 2 }` (the version of graph it reads; it still takes a version 1 graph). `POST /run` takes
+**What it answers.** `GET /health` gives `{ "ok": true, "version": 5 }` (the version of graph it reads; it still takes a version 1, 2, 3 or 4 graph). `POST /run` takes
 `{ "graph", "want": [{ "node", "cells": [[c, r], …], "binding", "as" }], "tick": 0, "project" }` and gives
-`{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean" } }, "errors": { key: why } }`
+`{ "results": { key: { "cols", "rows", "cells": [[c, r, value], …], "min", "max", "mean", "truth" } }, "errors": { key: why } }`
 (for a node whose entries hold inner data a cell is `[c, r, k1, …]`, the result has `"inner"`, its inner lengths,
 and each answer is `[c, r, k1, …, value]`; it holds every array with rows and columns as its last two axes);
 `POST /data?project=<name>&path=data/<file>.csv`, with the file as its body, gives `{ "path", "cols", "rows" }`, and
@@ -785,7 +962,7 @@ and each answer is `[c, r, k1, …, value]`; it holds every array with rows and 
 - Noise is the generator written out at the top of `backend/arrays.py`, the same on any machine.
 - All array code is in `backend/arrays.py`, the one module that imports NumPy, so another library can take its place.
 - It refuses what is outsized, with the reason: a request of more than 5 MB; a graph of more than 20,000 nodes; any
-  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; an uploaded file
+  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; a loop that has not stopped after 1,000,000 steps, which is stopped too ("not stopped after 1,000,000 steps: a loop is stopped then"); (measured on the machine it was built on, a loop whose step adds two numbers takes about 5,000 to 6,000 steps a second, so some 150,000 to 170,000 fit in the 30 seconds and through `/run` it is the 30 seconds that stop a long loop, not the million steps: both limits stay as specified); an uploaded file
   of more than 50 MB. The five numbers are together at the top of `backend/limits.py`, with its smaller bounds
   beneath them: a run that would hold more in arrays than a worker may (see above), more than 65,536 entries asked
   for in one run, more than 64 files or 200 MB under one project's `data/`.

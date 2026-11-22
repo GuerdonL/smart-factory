@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { zoneOf, touches, joins, pieces, turnedPlaces, hollows, resultHollows, stacks, typeOf, readSide, isScalar, isSurd, isWhole, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
+import { zoneOf, touches, joins, pieces, turnedPlaces, hollows, resultHollows, stacks, typeOf, readSide, isScalar, isSurd, isInteger, surd, rootOf, exact, held, valueText, initials, cut, fits, difference, intersection, rangeOf, rangeIn, partEntries, wholeSide, sideLabel, nthOf } from '../algebra.js';
 
 const rect = (x, y, w, h, wName, hName) => ({ x, y, w, h, wName, hName });
 const type = (cols, rows, colsName = null, rowsName = null) => ({ cols, rows, colsName, rowsName });
@@ -379,7 +379,7 @@ test('a value that comes out whole is a plain number; otherwise it is kept in al
   assert.equal(surd(9, 1), 3); assert.equal(surd(16, 2), 2); assert.equal(surd(6, 0, 3), 2);
   assert.deepEqual(surd(2, 1), { n: 2, k: 1 }); assert.deepEqual(surd(3, 0, 4), { n: 3, d: 4, k: 0 });
   assert.deepEqual(surd(12, 1), { n: 12, k: 1 }); assert.deepEqual(surd(4, 2), { n: 2, k: 1 });
-  assert.equal(isWhole(3), true); assert.equal(isWhole(1.5), false); assert.equal(isWhole({ n: 2, k: 1 }), false);
+  assert.equal(isInteger(3), true); assert.equal(isInteger(1.5), false); assert.equal(isInteger({ n: 2, k: 1 }), false);
   assert.equal(isSurd({ n: 2, k: 1 }), true); assert.equal(isSurd(3), false); assert.equal(isSurd(null), false);
 });
 

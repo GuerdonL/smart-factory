@@ -29,7 +29,8 @@
    level(f)                   -> how light a decimal's square is, from 0 (black) to 1 (white): f itself, held to
                                  that range. What has no number (NaN) is 0.
    fromBackend(v)             -> a value in the backend's answer as a value here: a number as { f }, "inf" and
-                                 "-inf" as { f: ±Infinity }, { err } as that error; anything else is unknown (null)
+                                 "-inf" as { f: ±Infinity }, { err } as that error, { none: true } as None; anything
+                                 else is unknown (null)
    functional(v)              -> whether a value is symbolic and holds exp, ln, tanh or erf (as the solver writes
                                  them: e^2, e, log(2), tanh(1), erf(1)): the only exact values a decimal is shown for
    wanted(answer)             -> whether the backend is asked for an evaluator's answer (evaluate.js): one that is
@@ -44,6 +45,9 @@
                                  older state of the project (it is drawn dimmed until the new one comes); the Map
                                  then has stale: true, and its decimals carry no exact form: the number is the
                                  older state's, and the entry may stand for another value now.
+                                 Where the answer is deferred and the result is not stale, the Map carries truth
+                                 too: what the backend says of the whole matrix (true, false, or null for not
+                                 known; backend/run.py), which the page has no other way to tell.
    noted(note)                -> an empty Map that carries a note in place of values ("needs the backend", or why the
                                  backend gave none): matrix.js writes the note where the numbers would be. The same
                                  Map for the same note.
@@ -87,7 +91,7 @@ export function drawn(type){
 }
 export const level = f => !(f > 0) ? 0 : f >= 1 ? 1 : f;
 export const fromBackend = v => typeof v === 'number' && Number.isFinite(v) ? { f: v } : v === 'inf' ? { f: Infinity } : v === '-inf' ? { f: -Infinity }
-  : v && typeof v === 'object' && typeof v.err === 'string' ? { err: v.err } : null;
+  : v && typeof v === 'object' && typeof v.err === 'string' ? { err: v.err } : v && typeof v === 'object' && v.none === true ? { none: true } : null;      /* an entry the backend says is None is None: written ∅, and no decimal */
 /* exp, ln, tanh and erf as the solver writes them: a call of exp, log, ln, tanh or erf, or the number e standing alone or raised (e^2) */
 const FUNCTION = /(^|[^\w.])(?:(?:exp|log|ln|tanh|erf)\(|e(?![\w.(]))/;
 export const functional = v => !!v && typeof v === 'object' && typeof v.sym === 'string' && FUNCTION.test(v.sym);
@@ -107,6 +111,7 @@ export function merged(answer, exact, result, stale = false){
     if (answer.deferred) out.set(key, v);
     else if (functional(was)) out.set(key, 'f' in v && !stale ? { f: v.f, exact: written(was) } : v); }      /* (an older state's number is not said to be this value's) */
   if (stale) out.stale = true;
+  else if (answer.deferred && result && (result.truth === true || result.truth === false)) out.truth = result.truth;      /* of every entry, not only those asked for */
   return out;
 }
 export function laid(answer, exact, { there = null, got = null, why = null } = {}){

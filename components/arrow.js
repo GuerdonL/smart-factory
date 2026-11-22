@@ -1,6 +1,6 @@
 /* An arrow on the canvas: a function, drawn as a triangle that points away from its input.
 
-   createArrow(shape, rect, name) -> everything createBlock gives (block.js), and point(side, tri, w, h)
+   createArrow(shape, rect, name) -> everything createBlock gives (block.js), and point(side, tri, w, h), mark(text)
      An arrow is a kind of block: it is selected, named, faded, warned and deleted as one, and messages name it by its
      id in the same way. What differs is how it looks. Its rectangle is the gap between its input's edge and its
      output (arrows.js: strip), and nothing of that is drawn but:
@@ -12,6 +12,8 @@
      point   says which way it points and where the triangle is: side is n, e, s or w (the edge of the input its base
              lies on); tri is the triangle's three corners, base first and last its point, in units from the
              rectangle's top-left corner; w and h are the rectangle's size in units.
+     mark    writes a small mark on the triangle (a condition's ?), or takes it off (''). It is written in the
+             colour the stylesheet keeps for a block's rim (no colour is added for it), and takes no pointer.
      Only the triangle, the bar and the handles take the pointer: the rest of the gap lets it through.
    A warned arrow (warn) is drawn in the warning colour, a faded one fades, as a block does. */
 import { html, style } from './dom.js';
@@ -27,6 +29,8 @@ style('arrow', `
 .block.arrow .block-name { pointer-events: auto; }
 .arrow-shape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .arrow-shape polygon { fill: var(--face); pointer-events: auto; cursor: pointer; transition: fill .15s; }
+.arrow-mark { position: absolute; transform: translate(-50%, -50%); pointer-events: none; font-family: var(--font-name); font-size: calc(12 * var(--px)); line-height: 1; font-weight: 700; color: var(--edge); }      /* the rim's colour, which is dark under either theme: the triangle's own is the project's to set, and is pale by default */
+.arrow-mark:empty { display: none; }
 .block.arrow.selected .arrow-shape polygon { cursor: move; }
 .arrow-bar { position: absolute; background: var(--face); border-radius: calc(2 * var(--px)); pointer-events: auto; cursor: pointer; transition: background-color .15s; --t: calc(4 * var(--px)); }
 .block.arrow.e .arrow-bar { left: calc(var(--t) / -2); top: 0; bottom: 0; width: var(--t); }
@@ -52,9 +56,13 @@ export function createArrow(shape, rect, name = ''){
   const svg = document.createElementNS(NS, 'svg'), tri = document.createElementNS(NS, 'polygon');
   svg.setAttribute('class', 'arrow-shape'); svg.setAttribute('preserveAspectRatio', 'none'); svg.append(tri);
   b.el.append(svg, html`<i class="arrow-bar"></i>`, html`<i class="arrow-handle" data-handle="first"></i>`, html`<i class="arrow-handle" data-handle="last"></i>`);
+  const sign = html`<span class="arrow-mark"></span>`; b.el.append(sign);
+  b.mark = text => { if (sign.textContent !== text) sign.textContent = text; };
   let drawn = '';
   b.point = (side, points, w, h) => {
     const key = JSON.stringify([side, points, w, h]); if (key === drawn) return; drawn = key;
+    /* the mark sits at the triangle's centre of mass: a third of the way from its base to its point */
+    sign.style.left = (points.reduce((x, p) => x + p[0], 0) / 3 / w * 100) + '%'; sign.style.top = (points.reduce((y, p) => y + p[1], 0) / 3 / h * 100) + '%';
     for (const s of ['n', 'e', 's', 'w']) b.el.classList.toggle(s, s === side);
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`); tri.setAttribute('points', points.map(p => p.join(',')).join(' ')); };
   return b;

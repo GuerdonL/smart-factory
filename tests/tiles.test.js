@@ -59,9 +59,9 @@ test('a count that depends on its own tile\'s size is refused, whatever it would
 test('a count may read the mass of a scalar whose entry is a literal number, or a formula of sizes and such masses', () => {
   /* n holds 3; half holds 3/2; k holds a formula of a size; deep a formula of k's mass; own a formula of its own x;
      attr a formula of an attribute; loop reads itself; seated is worked out some other way */
-  const held = { n: 3, half: { n: 3, d: 2, k: 0 }, k: { expr: '@[keys:y] + 1' }, deep: { expr: '2 * @[k:m]' }, own: { expr: 'x * 2' }, attr: { expr: '@[keys:a:heads]' }, loop: { expr: '@[loop:m] + 1' }, fn: { expr: 'max(@[keys:x], 2)' } };
+  const held = { n: 3, half: { n: 3, d: 2, k: 0 }, k: { expr: '@[keys:y] + 1' }, deep: { expr: '2 * @[k:m]' }, own: { expr: 'x * 2' }, attr: { expr: '@[keys:a:heads]' }, loop: { expr: '@[loop:m] + 1' }, fn: { expr: 'max(@[keys:x], 2)' }, sel: { expr: 'select(none, 2, 3)' } };
   const entryOf = id => held[id];
-  for (const ok of ['@[n:m]', '@[k:m]', '@[deep:m]', '@[fn:m]', '@[keys:x] * @[n:m]', '@[half:m] * 2']) assert.deepEqual(settled(ok, entryOf), { ok: true }, ok);
+  for (const ok of ['@[n:m]', '@[k:m]', '@[deep:m]', '@[fn:m]', '@[sel:m]', '@[keys:x] * @[n:m]', '@[half:m] * 2']) assert.deepEqual(settled(ok, entryOf), { ok: true }, ok);
   assert.match(settled('@[own:m]', entryOf).refused, /not a mass worked out from the scalar's own measures/);
   assert.match(settled('@[attr:m]', entryOf).refused, /not an attribute/);
   assert.match(settled('@[seated:m]', entryOf).refused, /not a mass that is unknown or worked out/);      /* entryOf knows nothing of it */
@@ -87,11 +87,28 @@ test('what typing a count stores: a number, or a formula where it names a size',
 });
 
 test('both counts, with 1 standing in for one that cannot be worked out, and why', () => {
-  assert.deepEqual(counts(rep(3, 2, 3, 2)), { across: 3, down: 2, formula: { across: false, down: false }, warn: null });
-  assert.deepEqual(counts(rep(4, 1, 1, { expr: '@[keys:y]' }), lookup), { across: 1, down: 3, formula: { across: false, down: true }, warn: null });
+  assert.deepEqual(counts(rep(3, 2, 3, 2)), { across: 3, down: 2, formula: { across: false, down: false }, open: { across: null, down: null }, warn: null });
+  assert.deepEqual(counts(rep(4, 1, 1, { expr: '@[keys:y]' }), lookup), { across: 1, down: 3, formula: { across: false, down: true }, open: { across: null, down: null }, warn: null });
   const gone = counts(rep(4, 1, { expr: '@[gone:x]' }, 2), lookup);
   assert.equal(gone.across, 1); assert.equal(gone.down, 2); assert.match(gone.warn, /^across: .*missing variable/);
   assert.match(counts(rep(1, 1, 2, { expr: '@[keys:x]/3' }), lookup).warn, /^down: /);
+});
+test('an open count: one that does not end, and (in a tile with a step) one that is settled only when it is run', () => {
+  assert.deepEqual(kept({ x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 'b2' }), { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 'b2' });
+  assert.deepEqual(kept({ x: 0, y: 0, cols: 1, rows: 2, across: 'forever', down: 1, step: 7, until: '' }), { x: 0, y: 0, cols: 1, rows: 2, across: 1, down: 1 });      /* what is no count is 1, and what is no id is left out */
+  assert.deepEqual(count('inf'), { count: 1, formula: false, open: 'inf' });
+  assert.deepEqual(counts(rep(1, 2, 'inf', 1)), { across: 1, down: 1, formula: { across: false, down: false }, open: { across: 'inf', down: null }, warn: null });
+  const attribute = { expr: '@[keys:a:heads]' };
+  assert.match(count(attribute, lookup).refused, /an attribute/);                                   /* with no step it is refused, as ever */
+  assert.deepEqual(count(attribute, lookup, { step: true }), { count: 1, formula: true, open: 'run' });
+  assert.match(count(attribute, lookup, { step: true, loops: true }).refused, /depends on itself/);      /* and never where it reads its own tile's size */
+  assert.deepEqual(count({ expr: '@[keys:y]' }, lookup, { step: true }), { count: 3, formula: true });      /* a count that is settled is settled, step or none */  /* typed: inf, infinity or ∞ is the count that does not end */
+  for (const text of ['inf', ' Infinity ', '∞']) assert.deepEqual(typed(text, lookup), { value: 'inf' });
+  /* drawn: an open count is its first three cells and an ellipsis; under a small limit, one cell and an ellipsis */
+  assert.deepEqual(slots(1, 1, { across: false, down: false, open: { across: 'inf', down: null } }), { xs: [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }], ys: [{ cell: 1 }] });
+  assert.deepEqual(slots(1, 1, { across: false, down: true, open: { across: null, down: 'run' } }).ys, [{ cell: 1 }, { cell: 2 }, { cell: 3 }, { dots: true }]);
+  assert.deepEqual(slots(1, 1, { open: { across: 'inf', down: null } }, 8).xs, [{ cell: 1 }, { dots: true }]);
+  assert.deepEqual(layout(rep(1, 2, 'inf', 1), 1, 1, { open: { across: 'inf', down: null } }).w, 4);      /* three patterns one wide, and the ellipsis */
 });
 
 test('the filled size is the pattern times the counts', () => {
@@ -558,4 +575,12 @@ test('a tile goes with what is copied only where the whole of it is copied, in a
   assert.deepEqual(copied(['a', 'b', 'c'], whole(['a', 'b'])), ['a', 'b']);
   /* a tile never goes without the tiles inside it that the block is in */
   assert.deepEqual(copied(['inner', 'outer'], whole(['outer'])), []); assert.deepEqual(copied(['a', 'b', 'c'], whole(['a', 'c'])), ['a']);
+});
+
+/* ---- None (phase 9) ---- */
+test('a count that comes to None is refused, as 0 or 3/2 is', () => {
+  assert.match(count({ expr: 'none' }).refused, /whole number, at least 1, and that comes to ∅/);
+  assert.match(count({ expr: 'select(none, 2, none)' }).refused, /comes to ∅/);
+  assert.equal(count({ expr: 'select(none, 2, 3)' }).count, 3);      /* None chooses the second, which is a count */
+  assert.ok(count({ none: true }).refused);
 });

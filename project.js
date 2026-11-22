@@ -54,6 +54,12 @@
                                                  matrix it holds. A number never given is unknown, at any depth
          "definition": "Keys/",                  the directory holding its definition space, if it has one with anything in it
          "order": 3,                             its place among the shapes of its space, back to front
+         "holds": "integer?",                    the number space it promises to hold (spaces.js): one of boolean, ternary,
+                                                 natural, whole, integer, rational, probability, real, extended, any, with "?"
+                                                 where it may hold None too. Left out where it promises nothing; what
+                                                 is no such word (complex is reserved, and not built) is not read. On
+                                                 a function's in block it is what the arrow takes, and on the block
+                                                 seated on its output what it gives. Format 5
          "standing": true,                       a standing shape: it stands in its owner's matrix (it was dropped onto that matrix), and
                                                  its place in the definition space is its place among the entries. Written
                                                  "tile": true before phase 5; either is read
@@ -99,14 +105,20 @@
                                                  whole, each with the part of this one it takes up (as fractions).
                                                  Its entries are theirs: they are written there, not here.
          "type": "arrow", "arrow": { "input": { "id": "b3k…", "as": "block" }, "side": "e", "start": 1, "span": 3, "gap": 2,
-                                     "gapName": null, "output": { "cols": 4, "rows": 3 }, "formula": "max(x, 0)" },
+                                     "gapName": null, "output": { "cols": 4, "rows": 3 }, "formula": "max(x, 0)",
+                                     "choose": { "then": "g4k09zq", "else": "g7m21xa" } },
                                                  an arrow, a function drawn as a triangle (arrows.js has what each field
                                                  means). input.as is "block", or "result" for the drawn result of the
                                                  piece holding that block (with "hollow": 1 or 2 for a times or over
                                                  pair's hollow) or, where the id is an arrow's, that arrow's output, or
                                                  "tile" where the id is a tile's frame and it reads the tile's matrix.
                                                  output is null where nothing is promised, formula null where there is
-                                                 no entry formula. An arrow's definition space is written as any
+                                                 no entry formula. choose is there only on a conditional arrow (arrows.js):
+                                 the ids of two frames of its definition space, the one it comes to where what
+                                 it reads is true and the one where it is not. They are ordinary frames, written
+                                 as any frame is, and either may hold no shapes: an empty one is None. No format
+                                 number marks it: a project saved before has no such field, and no arrow of it
+                                 is read as a condition. An arrow's definition space is written as any
                                                  shape's is. Its position and size are where it is drawn, worked out
                                                  from its input on opening: nothing reads them back. Where its output
                                                  is drawn is never written.
@@ -129,6 +141,7 @@
                           { "n": 3, "d": 4, "k": 1 }      exact: n over d under k square roots, d left out where it is 1
                           true, false                     a boolean, as a JSON boolean
                           { "sym": "1+sqrt(2)" }          symbolic: text the solver reads back
+                          { "none": true }                None: nothing, said outright (format 5). Not an absent entry
        a formula          { "expr": "1/√(@[b3k2m9x:x])" } the text as it was typed, worked out each time it is shown.
                                                           A capsule in it names a measure of a variable by the id of
                                                           the block it was made as: @[id:x], @[id:y], @[id:m] (a
@@ -149,7 +162,10 @@
                                                            x, y: where the pattern's top-left corner is, in units;
                                                            cols, rows: the pattern's size; across, down: how many
                                                            times it is repeated each way, a whole number of at least
-                                                           1 or a formula that comes to one from sizes alone. Its
+                                                           1 or a formula that comes to one from sizes alone, or
+                                                           "inf" (it does not end); with "step", the id of the
+                                                           arrow that is its step, and "until", the id of its
+                                                           stop block, each only where it has one (tiles.js). Its
                                                            shapes are those of the first cell: the copies, and what
                                                            the counts come to, are never written. A tile may hold no
                                                            shapes. A frame inside another may be a tile too; a
@@ -192,9 +208,29 @@
    read's project also carries converted: how many old stacks were fused on the way in, and changed: how many other
    pieces of an old project now read differently (see below for both); each 0 for a project of this format. And
    resized: the references that were drawn at another size than their variable's and have been set to it (see
-   oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
+   oneSize), [{ name, cols, rows, was }]; empty for every project a page saved. And unstepped: the tiles whose
+   "step" or "until" named what is no step or stop block of theirs and has been dropped (see unstepped),
+   [{ tile, key }]; empty for every project a page saved.
 
-   The format is 4. Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
+   The format is 7. Format 7 adds to format 6, on a tile's "repeat": "step", the id of the arrow that is the tile's
+   progression function; "until", the id of its stop block; and a count of "inf", one that does not end (tiles.js).
+   A format 6 project has none of the three and is read exactly as it is; saved again it differs only in the
+   format number. The number went up so that a program from before loops refuses such a project ("saved by a newer
+   version") where it would have opened it, dropped the step and the stop block, read "inf" as 1, and saved it so.
+   Format 6 adds to format 5 the field "choose" on an arrow, { then, else }, and with it a frame file
+   that holds no shapes (an empty side of a condition). A format 5 project has neither and is read exactly as it is;
+   saved again it differs only in the format number. The number went up so that a program from before conditions
+   refuses such a project ("saved by a newer version") where it would have opened it, dropped every choose and the
+   empty side's file, and saved it so.
+   Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
+   shape: the number space it promises (spaces.js), one of the ten words with a "?" after it where it may hold None
+   ("integer?"), or "none" for None alone, left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
+   saved again it differs only in the format number. Reading, a holds that is no such word is dropped, and so is one
+   written only on a reference (a promise is its variable's, said on the shape the variable was made as), on a
+   shape fused into another, or on a shape a cut keeps off the canvas (operations.json) no use of whose variable
+   lies in a space: read's project carries unheld, [{ name, holds, why }], each of them, for whoever
+   opens it to say; empty for every project a page saved.
+   Format 4 adds to format 3 inner data: "inner" in a shape's size and sides, the longer entry keys
    that go with it, from.entry, and a use's "axes". A format 3 project has none of them and is read exactly as it is: no field is
    converted, and saved again it differs only in the format number. Reading, inner is given whole lengths of at least
    1 and at most six axes (an arrow has none); a length past 16,000,000 (as many numbers as anything holds) is no
@@ -242,19 +278,21 @@
    group:   { id, name, members: [index into shapes, for the shapes directly in it], groups: [the groups inside it],
               repeat: { x, y, cols, rows, across, down } only where the frame is a tile }
    shape:   { type, name, color, x, y, cols, rows, colsName, rowsName, inner: [{ length, name }] | null, entries: { "c,r" or "c,r,k1,…": a literal value (Infinity for an infinity) or { expr } },
+              holds: "integer?" where it promises a number space (left out where it promises none),
               inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | { noise: { seed, dist } } | { file } | null,
               variable: a number shared by shapes that are one variable, or null,
               from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, entry: { col, row } } | { id, index: 'x' | 'y' } | null,
-              arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
+              arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula, choose: { then, else } only on a condition } for type 'arrow', else null,
               seat: an arrow's id | { hollow: [id, id] } | null, in: true for an arrow's input block,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null,
               axes: [variable axis, …] only on a use that is turned } */
 
-import { stacks, pieces, isFormula, isSurd, isWhole, storable } from './algebra.js';
+import { stacks, pieces, isFormula, isSurd, isInteger, storable } from './algebra.js';
+import { parse as spaceOf, promise as promiseOf } from './spaces.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 4;
+export const FORMAT = 7;
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
 const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
 const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */
@@ -275,9 +313,9 @@ export const isNamed = name => !/^Shape \d+$/.test(bare(name));
 /* an entry as it is written: a formula's text and nothing it came to, or a literal value. What may not be kept (an error, a decimal) is undefined. */
 const out = v => isFormula(v) ? { expr: v.expr } : !storable(v) ? undefined : v === Infinity ? 'inf' : v === -Infinity ? '-inf' : v;
 /* and as it is read: undefined for what is no entry (an error, a decimal, or nothing this format knows) */
-const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : typeof v === 'boolean' || isWhole(v) ? v : !v || typeof v !== 'object' ? undefined
+const back = v => v === 'inf' ? Infinity : v === '-inf' ? -Infinity : typeof v === 'boolean' || isInteger(v) ? v : !v || typeof v !== 'object' ? undefined
   : typeof v.expr === 'string' ? { expr: v.expr } : isSurd(v) && (v.d === undefined || Number.isInteger(v.d)) ? { n: v.n, ...(v.d !== undefined && v.d !== 1 ? { d: v.d } : {}), k: v.k }
-  : typeof v.sym === 'string' ? { sym: v.sym } : undefined;
+  : typeof v.sym === 'string' ? { sym: v.sym } : v.none === true ? { none: true } : undefined;
 const kept = (entries, as) => Object.fromEntries(Object.entries(entries || {}).map(([k, v]) => [k, as(v)]).filter(([, v]) => v !== undefined));
 
 /* a range as it is kept: whole numbers, a start not before 0, at least one column and one row, and toEnd's two fields true or false */
@@ -289,7 +327,8 @@ const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => M
   return { input: { id: typeof a.input?.id === 'string' ? a.input.id : '', as, ...(as === 'result' && (a.input.hollow === 1 || a.input.hollow === 2) ? { hollow: a.input.hollow } : {}) },
     side: ['n', 'e', 's', 'w'].includes(a.side) ? a.side : 'e', start: n(a.start), span: n(a.span), gap: n(a.gap), gapName: typeof a.gapName === 'string' && a.gapName.trim() ? a.gapName.trim() : null,
     output: a.output && typeof a.output === 'object' && +a.output.cols >= 1 && +a.output.rows >= 1 ? { cols: n(a.output.cols), rows: n(a.output.rows) } : null,
-    formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null }; };
+    formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null,
+    ...(a.choose && typeof a.choose === 'object' && typeof a.choose.then === 'string' && a.choose.then && typeof a.choose.else === 'string' && a.choose.else && a.choose.then !== a.choose.else ? { choose: { then: a.choose.then, else: a.choose.else } } : {}) }; };      /* a condition: the two frames it chooses between, and nothing where it is none */
 /* a shape's from, as it is written and as it is read: a range, the index, or a measure's side */
 const placeOf = e => ({ col: Math.max(1, Math.round(+e.col || 1)), row: Math.max(1, Math.round(+e.row || 1)) });      /* an entry's column and row, from 1 */
 const fromOut = f => f.range ? { id: f.id, range: rangeOf(f.range) } : f.entry ? { id: f.id, entry: placeOf(f.entry) } : f.index ? { id: f.id, index: f.index === 'y' ? 'y' : 'x' } : { id: f.id, side: f.side };
@@ -338,7 +377,7 @@ export function write(project){
       if (inside){ if (v !== null) written.add(v); space(inside, dir + name + '/'); }
       return [name, { format: 'smart-factory/shape', version: FORMAT, ...(shape.id ? { id: shape.id } : {}), type: shape.type, name: shape.name, named: isNamed(shape.name), commented: isCommented(shape.name),
         color: isNamed(shape.name) ? shape.color : null, position: { x: shape.x, y: shape.y }, size: { cols: shape.cols, rows: shape.rows, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.length) } : {}) },
-        sides: { cols: shape.colsName || null, rows: shape.rowsName || null, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.name) } : {}) }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}), ...(axesOf(shape) ? { axes: axesOf(shape) } : {}),
+        sides: { cols: shape.colsName || null, rows: shape.rowsName || null, ...(innerOf(shape.inner) ? { inner: innerOf(shape.inner).map(a => a.name) } : {}) }, value: valueOf(shape, v !== null && defs.has(v) ? defs.get(v) : shape.inside), ...(inside && holdsAny(inside) ? { definition: name + '/' } : {}), order, ...(shape.variable != null ? { variable: shape.variable } : {}), ...(shape.standing ? { standing: true } : {}), ...(spaceOf(shape.holds) ? { holds: shape.holds } : {}), ...(sourceOf(shape.source) ? { source: sourceOf(shape.source) } : {}), ...(shape.transposed ? { transposed: true } : {}), ...(axesOf(shape) ? { axes: axesOf(shape) } : {}),
         ...(shape.attributes?.length ? { attributes: shape.attributes.map(a => ({ name: a.name, value: a.value })) } : {}),
         ...(shape.reference ? { reference: true } : {}), ...(shape.from ? { from: fromOut(shape.from) } : {}),
         ...(shape.type === 'arrow' ? { arrow: arrowOf(shape.arrow) } : {}), ...(seatOf(shape.seat) ? { seat: seatOf(shape.seat) } : {}), ...(shape.in ? { in: true } : {}),
@@ -360,6 +399,7 @@ export function write(project){
 }
 
 export function read(files){
+  const unheld = [];                            /* the promises that could not be kept as written: [{ name, holds, why }] */
   /* whatever directory project.json is in is the project's; everything is read relative to it */
   const all = files.map(f => ({ path: f.path.replace(/\\/g, '/').replace(/^\/+/, ''), text: f.text }));
   const head = all.filter(f => /(^|\/)project\.json$/.test(f.path)).sort((a, b) => a.path.length - b.path.length)[0];
@@ -389,7 +429,7 @@ export function read(files){
         cols: Math.max(1, Math.round(+c.size?.cols || 1)), rows: Math.max(1, Math.round(+c.size?.rows || 1)), colsName: c.sides?.cols || null, rowsName: c.sides?.rows || null, inner: c.type === 'arrow' ? null : innerBack(c.size, c.sides, String(c.name ?? 'A shape')),
         entries: kept(c.value?.entries, back), inside, variable: Number.isInteger(c.variable) ? c.variable : null, standing: !!(c.standing || c.tile), source: sourceOf(c.source), transposed: !!c.transposed,
         attributes: Array.isArray(c.attributes) ? c.attributes.map(a => ({ name: String(a?.name ?? ''), value: String(a?.value ?? '') })) : [],
-        reference: !!c.reference, from: fromBack(c.from),
+        reference: !!c.reference, from: fromBack(c.from), ...(spaceOf(c.holds) ? { holds: c.holds } : (c.holds !== undefined && unheld.push({ name: String(c.name ?? 'Shape'), holds: String(c.holds).slice(0, 40), why: (typeof c.holds === 'string' && promiseOf(c.holds).refused) || 'a promise is written as one word, a number space' }), {})),      /* a promise: only where there is one, and only a word that is a number space (complex is none); one that is no such word is dropped, and said (unheld) */
         arrow: c.type === 'arrow' ? arrowOf(c.arrow) : null, seat: seatOf(c.seat), in: !!c.in,
         joined: Array.isArray(c.joined) ? c.joined.map(j => ({ fx: +j.at?.x || 0, fy: +j.at?.y || 0, fw: +j.at?.w || 1, fh: +j.at?.h || 1, shape: make(j.shape || {}) })) : null }; };
     const shapes = found.map(([c, g], i) => { if (g !== null) g.members.push(i); return make(c); });
@@ -419,7 +459,21 @@ export function read(files){
   const arrows = new Set(every.filter(d => d.arrow && d.id).map(d => d.id)), known = new Set(every.map(d => d.id).filter(Boolean));
   for (const d of every) if (d.seat && !(typeof d.seat === 'string' ? arrows.has(d.seat) : d.seat.hollow.every(id => known.has(id)))) d.seat = null;
   const old = (meta.version || 1) < 3 ? fuseStacks(project.top) : { fused: 0, changed: 0 };
-  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top) };
+  /* a promise is the variable's, said on the shape the variable was made as and shown by every use of it. One written
+     only on a reference, or other than its variable's there, has nowhere to be kept; nor has one on a shape that was
+     fused into another, where it could be neither seen nor taken off. Both are dropped, and said. */
+  const uses = new Map(); for (const d of every) if (d.variable != null && !d.arrow) uses.set(d.variable, [...(uses.get(d.variable) || []), d]);
+  for (const list of uses.values()){ const made = list.filter(d => !d.reference), own = made.length === 1 ? made[0].holds : undefined;
+    for (const d of list) if (d.reference && d.holds !== undefined && made.length === 1 && d.holds !== own){ unheld.push({ name: d.name, holds: d.holds, why: 'a promise is its variable\'s, said on the shape the variable was made as' }); delete d.holds; } }
+  const fusedIn = d => { for (const j of d.joined || []){ if (j.shape.holds !== undefined){ unheld.push({ name: j.shape.name, holds: j.shape.holds, why: `it is fused into ${d.name}, which promises for itself` }); delete j.shape.holds; } fusedIn(j.shape); } };
+  for (const d of every) if (!every.some(o => (o.joined || []).some(j => j.shape === d))) fusedIn(d);
+  /* nor has one on a shape a cut or an intersection keeps off the canvas, unless a use of its variable still lies in
+     a space to show it: no page saves one (the cut takes it off) */
+  const inSpace = new Set(), spaces = [], look = s => { spaces.push(s); s.shapes.forEach(d => inSpace.add(d)); const deep = d => { if (d.inside) look(d.inside); for (const j of d.joined || []) deep(j.shape); }; s.shapes.forEach(deep); for (const o of s.operations || []) o.sources.forEach(deep); };
+  look(project.top);
+  const shown = d => d.variable != null && [...inSpace].some(v => !v.arrow && v.variable === d.variable);
+  for (const s of spaces) for (const o of s.operations || []) for (const d of o.sources) if (d.holds !== undefined && !shown(d)){ unheld.push({ name: d.name, holds: d.holds, why: 'it is kept off the canvas by a cut, where a promise can be neither seen nor taken off' }); delete d.holds; }
+  return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld, unstepped: unstepped(spaces) };
 }
 
 /* Every use of a variable is one size: the size of the shape the variable was made as, the other way round where one
@@ -431,6 +485,22 @@ export function read(files){
    part (its size is its source's to say), a seated block, a function's input and a fused shape are left as they are,
    and so is every use of a variable that has no one shape it was made as, or more than one. A definition is read
    once for a variable, from the first use that carries it, as the page reads it: what another use carries is a copy. */
+/* A tile's step is an arrow of its own space that reads the tile from its east side, and its stop block a block of
+   its pattern (one directly in the tile, or in a frame of it that is no tile). A repeat whose "step" or "until"
+   names anything else (the arrow or the block is gone, the arrow is on another side or reads something else) has
+   that key dropped, so that nothing is left naming what is not there, and it is said: no page saves one.
+   -> [{ tile: the tile's name or null, key: 'step' | 'until' }] */
+function unstepped(spaces){
+  const out = [];
+  for (const s of spaces){
+    const tile = g => { const r = g.repeat;
+      if (r && r.step){ const a = s.shapes.find(d => d.id === r.step); if (!a || !a.arrow || !a.arrow.input || a.arrow.input.as !== 'tile' || a.arrow.input.id !== g.id || (a.arrow.side ?? 'e') !== 'e'){ delete r.step; out.push({ tile: g.name || null, key: 'step' }); } }
+      if (r && r.until){ const own = [], gather = f => { own.push(...f.members); for (const k of f.groups || []) if (!k.repeat) gather(k); }; gather(g);
+        const b = own.map(i => s.shapes[i]).find(d => d && d.id === r.until); if (!b || b.arrow){ delete r.until; out.push({ tile: g.name || null, key: 'until' }); } }
+      (g.groups || []).forEach(tile); };
+    (s.groups || []).forEach(tile); }
+  return out;
+}
 function oneSize(top){
   const uses = new Map(), read = new Set(), out = [];
   const walk = s => { const one = d => { if (d.variable != null && !d.arrow) uses.set(d.variable, [...(uses.get(d.variable) || []), d]);

@@ -49,7 +49,7 @@ class SameAnswers(unittest.TestCase):
 
     def test_every_node_of_every_fixture(self):
         graphs = fixture('graphs.json')
-        compared = errors = unknown = deep = 0
+        compared = errors = unknown = deep = nones = types = 0
         for G in graphs:
             g = G['graph']
             asks = [(i, None, a) for i, a in G['nodes'].items()] + [(b['node'], b['binding'], b['answer']) for b in G['bound']]
@@ -61,6 +61,10 @@ class SameAnswers(unittest.TestCase):
                 self.assertTrue((res is None) != (err is None), at)
                 if 'error' in a:      # worked out from a variable that has an error: an error here too
                     self.assertIsNotNone(err, at)
+                    if a['error'] == 'type':      # a promise broken by a value: the backend holds its numbers to it too, and says so as the page does
+                        self.assertEqual(out.get('codes', {}).get(str(k), {}).get('code'), 'type', at)
+                        self.assertRegex(err, r' is not .*: it holds .* at \d+, \d+', at)
+                        types += 1
                     errors += 1
                 elif 'deferred' in a:
                     continue      # the browser did not work it out: nothing to hold this to
@@ -68,9 +72,12 @@ class SameAnswers(unittest.TestCase):
                     self.assertIsNotNone(err, at)
                     self.assertIn('unknown', err, at)
                     unknown += 1
+                elif err is not None and 'its count comes to' in err:      # a count that is no whole number: every entry is that error on the page, and here it is refused with the number
+                    self.assertTrue(all(v == 'err' for v in flat(a['rows'])), at)
+                    errors += 1
                 elif err is not None:      # the browser has every entry, and this reads a variable some of whose other entries are unknown: refused, never guessed
                     self.assertIn('unknown entries in', err, at)
-                    self.assertIn(G['name'], ('unknown entries',), at)
+                    self.assertIn(G['name'], ('unknown entries', 'loops: a stop block that is not known'), at)
                     unknown += 1
                 else:
                     cells = {tuple(cell[:-1]): cell[-1] for cell in res['cells']}
@@ -82,7 +89,12 @@ class SameAnswers(unittest.TestCase):
                         self.assertEqual((res['cols'], res['rows']), (len(rows[0]), len(rows)), at)
                         for r, row in enumerate(rows):
                             for c, want in enumerate(row):
-                                got = as_float(cells[(c + 1, r + 1) + ks])
+                                got = cells[(c + 1, r + 1) + ks]
+                                if want == 'none' or got == {'none': True}:      # None is None in both, and nothing else is
+                                    self.assertEqual((got, want), ({'none': True}, 'none'), '%s, entry %s' % (at, (c + 1, r + 1) + ks))
+                                    nones += 1
+                                    continue
+                                got = as_float(got)
                                 self.assertTrue(close(got, as_float(want)), '%s, entry %s: %r here and %r exactly' % (at, (c + 1, r + 1) + ks, got, want))
                                 compared += 1
                                 deep += bool(ks)
@@ -90,6 +102,8 @@ class SameAnswers(unittest.TestCase):
         self.assertGreater(deep, 400)      # entries at an inner position
         self.assertGreater(errors, 5)
         self.assertGreater(unknown, 5)
+        self.assertGreater(types, 0)      # promises broken by a value
+        self.assertGreater(nones, 60)      # entries that are None: every row of the None table that can arise here
 
     def test_a_64_by_64_product_of_fractions(self):
         n = 64
@@ -152,7 +166,7 @@ class Rules(unittest.TestCase):
         self.assertEqual((out['results']['m']['min'], out['results']['m']['max'], out['results']['m']['mean']), (0.0, 1.0, 0.5))
         self.assertEqual(out['results']['s']['cells'], [[1, 1, 1.0], [2, 1, 0.0], [3, 1, 0.0]])      # the side not chosen does no harm
         inf = graph_of({'v': variable(2, 1, [['inf', '-inf']])})
-        self.assertEqual(ask(inf, [{'node': 'v', 'cells': [[1, 1], [2, 1]]}])['results']['v'], {'cols': 2, 'rows': 1, 'cells': [[1, 1, 'inf'], [2, 1, '-inf']], 'min': '-inf', 'max': 'inf', 'mean': None})
+        self.assertEqual(ask(inf, [{'node': 'v', 'cells': [[1, 1], [2, 1]]}])['results']['v'], {'cols': 2, 'rows': 1, 'cells': [[1, 1, 'inf'], [2, 1, '-inf']], 'min': '-inf', 'max': 'inf', 'mean': None, 'truth': True})
 
     def noise_graph(self, seed=0, key='b1', cols=4, rows=4, dist='uniform'):
         return graph_of({'n': {'op': 'noise', 'inputs': [], 'type': T(cols, rows), 'seed': seed, 'dist': dist, 'key': key}, 'v:%s' % key: {'op': 'variable', 'inputs': ['n'], 'type': T(cols, rows), 'name': 'N', 'named': True, 'defined': 'source', 'entries': {}}})
@@ -326,7 +340,8 @@ class Refused(unittest.TestCase):
             g = changed(graphs[m['graph']]['graph'], m)
             nodes = [i for i in (g.get('nodes') if isinstance(g.get('nodes'), dict) else {})][:40]
             out = R.run(json.dumps({'graph': g, 'want': [{'node': i, 'cells': [[1, 1]]} for i in nodes]}).encode(), None, ROOM)
-            self.assertEqual(set(out), {'results', 'errors'})
+            self.assertLessEqual(set(out), {'results', 'errors', 'codes'})      # codes only where a promise is broken by a number
+            self.assertLessEqual({'results', 'errors'}, set(out))
             self.assertEqual('*' in out['errors'], not m['valid'])
             self.assertNotIn('could not work this out', json.dumps(out['errors']))      # every refusal is one that was meant
 

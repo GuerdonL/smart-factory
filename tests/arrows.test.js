@@ -2,7 +2,7 @@
 import './solver.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable } from '../arrows.js';
+import { spread, along, covered, coveredType, base, strip, triangle, place, free, edgeAt, adjust, settable, sided, came, check, standing, passed, worked, names, fits, fitting, seatable, carried, ends, defined, seatsOn, dependsOn, functionFor, writtenAt, writtenWhere, readAt, definable, conditionable, chosenType, emptySide, TWO_SIZES, ACROSS, conditionAt, conditionSaid } from '../arrows.js';
 import { pieces, pieceHollows, resultHollows } from '../algebra.js';
 import { FUNCTIONS } from '../system.js';
 
@@ -478,4 +478,68 @@ test('an arrow drawn shorter than it reads: the free edge and the output\'s plac
   assert.deepEqual(st.place, { x: -25, y: -6, w: 3, h: 4 });
   /* a block that does lie against the drawn edge is still in the way */
   assert.equal(standing(a, input, [rect(-27, -5, 2, 2)], null, null, { drawn: { ...a, span: 2 } }).warn, 'the edge under it is not free');
+});
+
+/* ---- conditions (phase 9B) ---- */
+test('conditionable: exactly one piece, whole, that comes to a matrix and holds nothing that cannot be folded away', () => {
+  const piece = (members, chosen = members, error = null) => ({ members, chosen, error });
+  assert.deepEqual(conditionable({ blocks: 1, pieces: [piece(1)] }), { ok: true }); assert.deepEqual(conditionable({ blocks: 3, pieces: [piece(3)] }), { ok: true });
+  assert.equal(conditionable({ blocks: 0, pieces: [] }).refused, 'Make conditional takes one piece: select the shapes of one'); assert.equal(conditionable().refused, 'Make conditional takes one piece: select the shapes of one');
+  assert.equal(conditionable({ blocks: 2, pieces: [piece(1), piece(1)] }).refused, 'Make conditional takes exactly one piece, and 2 are selected');
+  assert.equal(conditionable({ blocks: 4, pieces: [piece(1), piece(2), piece(1)] }).refused, 'Make conditional takes exactly one piece, and 3 are selected');
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(2, 1)] }).refused, 'Make conditional takes a whole piece: select every shape of it');
+  assert.equal(conditionable({ blocks: 2, pieces: [piece(2, 2, '4 ≠ 3')] }).refused, 'That piece comes to no one matrix (4 ≠ 3): there is nothing to choose');
+  /* a block an arrow reads (a condition's own entry, or any block with an arrow on its edge): folded away it would leave the arrow reading nothing */
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], read: 'if' }).refused, 'if is what an arrow reads: it cannot be made conditional, which would fold it away from under the arrow');
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], read: 'if', fixed: 'in is the function\'s input: it cannot be made conditional' }).refused, 'in is the function\'s input: it cannot be made conditional');
+  assert.equal(conditionable({ blocks: 1, pieces: [piece(1)], fixed: 'An arrow cannot be made conditional' }).refused, 'An arrow cannot be made conditional');      /* an arrow, a function's input, a seated block: said first */
+  assert.equal(conditionable({ blocks: 1, pieces: [], fixed: 'in is the function\'s input: it cannot be made conditional' }).refused, 'in is the function\'s input: it cannot be made conditional');
+  assert.equal(conditionable({ blocks: 1, pieces: [] }).refused, 'Make conditional takes exactly one piece, and 0 are selected');
+});
+test('conditionSaid: a condition that is an error says the error and where; one with an entry never given is not known', () => {
+  assert.equal(conditionSaid({ '1,1': { err: 'divide by zero' } }), 'Its condition is an error: divide by zero at 1, 1');
+  assert.equal(conditionSaid({ '1,1': 0, '2,1': { err: 'missing variable' }, '1,2': { err: 'divide by zero' }, '3,1': { err: 'later' } }), 'Its condition is an error: missing variable at 2, 1');      /* the first by row, then column */
+  assert.equal(conditionSaid({ '1,1,2': { err: 'b' }, '1,1,1': { err: 'a' } }), 'Its condition is an error: a at 1, 1, 1');
+  assert.equal(conditionSaid({ '1,1': 0 }), 'Its condition is not known'); assert.equal(conditionSaid({}), 'Its condition is not known'); assert.equal(conditionSaid(null), 'Its condition is not known');
+});
+test('conditionAt: what Make conditional adds lies over nothing that is there, moved left along its line before anywhere else', () => {
+  const size = { cols: 2, rows: 1 };
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, []), { x: -7, y: 0 });
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, [{ x: -20, y: 0, w: 3, h: 1 }, { x: -2, y: 0, w: 2, h: 1 }]), { x: -7, y: 0 });      /* the entry at -7, the strip to -4, the output to -2: against the block there, not over it */
+  /* a definition space's equation, its left matrix from -3 to -1 with a unit of air before it: the output would lie from -4 to -2 */
+  const equation = [{ x: -4, y: -.5, w: 4, h: 1 }, { x: 0, y: -.5, w: 4, h: 1 }];
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, equation), { x: -9, y: 0 });
+  assert.deepEqual(conditionAt({ x: -7, y: 0 }, size, [...equation, { x: -30, y: 0, w: 22, h: 1 }]), { x: -7, y: 1 });      /* nothing free on its line: the nearest place off it */
+  assert.deepEqual(conditionAt({ x: 0, y: 0 }, { cols: 2, rows: 3 }, [{ x: 4, y: 2, w: 1, h: 1 }]), { x: -1, y: 0 });      /* the whole output is looked at, not its first row */
+  assert.deepEqual(conditionAt({ x: 0, y: 0 }, size, [{ x: -200, y: -200, w: 400, h: 400 }]), { x: 0, y: 0 });      /* nowhere: where it was */
+});
+test('writtenWhere: with every place taken, a result is written where it lies on no block or arrow before it is written to the right over one', () => {
+  const box = { x: 1, y: 1, w: 1, h: 1 }, size = { w: 1, h: 1 }, tile = { x: 0, y: 0, w: 9, h: 9 }, arrow = { x: 2, y: 1, w: 2, h: 1 }, copies = { x: 0, y: 3, w: 9, h: 6 };
+  assert.equal(writtenWhere(box, size, [arrow, tile]).side, 'right');      /* as it was: over the arrow */
+  assert.equal(writtenWhere(box, size, [arrow, tile], false, [arrow, copies]).side, 'left');      /* on the bare ground of the pattern and out of the tile: below is a copy's cell */
+  assert.equal(writtenWhere(box, size, [tile], false, [copies]).side, 'right');      /* nothing solid to its right: there, as before */
+  assert.equal(writtenWhere(box, size, [arrow, tile], false, [arrow, tile]).side, 'right');      /* and with nowhere at all, to the right all the same */
+  assert.deepEqual(writtenWhere(box, size, [arrow], false, [arrow]), writtenWhere(box, size, [arrow]));      /* a place that is free is taken as it always was */
+});
+test('chosenType: the size of a condition\'s two sides, which have to be one size; an empty side is None at the other\'s', () => {
+  const t = (cols, rows, colsName = null, rowsName = null, inner = null) => ({ cols, rows, colsName, rowsName, ...(inner ? { inner } : {}) }), e = type => ({ type });
+  assert.deepEqual(chosenType([[e(t(2, 3, 'key'))], [e(t(2, 3))]]), t(2, 3, 'key')); assert.deepEqual(chosenType([[e(t(2, 3))], [e(t(2, 3, 'key'))]]), t(2, 3));      /* the type is the true side's */
+  assert.deepEqual(chosenType([[e(t(2, 3, 'key'))], []]), t(2, 3, 'key')); assert.deepEqual(chosenType([[], [e(t(2, 3, 'key', 'r'))]]), t(2, 3));      /* an empty true side: the false side's size, under no names */
+  assert.deepEqual(chosenType([[], []], { cols: 4, rows: 2 }), t(4, 2)); assert.deepEqual(chosenType([[], []]), t(1, 1)); assert.deepEqual(chosenType([[], []], { cols: 0, rows: 2 }), t(1, 1)); assert.deepEqual(chosenType(null), t(1, 1));
+  for (const [a, b] of [[t(2, 3), t(3, 2)], [t(2, 3), t(2, 4)], [t(2, 3, 'key'), t(2, 3, 'query')], [t(2, 3, null, 'r'), t(2, 3, null, 's')], [t(2, 3, null, null, [{ length: 2, name: null }]), t(2, 3)], [t(2, 3, null, null, [{ length: 2, name: null }]), t(2, 3, null, null, [{ length: 3, name: null }])]])
+    assert.deepEqual(chosenType([[e(a)], [e(b)]]), { error: TWO_SIZES }, JSON.stringify([a, b]));
+  assert.equal(TWO_SIZES, 'its two sides are not one size');
+  /* a piece across a frame's edge: said before anything else, naming the side */
+  assert.deepEqual(chosenType([[], [e(t(2, 2))]], null, [true, false]), { error: ACROSS(0) }); assert.deepEqual(chosenType([[e(t(2, 2))], [e(t(1, 1)), e(t(1, 1))]], null, [false, true]), { error: ACROSS(1) });
+  assert.deepEqual(chosenType([[e(t(2, 2))], []], null, [false, false]), t(2, 2));
+  assert.equal(ACROSS(0), 'a piece lies across the edge of its true side: move its blocks wholly into that frame, or wholly out of it'); assert.match(ACROSS(1), /its false side/);
+  const deep = [{ length: 2, name: 'head' }]; assert.deepEqual(chosenType([[e(t(2, 1, null, null, deep))], [e(t(2, 1, null, null, deep))]]), t(2, 1, null, null, deep)); assert.deepEqual(chosenType([[], [e(t(2, 1, null, null, deep))]]), t(2, 1, null, null, [{ length: 2, name: null }]));
+  assert.deepEqual(chosenType([[e(t(2, 2)), e(t(2, 2))], []]), { error: '2 pieces' }); assert.deepEqual(chosenType([[e(t(2, 2))], [e(t(1, 1)), e(t(1, 1)), e(t(1, 1))]]), { error: '3 pieces' });
+  assert.deepEqual(chosenType([[e({ error: '4 ≠ 3' })], [e(t(2, 2))]]), { error: '4 ≠ 3' }); assert.deepEqual(chosenType([[e(t(2, 2))], [{ type: null }]]), { error: 'no value' });
+});
+test('emptySide: an empty side of a condition is drawn under the true side, or over the false one, three units clear, at the size given', () => {
+  const other = { x: -9, y: -1, w: 4, h: 2 };
+  assert.deepEqual(emptySide('else', other, { cols: 4, rows: 2 }), { x: -9, y: 4, w: 4, h: 2 }); assert.deepEqual(emptySide('then', other, { cols: 4, rows: 2 }), { x: -9, y: -6, w: 4, h: 2 });
+  const a = emptySide('then', null, { cols: 3, rows: 2 }), b = emptySide('else', null, { cols: 3, rows: 2 });      /* both empty: one above the other, left of the equation */
+  assert.deepEqual([a, b], [{ x: -9, y: -4, w: 3, h: 2 }, { x: -9, y: 2, w: 3, h: 2 }]); assert.ok(a.y + a.h < b.y && a.x + a.w < 0);
 });

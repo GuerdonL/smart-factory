@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { along, drawn, level, fromBackend, functional, wanted, merged, laid, noted, marked, keyOf, NEEDS, ASKING } from '../decimals.js';
-import { createBackend, keyFor, DELAY, EVERY } from '../backend.js';
+import { createBackend, keyFor, DELAY, EVERY, OLDER } from '../backend.js';
 import { digits, written, kind, storable, combine } from '../values.js';
 
 test('a decimal is written with exactly 9 significant digits, so never as an exact number is', () => {
@@ -36,7 +36,13 @@ test('a decimal\'s square: black at 0 or below, white at 1 or above, grey betwee
 test('the backend\'s values as values here', () => {
   assert.deepEqual(fromBackend(0.5), { f: 0.5 }); assert.deepEqual(fromBackend(0), { f: 0 }); assert.deepEqual(fromBackend('inf'), { f: Infinity }); assert.deepEqual(fromBackend('-inf'), { f: -Infinity });
   assert.deepEqual(fromBackend({ err: 'that has no value' }), { err: 'that has no value' });
-  for (const no of [null, undefined, 'x', true, NaN, Infinity, {}, [], { f: 1 }]) assert.equal(fromBackend(no), null);
+  for (const no of [null, undefined, 'x', true, NaN, Infinity, {}, [], { f: 1 }, { none: 1 }, { none: false }]) assert.equal(fromBackend(no), null);
+  assert.deepEqual(fromBackend({ none: true }), { none: true });      /* None is None, and no decimal: it is written ∅ */
+});
+test('an entry the backend says is None is drawn as None, in a result the browser did not work out', () => {
+  const t = { cols: 2, rows: 1, colsName: null, rowsName: null };
+  const got = merged({ type: t, deferred: true }, new Map(), { cols: 2, rows: 1, cells: [[1, 1, { none: true }], [2, 1, 0.5]] });
+  assert.deepEqual([...got], [['1,1', { none: true }], ['2,1', { f: 0.5 }]]); assert.equal(written(got.get('1,1')), '∅'); assert.equal(kind(got.get('1,1')), 'none');
 });
 test('what is asked of the backend: what the browser does not work out, and an entry that holds exp, ln, tanh or erf; nothing it holds exactly', () => {
   const t = { cols: 2, rows: 1, colsName: null, rowsName: null }, sym = text => ({ sym: text });
@@ -91,20 +97,20 @@ test('what is laid over an answer for drawing: the backend\'s numbers, or why th
 });
 
 /* a backend that answers when it is told to, and a clock that moves when it is told to */
-function world({ health = true } = {}){
-  const sent = [], timers = [], said = []; let changes = 0, id = 0, time = 0, healths = 0, up = health;
+function world({ health = true, version = null, says = 1 } = {}){
+  const sent = [], timers = [], said = []; let changes = 0, id = 0, time = 0, healths = 0, up = health, saying = says;      /* saying: the graph version the backend's health says, null for none */
   const reply = body => ({ ok: true, status: 200, json: async () => body });
-  const fetch = (path, options) => { if (path === 'api/backend/health'){ healths++; return up === 'down' ? Promise.reject(new Error('no route')) : Promise.resolve(up ? reply({ ok: true, version: 1 }) : { ok: false, status: 503, json: async () => ({ error: 'none' }) }); }
+  const fetch = (path, options) => { if (path === 'api/backend/health'){ healths++; return up === 'down' ? Promise.reject(new Error('no route')) : Promise.resolve(up ? reply(saying === null ? { ok: true } : { ok: true, version: saying }) : { ok: false, status: 503, json: async () => ({ error: 'none' }) }); }
     return new Promise((resolve, reject) => sent.push({ at: time, path, body: JSON.parse(options.body), answer: body => resolve(reply(body)), fail: e => reject(e) })); };
   const later = (fn, ms) => { timers.push({ id: ++id, fn, at: time + ms, ms }); return id; }, cancel = n => { const i = timers.findIndex(t => t.id === n); if (i >= 0) timers.splice(i, 1); };
-  const b = createBackend({ fetch, later, cancel, changed: () => changes++, told: why => said.push(...why), project: () => 'mine' });
+  const b = createBackend({ fetch, later, cancel, changed: () => changes++, told: why => said.push(...why), project: () => 'mine', version });
   const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
   /* the clock moves on by ms: every timer that falls due is run at its own time, in order */
   const pass = async ms => { const until = time + ms;
     for (;;){ const due = timers.filter(t => t.at <= until).sort((a, b) => a.at - b.at || a.id - b.id)[0]; if (!due) break; timers.splice(timers.indexOf(due), 1); time = due.at; due.fn(); await settle(); }
     time = until; await settle(); };
   const runs = () => timers.filter(t => t.ms === DELAY);
-  return { b, sent, timers, runs, pass, settle, said, changes: () => changes, healths: () => healths, now: () => time, set: h => { up = h; } };
+  return { b, sent, timers, runs, pass, settle, said, changes: () => changes, healths: () => healths, now: () => time, set: h => { up = h; }, saying: v => { saying = v; } };
 }
 const cells = [[1, 1]], res = v => ({ cols: 1, rows: 1, cells: [[1, 1, v]], min: v, max: v, mean: v });
 test('the backend is asked half a second after the last change, for everything wanted at once', async () => {
@@ -197,6 +203,28 @@ test('whether there is a backend is asked again: after a failure at once, and ev
   await v.pass(1000); assert.equal(v.b.problem(h, 'a', null), null); await v.pass(500); assert.equal(v.sent.length, 2); assert.deepEqual(v.sent[1].body.want.map(x => x.node), ['a']);
 });
 
+/* ruled 21 November 2026 */
+test('a backend older than the page is asked for no run and said once; a newer one that answers in its place is noticed, and asked', async () => {
+  assert.equal(OLDER, 'the backend is older than this page: restart it');
+  const w = world({ version: 3, says: 2 }), g = {};
+  assert.equal(await w.b.health(), false); assert.equal(w.b.available(), false); assert.equal(w.b.older(), true); assert.deepEqual(w.said, [OLDER]);
+  assert.equal(w.b.ask(g, 'a', null, cells), null); await w.pass(5000); assert.equal(w.sent.length, 0);      /* no run is asked of it */
+  await w.pass(30000); assert.ok(w.healths() >= 3); assert.deepEqual(w.said, [OLDER]);      /* it goes on being asked for its health, and is said once */
+  w.saying(3); const before = w.changes(); await w.pass(15000); assert.equal(w.b.available(), true); assert.equal(w.b.older(), false); assert.ok(w.changes() > before);      /* a newer one started in its place */
+  w.b.ask(g, 'a', null, cells); await w.pass(500); assert.equal(w.sent.length, 1); w.sent[0].answer({ results: { a: res(1) }, errors: {} }); await w.settle();
+  assert.deepEqual(w.b.ask(g, 'a', null, cells), { result: res(1), stale: false });
+  w.saying(2); await w.pass(15000); assert.equal(w.b.available(), false); assert.deepEqual(w.said, [OLDER, OLDER]);      /* an older one again: said again, and not as a backend that stopped answering */
+  for (const [says, older] of [[null, true], [4, false], [3, false], ['3', true]]){ const v = world({ version: 3, says }); await v.b.health(); assert.equal(v.b.older(), older, String(says)); assert.equal(v.b.available(), !older); }      /* one that says no version is older than any that says one */
+  const none = world({ version: 3, health: false }); await none.b.health(); assert.equal(none.b.older(), false); assert.equal(none.b.available(), false);      /* none at all is not an older one */
+  const any = world({ says: 1 }); await any.b.health(); assert.equal(any.b.available(), true);      /* a page that says no version asks nothing of the backend's */
+});
+test('a promise the backend\'s numbers break comes back as its sentence with a code, and is not said as a failure of the backend\'s', async () => {
+  const w = world(), g = {}; await w.b.health(); w.b.ask(g, 'a', null, cells); w.b.ask(g, 'b', null, cells); await w.pass(500);
+  w.sent[0].answer({ results: {}, errors: { a: 'W is not natural: it holds ∞ at 3, 1', b: 'unknown entries in Keys' }, codes: { a: { code: 'type', node: 'w' } } }); await w.settle();
+  assert.equal(w.b.problem(g, 'a', null), 'W is not natural: it holds ∞ at 3, 1'); assert.deepEqual(w.b.broke(g, 'a', null), { code: 'type', node: 'w' }); assert.equal(w.b.broke(g, 'b', null), null);
+  assert.deepEqual(w.said, ['unknown entries in Keys']); assert.equal(w.b.broke({}, 'a', null), null);
+});
+
 /* The page itself (smart-factory.js) is not a pure module and is not run here, but one rule of it is held by reading
    it: the backend's numbers are laid over the evaluator's only where the page draws. Each name below reads them, and
    may be called only from the functions listed for it: the ones that draw (write: a definition space's equation;
@@ -204,15 +232,33 @@ test('whether there is a backend is asked again: after a failure at once, and ev
    and one another. Everything else the page works out reads valuesOf, which never calls any of them. */
 test('on the page, only what draws reads the backend\'s numbers', () => {
   const lines = readFileSync(new URL('../smart-factory.js', import.meta.url), 'utf8').split('\n');
-  const may = { 'backend.ask(': ['laidAt', 'unshown'], 'backend.problem(': ['laidAt', 'unshown'], 'laidAt(': ['laidAt', 'laidOf', 'pieceLaid', 'outputLaidNow'], 'laidOf(': ['laidOf', 'faceLaid', 'write', 'paint', 'copiesOf', 'writtenOn'],
-    'pieceLaid(': ['pieceLaid', 'paint'], 'faceLaid(': ['faceLaid', 'paint'], 'outputLaid(': ['outputLaid', 'outputOf'], 'outputLaidNow(': ['outputLaid', 'outputLaidNow'], '.asDrawn': ['write', 'paint', 'outputOf'], 'unshown(': ['unshown', 'paint', 'outputOf'] };
+  const may = { 'backend.ask(': ['laidAt', 'unshown'], 'backend.problem(': ['laidAt', 'unshown', 'holdsRow'],      /* (holdsRow: the panel's Holds row writes the sentence of a promise the backend's numbers break) */ 'laidAt(': ['laidAt', 'laidOf', 'pieceLaid', 'outputLaidNow'], 'laidOf(': ['laidOf', 'faceLaid', 'truthLaid', 'write', 'paint', 'copiesOf', 'writtenOn'],      /* (truthLaid: whether a shape is drawn sunk, and which side of a condition is faded, where only the backend can say) */
+    'pieceLaid(': ['pieceLaid', 'paint'], 'faceLaid(': ['faceLaid', 'paint'], 'sunkLaid(': ['sunkLaid', 'paint', 'copiesOf'], 'truthLaid(': ['truthLaid', 'sunkLaid', 'paint'], 'outputLaid(': ['outputLaid', 'outputOf'], 'outputLaidNow(': ['outputLaid', 'outputLaidNow'], '.asDrawn': ['write', 'paint', 'outputOf'], 'unshown(': ['unshown', 'paint', 'outputOf'] };
   const seen = Object.fromEntries(Object.keys(may).map(k => [k, new Set()])); let top = null;
   for (const line of lines){ const m = /^(?:async )?function (\w+)|^(?:const|let) (\w+)\b/.exec(line); if (m) top = m[1] || m[2];      /* the function or constant, at the start of a line, that this line is in */
-    for (const name of line.match(/\b(?:laidAt|laidOf|pieceLaid|outputLaid|outputLaidNow|faceLaid|backend\.(?:ask|problem)|unshown)\(|\.asDrawn\b/g) || []) seen[name].add(top); }
+    for (const name of line.match(/\b(?:laidAt|laidOf|pieceLaid|outputLaid|outputLaidNow|faceLaid|sunkLaid|truthLaid|backend\.(?:ask|problem)|unshown)\(|\.asDrawn\b/g) || []) seen[name].add(top); }
   for (const [name, by] of Object.entries(seen)){ assert.ok(by.size > 0, name + ' is still in the page'); for (const fn of by) assert.ok(may[name].includes(fn), `${fn} reads ${name} and does not draw`); }
   /* and what the exact readers are made of names none of them */
   const body = name => { const at = lines.findIndex(l => new RegExp('^(?:function|const) ' + name + '\\b').test(l)); assert.ok(at >= 0, name); let end = at + 1; while (end < lines.length && !/^(?:async )?function \w+|^(?:const|let) \w+|^\/\*/.test(lines[end])) end++; return lines.slice(at, end).join('\n'); };
   for (const exact of ['answerOf', 'valuesOf', 'evaluated', 'held', 'scalarOf', 'rootSide', 'sideLength', 'measured', 'lookupFor', 'attrValue', 'cells', 'gather', 'derived', 'rangeValues']) assert.doesNotMatch(body(exact), /laid|backend\./i, exact);
+});
+
+/* A sunk block keeps exactly the rectangle it has: the sinking is drawn inside its box (components/block.js), so that
+   whatever is placed by that rectangle is where it is for a raised one. Held by reading the stylesheet: the rule for
+   a sunk block moves and resizes nothing. */
+test('a sunk block is drawn inside its own box: its rule moves nothing', () => {
+  const css = readFileSync(new URL('../components/block.js', import.meta.url), 'utf8'), rules = [...css.matchAll(/^\.block\.sunk[^{\n]*\{([^}]*)\}/gm)].map(m => [m[0].split('{')[0].trim(), m[1]]);
+  assert.ok(rules.length >= 3 && rules.some(([sel]) => sel === '.block.sunk'));
+  for (const [sel, body] of rules) if (!/>/.test(sel)) assert.doesNotMatch(body, /margin|transform|translate|(?:^|[;\s])(?:top|left|right|bottom|inset|width|height|border|padding)\s*:/, sel);      /* (a rule for something inside it may place that within the box) */
+  assert.match(rules.find(([sel]) => sel === '.block.sunk')[1], /--cast: transparent/); assert.match(rules.find(([sel]) => sel === '.block.sunk')[1], /--lit: var\(--raise-dark\); --shade: var\(--raise-light\)/);
+});
+/* Every cell of a tile is drawn by its own truth: a copy is sunk where the block is false in that cell. Held by
+   reading: copiesOf asks while the cell being drawn is the one named (cellNow), and the tile hands it to the likeness. */
+test('a tile\'s copies are sunk by the truth of the block in their own cell', () => {
+  const page = readFileSync(new URL('../smart-factory.js', import.meta.url), 'utf8'), at = page.indexOf('\nfunction copiesOf('), body = page.slice(at, page.indexOf('\n}', at));
+  assert.match(body, /sunk: sunkLaid\(b\)/); assert.ok(body.indexOf('cellNow.set(top') > 0 && body.indexOf('finally') > body.indexOf('cellNow.set(top'));
+  assert.match(readFileSync(new URL('../components/tile.js', import.meta.url), 'utf8'), /likeness\(\{[^}]*sunk: !!c\.sunk/);
+  assert.match(readFileSync(new URL('../components/block.js', import.meta.url), 'utf8'), /export function likeness\(\{[^}]*sunk = false \}\)\{[\s\S]{0,300}b\.sink\(sunk\)/);
 });
 
 /* ---- phase 8: inner data ---- */
@@ -227,4 +273,14 @@ test('inner data: the drawn entries are asked for at every inner position, and a
   assert.equal(deep.length, MOST_ASKED); assert.deepEqual(deep[0], [1, 1, 1, 1, 1, 1, 1, 1]); assert.deepEqual(deep[4], [1, 1, 1, 1, 1, 1, 1, 2]);
   const answer = { type: { cols: 2, rows: 1, inner: [{ length: 2, name: null }] }, deferred: true, backend: true };
   assert.deepEqual([...merged(answer, new Map(), { cells: [[1, 1, 1, 0.5], [2, 1, 2, 'inf'], [1, 1], 'x'] })], [['1,1,1', { f: 0.5 }], ['2,1,2', { f: Infinity }]]);
+});
+
+/* ---- truth as height (phase 9B): what the backend says of a whole matrix it alone has ---- */
+test('merged: a deferred answer carries the backend\'s truth of the whole matrix; a stale one, and one worked out here, carry none', () => {
+  const deferred = { type: { cols: 2, rows: 1 }, deferred: true }, res = truth => ({ cols: 2, rows: 1, cells: [[1, 1, 0], [2, 1, 0]], min: 0, max: 0, mean: 0, truth });
+  assert.equal(merged(deferred, new Map(), res(false)).truth, false); assert.equal(merged(deferred, new Map(), res(true)).truth, true);
+  assert.equal(merged(deferred, new Map(), res(null)).truth, undefined); assert.equal(merged(deferred, new Map(), { cols: 2, rows: 1, cells: [] }).truth, undefined);      /* not known, and a backend that does not say */
+  assert.equal(merged(deferred, new Map(), res(false), true).truth, undefined);      /* of an older state of the project: it says nothing of this one */
+  assert.equal(merged({ type: { cols: 2, rows: 1 }, entries: { '1,1': 0, '2,1': 0 } }, new Map([['1,1', 0], ['2,1', 0]]), res(true)).truth, undefined);      /* worked out here: the page's own entries say */
+  assert.equal(laid(deferred, new Map(), { there: true, got: { result: res(false), stale: false } }).truth, false);
 });

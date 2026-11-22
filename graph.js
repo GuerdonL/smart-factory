@@ -16,15 +16,23 @@
    axes(type)                    every axis of a type in order, [{ length, name }]: columns, rows, then the inner ones
    tailsOf(type)                 every inner position of a type as what follows "column,row" in a key ([""]: none)
    AXES                          6, the most inner axes a type has
-   VERSION                       2. Version 2 added inner axes, stack, entry and a transpose's order; a version 1
-                                 graph has none of them, and validate takes it as it stands.
+   fnOf(node)                    the function a node has for its body (apply, a mapalong with fn, a loop, a repeat
+                                 with a step), or undefined
+   stateAt(node, k, type)        where input k of a looping node lies in its state rectangle, or null (see loop)
+   placesOf(node)                where each part of a pattern lies, for every part that is in it once
+   VERSION                       5 (version 5 added loop, and a repeat's fn and state). Version 2 added inner axes, stack, entry and a transpose's order; version 3 the
+                                 value None ({ "none": true }) and a type's "value", the number space it lies in
+                                 (spaces.js); version 4 choose, and a source of kind "none". An older graph has
+                                 none of what came after it, and validate takes it as it stands; one that says
+                                 an older version and holds what came later is refused.
    CODES                         every error code
+   inferred(graph, id)           the number space a variable would have with no promise (see "Number spaces")
    indexAt(cells, c, r)          the index an entry reads, from the cell it is in (see "Bindings", below)
    readsIndex(node)              whether the node of its own accord differs from cell to cell: a formula of its own
                                  reads the index, it is an arrow repeated through an outer tile, or it is noise
 
    The graph
-       { "version": 2,
+       { "version": 5,
          "nodes":     { "<node id>": { "op", "inputs": [node ids], "type": { "cols", "rows", "colsName", "rowsName" }, … } },
                       (a type also has "inner" where its entries hold inner data: see "Inner data", below)
          "functions": { "<function id>": { "input": "<the node of its in block>", "body": "<the node its space comes to>" } },
@@ -32,7 +40,8 @@
                                          "pieces": [ { "blocks": [block ids], "rule", "node": "<node id>" | null, "error": an error | null } ],
                                          "arrows": [ { "arrow": "<arrow's block id>", "node": "<its output's node>" | null, "error": an error | null } ],
                                          "tiles":  [ { "tile": "t:<frame id>", "blocks": [block ids], "arrows": [arrow ids],
-                                                       "node": "<its matrix, a repeat>" | null, "error": an error | null } ] } },
+                                                       "node": "<its matrix, a repeat>" | null, "error": an error | null,
+                                                       "step": "<arrow id>", "loop": "<its loop's node>" (both, where it has a step) } ] } },
          "blocks":    { "<block id>": "<node id>" } }
    It survives JSON.parse(JSON.stringify(graph)) unchanged: an infinity is written "inf" or "-inf", and there is no
    Map and nothing undefined in it.
@@ -48,8 +57,10 @@
        size           a definition that comes to another size ("5 × 6 ≠ 4 × 6", what it comes to first, columns
                       first); a block seated on an output of another size; an arrow whose span runs past its
                       input, or that does not come to what it promises
-       loop           a variable that depends on itself, through a definition, a formula or a seat; an arrow that
-                      reads itself, or whose function applies itself
+       loop           a cycle: a variable that depends on itself, through a definition, a formula or a seat; an
+                      arrow that reads itself, or whose function applies itself. (The code is older than the
+                      operation loop, a tile's step carried through, and has nothing to do with it: wherever a
+                      person is told of this error it is called a cycle, or "it depends on itself".)
        no-source      a variable or an arrow that reads what is not there: a block that is gone, a part its source
                       is too small to have, a result that is an error (the note is that error's code), a tile with
                       no matrix (the note says why), a formula that names what nothing is (the note says what), a
@@ -57,6 +68,9 @@
        seat           a variable seated on an arrow that has an error (the note is the arrow's code)
        size-unknown   a size that could not be settled when the graph was built (the note is the formula): a tile's
                       count that reads what is not settled, or that depends on its own tile's size
+       type           a variable that holds a value outside the number space it promises (the note says which:
+                      "W is not natural: it holds -3 at 2, 1"). build never writes it: a promise is held against
+                      the values, which evaluate.js has, and evaluate answers with it
    A piece carries mismatch, not-a-row, mixed or size-unknown. A variable with an error keeps its type, which is its
    block's own size, and its entries, formulas and all: only its value is missing, so everything round it goes on
    being checked. (Round a loop, a formula that names anything is left out: what it names is the loop.)
@@ -79,8 +93,8 @@
                    inner data, taken out), "seat" (an arrow's output, or the result
                    in a pair's hollow) or "source" (zeros, ones, an identity, a data file or noise; or a tile's index
                    as a matrix, a map of zeros by index.x or index.y). Own fields: name, named, defined, entries, and error where it has
-                   one (it is then "entries"). An entry is a value, a formula { expr }, or the error { err } that a
-                   formula was found to be when the graph was built.
+                   one (it is then "entries"). An entry is a value (None, { "none": true }, among them), a formula
+                   { expr }, or the error { err } that a formula was found to be when the graph was built.
        matmul      left, right: the matrix product. A row of three is two nodes, grouped from the left.
        scale       scalar, matrix: every entry times the scalar. Scalars in a row are pulled to the front.
        transpose   entry c,r is the input's r,c. With order, a list that names every axis of the input once (0 and 1
@@ -90,8 +104,16 @@
        ewise       two; fn "mul" or "div"; broadcast "none", "scalar", "row" or "col". A chain is nested from the left.
        block       parts set into one matrix with no gap and no overlap; at: one { col, row } for each, from 0
        slice       range { col, row, cols, rows }, from 0, of its input
-       source      kind "zeros", "ones" or "identity": values by rule, at the node's size. Or kind "file" with path
+       source      kind "zeros", "ones" or "identity": values by rule, at the node's size. Kind "none": every entry
+                   None, at the node's size (the empty side of a choose). Or kind "file" with path
                    "data/….csv": the numbers of that file of the project, which only the backend reads
+       choose      a condition, then one side for true and one for false: [c, a, b]. What counts of c, which may be
+                   any size, is whether it is true as a whole matrix (values.js: truthOf): true where any known
+                   entry is true; false where every entry is known and is zero, false or None; else not known.
+                   True, it is a; false, b; not known, every entry of it is unknown, at the size it has. Only the
+                   side chosen is worked out: the other may be an error, too large, or the backend's alone, and
+                   does no harm. The two sides are one size (drawn sides, inner axes, and no side under two
+                   names), and its type is a's. Entry by entry there is select, in a formula: this is no such thing
        noise       seed (a whole number), dist ("uniform" or "normal") and key (the id of the block the variable was
                    made as): numbers that follow from those, the entry's column and row and, in a tile, the cell.
                    Only the backend makes them (backend/arrays.py). It follows its cell without reading the index.
@@ -112,6 +134,27 @@
                    inside another's pattern is one part of it. Which tile a tile is in is said by the frames; that
                    it lies wholly inside the pattern, by its filled size. Tiles that overlap in any other way have
                    no matrix (tiles.js: overlapping): the tile, and an arrow that reads it, have no-source with why.
+                      With fn and state (both or neither) the tile has a step: state { col, row, cols, rows } is
+                   the state rectangle, a part of the pattern that the inputs lying in it fill exactly, each a
+                   variable whose value is its own typed entries (no formula among them); fn is the progression
+                   function, whose input is one whole cell (the pattern's size, inner data and all) and whose body is
+                   the state rectangle's size. The cells are then worked out in order, left to right and then the
+                   next row down: in the first the state blocks hold their own entries, and in each later one what
+                   fn made of the cell before. Every other part is worked out afresh in each cell, as ever.
+       loop        a tile's step carried through: inputs, at and pattern as on repeat; state and fn as on a repeat
+                   with a step; across, how many cells a row has (a whole number, or "inf" for one row that does
+                   not end), which says where cell k lies; count, how often fn is applied: a whole number of at
+                   least 1, "inf", or { "input": k } for a count worked out when the graph is run, whose node (one
+                   number) is then one more input, the last; until, null or the place among inputs of the stop
+                   block. Its type is the state rectangle's size, whatever the count. Its value: for each cell
+                   from the first, where until is set and the stop block is true as a whole matrix (truthOf) in
+                   that cell, the value is that cell's state, that cell included; where its truth is not known,
+                   every entry is unknown; otherwise fn is applied to the cell and gives the next cell's state.
+                   After count applications the value is the last output: the state of the cell after the last.
+                   Its number space, and a stepped repeat's, is its inputs' (the state blocks' for a loop) joined
+                   with its function's body's. An infinite count with no stop block has no last cell: evaluate.js
+                   says so (forever). Every loop is named by a tile of spaces ("loop", beside "step", the arrow's
+                   id), as every repeat is a tile's node: the cells are that tile's.
        mapalong    an arrow repeated in a tile: fn or formula applied to each run of span rows or columns (axis)
                    of its first input from start, count times, the outputs set side by side. through, where it
                    has it: [{ tile: "t:<frame id>", count }], the tiles that tile is in which repeat it again along
@@ -130,6 +173,15 @@
    written in where it is used: a length is no dependency on a value, and would otherwise read as a loop. Which of
    the two it is is settled from the snapshot alone before anything is built, so it is the same whichever shape
    comes first.
+
+   Number spaces. A type also has value, the number space its numbers lie in (spaces.js): one of ten words, with
+   "?" after it where None is admitted, "integer?". It follows from the node's inputs by its operation's rule, as
+   the size does, and validate checks it so; a type that says none (every graph before version 3) is not checked,
+   and is taken as "any?" by what reads it. A variable may carry holds, a promise in the same words: its value is
+   the promise where what it is worked out as lies inside the promise (or its entries say nothing yet), and
+   otherwise what it is worked out as: a type never says what might be false. A function's input (param) has for
+   its value what its input block promises, "any?" where that promises nothing, and a function applied has its
+   body's where what it is given lies in that, and "any?" where it is not known to.
 
    Inner data. A type's two drawn sides are cols and rows, as ever. Where each entry of the matrix is itself an
    array, the type has inner: the axes of what one entry holds, in order, each { "length", "name" } (name null where
@@ -157,6 +209,12 @@
    the columns of the filled tile that lie before the entry, and one more. Cells nest, outermost first; the index
    an entry reads is that of the innermost cell it is in (indexAt, the one place that says so).
 
+   A conditional arrow. An arrow whose "choose" names two frames of its definition space, { then, else }, is a
+   condition: its function's body is choose(its input, what the then frame comes to, what the else frame comes to),
+   and its output that function applied to what its base covers, which is the condition (any size). Each frame holds
+   one piece or nothing; an empty one is a source of kind none at the other's size. What lies in neither frame takes
+   no part. A frame that is gone is no-source on the arrow; sides of two sizes are the error size.
+
    Reading a canvas. A block whose name begins with // and a block in a frame named .config take no part. A
    definition space whose blocks are all standing shapes has no pieces: once they cover the matrix they are a block
    of it, or, where the variable's entries hold inner data (two axes or more), a stack: each stands for one entry,
@@ -169,23 +227,41 @@
    may read what comes of the tile it is in, of a tile beside it or of a tile in its pattern, short of a real cycle.
    A block's zone, for what it touches, is the innermost tile it is in (algebra.js: zoneOf).
    Definitions are read 64 deep, one inside the next, and no deeper. */
-import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isFormula, exact, held as fromExact } from './algebra.js';
-import { ROOTS } from './values.js';
-import { parts as textParts, evaluate as work, namesIn, refs } from './expression.js';
-import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES } from './arrows.js';
+import { pieces, touches, zoneOf, rangeIn, nested, combine, rootOf, isError, isNone, isFormula, exact, held as fromExact, truthOf, numbers } from './algebra.js';
+import { ROOTS, together } from './values.js';
+import { parts as textParts, evaluate as work, namesIn, refs, treeOf } from './expression.js';
+import * as S from './spaces.js';
+import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES, ACROSS } from './arrows.js';
 import * as tiles from './tiles.js';
-import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS } from './sources.js';
+import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS, EMPTY } from './sources.js';
 import { FUNCTIONS, CONFIG } from './system.js';
 
-export const VERSION = 2;                     /* 2 added stack, entry, a transpose's order and inner axes: a version 1 graph holds none of them and is a version 2 graph as it stands */
-const VERSIONS = [1, 2];
-export const CODES = ['mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown'];
+export const VERSION = 5;                     /* 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise; 4 choose and a source of kind none. An older graph holds none of what came after it and is a version 4 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
+const VERSIONS = [1, 2, 3, 4, 5];
+export const CODES = ['mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type'];
+/* An error in words, for whoever shows one: its note where that is a sentence, else what its code means. A note that
+   is another error's code (what reads a thing with an error carries that error's code for its note) is said in words
+   too, and so is a count of pieces: a bare code, or a fragment, never stands where a sentence should. */
+const SAID = { mismatch: 'it does not fit', 'not-a-row': 'its shapes are not a single line', mixed: 'it mixes rules', pieces: 'its space does not come to one matrix', size: 'it is not the size it has to be',
+  loop: 'a cycle: it depends on itself', 'no-source': 'what it reads is not there', seat: 'the arrow it is seated on has no output', 'size-unknown': 'a size it depends on is not settled', type: 'a value lies outside what it promises to hold' };
+export function said(e){
+  const has = k => typeof k === 'string' && Object.prototype.hasOwnProperty.call(SAID, k), note = e && typeof e.note === 'string' ? e.note.trim() : '', code = e && has(e.code) ? e.code : null;
+  if (code === 'pieces' && /^\d+ pieces$/.test(note)) return `its space holds ${note}, and not one matrix`;
+  if (code === 'size-unknown') return SAID[code];      /* (its note is the count as it is stored, a formula with ids in it: whoever shows it says the count as the page writes it) */
+  if (note && !has(note)) return note;
+  return (code ? SAID[code] : 'it has no value') + (note && note !== code ? ': ' + SAID[note] : '');
+}
 const PIECE_CODES = ['mismatch', 'not-a-row', 'mixed', 'size-unknown'];
 const DEFINED = ['entries', 'definition', 'standing', 'joined', 'measure', 'range', 'seat', 'source', 'entry'];
 export const AXES = 6;                           /* the most inner axes a type has */
 const DEEP = 64;                                /* how deep definitions are read, one inside the next */
 const E = (code, note = '') => ({ code, note: String(note) });
 const own = (o, k) => !!o && typeof o === 'object' && typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+
+/* what a node holds beside its operation's own fields: said for the operations that hold nothing else (a choose, a
+   source of None), so that one cannot carry a field another operation would read */
+const alikeJson = (a, b) => a === b || (!!a && !!b && typeof a === 'object' && typeof b === 'object' && Array.isArray(a) === Array.isArray(b) && Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => own(b, k) && alikeJson(a[k], b[k])));      /* two JSON values alike, whatever order their keys come in */
+const stray = (n, fields, what) => Object.keys(n).filter(k => !['op', 'inputs', 'type', 'within', ...fields].includes(k)).slice(0, 1).map(k => `${what} holds no ${k}`);
 
 /* ---- types ---- */
 /* A type is its two drawn sides, and inner where its entries hold inner data: the axes of what one entry holds, in
@@ -195,9 +271,30 @@ const T = (cols, rows, colsName = null, rowsName = null, inner = null) => ({ col
 export const axes = t => [{ length: t.cols, name: t.colsName || null }, { length: t.rows, name: t.rowsName || null }, ...innerOf(t)];      /* every axis of a type in order: the two drawn ones, then the inner ones */
 const whole1 = v => Number.isInteger(v) && v >= 1;
 const okAxis = a => !!a && typeof a === 'object' && !Array.isArray(a) && Object.keys(a).length === 2 && whole1(a.length) && (a.name === null || (typeof a.name === 'string' && a.name !== ''));
-const TYPE_KEYS = ['cols', 'rows', 'colsName', 'rowsName', 'inner'];
+const TYPE_KEYS = ['cols', 'rows', 'colsName', 'rowsName', 'inner', 'value'];
 const okType = t => !!t && typeof t === 'object' && !Array.isArray(t) && whole1(t.cols) && whole1(t.rows) && (t.colsName === null || typeof t.colsName === 'string') && (t.rowsName === null || typeof t.rowsName === 'string')
-  && (t.inner === undefined || (Array.isArray(t.inner) && t.inner.length >= 1 && t.inner.length <= AXES && t.inner.every(okAxis))) && Object.keys(t).every(k => TYPE_KEYS.includes(k));      /* its four fields, inner where it has inner axes (never an empty list), and no other key */
+  && (t.inner === undefined || (Array.isArray(t.inner) && t.inner.length >= 1 && t.inner.length <= AXES && t.inner.every(okAxis))) && (t.value === undefined || !!S.parse(t.value)) && Object.keys(t).every(k => TYPE_KEYS.includes(k));      /* its four fields, inner where it has inner axes (never an empty list), value where its number space is said (one of the nine words, "?" after it where None is admitted), and no other key */
+/* ---- number spaces (spaces.js) ----
+   A type's value is the number space its numbers lie in, written "integer", or "integer?" where None is admitted. It
+   follows from the node's inputs by its operation's rule (OPS[op].space), as its size does; a node whose type says
+   none is taken as "any?", of which nothing is known. A variable that carries holds, a promise, has that for its
+   value only where the graph alone shows it kept: whether its values keep it is asked of them (evaluate.js). */
+const ANY = 'any?';
+const valueOf = n => (n && n.type && typeof n.type.value === 'string' ? n.type.value : ANY);
+const allOf = ins => ins.map(valueOf).reduce((a, b) => S.both(a, b));
+/* the space of a formula of the graph: $n is an input (first: which input $1 is), index.x, index.y and k1 to k6 are
+   places, counted from 1, and in an arrow's formula x is the arrow's own input (arrow: its space) and i and j places */
+function spaceIn(text, ins, first, arrow = null){
+  const tree = treeOf(text); if (!tree) return ANY;
+  return S.formula(tree, name => { const m = name.match(DOLLAR); if (m) return ins[+m[1] - 1 + first] ? valueOf(ins[+m[1] - 1 + first]) : undefined;
+    if (tiles.axisOf(name) !== null || INNER.test(name)) return 'natural';
+    const k = name.toLowerCase(); return arrow === null ? undefined : k === 'x' ? arrow : k === 'i' || k === 'j' ? 'natural' : undefined; });
+}
+/* What a function applied comes to: its body's space, which was worked out for whatever the function's input block
+   promises to take. That is true of this use only where what it is given is known, from the graph alone, to lie in
+   what the function takes; where it is not, nothing is said of the result (any, or None). Whether the values given
+   lie in it is evaluate.js's to say (the error type, where one does not). */
+const bodyOf = (n, g, given) => { const f = g.fn(n.fn), p = f && g.node(f.input); return S.within(valueOf(given), valueOf(p)) ? valueOf(f && g.node(f.body)) : ANY; };
 const one = t => t.cols === 1 && t.rows === 1 && !innerOf(t).length;      /* a scalar: one number and nothing else. A one by one type that holds inner data is a matrix of one entry */
 const drawnSame = (a, b) => a.cols === b.cols && a.rows === b.rows;
 const same = (a, b) => drawnSame(a, b) && innerOf(a).length === innerOf(b).length && innerOf(a).every((x, i) => x.length === innerOf(b)[i].length);      /* one size, inner lengths and all */
@@ -252,20 +349,26 @@ function literal(v){
   if (typeof v === 'number') return Number.isSafeInteger(v) ? v : undefined;
   if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
   if ('n' in v || 'k' in v) return exactly(v);
-  return typeof v.sym === 'string' && v.sym ? { sym: v.sym } : undefined;
+  if (v.none === true) return NOTHING;      /* None: a value like any other, and kept */
+  return typeof v.sym === 'string' && v.sym && !spells(v.sym) ? { sym: v.sym } : undefined;
 }
+/* a symbolic value is arithmetic the solver wrote out: it never spells None or an infinity, each of which has its one
+   form of its own ({ none: true }, "inf"). Text that does is no literal: read as arithmetic it would come to a number
+   that it is not (the backend would answer 0 for "none") */
+const spells = text => /[∅∞]/.test(text) || (text.match(/[A-Za-z_][\w.]*/g) || []).some(name => ['none', 'inf', 'infinity'].includes(name.toLowerCase()));
 /* whether a value is written exactly as the graph writes it: nothing more, and in its one form */
 function okLiteral(v){
   const l = literal(v); if (l === undefined) return false;
   if (l === null || typeof l !== 'object') return l === v;
   return !!v && typeof v === 'object' && Object.keys(v).length === Object.keys(l).length && Object.keys(l).every(k => v[k] === l[k]);
 }
+const NOTHING = Object.freeze({ none: true });
 const okError = v => !!v && typeof v === 'object' && typeof v.err === 'string' && Object.keys(v).length === 1;
 const cell = (m, key) => { const v = m.get(key); return v === undefined ? null : v; };
 /* a value of one of the kinds values.js sets out, or the error that it is none: nothing else is handed on */
 const NONE = { err: 'that has no value' };
 const sound = v => v === null || v === undefined ? null : typeof v === 'boolean' || (typeof v === 'number' && !Number.isNaN(v)) ? v
-  : typeof v === 'object' && (typeof v.err === 'string' || typeof v.sym === 'string' || typeof v.f === 'number' || (Number.isInteger(v.n) && Number.isInteger(v.k))) ? v : NONE;
+  : typeof v === 'object' && (typeof v.err === 'string' || typeof v.sym === 'string' || typeof v.f === 'number' || v.none === true || (Number.isInteger(v.n) && Number.isInteger(v.k))) ? v : NONE;
 
 /* ---- bindings: the index ---- */
 /* The index an entry reads: its column and row counted across the whole filled tile. cells is the chain of cells
@@ -283,7 +386,7 @@ export function indexAt(cells, c, r){
 /* ---- formulas in the graph ---- */
 const DOLLAR = /^\$([1-9]\d*)$/, INNER = /^k([1-6])$/i;      /* $n: an input; k1 to k6: the inner position of the entry being worked out */
 const LONGEST = 10000, DEEPEST = 64;            /* a formula in a graph is at most this long, and nests at most this deep: the backend reads it with these bounds (backend/limits.py), and the two validators are to agree */
-const FUNCS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']), CONSTS = new Set(['inf', 'infinity', 'true', 'false']);
+const FUNCS = new Set(['select', 'max', 'min', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf']), CONSTS = new Set(['inf', 'infinity', 'true', 'false', 'none']);
 /* Whether a formula is one the graph may hold: it reads as arithmetic (expression.js), it is no longer than LONGEST
    characters and nests no deeper than DEEPEST, it holds no capsule, and every
    name in it is $1 to $most, index.x or index.y, or (in an arrow's formula) x, i or j. Nothing a node depends on
@@ -318,13 +421,22 @@ export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' &
 /* ---- the operations ----
    Each: inputs [least, most]; fields(n) -> what is wrong with its own fields (sentences); type(n, ins, g) -> the type
    it must have, given its input nodes (g.fn(id) is a function of the graph), or a sentence where it can have none;
-   id(n) -> its id written out; needs(n, ins) -> which inputs its value is worked out from (left out: all of them);
+   id(n) -> its id written out; body(n) -> the id of the function it has for its body (apply, and a mapalong with fn:
+   left out by an operation that has none; fnOf(n) asks it of any node, and nothing else says which operations
+   have a function); needs(n, ins) -> which inputs its value is worked out from (left out: all of them);
+   later(n) -> the inputs it reads only when its value asks for them, with at.pick (a choose's two sides: one is read,
+   and which is not known until its condition is worked out);
    value(n, at) -> its entries, a Map from "column,row" (unknown entries absent); deep: true (or deep(n, g) -> whether)
    where the rule reads inner positions itself, its keys then "column,row,k1,…": any other rule is run by
    evaluate.js once for each inner position, on entries keyed "column,row". at is the evaluator's: at.get(k)
    the entries of input k, at.type(k) its type, at.cells the chain of cells, and the rest as evaluate.js sets out. */
 const list = xs => xs.join(',');
+const STEP_FIELDS = 'fn is a function id and state is { col, row, cols, rows }, both or neither';
+/* the function a node has for its body, by its operation's table entry (body), or undefined: the one place that says
+   which operations have a function */
+export const fnOf = n => { const rule = n && own(OPS, n.op) ? OPS[n.op] : null; return rule && rule.body ? rule.body(n) : undefined; };
 const HELD_APART = 'a matrix its formula names holds inner data that is not its own';
+export const TWO_SIZES = 'its two sides are not one size';
 const SIDE = /^(x|y|m|a|d[1-6])$/;               /* what a measure reads: a drawn side, a mass, an attribute, or the length of an inner axis */
 const innerText = t => innerOf(t).length ? '·' + innerOf(t).map(a => a.length).join('×') : '';
 const unnamed = t => innerOf(t).map(a => ({ length: a.length, name: null }));
@@ -333,6 +445,26 @@ const range = r => `${r.col},${r.row},${r.cols},${r.rows}`;
 const okRange = r => !!r && typeof r === 'object' && [r.col, r.row].every(v => Number.isInteger(v) && v >= 0) && whole1(r.cols) && whole1(r.rows);
 const okAt = a => a === undefined || (!!a && typeof a === 'object' && Number.isInteger(a.col) && Number.isInteger(a.row));
 const okPlaces = n => Array.isArray(n.at) && n.at.length === n.inputs.length && n.at.every(a => a && okAt(a));
+/* ---- several shapes added, or multiplied entry by entry: their terms looked at all together (values.js: together) ----
+   A sum of several shapes is one node, and its terms are all there. A times of several is one node made of another,
+   and so is a sum made of a sum: what the terms set aside in the inner one came to (those that were neither None
+   nor unknown) is kept beside its value, by entry, and the outer one reads it, so that None × 0 × ∞ is an error
+   whichever two are multiplied first. RESTS: a node's value (the Map) -> { op: '+' | '*', at: Map from an entry's
+   key }. It is read only by a node of the same kind made directly of that one: nothing else sees it, and a
+   variable between the two ends it. evaluate.js keeps it where a rule is repeated over inner data. */
+export const RESTS = new WeakMap();
+const CHAIN = { add: '+', scale: '*', ewise: '*' };
+const chainOf = n => n && (n.op === 'ewise' ? (n.fn === 'mul' ? '*' : null) : CHAIN[n.op] || null);
+/* each(c, r, key) -> [[value, the key it has in input k], …] for one entry: the terms, in the inputs' order */
+function allTogether(n, at, op, each){
+  const rests = n.inputs.map((i, k) => chainOf(at.graph.nodes[i]) === op ? at.rest(k) : null), out = new Map(), kept = new Map();
+  for (let r = 1; r <= n.type.rows; r++) for (let c = 1; c <= n.type.cols; c++){ const key = c + ',' + r, terms = each(c, r, key);
+    const got = together(op, terms.map(t => t[0]), null, terms.map((t, k) => rests[k] ? rests[k].get(t[1]) : undefined));
+    if (got.value !== null && got.value !== undefined) out.set(key, got.value);
+    if (got.rest !== undefined) kept.set(key, got.rest); }
+  if (kept.size) RESTS.set(out, { op, at: kept });
+  return out;
+}
 const entrywise = (t, each) => { const out = new Map(); for (let r = 1; r <= t.rows; r++) for (let c = 1; c <= t.cols; c++){ const v = each(c, r, c + ',' + r); if (v !== null && v !== undefined) out.set(c + ',' + r, v); } return out; };
 /* one run of a repeated arrow: the part of the input cell k covers, and the cell's type */
 const runOf = (n, k) => ({ side: n.axis === 'rows' ? 'e' : 's', start: n.start + (k - 1) * n.span, span: n.span });
@@ -353,9 +485,48 @@ const fnWhole = (n, g) => { const f = n.fn !== undefined ? g.fn(n.fn) : null, p 
 const namedFits = (t, out) => one(t) || (drawnSame(t, out) && (!innerOf(t).length || same(t, out)));
 const okEntryKey = (key, t) => { const p = key.split(','), ax = t ? axes(t) : null; return p.length >= 2 && p.every(x => /^[1-9]\d*$/.test(x)) && (!ax || (p.length === ax.length && p.every((x, i) => +x <= ax[i].length))); };
 
+/* ---- a tile with a step: a repeat with fn and state, and a loop ----
+   placesOf: where each part of a pattern lies, for every part that is in it once (a part met again below its tile is
+   at its own place there). stateAt(n, k, type): where input k (of that type) lies in the state rectangle, from 0, or
+   null where it does not lie wholly in it. patternOf(n, ins): the inputs that are the pattern's (a loop's count, where
+   it is an input, is one more, the last). stepFits: the state rectangle's type, or why the step does not fit. */
+export const placesOf = n => { const places = {}; n.inputs.slice(0, n.at.length).forEach((id, k) => { if (n.inputs.indexOf(id) === n.inputs.lastIndexOf(id)) places[id] = n.at[k]; }); return places; };
+export function stateAt(n, k, t){ const s = n.state, a = Array.isArray(n.at) ? n.at[k] : null; if (!s || !a || !t) return null;
+  return a.col >= s.col && a.row >= s.row && a.col + t.cols <= s.col + s.cols && a.row + t.rows <= s.row + s.rows ? { col: a.col - s.col, row: a.row - s.row, cols: t.cols, rows: t.rows } : null; }
+const ownEntries = i => i.op === 'variable' && i.defined === 'entries' && !i.error && !!i.entries && typeof i.entries === 'object' && !Object.values(i.entries).some(v => !!v && typeof v === 'object' && ('expr' in v || 'err' in v));
+const okStep = n => (n.fn === undefined && n.state === undefined) || (typeof n.fn === 'string' && okRange(n.state) && Object.keys(n.state).length === 4);
+export const cellAt = (n, k) => n.across === 'inf' ? { cx: k, cy: 1 } : { cx: (k - 1) % n.across + 1, cy: Math.floor((k - 1) / n.across) + 1 };      /* where cell k of a tile with a step lies: left to right, then the next row down */
+function stepFits(n, ins, g){
+  const s = n.state, p = n.pattern; if (s.col + s.cols > p.cols || s.row + s.rows > p.rows) return 'its state runs past its pattern';
+  const inner = agreed(ins.map(i => i.type)) || [], mine = ins.filter((i, k) => stateAt(n, k, i.type));
+  if (mine.reduce((sum, i) => sum + i.type.cols * i.type.rows, 0) !== s.cols * s.rows) return 'its state blocks do not fill its state exactly';
+  if (!mine.every(ownEntries)) return 'a state block holds something other than its own typed entries';
+  const f = g.fn(n.fn), param = f && g.node(f.input), b = f && g.node(f.body); if (!f || !param || !b) return 'its function is not in the graph';
+  const cell = T(p.cols, p.rows, null, null, inner), state = T(s.cols, s.rows, null, null, inner);
+  if (!same(param.type, cell)) return `its step takes ${sizeOf(param.type)} and one cell is ${sizeOf(cell)}`;
+  if (!same(b.type, state)) return `its step gives ${sizeOf(b.type)} and its state is ${sizeOf(state)}`;
+  return state;
+}
+/* the number space of what a step makes: its body's, where every cell is known to lie in what the function takes
+   (the cells hold what the inputs hold and what the body gives), and otherwise nothing is said */
+const stepSpace = (n, ins, g) => { const f = g.fn(n.fn), body = valueOf(f && g.node(f.body)), takes = valueOf(f && g.node(f.input)); return S.within(S.both(allOf(ins), body), takes) ? body : ANY; };
+const countText = c => c && typeof c === 'object' ? '$' + c.input : String(c);
+const failed = (t, why) => { const out = new Map(); for (const tail of tailsOf(t)) for (let r = 1; r <= t.rows; r++) for (let c = 1; c <= t.cols; c++) out.set(c + ',' + r + tail, { err: why }); return out; };
+export const BAD_COUNT = 'its count does not come to a whole number, at least 1';
+
 export const OPS = {
   variable: { inputs: [0, Infinity], deep: true, id: n => n.id,
+    /* what defines it, or the space of its entries: every value given and every formula. Where it carries a promise
+       its value is the promise only where that follows from the graph alone: what it is worked out as lies inside
+       the promise, or its entries say nothing yet (nothing known lies inside every space). Otherwise it is what it
+       is worked out as, the wider of the two that is known to be true: a type never says what might be false.
+       Whether the values keep the promise is evaluate.js's to say, and the backend's of its own numbers. */
+    space(n, ins){ let was, quiet = false;
+      if (n.defined !== 'entries') was = valueOf(ins[0]);
+      else { const all = Object.values(n.entries), values = all.filter(v => !isFormula(v)), more = all.filter(isFormula).map(v => spaceIn(v.expr, ins, 0)); was = S.ofAll(values, more); quiet = S.silent(values, more); }
+      return n.holds !== undefined && S.parse(n.holds) && (quiet || S.within(was, n.holds)) ? n.holds : was; },
     fields(n){ const bad = [];
+      if (n.holds !== undefined && !S.parse(n.holds)) bad.push('holds is no number space');
       if (typeof n.name !== 'string') bad.push('name is not text'); if (typeof n.named !== 'boolean') bad.push('named is not true or false');
       if (!DEFINED.includes(n.defined)) bad.push(`defined is "${n.defined}"`);
       if (n.error !== undefined && !(n.error && typeof n.error === 'object' && CODES.includes(n.error.code) && typeof n.error.note === 'string' && Object.keys(n.error).length === 2)) bad.push('its error is not { code, note }');
@@ -387,6 +558,7 @@ export const OPS = {
         if (w !== null) out.set(key, w); }
       return out; } },
   matmul: { inputs: [2, 2], fields: () => [], id: n => plain(n),
+    space: (n, [a, b]) => S.product(valueOf(a), valueOf(b), a.type.cols),      /* each entry is a sum of as many products as the first has columns */
     /* a type holds real lengths: sides that carry one name are still to be one length */
     /* a single entry is no exception: against a single row or column it is a product like any other, and against anything
        else it is a scale, which is another node. The backend's check.py says the same, in the same words */
@@ -394,20 +566,26 @@ export const OPS = {
       || (a.type.cols === b.type.rows && !nested(innerOf(a.type), innerOf(b.type)).ok ? 'a product of shapes whose inner data does not agree: ' + nested(innerOf(a.type), innerOf(b.type)).note
         : `a product of ${a.type.cols} columns and ${b.type.rows} rows` + (one(a.type) || one(b.type) ? ': a single entry against a matrix is a scale' : '')),
     /* entry c,r is the sum over k of left k,r times right c,k. An unknown term makes the entry unknown, even against
-       a known zero: what two values come to is combine's to say, for every pair */
+       a known zero: what two values come to is combine's to say, for every pair. The terms that are None or unknown
+       are left out of the sum, so that it does not turn on where among the terms they stand: an error among the
+       others (∞ − ∞ between two of them) comes first, then unknown, then None */
     value(n, at){ const a = at.type(0), b = at.type(1), L = at.get(0), R = at.get(1), K = a.cols, out = new Map();
       const rowsOf = [], colsOf = [];
       for (let r = 1; r <= a.rows; r++){ const row = new Array(K); for (let k = 1; k <= K; k++) row[k - 1] = cell(L, k + ',' + r); rowsOf.push(row); }
       for (let c = 1; c <= b.cols; c++){ const col = new Array(K); for (let k = 1; k <= K; k++) col[k - 1] = cell(R, c + ',' + k); colsOf.push(col); }
       for (let r = 1; r <= a.rows; r++){ const row = rowsOf[r - 1];
-        for (let c = 1; c <= b.cols; c++){ const col = colsOf[c - 1]; let sum = combine('*', row[0], col[0]);
-          for (let k = 1; k < K; k++) sum = combine('+', sum, combine('*', row[k], col[k]));
-          if (sum !== null) out.set(c + ',' + r, sum); } }
+        for (let c = 1; c <= b.cols; c++){ const col = colsOf[c - 1]; let sum, none = false, unknown = false;
+          for (let k = 0; k < K; k++){ const term = combine('*', row[k], col[k]);
+            if (term === null) unknown = true; else if (isNone(term)) none = true; else sum = sum === undefined ? term : combine('+', sum, term); }
+          /* a term that is None makes the entry None, whichever term it is, and an unknown one unknown: unless the
+             others come to no value (an error), which comes first, as it does for a pair of values */
+          if (!isError(sum)) sum = unknown ? null : none ? NOTHING : sum;
+          if (sum !== null && sum !== undefined) out.set(c + ',' + r, sum); } }
       return out; } },
-  scale: { inputs: [2, 2], fields: () => [], id: n => plain(n),
+  scale: { inputs: [2, 2], fields: () => [], id: n => plain(n), space: (n, [s, m]) => S.binary('*', valueOf(s), valueOf(m)),
     type: (n, [s, m]) => one(s.type) ? T(m.type.cols, m.type.rows, m.type.colsName, m.type.rowsName, m.type.inner) : 'the first input of a scale is a single number',
-    value(n, at){ const s = cell(at.get(0), '1,1'), M = at.get(1); return entrywise(n.type, (c, r, key) => combine('*', s, cell(M, key))); } },
-  transpose: { inputs: [1, 1], deep: true, id: n => plain(n, n.order ? ';' + n.order.join(',') : ''),
+    value(n, at){ const s = cell(at.get(0), '1,1'), M = at.get(1); return allTogether(n, at, '*', (c, r, key) => [[s, '1,1'], [cell(M, key), key]]); } },
+  transpose: { inputs: [1, 1], deep: true, id: n => plain(n, n.order ? ';' + n.order.join(',') : ''), space: (n, [a]) => valueOf(a),
     fields: n => n.order === undefined || (Array.isArray(n.order) && n.order.length >= 3 && n.order.length <= AXES + 2 && n.order.every((i, k) => Number.isInteger(i) && i >= 0 && i < n.order.length && n.order.indexOf(i) === k)) ? [] : ['order is not its axes, each once, counted from 0'],
     /* with no order it swaps the two drawn sides. order names every axis of the input (the two drawn ones are 0 and 1): axis k of the result is axis order[k] of the input */
     type(n, [a]){ if (!n.order) return T(a.type.rows, a.type.cols, a.type.rowsName, a.type.colsName, a.type.inner);
@@ -418,17 +596,18 @@ export const OPS = {
       if (n.order){ const swapped = n.order[0] === 1 && n.order[1] === 0;      /* the index is the cell's, by drawn column and row: read turned only where the turn is of those two */
         for (const [key, v] of at.get(0, swapped ? at.turn() : undefined)){ const p = key.split(','); out.set(n.order.map(i => p[i]).join(','), v); } return out; }
       for (const [key, v] of at.get(0, at.turn())){ const i = key.indexOf(','), j = key.indexOf(',', i + 1); out.set((j < 0 ? key.slice(i + 1) : key.slice(i + 1, j)) + ',' + key.slice(0, i) + (j < 0 ? '' : key.slice(j)), v); } return out; } },
-  add: { inputs: [2, Infinity], fields: () => [], id: n => plain(n),
+  add: { inputs: [2, Infinity], fields: () => [], id: n => plain(n), space: (n, ins) => ins.map(valueOf).reduce((a, b) => S.binary('+', a, b)),
     type(n, ins){ let y = 0; return lone(ins.map(i => { const r = rectOf(i.type, 0, y); y += i.type.rows; return r; })) || 'a sum of shapes that are not one size'; },
-    value(n, at){ const ms = n.inputs.map((_, k) => at.get(k)); return entrywise(n.type, (c, r, key) => ms.slice(1).reduce((sum, m) => combine('+', sum, cell(m, key)), cell(ms[0], key))); } },
-  ewise: { inputs: [2, 2], id: n => plain(n, `;${n.fn};${n.broadcast}`),
+    value(n, at){ const ms = n.inputs.map((_, k) => at.get(k)); return allTogether(n, at, '+', (c, r, key) => ms.map(m => [cell(m, key), key])); } },
+  ewise: { inputs: [2, 2], id: n => plain(n, `;${n.fn};${n.broadcast}`), space: (n, [a, b]) => S.binary(n.fn === 'div' ? '/' : '*', valueOf(a), valueOf(b)),
     fields: n => [...(n.fn === 'mul' || n.fn === 'div' ? [] : [`fn is "${n.fn}"`]), ...(['none', 'scalar', 'row', 'col'].includes(n.broadcast) ? [] : [`broadcast is "${n.broadcast}"`])],
     type(n, [a, b]){ const t = lone([rectOf(a.type, 0, 0), rectOf(b.type, a.type.cols, n.fn === 'div' ? a.type.rows : -b.type.rows)]);
       return !t ? 'sizes that do not agree entry by entry' : n.broadcast !== broadcastOf(a.type, b.type) ? `broadcast is "${n.broadcast}" and its inputs make it "${broadcastOf(a.type, b.type)}"` : t; },
     value(n, at){ const a = at.type(0), b = at.type(1), A = at.get(0), B = at.get(1), op = n.fn === 'div' ? '/' : '*';
       const of = (t, m, c, r) => cell(m, (t.cols === 1 ? 1 : c) + ',' + (t.rows === 1 ? 1 : r));      /* a single entry, row or column is applied to every one */
+      if (op === '*'){ const keyIn = (t, c, r) => (t.cols === 1 ? 1 : c) + ',' + (t.rows === 1 ? 1 : r); return allTogether(n, at, '*', (c, r) => [[of(a, A, c, r), keyIn(a, c, r)], [of(b, B, c, r), keyIn(b, c, r)]]); }
       return entrywise(n.type, (c, r) => combine(op, of(a, A, c, r), of(b, B, c, r))); } },
-  block: { inputs: [1, Infinity], deep: true, id: n => `block(${n.inputs.map((i, k) => `${i}@${n.at[k].col},${n.at[k].row}`).join(';')})`,
+  block: { inputs: [1, Infinity], deep: true, space: (n, ins) => allOf(ins), id: n => `block(${n.inputs.map((i, k) => `${i}@${n.at[k].col},${n.at[k].row}`).join(';')})`,
     fields: n => okPlaces(n) ? [] : ['at is not one { col, row } for each part'],
     /* the rectangle round its parts, which must cover it exactly; a side is named as the top-left part names it, where that part spans it */
     type(n, ins){ const ts = ins.map(i => i.type), cols = Math.max(...ts.map((t, k) => n.at[k].col + t.cols)), rows = Math.max(...ts.map((t, k) => n.at[k].row + t.rows));
@@ -440,20 +619,24 @@ export const OPS = {
       n.inputs.forEach((_, k) => { const a = n.at[k], t = at.type(k);
         for (const [key, v] of at.get(k, at.shift(a.col, a.row))){ const [c, r, ...ks] = key.split(',').map(Number); if (c <= t.cols && r <= t.rows) out.set((c + a.col) + ',' + (r + a.row) + tailOf(ks), v); } });
       return out; } },
-  slice: { inputs: [1, 1], deep: true, id: n => plain(n, ';' + range(n.range)),
+  slice: { inputs: [1, 1], deep: true, id: n => plain(n, ';' + range(n.range)), space: (n, [a]) => valueOf(a),
     fields: n => okRange(n.range) && Object.keys(n.range).length === 4 ? [] : ['range is not { col, row, cols, rows }'],
     type(n, [a]){ const r = n.range; if (r.col + r.cols > a.type.cols || r.row + r.rows > a.type.rows) return 'its range runs past its input';
       return T(r.cols, r.rows, r.cols === a.type.cols ? a.type.colsName : null, r.rows === a.type.rows ? a.type.rowsName : null, a.type.inner); },      /* the range is taken at every inner position */
     value: (n, at) => passed(at.get(0), n.range) },
-  source: { inputs: [0, 0], deep: true, id: n => `source(${n.kind}${n.kind === 'file' ? ':' + n.path : ''};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
-    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && sourceKept(n.kind) ? ('path' in n ? ['only a file has a path'] : []) : [`kind is "${n.kind}"`],
+  source: { inputs: [0, 0], deep: true, space: n => n.kind === 'file' ? 'real' : n.kind === EMPTY ? S.NONE : 'boolean',      /* zeros, ones and an identity hold 0 and 1; a data file any numbers on the line; and the empty one None alone */
+    id: n => `source(${n.kind}${n.kind === 'file' ? ':' + n.path : ''};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
+    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && (n.kind === EMPTY || sourceKept(n.kind)) ? ('path' in n ? ['only a file has a path'] : n.kind === EMPTY ? stray(n, ['kind'], 'a source of None') : []) : [`kind is "${n.kind}"`],
     type: n => !okType(n.type) ? 'it has no size of its own' : n.kind === 'file' && innerOf(n.type).length ? 'a data file holds no inner data' : T(n.type.cols, n.type.rows, null, null, unnamed(n.type)),
     value: n => sourceValues(n.kind, n.type.cols, n.type.rows, innerOf(n.type).map(a => a.length)) },      /* (a file's numbers are the backend's: evaluate.js does not ask here for them) */
-  noise: { inputs: [0, 0], deep: true, id: n => `noise(${n.seed};${n.dist};${n.key};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
+  noise: { inputs: [0, 0], deep: true, space: n => n.dist === 'uniform' ? 'probability' : 'real', id: n => `noise(${n.seed};${n.dist};${n.key};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
     fields: n => [...(Number.isSafeInteger(n.seed) ? [] : ['seed is not a whole number']), ...(DISTS.includes(n.dist) ? [] : [`dist is "${n.dist}"`]), ...(typeof n.key === 'string' && n.key ? [] : ['key is not a block id'])],
     type: n => okType(n.type) ? T(n.type.cols, n.type.rows, null, null, unnamed(n.type)) : 'it has no size of its own',
     value: () => new Map() },      /* its numbers are the backend's (backend/arrays.py has the generator) */
-  measure: { inputs: [1, Infinity], deep: true, id: n => plain({ op: 'measure', inputs: n.inputs.slice(0, 1) }, ';' + (n.side === 'a' ? 'a:' + n.name : n.side)),
+  measure: { inputs: [1, Infinity], deep: true,
+    /* a length is a natural number; a single entry's side is the root of its mass; an attribute is what its formula comes to */
+    space: (n, ins) => n.side === 'a' ? (n.formula.trim() ? spaceIn(n.formula, ins, 1) : 'boolean') : n.side === 'm' ? valueOf(ins[0]) : n.side[0] === 'd' || !one(ins[0].type) ? 'natural' : S.unary('sqrt', valueOf(ins[0])),
+    id: n => plain({ op: 'measure', inputs: n.inputs.slice(0, 1) }, ';' + (n.side === 'a' ? 'a:' + n.name : n.side)),
     fields(n){ if (typeof n.side !== 'string' || !SIDE.test(n.side)) return [`side is "${n.side}"`];
       if (n.side !== 'a') return n.inputs.length !== 1 ? ['a side or a mass is read off one input'] : 'name' in n || 'formula' in n ? ['only an attribute has a name and a formula'] : [];
       return [...(typeof n.name === 'string' && n.name ? [] : ['an attribute has a name']), ...(formulaOk(n.formula, n.inputs.length - 1, { empty: true }) ? [] : ['its formula is one the graph cannot hold: it does not read, or names what is not an input'])]; },
@@ -467,33 +650,35 @@ export const OPS = {
       if (!one(t)) return as(n.side === 'x' ? t.cols : t.rows);
       const v = cell(at.get(0), '1,1'); if (n.side === 'm' || v === null || isError(v)) return as(v);
       const root = rootOf(v); return as(root === null ? { err: 'it has no root to be a side' } : root); } },      /* a single entry's side is the root of its mass */
-  map: { inputs: [1, Infinity], id: n => plain(n, ';' + n.formula),
+  map: { inputs: [1, Infinity], id: n => plain(n, ';' + n.formula), space: (n, ins) => spaceIn(n.formula, ins, 1, valueOf(ins[0])),
     fields: n => formulaOk(n.formula, n.inputs.length - 1, { arrow: true }) ? [] : ['its formula is one the graph cannot hold: it does not read, or names what is not an input'],
     type(n, ins){ const x = ins[0].type; for (const i of ins.slice(1)) if (!namedFits(i.type, x)) return 'a matrix its formula names is not the size of the output'; return T(x.cols, x.rows, x.colsName, x.rowsName, x.inner); },
     /* i, j and x are arrows.js's; index.x and index.y are the place of the output's entry in the cell it is worked out for */
     value(n, at){ const got = worked(n.formula, { cols: n.type.cols, rows: n.type.rows, x: at.get(0), lookup: lookupIn(n, at, 1, n.type, p => indexAt(at.cells, p.c, p.r)) });
       for (const [key, v] of got) if (sound(v) !== v) got.set(key, NONE); return got; } },
-  apply: { inputs: [1, 1], id: n => plain(n, ';' + n.fn),
+  apply: { inputs: [1, 1], body: n => n.fn, id: n => plain(n, ';' + n.fn), space: (n, ins, g) => bodyOf(n, g, ins[0]),      /* what its function's body comes to, where what it is given lies in what the function's input block promises */
     fields: n => typeof n.fn === 'string' ? [] : ['fn is not a function id'],
     type: (n, [a], g) => { const t = fnFits(n, g, a.type); return typeof t === 'string' ? t : T(t.cols, t.rows, t.colsName, t.rowsName, t.inner); },
     deep: fnWhole,
     value: (n, at) => at.call(n.fn, at.get(0), at.keyOf(0)) },
-  param: { inputs: [0, 0], deep: true, fields: () => [], id: n => `param(${(n.within || [])[(n.within || []).length - 1] || ''})`,
+  param: { inputs: [0, 0], deep: true, fields: () => [], space: n => valueOf(n),      /* its own: what the function's input block promises to take, "any?" where it promises nothing */ id: n => `param(${(n.within || [])[(n.within || []).length - 1] || ''})`,
     type: n => okType(n.type) ? n.type : 'it has no size of its own',
     value: (n, at) => at.given(n) },
-  repeat: { inputs: [1, Infinity], deep: true, id: n => `repeat(${n.inputs.map((i, k) => `${i}@${n.at[k].col},${n.at[k].row}`).join(';')};${n.pattern.cols}×${n.pattern.rows};${n.across}×${n.down})`,
+  repeat: { inputs: [1, Infinity], deep: true, body: n => n.fn, space: (n, ins, g) => n.fn !== undefined ? S.both(allOf(ins), stepSpace(n, ins, g)) : allOf(ins),
+    id: n => `repeat(${n.inputs.map((i, k) => `${i}@${n.at[k].col},${n.at[k].row}`).join(';')};${n.pattern.cols}×${n.pattern.rows};${n.across}×${n.down}${n.fn !== undefined ? `;step ${n.fn};${range(n.state)}` : ''})`,
     fields: n => [...(okPlaces(n) ? [] : ['at is not one { col, row } for each input']),
-      ...(n.pattern && typeof n.pattern === 'object' && whole1(n.pattern.cols) && whole1(n.pattern.rows) ? [] : ['pattern is not { cols, rows }']), ...(whole1(n.across) && whole1(n.down) ? [] : ['across and down are whole numbers, at least 1'])],
-    type: (n, ins) => !covers(ins.map(i => i.type), n.at, n.pattern.cols, n.pattern.rows) ? 'its inputs do not cover its pattern exactly' : !agreed(ins.map(i => i.type)) ? 'its inputs do not hold the same inner data' : T(n.pattern.cols * n.across, n.pattern.rows * n.down, null, null, agreed(ins.map(i => i.type))),
+      ...(n.pattern && typeof n.pattern === 'object' && whole1(n.pattern.cols) && whole1(n.pattern.rows) ? [] : ['pattern is not { cols, rows }']), ...(whole1(n.across) && whole1(n.down) ? [] : ['across and down are whole numbers, at least 1']), ...(okStep(n) ? [] : [STEP_FIELDS])],
+    type(n, ins, g){ if (!covers(ins.map(i => i.type), n.at, n.pattern.cols, n.pattern.rows)) return 'its inputs do not cover its pattern exactly'; if (!agreed(ins.map(i => i.type))) return 'its inputs do not hold the same inner data';
+      if (n.fn !== undefined){ const fits = stepFits(n, ins, g); if (typeof fits === 'string') return fits; }
+      return T(n.pattern.cols * n.across, n.pattern.rows * n.down, null, null, agreed(ins.map(i => i.type))); },
     /* every cell's parts set in their places, each worked out for its cell: the cell is one more binding, under whatever
        cells this tile is itself in. A part that is met again below (an arrow in the pattern that reads it) is at its
        own place there too: places says where each part lies, for every part that is in the pattern once. */
-    value(n, at){ const rects = n.inputs.map((_, k) => ({ x: n.at[k].col, y: n.at[k].row, w: at.type(k).cols, h: at.type(k).rows })), places = {};
-      n.inputs.forEach((id, k) => { if (n.inputs.indexOf(id) === n.inputs.lastIndexOf(id)) places[id] = n.at[k]; });
-      const key = JSON.stringify(places);
+    value(n, at){ const rects = n.inputs.map((_, k) => ({ x: n.at[k].col, y: n.at[k].row, w: at.type(k).cols, h: at.type(k).rows })), places = placesOf(n);
+      const key = JSON.stringify(places);      /* (with a step, a state block asked for in a later cell is what the step made of the cell before: evaluate.js hands it over, cell by cell in order) */
       return tiles.entries({ x: 0, y: 0, cols: n.pattern.cols, rows: n.pattern.rows }, n.across, n.down, rects,
         (k, cx, cy) => at.get(k, at.cell({ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, cx, cy, at: places, atKey: key }))); } },
-  mapalong: { inputs: [1, Infinity], id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
+  mapalong: { inputs: [1, Infinity], body: n => n.fn, space: (n, ins, g) => n.fn !== undefined ? bodyOf(n, g, ins[0]) : spaceIn(n.formula, ins, 1, valueOf(ins[0])), id: n => plain(n, `;${n.fn !== undefined ? n.fn : n.formula};${n.axis};${n.start};${n.span};${n.count}` + (n.at ? `;@${n.at.col},${n.at.row}` : '') + (n.through ? ';through ' + n.through.map(t => `${t.tile}×${t.count}`).join(',') : '')),
     fields: n => [...((n.fn !== undefined) !== (n.formula !== undefined) ? [] : ['it has exactly one of fn and formula']),
       ...(n.fn !== undefined && (typeof n.fn !== 'string' || n.inputs.length !== 1) ? ['fn is a function id, and takes the one input'] : []),
       ...(n.formula !== undefined && !formulaOk(n.formula, n.inputs.length - 1, { arrow: true }) ? ['its formula is one the graph cannot hold: it does not read, or names what is not an input'] : []),
@@ -513,15 +698,51 @@ export const OPS = {
       const on = (n.through || []).reduce((sum, t) => { const c = at.cells.find(c => c.of && c.of.includes(t.tile)); return sum + (c ? (rows ? c.y : c.x) : 0); }, 0);
       for (let k = 1; k <= n.count; k++){ const run = runOf(n, k), part = covered({ ...run, start: run.start + on }, x); if (!part) continue; const given = passed(X, part), size = T(part.cols, part.rows), off = (k - 1) * n.span;
         /* the key names the rows or columns handed over, where they really begin: two arrows of one function on different runs of one input, or one arrow in two cells of a tile it is repeated through, do not share an answer */
-        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + n.axis + ':' + (run.start + on) + ':' + run.span)
+        const got = n.fn !== undefined ? at.call(n.fn, given, at.keyOf(0) + '#' + n.axis + ':' + (run.start + on) + ':' + run.span, null, n.count > 1 ? ' in run ' + k : '')
           : worked(n.formula, { cols: part.cols, rows: part.rows, x: given, lookup: lookupIn(n, at, 1, size, p => n.at ? { x: n.at.col + p.c + (rows ? 0 : off), y: n.at.row + p.r + (rows ? off : 0) } : null) });
         const each = Math.round((rows ? n.type.rows : n.type.cols) / n.count);
         for (const [key, v] of got){ const [c, r, ...ks] = key.split(',').map(Number); out.set((rows ? c + ',' + (r + (k - 1) * each) : (c + (k - 1) * each) + ',' + r) + tailOf(ks), sound(v)); } }
       return out; } },
+  /* A tile's step carried through (see "loop", at the top). The cells are the evaluator's to work out, in order and
+     each once (at.state(k): cell k's state; at.stopped(k): the truth of the stop block in cell k): this rule says
+     when it ends, and with which cell's state. */
+  loop: { inputs: [1, Infinity], deep: true, body: n => n.fn,
+    space: (n, ins, g) => { const pat = ins.slice(0, n.at.length); return S.both(allOf(pat.filter((i, k) => stateAt(n, k, i.type))), stepSpace(n, pat, g)); },
+    id: n => `loop(${n.at.map((a, k) => `${n.inputs[k]}@${a.col},${a.row}`).join(';')};${n.pattern.cols}×${n.pattern.rows};${range(n.state)};${n.fn};${countText(n.count)}${n.count && typeof n.count === 'object' ? ':' + n.inputs[n.count.input] : ''};${n.until};${n.across})`,
+    fields(n){ const byInput = !!n.count && typeof n.count === 'object', bad = [];
+      if (!(Array.isArray(n.at) && n.at.length >= 1 && n.at.length === n.inputs.length - (byInput ? 1 : 0) && n.at.every(a => a && okAt(a)))) return ['at is not one { col, row } for each input of its pattern'];
+      if (!(n.pattern && typeof n.pattern === 'object' && whole1(n.pattern.cols) && whole1(n.pattern.rows))) bad.push('pattern is not { cols, rows }');
+      if (!(typeof n.fn === 'string' && okRange(n.state) && Object.keys(n.state).length === 4)) bad.push(STEP_FIELDS);
+      if (!(whole1(n.count) || n.count === 'inf' || (byInput && !Array.isArray(n.count) && Object.keys(n.count).length === 1 && n.count.input === n.inputs.length - 1))) bad.push('count is a whole number, at least 1, "inf", or { input } naming its last input');
+      if (!(n.until === null || (Number.isInteger(n.until) && n.until >= 0 && n.until < n.at.length))) bad.push('until is null or the place of the stop block among its inputs');
+      if (!(whole1(n.across) || n.across === 'inf')) bad.push('across is a whole number, at least 1, or "inf"');
+      return [...bad, ...stray(n, ['at', 'pattern', 'state', 'fn', 'count', 'until', 'across'], 'a loop')]; },
+    type(n, ins, g){ const pat = ins.slice(0, n.at.length);
+      if (!covers(pat.map(i => i.type), n.at, n.pattern.cols, n.pattern.rows)) return 'its inputs do not cover its pattern exactly'; if (!agreed(pat.map(i => i.type))) return 'its inputs do not hold the same inner data';
+      if (pat.length < ins.length && !one(ins[ins.length - 1].type)) return 'its count is not a single number';
+      return stepFits(n, pat, g); },
+    value(n, at){ let count = n.count;
+      if (count && typeof count === 'object'){ const v = cell(at.get(count.input), '1,1'); if (v === null) return new Map();      /* a count not known yet: so is what it comes to */
+        if (isError(v)) return failed(n.type, v.err); count = v === true ? 1 : held(v);      /* (true counts as 1 in arithmetic, values.js, and so here; false as 0, which is no count) */
+        if (count !== Infinity && !whole1(count)) return failed(n.type, BAD_COUNT); }
+      if (count === 'inf') count = Infinity;
+      if (count === Infinity && n.until === null) return at.forever();      /* it has no last cell */
+      if (n.until !== null) for (let k = 1; k <= count; k++){      /* (with no stop block there is nothing to look at on the way: the last state is asked for, and is deferred at once where it is past what is worked out here) */ const t = at.stopped(k); if (t === null) return new Map();      /* a stop block with an unknown entry that decides it: unknown, not "keep going" */
+        if (t) return at.state(k, true); }
+      return at.state(count + 1); } },
+  /* one of two matrices, by whether a third is true as a whole. The sides are typed and held to one size whether or
+     not they are chosen; only the one chosen is worked out (at.pick), so what is wrong with the other does no harm */
+  choose: { inputs: [3, 3], deep: true, fields: n => stray(n, [], 'a choose'), id: n => plain(n), space: (n, [, a, b]) => S.choice(valueOf(a), valueOf(b)),
+    type: (n, [, a, b]) => !same(a.type, b.type) || !nested(innerOf(a.type), innerOf(b.type), true).ok || ['colsName', 'rowsName'].some(k => a.type[k] && b.type[k] && a.type[k] !== b.type[k]) ? TWO_SIZES
+      : T(a.type.cols, a.type.rows, a.type.colsName, a.type.rowsName, a.type.inner),
+    needs: () => [0], later: () => [1, 2],
+    value(n, at){ const c = at.get(0); let t = truthOf(c.values());
+      if (t === false && c.size < numbers(at.type(0))) t = null;      /* an entry never given is absent: with none true, the whole is not known */
+      return t === null ? new Map() : at.pick(t ? 1 : 2); } },
   /* matrices put into the entries of one: part k is the whole of entry at[k]. Every part is one size and holds the
      same inner data; between them they cover a rectangle of entries, one part to an entry. The inner axes of the
      result are the parts' two drawn sides, then the parts' own. */
-  stack: { inputs: [1, Infinity], deep: true, id: n => `stack(${n.inputs.map((i, k) => `${i}@${n.at[k].col},${n.at[k].row}`).join(';')})`,
+  stack: { inputs: [1, Infinity], deep: true, space: (n, ins) => allOf(ins), id: n => `stack(${n.inputs.map((i, k) => `${i}@${n.at[k].col},${n.at[k].row}`).join(';')})`,
     fields: n => okPlaces(n) && n.at.every(a => a.col >= 0 && a.row >= 0 && Object.keys(a).length === 2) ? [] : ['at is not one { col, row } for each part, from 0'],
     type(n, ins){ const ts = ins.map(i => i.type), cols = Math.max(...n.at.map(a => a.col)) + 1, rows = Math.max(...n.at.map(a => a.row)) + 1;
       if (ts.length !== cols * rows || new Set(n.at.map(a => a.col + ',' + a.row)).size !== ts.length) return 'its parts do not cover its entries, one part to an entry';
@@ -532,7 +753,7 @@ export const OPS = {
       return out; } },
   /* one entry of a matrix whose entries hold inner data, taken out: its drawn sides are the input's first two inner
      axes (one inner axis: that many columns in a single row), and the rest stay inner */
-  entry: { inputs: [1, 1], deep: true, id: n => plain(n, `;${n.at.col},${n.at.row}`),
+  entry: { inputs: [1, 1], deep: true, id: n => plain(n, `;${n.at.col},${n.at.row}`), space: (n, [a]) => valueOf(a),
     fields: n => !!n.at && typeof n.at === 'object' && Number.isInteger(n.at.col) && Number.isInteger(n.at.row) && n.at.col >= 0 && n.at.row >= 0 && Object.keys(n.at).length === 2 ? [] : ['at is not { col, row }, from 0'],
     type(n, [a]){ const inner = innerOf(a.type); if (!inner.length) return 'its input holds no inner data: an entry of it is one number';
       if (n.at.col >= a.type.cols || n.at.row >= a.type.rows) return 'its input has no such entry';
@@ -547,7 +768,7 @@ export const OPS = {
 function scopes(n, ins, fn){
   if (n.op === 'param') return (n.within || []).filter(w => w.startsWith('f:')).slice(-1);
   const out = new Set(ins.flatMap(i => (i.within || []).filter(w => w.startsWith('f:'))));
-  if ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined){ const f = fn(n.fn); for (const w of (f && f.within) || []) if (w.startsWith('f:') && w !== n.fn) out.add(w); }
+  const has = fnOf(n); if (has !== undefined){ const f = fn(has); for (const w of (f && f.within) || []) if (w.startsWith('f:') && w !== has) out.add(w); }
   return [...out];
 }
 /* The tiles a node belongs to. A node follows its cell where a formula of its own reads the index or what it is made
@@ -557,7 +778,11 @@ function scopes(n, ins, fn){
    graph has them, blocks likewise -> a Map from node id to the Set of its tiles ("t:<id>"). build and validate both
    ask this, so the marks are checked exactly. */
 function tilesOf(nodeOf, spaces, blocks){
-  const follows = new Map(), cellular = id => { if (!follows.has(id)){ follows.set(id, false); const n = nodeOf(id); follows.set(id, !!n && (readsIndex(n) || n.inputs.some(cellular))); } return follows.get(id); };
+  /* a state block of a tile with a step follows its cell too: it holds what the step made of the cell before */
+  const states = new Set();
+  for (const s of Object.values(spaces)) for (const t of (s && Array.isArray(s.tiles) ? s.tiles : [])) for (const id of t && typeof t === 'object' ? [t.node, t.loop] : []){ const n = typeof id === 'string' ? nodeOf(id) : null;
+    if (n && n.fn !== undefined && n.state && Array.isArray(n.at)) n.at.forEach((_, k) => { const i = nodeOf(n.inputs[k]); if (i && stateAt(n, k, i.type)) states.add(n.inputs[k]); }); }
+  const follows = new Map(), cellular = id => { if (!follows.has(id)){ follows.set(id, false); const n = nodeOf(id); follows.set(id, !!n && (states.has(id) || readsIndex(n) || n.inputs.some(cellular))); } return follows.get(id); };
   const out = new Map();
   for (const s of Object.values(spaces)) for (const t of (s && Array.isArray(s.tiles) ? s.tiles : [])){ if (!t || typeof t.tile !== 'string') continue;
     const inside = new Set(Array.isArray(t.blocks) ? t.blocks : []), arrows = new Set(Array.isArray(t.arrows) ? t.arrows : []), roots = [];
@@ -594,7 +819,7 @@ const DROPPED = { dropped: true };              /* a formula that names a node, 
 const UNKNOWN = { unknown: true };              /* a reference to what has no value yet: so has the formula */
 
 export function build(snapshot){
-  const nodes = new Map(), scope = new Map(), functions = {}, hashed = new Map();
+  const nodes = new Map(), scope = new Map(), functions = {}, hashed = new Map(), takes = new Map();
   const blocks = new Map(), variables = new Map(), spaces = [], rank = new Map(), groupsById = new Map();
 
   /* ---- first pass: every block, the variable it is a use of, and every space, in one fixed walk ---- */
@@ -699,7 +924,8 @@ export function build(snapshot){
   }
   const typeOf = id => nodes.get(id).type;
   const paramOf = ctx => { const key = spaceKey(ctx), id = `param(${key})`, rec = ctx.recs.find(r => r.d.in);
-    if (!nodes.has(id)){ nodes.set(id, { op: 'param', inputs: [], type: rec ? T(rec.cols, rec.rows, sideName(rec.d.colsName), sideName(rec.d.rowsName), rec.inner) : T(1, 1) }); scope.set(id, new Set([key])); rank.set(key, ctx.depth); }
+    if (!nodes.has(id)){ nodes.set(id, { op: 'param', inputs: [], type: rec ? T(rec.cols, rec.rows, sideName(rec.d.colsName), sideName(rec.d.rowsName), rec.inner) : T(1, 1) }); scope.set(id, new Set([key])); rank.set(key, ctx.depth);
+      if (rec && S.parse(rec.d.holds)) takes.set(id, rec.d.holds); }      /* what the function's input block promises to take */
     return id; };
   /* what a variable's value is read from: its node, or the param it is where it is a function's input */
   const base = v => v.given ? paramOf(v.given.ctx) : varNode(v);
@@ -723,6 +949,7 @@ export function build(snapshot){
     if (v.looped) made = { error: E('loop'), ...typed(v, true) };
     const d = v.src.d, n = { op: 'variable', inputs: made.inputs, type: v.type, name: text(d.name), named: isNamed(d), defined: made.error ? 'entries' : made.defined, entries: made.error || made.defined === 'entries' ? made.entries : literals(v) };
     if (made.error) n.error = made.error;
+    if (S.parse(d.holds)) n.holds = d.holds;      /* what it promises to hold: the variable's, said on the block it was made as */
     nodes.set(v.nid, n); scoped(v.nid, n);
     v.state = 'done'; return v.nid;
   }
@@ -859,17 +1086,17 @@ export function build(snapshot){
   }
   /* what a space comes to: its ends, the pieces and outputs nothing reads from (arrows.js). Told from the shapes alone:
      { none } for nothing, or for a function's input alone; { error } for several; { piece: k } | { arrow: rec } for the one */
-  function endOf(ctx, input = null){
-    const R = read(ctx), list = arrowsIn(ctx);
-    const es = endsOf(R.ps.map((p, k) => ({ ids: [...p.members.map(m => R.active[m].id), ...new Set(p.members.map(m => R.rects[m].zone).filter(z => z !== null))], type: p.type, k })),
+  function endOf(ctx, input = null, side = null){      /* side: one frame of a conditional arrow's space; what it comes to is asked of what lies wholly in it */
+    const R = read(ctx), inSide = r => !side || chain(r).includes(side), list = arrowsIn(ctx).filter(inSide);
+    const es = endsOf(R.ps.map((p, k) => ({ ids: [...p.members.map(m => R.active[m].id), ...new Set(p.members.map(m => R.rects[m].zone).filter(z => z !== null))], type: p.type, k })).filter(p => R.ps[p.k].members.every(m => inSide(R.active[m]))),
       list.map(a => ({ id: a.id, reads: a.arrow.input && a.arrow.input.id, seated: ctx.recs.some(r => r.d.seat === a.id), type: {}, rec: a })),
       ctx.recs.filter(r => !r.arrow && takesPart(r) && r.d.from && typeof r.d.from === 'object' && r.d.from.entry).map(r => r.d.from.id));      /* a block an entry is taken out of is read from, as an arrow's input is: its piece is no end */
     if (!es.length || (input && es.length === 1 && es[0].piece && es[0].piece.ids.length === 1 && es[0].piece.ids[0] === input.id)) return { none: true };
     if (es.length > 1) return { error: E('pieces', es.length + ' pieces') };
     return es[0].piece ? { piece: es[0].piece.k } : { arrow: es[0].arrow.rec };
   }
-  function comesTo(ctx, input = null){
-    const end = endOf(ctx, input); if (end.none) return {}; if (end.error) return { error: end.error };
+  function comesTo(ctx, input = null, side = null){
+    const end = endOf(ctx, input, side); if (end.none) return {}; if (end.error) return { error: end.error };
     const made = end.piece !== undefined ? pieceNode(ctx, end.piece) : arrowOut(end.arrow);
     return made.node ? { node: made.node } : { error: made.error };
   }
@@ -882,12 +1109,34 @@ export function build(snapshot){
     if (av.fnState === 'building') return { loop: true };
     av.fnState = 'building';
     const ctx = av.inside, input = ctx && ctx.recs.find(r => r.d.in), end = ctx && input ? endOf(ctx, input) : { none: true };
+    const sides = ctx && input ? conditionOf(av.src.arrow) : null;
     if (!ctx || !input) av.fn = { pass: true };
+    else if (sides) av.fn = chosen(ctx, sides);
     else if (end.error) av.fn = { error: end.error };
     else { const fid = spaceKey(ctx), param = paramOf(ctx), came = end.none ? { node: param } : comesTo(ctx, input);
       if (came.node){ av.fn = { fn: fid, param, body: came.node, pass: !!end.none }; functions[fid] = { input: param, body: came.node }; rank.set(fid, ctx.depth); }
       else av.fn = { error: came.error || E('mismatch') }; }
     av.fnState = 'done'; return av.fn;
+  }
+  /* A conditional arrow (its arrow carries choose: { then, else }, two frames of its definition space): its function
+     is choose(its input, what the then frame comes to, what the else frame comes to). A frame holds one piece or
+     nothing: an empty one is None at the other's size (both empty: at the size the arrow promises, else one by
+     one); several pieces in one are the error pieces, and so is a piece that lies across a frame's edge, some of
+     its blocks in the frame and some not (arrows.js: ACROSS). What lies wholly in neither frame takes no part. A
+     frame that is gone leaves the arrow no-source; two sides of two sizes are the error size. */
+  const conditionOf = A => A && A.choose && typeof A.choose === 'object' && typeof A.choose.then === 'string' && typeof A.choose.else === 'string' ? A.choose : null;
+  function chosen(ctx, sides){
+    const frames = [ctx.groups.get(sides.then), ctx.groups.get(sides.else)]; if (frames.some(f => !f) || frames[0] === frames[1]) return { error: E('no-source', 'a side of its condition is gone') };
+    /* a piece with blocks in a frame and blocks out of it is neither side's: it is said, and not left out (a side is None only where its frame holds nothing) */
+    const R = read(ctx), over = frames.findIndex(f => R.ps.some(p => { const n = p.members.filter(m => chain(R.active[m]).includes(f)).length; return n > 0 && n < p.members.length; }));
+    if (over >= 0) return { error: E('pieces', ACROSS(over)) };
+    const fid = spaceKey(ctx), param = paramOf(ctx), came = frames.map(f => comesTo(ctx, null, f)), lost = came.find(c => c.error); if (lost) return { error: lost.error };
+    const out = ctx.owner.arrow.output, full = came.find(c => c.node), size = full ? typeOf(full.node) : out && whole1(out.cols) && whole1(out.rows) ? T(out.cols, out.rows) : T(1, 1);
+    const [a, b] = came.map(c => c.node || N('source', [], { kind: EMPTY }, T(size.cols, size.rows, null, null, unnamed(size))));
+    const body = a && b && N('choose', [param, a, b]);
+    if (!body) return { error: a && b ? E('size', sizes(typeOf(a), typeOf(b))) : E('mismatch') };
+    functions[fid] = { input: param, body }; rank.set(fid, ctx.depth);
+    return { fn: fid, param, body, pass: false };
   }
   const usable = ctx => { const f = fnRead(ctx.owner.v); return !f.error && !f.loop; };
   /* the arrow whose function a use applies (null: the program's own, or none): arrows.js says which shadows which */
@@ -939,8 +1188,9 @@ export function build(snapshot){
     if (grp.counts) return grp.counts;
     const out = {};
     for (const k of ['across', 'down']){ const stored = grp.repeat[k], formula = stored && typeof stored === 'object' ? stored.expr : null;
-      const c = tiles.count(stored, sizeLookup, loopsIn(grp, k));
-      if (c.refused) return grp.counts = { error: E('size-unknown', formula !== null ? formula : String(stored)) }; out[k] = c.count; }
+      const c = tiles.count(stored, sizeLookup, { ...loopsIn(grp, k), step: !!grp.repeat.step });
+      if (c.refused) return grp.counts = { error: E('size-unknown', formula !== null ? formula : String(stored)) }; out[k] = c.count;
+      if (c.open) (out.open ||= {})[k] = c.open; }      /* a count that does not end, or (in a tile with a step) is settled only when it is run: the tile has no matrix, and its loop takes the count as it is */
     return grp.counts = out;
   }
   /* the tiles of a space as tiles.js takes them: which tile each is in (by the frames), and what its counts come to,
@@ -957,18 +1207,85 @@ export function build(snapshot){
   }
   /* a tile's matrix: { node } | { error }. A tile wholly inside its pattern is one part of it: that tile's matrix.
      A tile that overlaps another without lying wholly inside its pattern, or being lain in so, has none (tiles.js: overlapping). */
+  /* a tile's pattern: its blocks and the tiles in it, each with its place, covering the pattern exactly: { parts } | { error } */
+  function patternOf(ctx, grp){
+    if (grp.pattern) return grp.pattern;
+    const rep = grp.repeat, parts = ctx.recs.filter(r => !r.arrow && !isOff(r.d) && !hollowSeat(r.d) && tileOf(r) === grp).map(r => ({ rec: r, node: () => blockNode(r), rect: { x: r.x, y: r.y, w: r.cols, h: r.rows, inner: r.inner } }));
+    for (const t of ctx.groups.values()) if (t.repeat && tileUp(t) === grp){ const made = tileNode(ctx, t);
+      if (made.error) return grp.pattern = { error: E(made.error.code === 'size-unknown' ? 'size-unknown' : 'no-source', made.error.code === 'size-unknown' ? made.error.note : tiles.lostWithin(made.error.note)) };
+      const size = typeOf(made.node); parts.push({ node: () => made.node, rect: { x: t.repeat.x, y: t.repeat.y, w: size.cols, h: size.rows, inner: innerOf(size), tile: true } }); }
+    const m = tiles.matrix(rep, 1, 1, parts.map(p => p.rect)); if (m.error) return grp.pattern = { error: E('no-source', m.error) };
+    return grp.pattern = { parts };
+  }
   function tileNode(ctx, grp){
     if (ctx.tile.has(grp.id)) return ctx.tile.get(grp.id);
     ctx.tile.set(grp.id, { error: E('loop') });
     const done = out => { ctx.tile.set(grp.id, out); return out; }, c = countsOf(grp); if (c.error) return done({ error: c.error });
     const lies = overlapsIn(ctx).get(grp.id); if (lies) return done({ error: E('no-source', lies) });
-    const rep = grp.repeat, parts = ctx.recs.filter(r => !r.arrow && !isOff(r.d) && !hollowSeat(r.d) && tileOf(r) === grp).map(r => ({ node: () => blockNode(r), rect: { x: r.x, y: r.y, w: r.cols, h: r.rows, inner: r.inner } }));
-    for (const t of ctx.groups.values()) if (t.repeat && tileUp(t) === grp){ const made = tileNode(ctx, t);
-      if (made.error) return done({ error: E(made.error.code === 'size-unknown' ? 'size-unknown' : 'no-source', made.error.code === 'size-unknown' ? made.error.note : tiles.lostWithin(made.error.note)) });
-      const size = typeOf(made.node); parts.push({ node: () => made.node, rect: { x: t.repeat.x, y: t.repeat.y, w: size.cols, h: size.rows, inner: innerOf(size), tile: true } }); }
-    const m = tiles.matrix(rep, c.across, c.down, parts.map(p => p.rect)); if (m.error) return done({ error: E('no-source', m.error) });
-    const node = N('repeat', parts.map(p => p.node()), { at: parts.map(p => ({ col: p.rect.x - rep.x, row: p.rect.y - rep.y })), pattern: { cols: rep.cols, rows: rep.rows }, across: c.across, down: c.down });
+    const rep = grp.repeat, pat = patternOf(ctx, grp); if (pat.error) return done({ error: pat.error });
+    if (c.open) return done({ error: E('no-source', Object.values(c.open).includes('inf') ? tiles.ENDLESS : tiles.AT_RUN) });
+    /* with a step its cells are worked out in order, state carried; a step that does not fit leaves it no matrix: its cells would show what they are not */
+    const step = rep.step ? stepOf(ctx, grp) : null; if (step && step.error) return done({ error: E('no-source', tiles.BAD_STEP + (step.error.note ? ': ' + step.error.note : '')) });
+    const parts = pat.parts, node = N('repeat', parts.map(p => p.node()), { at: parts.map(p => ({ col: p.rect.x - rep.x, row: p.rect.y - rep.y })), pattern: { cols: rep.cols, rows: rep.rows }, across: c.across, down: c.down, ...(step ? { fn: step.fn, state: step.state } : {}) });
     return done(node ? { node } : { error: E('no-source', 'its blocks are not the sizes they are drawn') });
+  }
+  /* ---- a tile's step (repeat.step: an arrow's id) ----
+     The arrow reads its tile (as: 'tile') from the east side, and is its progression function: its in block is one
+     whole cell, the pattern's size, and what its space comes to is the size of the state rectangle. This is the one
+     exemption from the rule that an arrow on a tile reads all of the tile's matrix (outputOf, below): an arrow on
+     any other side, or one that is not the step, still reads the whole matrix, every cell with its state.
+     The state blocks are the blocks of the pattern whose value is their own typed entries (a variable defined by
+     its entries, none of them a formula); together they must fill one rectangle. The index is not readable in a
+     step: a function's space is in no tile.  -> { fn, state } | { error } */
+  function stepOf(ctx, grp){
+    if (grp.step) return grp.step;
+    grp.step = { error: E('loop', 'its step is worked out from the tile itself') };
+    const done = out => grp.step = out, rep = grp.repeat, a = ctx.recs.find(r => r.id === rep.step && r.arrow && !isOff(r.d));
+    if (!a) return done({ error: E('no-source', tiles.STEP.gone) });
+    const inp = a.arrow.input && typeof a.arrow.input === 'object' ? a.arrow.input : {};
+    if (inp.as !== 'tile' || inp.id !== grp.id || (SIDES.includes(a.arrow.side) ? a.arrow.side : 'e') !== 'e') return done({ error: E('mismatch', tiles.STEP.east) });
+    const home = homeOf(a), builtin = !home && a.v.src.d.reference ? FUNCTIONS.find(f => f.name === bare(a.d.name).trim()) : null;
+    if (text((home ? home.arrow.formula : builtin ? builtin.formula : a.arrow.formula) || '').trim()) return done({ error: E('mismatch', tiles.STEP.formula) });
+    const pat = patternOf(ctx, grp); if (pat.error) return done({ error: pat.error });
+    const F = fnRead((home || a).v); if (F.loop) return done({ error: E('loop') }); if (F.error) return done({ error: F.error });
+    const nodesOf = pat.parts.map(p => p.node()); if (nodesOf.some(n => !n)) return done({ error: E('mismatch') });
+    const mine = pat.parts.filter((p, k) => p.rec && nodesOf[k] === p.rec.v.nid && !p.rec.v.given && ownEntries(nodes.get(nodesOf[k])));
+    if (!mine.length) return done({ error: E('mismatch', tiles.STEP.none) });
+    const x0 = Math.min(...mine.map(p => p.rect.x)), y0 = Math.min(...mine.map(p => p.rect.y)), x1 = Math.max(...mine.map(p => p.rect.x + p.rect.w)), y1 = Math.max(...mine.map(p => p.rect.y + p.rect.h));
+    if (mine.reduce((sum, p) => sum + p.rect.w * p.rect.h, 0) !== (x1 - x0) * (y1 - y0)) return done({ error: E('mismatch', tiles.STEP.rectangle) });
+    const state = { col: x0 - rep.x, row: y0 - rep.y, cols: x1 - x0, rows: y1 - y0 }, inner = agreed(nodesOf.map(typeOf)) || [];
+    const cellT = T(rep.cols, rep.rows, null, null, inner), stateT = T(state.cols, state.rows, null, null, inner), p = typeOf(F.param), b = typeOf(F.body);
+    if (!same(p, cellT)) return done({ error: E('mismatch', tiles.STEP.takes(sizeOf(p), sizeOf(cellT))) });
+    if (!same(b, stateT)) return done({ error: E('size', tiles.STEP.gives(sizeOf(b), sizeOf(stateT))) });
+    /* what the step is made of, its functions' bodies included: none of it may read the index */
+    const seen = new Set(), todo = [F.body]; while (todo.length){ const id = todo.pop(); if (seen.has(id)) continue; seen.add(id); const n = nodes.get(id); if (!n) continue;
+      if ((n.op === 'variable' && Object.values(n.entries || {}).some(v => v && typeof v.expr === 'string' && tiles.reads(v.expr))) || ((n.op === 'map' || n.op === 'mapalong') && typeof n.formula === 'string' && tiles.reads(n.formula))) return done({ error: E('mismatch', tiles.STEP.index) });
+      todo.push(...n.inputs); const f = fnOf(n); if (f !== undefined && own(functions, f)) todo.push(functions[f].body); }
+    return done({ fn: F.fn, state });
+  }
+  /* the step arrow's output: the tile's loop. Its count is the tile's cells where both counts are settled; a tile
+     that does not end, or whose count is settled only when it is run, repeats one way only, and its loop takes the
+     count as "inf" or as one more input, the count's formula as a node */
+  function loopOut(a, ctx, grp){
+    const c = countsOf(grp); if (c.error) return { error: c.error };
+    const lies = overlapsIn(ctx).get(grp.id); if (lies) return { error: E('no-source', lies) };
+    const step = stepOf(ctx, grp); if (step.error) return { error: step.error };
+    const rep = grp.repeat, parts = patternOf(ctx, grp).parts, inputs = parts.map(p => p.node()); let count = c.across * c.down, across = c.across;
+    if (c.open){ const way = Object.keys(c.open); if (way.length > 1 || (way[0] === 'across' ? c.down : c.across) !== 1) return { error: E('mismatch', tiles.STEP.oneWay) };
+      across = way[0] === 'across' ? 'inf' : 1;
+      if (c.open[way[0]] === 'inf') count = 'inf';
+      else { const formula = rep[way[0]].expr, ins = [N('source', [], { kind: 'zeros' }, T(1, 1))], f = rewrite(formula, { self: null, reader: 'A' + a.id, inputs: ins, first: 1, mode: 'entry' });
+        if (f.err !== undefined || f.unknown || f.dropped) return { error: E('size-unknown', formula) };
+        const n = N('map', ins, { formula: f.text }); if (!n) return { error: E('size-unknown', formula) };
+        inputs.push(n); count = { input: inputs.length - 1 }; } }
+    let until = null;
+    if (rep.until){ until = parts.findIndex(p => p.rec && p.rec.id === rep.until); if (until < 0) return { error: E('no-source', tiles.STEP.stopGone) }; }
+    const node = N('loop', inputs, { at: parts.map(p => ({ col: p.rect.x - rep.x, row: p.rect.y - rep.y })), pattern: { cols: rep.cols, rows: rep.rows }, state: step.state, fn: step.fn, count, until, across });
+    if (!node) return { error: E('mismatch') };
+    const A = a.arrow, seat = ctx.recs.find(r => r.d.seat === a.id), out = A.output && whole1(A.output.cols) && whole1(A.output.rows) ? A.output : null;
+    const kept = promised(out ? { cols: out.cols, rows: out.rows, colsName: sideName(seat?.d.colsName), rowsName: sideName(seat?.d.rowsName) } : null, typeOf(node));
+    if (!kept.ok){ const t = typeOf(node); return { error: E('size', same(t, out) ? kept.note : sizes(t, out)) }; }
+    return { node };
   }
 
   /* ---- an arrow's output: { node, error } ---- */
@@ -985,6 +1302,7 @@ export function build(snapshot){
     const A = a.arrow, ctx = a.ctx, inp = A.input && typeof A.input === 'object' ? A.input : {}, side = SIDES.includes(A.side) ? A.side : 'e', rows = side === 'e' || side === 'w';
     let node = null, outside = null;
     if (inp.as === 'tile'){ const grp = ctx.groups.get(inp.id); if (!grp || !grp.repeat) return { error: E('no-source') };
+      if (grp.repeat.step === a.id) return loopOut(a, ctx, grp);      /* the tile's step: its in is one cell, not the tile's matrix */
       const t = tileNode(ctx, grp); if (t.error) return { error: t.error.code === 'size-unknown' ? t.error : E('no-source', t.error.note) }; node = t.node; outside = grp; }
     else { const rec = ctx.recs.find(r => r.id === inp.id);
       if (!rec || isOff(rec.d)) return { error: E('no-source') };
@@ -999,12 +1317,20 @@ export function build(snapshot){
     const part = coveredType(use, type);
     if (!part) return { error: E('size', `${rows ? 'rows' : 'columns'} ${use.start} to ${use.start + use.span - 1} of ${n}`) };
     /* in a tile, with its input outside it, it is repeated along that input: how often, and whether it can be, is tiles.js's to say */
-    const mine = tileOf(a), isMapped = !!mine && (inp.as === 'tile' ? outside !== mine && !upTiles(outside).includes(mine) : !chain(outside).includes(mine)); let count = 1;      /* a tile in this tile's pattern is not outside it */
+    /* In a tile with a step, the block seated on a repeated arrow's output may lie inside the pattern, and in cell k
+       it holds the arrow's k-th run (ruled 21 November 2026): the arrow is then repeated through that tile, one run
+       to a cell, following its cell, as an arrow in a tile inside a tile follows the outer tile's. The arrow is
+       repeated in the tile where it is in it, or where the block seated on it is. (No tile had a step before, and
+       an arrow in a tile with none gives one strip, as ever: nothing an older project shows is changed.) */
+    const seated = ctx.recs.find(r => r.d.seat === a.id && !isOff(r.d)), seatTile = seated ? tileOf(seated) : null, follows = !!seatTile && !!seatTile.repeat.step && inp.as !== 'tile' && !chain(outside).includes(seatTile) && (tileOf(a) === seatTile || !tileOf(a));
+    const mine = follows ? seatTile : tileOf(a), isMapped = !!mine && (inp.as === 'tile' ? outside !== mine && !upTiles(outside).includes(mine) : !chain(outside).includes(mine)); let count = 1;      /* a tile in this tile's pattern is not outside it */
     const through = [];      /* the tiles its tile is in that repeat it again along its input: { tile, count } */
     if (isMapped){ const c = countsOf(mine); if (c.error) return { error: c.error };
+      if (c.open) return { error: E('mismatch', tiles.STEP.openMapped) };
       const above = inp.as === 'tile' ? [] : upTiles(mine).filter(t => !chain(outside).includes(t)), counted = above.map(countsOf), lost = counted.find(k => k.error); if (lost) return { error: lost.error };
       const m = tiles.mapped(use, mine.repeat, c.across, c.down, n, { tile: inp.as === 'tile', outer: above.map((t, i) => ({ repeat: t.repeat, across: counted[i].across, down: counted[i].down })) });
       if (m.warn) return { error: E(/runs past/.test(m.warn) ? 'size' : 'mismatch', m.warn) }; count = m.count;
+      if (follows && count > 1){ through.push({ tile: 't:' + mine.id, count }); count = 1; }      /* one run to a cell of its own tile */
       m.through.forEach((k, i) => { if (k > 1) through.push({ tile: 't:' + above[i].id, count: k }); }); }
     const more = through.length ? { through } : {}, many = count > 1 || through.length > 0;
     const all = { [rows ? 'row' : 'col']: use.start - 1, [rows ? 'col' : 'row']: 0, [rows ? 'rows' : 'cols']: use.span * count, [rows ? 'cols' : 'rows']: rows ? type.cols : type.rows };
@@ -1106,7 +1432,9 @@ export function build(snapshot){
     for (const rec of ctx.recs) if (!rec.arrow && takesPart(rec)) note(rec);
     const ps = R.ps.map((_, k) => pieceNode(ctx, k)), as = arrowsIn(ctx).map(a => { const o = arrowOut(a); return { arrow: a.id, node: o.node, error: o.error }; });
     const ts = [...ctx.groups.values()].filter(t => t.repeat).map(t => { const made = tileNode(ctx, t); rank.set('t:' + t.id, ctx.depth + .5 + t.deep / 1000);
-      return { tile: 't:' + t.id, blocks: ctx.recs.filter(r => !r.arrow && takesPart(r) && chain(r).includes(t)).map(r => r.id), arrows: arrowsIn(ctx).filter(a => chain(a).includes(t)).map(a => a.id), node: made.node || null, error: made.node ? null : made.error }; });
+      const stepper = t.repeat.step ? arrowsIn(ctx).find(a => a.id === t.repeat.step) : null, looped = stepper ? arrowOut(stepper).node : null;
+      return { tile: 't:' + t.id, blocks: ctx.recs.filter(r => !r.arrow && takesPart(r) && chain(r).includes(t)).map(r => r.id), arrows: arrowsIn(ctx).filter(a => chain(a).includes(t)).map(a => a.id), node: made.node || null, error: made.node ? null : made.error,
+        ...(looped && nodes.get(looped).op === 'loop' ? { step: stepper.id, loop: looped } : {}) }; });
     outSpaces[key] = { owner, pieces: ps.map(p => ({ blocks: p.blocks, rule: p.rule, node: p.node, error: p.error })), arrows: as, tiles: ts }; order.push(key);
   }
   for (const rec of blocks.values()) if (rec.at < 0 && !rec.arrow && rec.v.state === 'done') note(rec);      /* what a cut keeps, where something reads it */
@@ -1116,10 +1444,10 @@ export function build(snapshot){
   let relost = false;
   for (let again = true; again;){ again = false;
     for (const [id, n] of [...nodes]){
-      const lost = (n.op === 'param' && ![...scope.get(id)].some(f => own(functions, f) && functions[f].input === id)) || n.inputs.some(i => !nodes.has(i)) || ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined && !own(functions, n.fn));
+      const lost = (n.op === 'param' && ![...scope.get(id)].some(f => own(functions, f) && functions[f].input === id)) || n.inputs.some(i => !nodes.has(i)) || (fnOf(n) !== undefined && !own(functions, fnOf(n)));
       if (!lost) continue; again = true;
       if (n.op === 'variable'){ const kept = Object.fromEntries(Object.entries(n.entries).filter(([, e]) => !(e && typeof e === 'object' && 'expr' in e)));
-        nodes.set(id, { op: 'variable', inputs: [], type: n.type, name: n.name, named: n.named, defined: 'entries', entries: kept, error: n.error || E('no-source', 'what defines it has no value') }); scope.set(id, new Set()); }
+        nodes.set(id, { op: 'variable', inputs: [], type: n.type, name: n.name, named: n.named, defined: 'entries', entries: kept, error: n.error || E('no-source', 'what defines it has no value'), ...(n.holds !== undefined ? { holds: n.holds } : {}) }); scope.set(id, new Set()); }
       else { nodes.delete(id); scope.delete(id); } }
     for (const [fid, f] of Object.entries(functions)) if (!nodes.has(f.input) || !nodes.has(f.body)){ delete functions[fid]; again = true; }
     if (again) relost = true; }
@@ -1136,16 +1464,52 @@ export function build(snapshot){
   for (const [b, id] of Object.entries(outBlocks)) if (!nodes.has(id)) delete outBlocks[b];
   for (const s of Object.values(outSpaces)) for (const t of s.tiles) t.blocks = t.blocks.filter(b => own(outBlocks, b));
 
+  valued(nodes, functions, takes);
   const marks = tilesOf(id => nodes.get(id), outSpaces, outBlocks), outNodes = {};
   for (const [id, n] of nodes){ const within = [...scope.get(id), ...(marks.get(id) || [])].sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0) || (a < b ? -1 : a > b ? 1 : 0));      /* outermost first */
     outNodes[id] = within.length ? { ...n, within } : n; }
   return { version: VERSION, nodes: outNodes, functions, spaces: outSpaces, blocks: outBlocks };
 }
 
+/* Every node's number space, written into its type as value: worked out once the graph is whole, each node after
+   what it is made of (its inputs, and the body of a function it applies), by its operation's rule. takes: what each
+   function's input promises, by its node. (Walked with a list of its own: a graph may be deeper than a stack.) */
+function valued(nodes, functions, takes){
+  const g = { node: id => nodes.get(id), fn: id => (own(functions, id) ? functions[id] : undefined) }, done = new Set();
+  const deps = n => fnOf(n) !== undefined && own(functions, fnOf(n)) ? [...n.inputs, functions[fnOf(n)].body] : n.inputs;
+  for (const start of nodes.keys()){ if (done.has(start)) continue; const todo = [start], open = new Set([start]);
+    while (todo.length){ const id = todo[todo.length - 1], n = nodes.get(id), wait = deps(n).filter(d => nodes.has(d) && !done.has(d) && !open.has(d));
+      if (wait.length){ for (const d of wait){ open.add(d); todo.push(d); } continue; }
+      todo.pop(); if (done.has(id)) continue; done.add(id);
+      const value = n.op === 'param' ? takes.get(id) || ANY : OPS[n.op].space(n, n.inputs.map(i => nodes.get(i)), g);
+      n.type = { ...n.type, value }; } }
+}
+/* what a variable's space would be with no promise: what defines it, or its entries. For whoever says of a promise
+   that it cannot be shown to be kept (the page). undefined for what is no variable of the graph. */
+export function inferred(graph, id){
+  const n = graph && graph.nodes && own(graph.nodes, id) ? graph.nodes[id] : null; if (!n || n.op !== 'variable' || !Array.isArray(n.inputs)) return undefined;
+  const { holds: _, ...bare } = n; return OPS.variable.space(bare, n.inputs.map(i => graph.nodes[i]));
+}
+
 /* ---- checking a graph that was built elsewhere ---- */
 export function validate(graph){
   try { return check(graph); }
   catch (e){ return ['it could not be checked: ' + (e && e.message ? e.message : String(e))]; }      /* whatever it is handed, it answers with what is wrong */
+}
+/* The version a node needs for what it holds: a choose and a source of kind none need 4; None among its entries, a
+   number space (a type's value) or a promise need 3; inner data, a stack, an entry and a transpose's order need 2. -> [version, what it holds], or null. A
+   graph that says an older version than something in it needs was not written by a program of that version, and
+   whoever reads it by that version would not see what it holds: it is refused. */
+function versionFor(n){
+  if (n.op === 'loop') return [5, 'a loop'];
+  if (n.op === 'repeat' && (n.fn !== undefined || n.state !== undefined)) return [5, 'a step'];
+  if (n.op === 'choose') return [4, 'a choose'];
+  if (n.op === 'source' && n.kind === EMPTY) return [4, 'a source of None'];
+  if (n.type.value !== undefined) return [3, 'a number space'];
+  if (n.holds !== undefined) return [3, 'a promise'];
+  if (n.op === 'variable' && n.entries && typeof n.entries === 'object' && Object.values(n.entries).some(v => !!v && typeof v === 'object' && v.none === true)) return [3, 'None'];
+  if (n.type.inner !== undefined || n.op === 'stack' || n.op === 'entry' || (n.op === 'transpose' && n.order !== undefined)) return [2, 'inner data'];
+  return null;
 }
 function check(graph){
   const bad = [];
@@ -1164,7 +1528,9 @@ function check(graph){
     const rule = own(OPS, n.op) ? OPS[n.op] : null; if (!rule){ bad.push(`${id}: "${n.op}" is no operation`); continue; }
     if (!Array.isArray(n.inputs) || n.inputs.length < rule.inputs[0] || n.inputs.length > rule.inputs[1]){ bad.push(`${id}: ${n.op} does not take ${Array.isArray(n.inputs) ? n.inputs.length : 'no'} inputs`); continue; }
     const gone = n.inputs.filter(i => !has(i)); if (gone.length){ bad.push(`${id}: its input ${gone[0]} is not in the graph`); continue; }
-    if (!okType(n.type)){ bad.push(`${id}: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to ${AXES} of { length, name }, where it holds inner data`); continue; }
+    if (!okType(n.type)){ bad.push(`${id}: its type is not { cols, rows, colsName, rowsName }, with inner, a list of 1 to ${AXES} of { length, name }, where it holds inner data, and value, one of the ten number spaces (with ? after it where None is admitted), where its space is said`); continue; }
+    const need = VERSIONS.includes(graph.version) ? versionFor(n) : null;
+    if (need && need[0] > graph.version){ bad.push(`${id}: it holds ${need[1]}, which needs version ${need[0]}, and the graph says version ${graph.version}`); continue; }
     if (n.within !== undefined && !(Array.isArray(n.within) && n.within.length && n.within.every(w => typeof w === 'string' && /^[ft]:/.test(w)) && new Set(n.within).size === n.within.length)){ bad.push(`${id}: within is not a list of functions and tiles`); continue; }
     const wrong = rule.fields(n); if (wrong.length){ bad.push(...wrong.map(w => `${id}: ${w}`)); continue; }
     sound.add(id);
@@ -1181,7 +1547,7 @@ function check(graph){
   /* no cycles, through inputs or through the functions nodes apply. (Walked with a list of its own: a graph may be deeper than a stack.) */
   const state = new Map(), after = []; let cyclic = false;
   const next = id => { const n = nodes[id], out = Array.isArray(n.inputs) ? n.inputs.filter(has) : [];
-    return (n.op === 'apply' || n.op === 'mapalong') && typeof n.fn === 'string' && fnOk(n.fn) ? [...out, graph.functions[n.fn].body] : out; };
+    const f = own(OPS, n.op) ? fnOf(n) : undefined; return typeof f === 'string' && fnOk(f) ? [...out, graph.functions[f].body, graph.functions[f].input] : out; };      /* (its input too: a body that does not read its input comes before it by no other way, and the function is typed before what applies it) */
   for (const start of Object.keys(nodes)){ if (!has(start) || state.has(start)) continue;
     const todo = [[start, next(start), 0]]; state.set(start, 1);
     while (todo.length){ const top = todo[todo.length - 1];
@@ -1194,17 +1560,18 @@ function check(graph){
   const order = after.filter(id => sound.has(id)), typed = new Set();
   for (const id of order){ const n = nodes[id], ins = n.inputs.map(i => nodes[i]);
     if (n.inputs.some(i => !typed.has(i))){ bad.push(`${id}: an input of it is not well formed`); continue; }
-    if ((n.op === 'apply' || n.op === 'mapalong') && n.fn !== undefined && !(fnOk(n.fn) && typed.has(graph.functions[n.fn].body) && typed.has(graph.functions[n.fn].input))){ bad.push(`${id}: its function ${n.fn} is not in the graph`); continue; }
+    const f = fnOf(n); if (f !== undefined && !(fnOk(f) && typed.has(graph.functions[f].body) && typed.has(graph.functions[f].input))){ bad.push(`${id}: its function ${f} is not in the graph`); continue; }
     const t = OPS[n.op].type(n, ins, g);
     if (typeof t === 'string'){ bad.push(`${id}: ${t}`); continue; }
     if (!alike(t, n.type)){ bad.push(`${id}: its type is ${written(n.type)} and its inputs give ${written(t)}`); continue; }
+    if (n.type.value !== undefined && n.type.value !== OPS[n.op].space(n, ins, g)){ bad.push(`${id}: its value is ${n.type.value} and its inputs give ${OPS[n.op].space(n, ins, g)}`); continue; }      /* its number space follows by its operation's rule too */
     typed.add(id);
     const want = scopes(n, ins, g.fn).sort(), got = (n.within || []).filter(w => w.startsWith('f:')).sort();
     if (n.op === 'param' ? got.length !== 1 : want.join(' ') !== got.join(' ')) bad.push(`${id}: within names the functions ${got.join(', ') || 'none'} and it belongs to ${want.join(', ') || 'none'}`);
   }
   /* spaces and blocks */
   for (const [b, id] of Object.entries(graph.blocks)) if (!has(id)) bad.push(`block ${b}: its node ${id} is not in the graph`);
-  const repeats = new Set();
+  const repeats = new Set(), loops = new Map();
   for (const [key, s] of Object.entries(graph.spaces)){
     if (!s || typeof s !== 'object' || !(s.owner === null || has(s.owner)) || !Array.isArray(s.pieces) || !Array.isArray(s.arrows) || !Array.isArray(s.tiles)){ bad.push(`space ${key}: it is not { owner, pieces, arrows, tiles }`); continue; }
     s.pieces.forEach((p, i) => { const at = `space ${key}, piece ${i + 1}: `;
@@ -1218,11 +1585,19 @@ function check(graph){
       if (!t || typeof t !== 'object' || typeof t.tile !== 'string' || !t.tile.startsWith('t:') || !Array.isArray(t.blocks) || !Array.isArray(t.arrows) || [...t.blocks, ...t.arrows].some(b => typeof b !== 'string')) return bad.push(at + 'it is not { tile, blocks, arrows, node, error }');
       if (t.blocks.some(b => !own(graph.blocks, b))) bad.push(at + 'it names a block that takes no part');
       if (t.node === null ? !okErr(t.error, CODES) : !has(t.node) || nodes[t.node].op !== 'repeat' || t.error !== null) bad.push(at + 'it has either a repeat for its node or an error, one of them');
-      else if (t.node) repeats.add(t.node); });
+      else if (t.node) repeats.add(t.node);
+      /* a tile with a step names its arrow and its loop, both or neither; the loop is the tile's own: the same pattern, state and function as its matrix has */
+      if (t.step !== undefined || t.loop !== undefined){
+        if (VERSIONS.includes(graph.version) && graph.version < 5) bad.push(at + `it has a step, which needs version 5, and the graph says version ${graph.version}`);
+        else if (typeof t.step !== 'string' || !has(t.loop) || nodes[t.loop].op !== 'loop') bad.push(at + 'its step is an arrow and its loop a loop, both or neither');
+        else if (loops.has(t.loop)) bad.push(at + 'its loop is another tile\'s');
+        else { loops.set(t.loop, t.tile); const l = nodes[t.loop], m = t.node ? nodes[t.node] : null;
+          if (m && typed.has(t.loop) && typed.has(t.node) && !(m.fn === l.fn && alikeJson([m.state, m.pattern, m.at, m.inputs], [l.state, l.pattern, l.at, l.inputs.slice(0, l.at.length)]))) bad.push(at + 'its loop and its matrix are not of one pattern, state and step'); } } });
   }
   /* every node is marked with the tiles it belongs to, exactly; and every repeat is some tile's matrix, so that what
      it works out once for each cell can be told */
   for (const id of typed) if (nodes[id].op === 'repeat' && !repeats.has(id)) bad.push(`${id}: a repeat that is no tile's matrix: spaces names no tile for it`);
+  for (const id of typed) if (nodes[id].op === 'loop' && !loops.has(id)) bad.push(`${id}: a loop that is no tile's: spaces names no tile for it`);
   const marks = tilesOf(id => (typed.has(id) ? nodes[id] : undefined), graph.spaces, graph.blocks);
   for (const id of typed){ const want = [...(marks.get(id) || [])].sort(), got = (nodes[id].within || []).filter(w => w.startsWith('t:')).sort();
     if (want.join(' ') !== got.join(' ')) bad.push(`${id}: within names the tiles ${got.join(', ') || 'none'} and it belongs to ${want.join(', ') || 'none'}`); }

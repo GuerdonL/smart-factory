@@ -10,7 +10,8 @@
                    what evaluate.js makes of every node. An answer is
                        { rows: [[value, …], …] }    worked out: each entry as a number near what it is exactly (a
                                                     64-bit float), "inf", "-inf", "err" for an entry that is an
-                                                    error, or null for one that is unknown
+                                                    error, "none" for one that is None, or null for one that
+                                                    is unknown
                      | { inner: [2, 4], rows: … }   worked out, of a node whose entries hold inner data: inner is
                                                     the lengths of its inner axes, and rows is nested once more
                                                     for each of them, outermost first, so the entry at
@@ -25,6 +26,11 @@
                    Most are changed at random (the same every time); TYPES, below, adds changes to what a type and
                    an entry's key may be, for every node that holds inner data.
 
+   spaces.json     what spaces.js makes of the number spaces: for every pair of the nine, whether one lies inside the
+                   other and the space of both; for every pair of written spaces (each with and without "?") and every
+                   operation, what the operation gives; the smallest space of some values; and the space of some
+                   formulas. backend/spaces.py has to say the same of every one (backend/tests/test_spaces.py).
+
    tests/fixtures.test.js runs this with --check, so the files cannot fall behind the code they were made from. */
 import '../../tests/solver.js';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
@@ -33,6 +39,9 @@ import { fileURLToPath } from 'node:url';
 import { build, validate, tailsOf, VERSION } from '../../graph.js';
 import { evaluate } from '../../evaluate.js';
 import { read } from '../../project.js';
+import * as S from '../../spaces.js';
+import { treeOf } from '../../expression.js';
+import { total, LOOPS, inFunction, inStep } from '../../tests/looping.js';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..');
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -43,7 +52,7 @@ const snap = (shapes, groups = []) => ({ top: space(shapes, groups) });
 const arrow = (id, input, more = {}, shapeMore = {}) => B(id, 0, 0, 1, 1, { type: 'arrow', name: 'Shape 9', arrow: { input, side: 'e', start: 1, span: 1, gap: 2, gapName: null, output: null, formula: null, ...more }, ...shapeMore });
 const rowsOf = rows => Object.fromEntries(rows.flatMap((row, r) => row.map((v, c) => [`${c + 1},${r + 1}`, v])).filter(([, v]) => v !== null));
 const tile = (id, members, repeat, groups = []) => ({ id, name: null, members, groups, repeat: { x: 0, y: 0, cols: 1, rows: 1, across: 1, down: 1, ...repeat } });
-const half = { n: 1, d: 2, k: 0 }, root2 = { n: 2, k: 1 }, f = expr => ({ expr });
+const half = { n: 1, d: 2, k: 0 }, root2 = { n: 2, k: 1 }, f = expr => ({ expr }), NONE = { none: true };
 /* inner data: axes as a snapshot gives them, and every number of a shape that holds them, from fill(c, r, k1, …) (null: not given) */
 const ax = (length, name = null) => ({ length, name });
 const filled = (cols, rows, inner, fill) => { const out = {};
@@ -51,6 +60,8 @@ const filled = (cols, rows, inner, fill) => { const out = {};
   return out; };
 const I = (id, x, y, cols, rows, inner, fill, more = {}) => B(id, x, y, cols, rows, { inner, entries: fill ? filled(cols, rows, inner, fill) : {}, ...more });
 const whole = { cols: false, rows: false };
+/* a conditional arrow's definition space: its in block, then these shapes, and its two frames holding the shapes numbered in sides (from 1: in is 0) */
+const cond = (shapes, sides, then = 'gt', other = 'ge', cols = 1, rows = 1) => space([B('in', -20, 0, cols, rows, { in: true }), ...shapes], [{ id: then, name: 'true', members: sides[0] || [], groups: [] }, { id: other, name: 'false', members: sides[1] || [], groups: [] }]);
 
 /* the canvases: between them, every operation, every kind of value, the infinities and the entries that are errors */
 const CASES = {
@@ -144,6 +155,67 @@ const CASES = {
     I('Z', 0, 80, 2, 2, [ax(3)], (c, r, k) => c * r - k), arrow('all', { id: 'Z', as: 'block' }, { span: 2 }, { x: 50, y: 80, name: 'whole', inside: space([I('in3', -9, 0, 2, 2, [ax(3)], null, { in: true }), I('Wg', -7, 0, 1, 2, [ax(3)], (c, r, k) => r + k)]) }),      /* it holds the same: applied once */
     I('T', 0, 100, 1, 1, [ax(2)], (c, r, k) => k === 1 ? f('index.x * 10 + k1') : f('index.y - k1')), arrow('out', { id: 't1', as: 'tile' })],
     [tile('t1', [11], { y: 100, cols: 1, rows: 1, across: 3, down: 2 })]),
+  /* ---- None (phase 9): every row of the table that can arise where every number is a float ---- */
+  'None': snap([B('Nn', 0, 0, 4, 2, { entries: rowsOf([[NONE, 1, 0, NONE], [2, NONE, 'inf', 3]]) }), B('Np', 0, 2, 4, 2, { entries: rowsOf([[1, NONE, 5, NONE], [f('1/0'), 2, 3, f('none')]]) }),      /* a sum: None + 1, None + None, and an error against a number */
+    B('Pa', 10, 0, 2, 2, { entries: rowsOf([[0, NONE], [1, 2]]) }), B('Pb', 12, 0, 2, 2, { entries: rowsOf([[NONE, 1], ['inf', 4]]) }),      /* a product: an entry with one None term is None, also where the None meets an infinity or a zero */
+    B('Pc', 20, 0, 2, 1, { entries: rowsOf([[0, NONE]]) }), B('Pd', 22, 0, 1, 2, { entries: rowsOf([['inf'], [1]]) }),      /* 0 × ∞ beside a None term: the error comes first */
+    B('Pe', 25, 0, 3, 1, { entries: rowsOf([['inf', NONE, '-inf']]) }), B('Pf', 28, 0, 1, 3, { entries: rowsOf([[1], [0], [1]]) }),      /* ∞ − ∞ beside a None term likewise */
+    B('Ea', 30, 2, 3, 1, { entries: rowsOf([[NONE, 4, 0]]) }), B('Eb', 33, 3, 3, 1, { entries: rowsOf([[2, NONE, NONE]]) }),      /* over: None / 2, 4 / None and 0 / None are None, never a division by zero */
+    B('Ec', 40, 2, 2, 1, { entries: rowsOf([[NONE, 3]]) }), B('Ed', 42, 1, 2, 1, { entries: rowsOf([[0, NONE]]) }),      /* times: None × 0 */
+    B('Vn', 50, 0, 7, 3, { entries: rowsOf([[f('none + 1'), f('none * 0'), f('none == 0'), f('none == false'), f('none == none'), f('none < 1'), f('max(none, 3)')],
+      [f('1/none'), f('exp(none)'), f('ln(none)'), f('select(none, 1, 2)'), f('!none'), f('none && 1'), f('none || 2')],
+      [f('none || 0'), f('none + 1/0'), f('none != 0'), f('select(1, none, 3)'), f('-∅'), f('none ^ 2'), f('none ^ (1/3)')]]) }),
+    arrow('fill', { id: 'Nn', as: 'block' }, { side: 's', span: 4, formula: 'select(x == none, 0, x + 1)' }), arrow('twice', { id: 'Nn', as: 'block' }, { side: 'n', span: 4, formula: 'select(x > 1, @[Sn:m], min(x * 2, 5))' }),
+    arrow('root', { id: 'Nn', as: 'block' }, { side: 'w', span: 2, formula: 'tanh(sqrt(abs(x))) + erf(x) * 0' }),
+    B('Sn', 60, 0, 1, 1, { entries: { '1,1': NONE } }), B('ns', 62, 0, 1, 1, { name: 'Shape 20', from: { id: 'Sn', side: 'x' } }), B('nm', 64, 0, 1, 1, { name: 'Shape 21', from: { id: 'Sn', side: 'm' } }),      /* the side of None is None, as its mass is */
+    B('reads', 66, 0, 2, 1, { entries: rowsOf([[f('@[Sn:m] + 1'), f('select(@[Sn:m], 1, 2)')]]) }),
+    B('Sc', 70, 0, 1, 1, { entries: { '1,1': NONE } }), B('Sm', 71, 0, 2, 2, { entries: rowsOf([[1, 2], [3, f('1/0')]]) }),      /* a scale by None: None everywhere but where there is no value */
+    B('Nt', 80, 0, 2, 4, { name: 'Nn', variable: 1, reference: true, transposed: true }),
+    B('part', 90, 0, 2, 1, { name: 'Shape 22', from: { id: 'Nn', range: { col: 2, row: 0, cols: 2, rows: 1, toEnd: whole } } }),
+    B('Jn', 100, 0, 2, 1, { name: 'Shape 23', joined: [{ fx: 0, fy: 0, fw: .5, fh: 1, shape: B('Jl', 100, 0, 1, 1, { entries: { '1,1': NONE } }) }, { fx: .5, fy: 0, fw: .5, fh: 1, shape: B('Jr', 101, 0, 1, 1, { entries: { '1,1': 7 } }) }] }),
+    B('Tn', 0, 40, 2, 1, { entries: rowsOf([[NONE, f('index.x')]]) }), arrow('out', { id: 't1', as: 'tile' })].map((d, i) => i === 0 ? { ...d, variable: 1 } : d),
+    [tile('t1', [25], { y: 40, cols: 2, rows: 1, across: 2, down: 2 })]),
+  /* ---- several terms of one sum or product, whatever their order (ruled 21 November 2026): an error two of them make comes before None ---- */
+  'several terms, whatever their order': snap([
+    B('Ka', 0, 0, 2, 2, { entries: rowsOf([[NONE, 0], ['inf', NONE]]) }), B('Kb', 2, -2, 2, 2, { entries: rowsOf([['inf', NONE], [0, 2]]) }), B('Kc', 4, -4, 2, 2, { entries: rowsOf([[0, 'inf'], [NONE, 3]]) }),      /* times, three of them */
+    B('Sa', 20, 0, 2, 2, { entries: rowsOf([[NONE, 'inf'], ['inf', NONE]]) }), B('Sb', 20, 2, 2, 2, { entries: rowsOf([['inf', '-inf'], [NONE, 1]]) }), B('Sc', 20, 4, 2, 2, { entries: rowsOf([['-inf', NONE], ['-inf', 2]]) }),      /* a sum of three */
+    B('Fo', 40, 0, 4, 2, { entries: rowsOf([[f('none + inf - inf'), f('inf + none - inf'), f('none * 0 * inf'), f('0 * none * inf')], [f('none + 1 + 2'), f('inf - (none + inf)'), f('2 * none * 3'), f('(none + inf) * 0')]]) }),
+    B('Pa', 60, 0, 3, 1, { entries: rowsOf([['inf', NONE, '-inf']]) }), B('Pb', 63, 0, 1, 3, { entries: rowsOf([[1], [1], [1]]) })]),      /* a product entry: ∞ − ∞ beside a None term */
+  /* ---- promises broken by a value (ruled 21 November 2026: an error, on the page and in the backend, in the same sentence) ---- */
+  'promises broken by a value': snap([B('Wb', 0, 0, 3, 1, { entries: rowsOf([[1, 2, -3]]), holds: 'natural' }), B('Wu', 3, 0, 1, 3, { entries: rowsOf([[1], [1], [1]]) }),      /* and the product made of it */
+    B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, -4]]) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) }),
+    B('Out', 5, 20, 1, 2, { seat: 'lin' }),
+    B('N', 0, 40, 2, 4, { entries: rowsOf([[1, 2], [3, 4], [5, -6], [7, 8]]) }),
+    arrow('g', { id: 'N', as: 'block' }, { side: 'e', span: 2 }, { x: 2, y: 40, inside: space([B('in2', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wg', -7, 0, 1, 2, { entries: rowsOf([[1], [10]]) })]) })],
+    [tile('t2', [6], { x: 2, y: 40, cols: 1, rows: 2, down: 2 })]),
+  /* ---- number spaces (phase 9): promises that are kept, on shapes and on a function's input and output ---- */
+  'number spaces': snap([B('Wn', 0, 0, 3, 1, { entries: rowsOf([[1, 2, 3]]), holds: 'natural' }), B('Wz', 0, 1, 3, 1, { entries: rowsOf([[-2, 0, NONE]]), holds: 'integer?' }),      /* a sum of a natural and an integer or None */
+    B('Pp', 10, 0, 2, 2, { entries: rowsOf([[half, 1], [0, { n: 1, d: 2, k: 1 }]]) }), B('Pq', 12, 0, 2, 2, { entries: rowsOf([[1, 0], [0, 1]]), holds: 'boolean' }),      /* a product of probabilities and booleans */
+    B('Fm', 20, 0, 4, 1, { entries: rowsOf([[f('@[Wn:x] + 1'), f('1/3'), f('exp(1)'), f('select(2 > 1, none, -1)')]]) }),
+    B('Any', 30, 0, 2, 1, { entries: rowsOf([['inf', 2]]), holds: 'any' }), B('Cx', 40, 0, 1, 1, { entries: { '1,1': 2 }, holds: 'complex' }),      /* complex is no space: the promise is not read */
+    B('X', 0, 20, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]) }),
+    arrow('lin', { id: 'X', as: 'block' }, { span: 2 }, { x: 50, y: 20, name: 'linear', inside: space([B('inn', -9, 0, 2, 2, { in: true, holds: 'natural' }), B('Wf', -7, 0, 1, 2, { entries: rowsOf([[1], [2]]) })]) }),
+    B('Out', 5, 20, 1, 2, { seat: 'lin', holds: 'whole' }),
+    arrow('sq', { id: 'X', as: 'block' }, { side: 's', span: 2, formula: 'x ^ 2 - i' }), arrow('rt', { id: 'X', as: 'block' }, { side: 'n', span: 2, formula: 'tanh(sqrt(x)) > 1/2' }),
+    B('Ns', 60, 0, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } }, holds: 'probability' }), B('Id', 70, 0, 2, 2, { source: 'identity' })]),
+  'None: inner data': snap([I('X', 0, 0, 2, 1, [ax(2)], (c, r, k) => c === k ? NONE : c + k), B('W', 2, 0, 1, 2, { entries: rowsOf([[1], [2]]) }),      /* a product repeated at each inner position, a None in each */
+    I('A', 10, 0, 2, 1, [ax(2)], (c, r, k) => k === 2 && c === 1 ? NONE : c * k), I('Bn', 10, 1, 2, 1, [ax(2)], (c, r, k) => k === 1 && c === 2 ? NONE : 10)]),
+  /* ---- conditions (phase 9B): an arrow that chooses between the two frames of its space ---- */
+  'conditions': snap([B('yes', 0, 0, 1, 1, { entries: { '1,1': true } }),
+    arrow('gate', { id: 'yes', as: 'block' }, { output: { cols: 2, rows: 2 }, choose: { then: 'gt', else: 'ge' } }, { variable: 7, name: 'gate', inside: cond([B('T', -6, -1, 2, 2, { entries: rowsOf([[1, 2], [3, half]]) })], [[1]]) }),      /* the else side empty: None of that size */
+    B('no', 0, 10, 1, 1, { entries: { '1,1': false } }), arrow('gate2', { id: 'no', as: 'block' }, { output: { cols: 2, rows: 2 } }, { variable: 7, name: 'gate', reference: true }),      /* the named arrow used again */
+    B('seat', 3, 10, 2, 2, { seat: 'gate2' }), B('after', 5, 10, 1, 2, { entries: rowsOf([[1], [1]]) }),      /* a block seated on the output goes on being worked with: None with anything is None */
+    B('M', 0, 20, 3, 1, { entries: rowsOf([[0, { none: true }, 5]]) }), arrow('pick', { id: 'M', as: 'block' }, { choose: { then: 'pt', else: 'pe' } }, { inside: cond([B('P', -8, 0, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]) }), B('Q', -6, 0, 2, 2, { entries: rowsOf([[0, 1], [1, 0]]) }), B('E', -8, 6, 2, 2, { entries: rowsOf([[9, 9], [9, 9]]) })], [[1, 2], [3]], 'pt', 'pe', 3) }),      /* a whole matrix for the condition, and a product on the true side */
+    B('Z', 0, 30, 2, 2, { source: 'zeros' }), arrow('zero', { id: 'Z', as: 'block' }, { span: 2, choose: { then: 'zt', else: 'ze' } }, { inside: cond([B('P2', -8, 0, 2, 1, { entries: rowsOf([[1, 2]]) }), B('E2', -8, 6, 2, 1, { entries: rowsOf([[7, 8]]) })], [[1], [2]], 'zt', 'ze', 2, 2) }),      /* a matrix of zeros is false */
+    B('F', 0, 40, 1, 1, { entries: { '1,1': f('@[M:x] > 2') } }), arrow('form', { id: 'F', as: 'block' }, { choose: { then: 'ft', else: 'fe' } }, { inside: cond([B('E3', -8, 6, 1, 1, { entries: { '1,1': 4 } })], [[], [1]], 'ft', 'fe') }),      /* a formula for the condition; the true side empty */
+    B('U', 0, 50, 1, 1), arrow('open', { id: 'U', as: 'block' }, { choose: { then: 'ut', else: 'ue' } }, { inside: cond([B('T4', -6, 0, 1, 1, { entries: { '1,1': 1 } })], [[1]], 'ut', 'ue') }),      /* a condition never given: not known */
+    B('yes2', 0, 60, 1, 1, { entries: { '1,1': 1 } }), arrow('sizes', { id: 'yes2', as: 'block' }, { choose: { then: 'st', else: 'se' } }, { inside: cond([B('T5', -6, 0, 2, 1), B('E5', -6, 6, 1, 2)], [[1], [2]], 'st', 'se') }),      /* two sides of two sizes: the arrow has the error size */
+    arrow('two', { id: 'yes2', as: 'block' }, { side: 's', choose: { then: 'tt', else: 'te' } }, { inside: cond([B('T6', -6, 0, 1, 1), B('T7', -9, 0, 1, 1)], [[1, 2]], 'tt', 'te') }),      /* two pieces on one side: pieces */
+    arrow('gone', { id: 'yes2', as: 'block' }, { side: 'n', choose: { then: 'nowhere', else: 'te' } }, { inside: cond([B('T8', -6, 0, 1, 1)], [[1]], 'xt', 'te') }),      /* a frame that is gone: no-source */
+    B('Col', 20, 0, 1, 3, { entries: rowsOf([[true], [false], [{ none: true }]]) }),
+    arrow('each', { id: 'Col', as: 'block' }, { choose: { then: 'et', else: 'ee' } }, { x: 21, y: 0, inside: cond([B('T9', -6, 0, 2, 1, { entries: rowsOf([[1, 2]]) }), B('E9', -6, 6, 2, 1, { entries: rowsOf([[-1, -2]]) })], [[1], [2]], 'et', 'ee') })],      /* repeated in a tile, down a column of conditions */
+    [tile('loop', [19], { x: 21, y: 0, cols: 3, rows: 1, down: 3 })]),
 };
 
 /* ---- graphs written by hand: what a backend may be sent that no canvas makes yet ---- */
@@ -151,6 +223,7 @@ const ty = (cols, rows, inner = null, colsName = null, rowsName = null) => ({ co
 const N = (op, inputs, type, more = {}) => ({ op, inputs, type, ...more });
 const V = (type, fill, more = {}) => ({ op: 'variable', inputs: [], type, name: 'v', named: true, defined: 'entries', entries: filled(type.cols, type.rows, type.inner || [], fill), ...more });
 const G = (nodes, functions = {}) => ({ version: VERSION, nodes, functions, spaces: {}, blocks: {} });
+const CH = (c, a, b, type = ty(2, 2)) => N('choose', [c, a, b], type);
 const QKV = ty(3, 1, [ax(2, 'key'), ax(4, 'embed')]), Wm = k => V(ty(2, 4, null, 'key', 'embed'), (c, r) => k * 100 + c * 10 + r), fn = (body, input = 'param(f:1)') => ({ 'f:1': { input, body } });
 const HAND = {
   'by hand: stack, and an entry taken out again': G({ wq: Wm(1), wk: Wm(2), wv: Wm(3), q: N('stack', ['wq', 'wk', 'wv'], QKV, { at: [{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 2, row: 0 }] }),
@@ -169,11 +242,40 @@ const HAND = {
   'by hand: a function whose input block holds inner data': G({ q: V(QKV, (c, r, k1, k2) => c * 100 + k1 * 10 + k2), 'param(f:1)': N('param', [], QKV, { within: ['f:1'] }),
     body: N('entry', ['param(f:1)'], ty(2, 4, null, 'key', 'embed'), { at: { col: 1, row: 0 }, within: ['f:1'] }), y: N('apply', ['q'], ty(2, 4, null, 'key', 'embed'), { fn: 'f:1' }),
     d: N('measure', ['q'], ty(1, 1), { side: 'd2' }), m: N('map', ['q', 'd'], QKV, { formula: 'x + k1 * k2 + $1' }) }, fn('body')),
+  /* ---- conditions (phase 9B): choose, and the source that holds None. The condition true, false, None, a whole matrix,
+     and not known; a side not chosen that is an error, holds an entry never given, is worked out from too much to work
+     out in the browser, or is noise ---- */
+  'by hand: choose': G({ yes: V(ty(1, 1), () => true), no: V(ty(1, 1), () => false), nil: V(ty(1, 1), () => NONE), seven: V(ty(1, 1), () => 7),
+    a: V(ty(2, 2), (c, r) => c + 10 * r), b: V(ty(2, 2), (c, r) => (c === r ? half : -c)),
+    t: CH('yes', 'a', 'b'), f: CH('no', 'a', 'b'), n: CH('nil', 'a', 'b'), s: CH('seven', 'a', 'b'),
+    some: V(ty(3, 2), (c, r) => (c === 2 && r === 2 ? root2 : 0)), zeros: V(ty(3, 2), () => 0), flat: V(ty(2, 1), c => (c === 1 ? 0 : NONE)), mixed: V(ty(2, 1), c => (c === 1 ? { err: 'divide by zero' } : 3)),
+    m1: CH('some', 'a', 'b'), m0: CH('zeros', 'a', 'b'), mn: CH('flat', 'a', 'b'), me: CH('mixed', 'a', 'b'),      /* any size: what counts is the whole matrix's truth, and one true entry settles it beside an error */
+    open: V(ty(2, 1), c => (c === 1 ? null : 0)), lost: V(ty(2, 1), c => (c === 1 ? { err: 'divide by zero' } : 0)), u: CH('open', 'a', 'b'), e: CH('lost', 'a', 'b'),      /* not known: every entry unknown */
+    bad: { ...V(ty(2, 2), () => 1), error: { code: 'mismatch', note: '4 ≠ 3' } }, tb: CH('yes', 'a', 'bad'), fb: CH('no', 'a', 'bad'), bt: CH('no', 'bad', 'b'),      /* an error on the side not chosen does no harm */
+    part: V(ty(2, 2), (c, r) => (c === 1 && r === 1 ? null : 1)), tp: CH('yes', 'a', 'part'), fp: CH('no', 'a', 'part'),
+    wide: N('source', [], ty(70, 70), { kind: 'zeros' }), cut: N('slice', ['wide'], ty(2, 2), { range: { col: 1, row: 1, cols: 2, rows: 2 } }), tw: CH('yes', 'a', 'cut'), fw: CH('no', 'a', 'cut'),      /* too large for the browser, on the side not chosen */
+    nz: N('noise', [], ty(2, 2), { seed: 3, dist: 'uniform', key: 'nz' }), tn: CH('yes', 'a', 'nz'), fn: CH('no', 'a', 'nz'),
+    none: N('source', [], ty(2, 2), { kind: 'none' }), te: CH('yes', 'a', 'none'), fe: CH('no', 'a', 'none'), sum: N('add', ['fe', 'a'], ty(2, 2)),      /* the empty side: None of that size, and None with anything is None */
+    ai: V(ty(2, 1, [ax(2)]), (c, r, k) => c * k), bi: V(ty(2, 1, [ax(2)]), (c, r, k) => -c - k), ci: V(ty(1, 1, [ax(3)]), (c, r, k) => (k === 3 ? 1 : 0)), ti: CH('ci', 'ai', 'bi', ty(2, 1, [ax(2)])), fi: CH('no', 'ai', 'bi', ty(2, 1, [ax(2)])),      /* inner data on the sides, and on the condition */
+    nest: CH('t', 'f', 'n'), deep: CH('m0', 'tb', 'nest'),      /* a choose of chooses */
+    'param(f:1)': N('param', [], ty(1, 1), { within: ['f:1'] }), body: { ...CH('param(f:1)', 'a', 'none'), within: ['f:1'] }, y1: N('apply', ['yes'], ty(2, 2), { fn: 'f:1' }), y0: N('apply', ['nil'], ty(2, 2), { fn: 'f:1' }),      /* as a conditional arrow is: a function of the condition */
+    two: V(ty(1, 2), (c, r) => r - 1), runs: N('mapalong', ['two'], ty(2, 4), { fn: 'f:1', axis: 'rows', start: 1, span: 1, count: 2 }) }, fn('body')),
+};
+
+/* ---- loops (phase 9C): graphs by hand, for what the canvases above do not reach (tests/looping.js) ---- */
+const BY_HAND_LOOPS = {
+  'by hand: loop': total(), 'by hand: loop, two rows of two': total({ count: 4, across: 2 }), 'by hand: loop, 256 steps': total({ count: 256, across: 256 }),
+  'by hand: loop, a count that is an input': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': 4 } } } }),
+  'by hand: loop, a count that is no whole number': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': { n: 1, d: 2, k: 0 } } } } }),
+  'by hand: loop, None as state': total({ s0: { none: true } }),
+  'by hand: loop, a count that is true': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': true } } } }),
+  'by hand: loop, a count that is false': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': false } } } }),
+  'by hand: loop, in a function': inFunction(), 'by hand: loop, in a step': inStep(),
 };
 
 const files = (dir, at = '') => readdirSync(join(dir, at)).sort().flatMap(n => statSync(join(dir, at, n)).isDirectory() ? files(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
 const near = v => v === null || v === undefined ? null : v === 'inf' || v === '-inf' ? v : typeof v === 'boolean' ? +v : typeof v === 'number' ? v
-  : typeof v.err === 'string' ? 'err' : typeof v.sym === 'string' ? Number(globalThis.nerdamer(v.sym).evaluate().text('decimals', 30)) : Math.sign(v.n) * Math.pow(Math.abs(v.n) / (v.d || 1), 1 / 2 ** v.k);
+  : typeof v.err === 'string' ? 'err' : v.none === true ? 'none' : typeof v.sym === 'string' ? Number(globalThis.nerdamer(v.sym).evaluate().text('decimals', 30)) : Math.sign(v.n) * Math.pow(Math.abs(v.n) / (v.d || 1), 1 / 2 ** v.k);
 function answer(r){
   if (r.error) return { error: r.error.code };
   if (r.deferred) return { deferred: true };
@@ -188,6 +290,11 @@ function bindings(g){
     const at = {}; n.inputs.forEach((id, k) => { if (n.inputs.indexOf(id) === n.inputs.lastIndexOf(id)) at[id] = n.at[k]; });
     for (const [cx, cy] of [[1, 1], [n.across, n.down]]) n.inputs.forEach((id, k) => { if (g.nodes[id].op === 'repeat') return;
       out.push({ node: id, binding: { cells: [{ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, cx, cy, of: [t.tile], at }] } }); }); }
+  /* a tile with an open count has no matrix: the parts of its pattern in its first cell and its third, as the page draws them */
+  for (const s of Object.values(g.spaces)) for (const t of s.tiles){ const n = !t.node && t.loop && g.nodes[t.loop]; if (!n) continue;
+    const at = {}; n.at.forEach((a, k) => { const id = n.inputs[k]; if (n.inputs.indexOf(id) === n.inputs.lastIndexOf(id)) at[id] = a; });
+    for (const k of [1, 3]) n.at.forEach((a, i) => { const cx = n.across === 'inf' ? k : 1, cy = n.across === 'inf' ? 1 : k;
+      out.push({ node: n.inputs[i], binding: { cells: [{ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: a.col, dy: a.row, cx, cy, of: [t.tile], at }] } }); }); }
   /* an arrow in a tile, in the first cell and in another of every tile it is in (a tile whose pattern has no matrix has cells all the same) */
   for (const s of Object.values(g.spaces)) for (const t of s.tiles) for (const id of t.arrows){ const a = s.arrows.find(a => a.arrow === id); if (!a || !a.node) continue;
     for (const x of [0, 2]) out.push({ node: a.node, binding: { cells: [{ x, y: 0, dx: 0, dy: 0, cx: 1 + x / 2, cy: 1, of: [t.tile] }] } }); }
@@ -200,10 +307,12 @@ function bindings(g){
 export function fixtures(){
   const graphs = [];
   const add = (name, g) => { const bad = validate(g); if (bad.length) throw new Error(name + ' is not well formed: ' + bad[0]);
-    graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(evaluate(g, id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(evaluate(g, b.node, { binding: b.binding })) })) }); };
+    /* what the page defers for its steps is worked out here with more steps allowed, so that the backend is held to it there too */
+    const worked = (id, options = {}) => { const r = evaluate(g, id, options); return r.deferred && r.steps !== undefined ? evaluate(g, id, { ...options, maxSteps: 4096 }) : r; };
+    graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(worked(id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(worked(b.node, { binding: b.binding })) })) }); };
   for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$/.test(f.path)), ...given(name)])));
-  for (const [name, s] of Object.entries(CASES)) add(name, build(s));
-  for (const [name, g] of Object.entries(HAND)) add(name, g);
+  for (const [name, s] of Object.entries({ ...CASES, ...LOOPS })) add(name, build(s));
+  for (const [name, g] of Object.entries({ ...HAND, ...BY_HAND_LOOPS })) add(name, g);
   return { graphs: JSON.parse(JSON.stringify(graphs)), mutations: mutations(graphs.map(x => JSON.parse(JSON.stringify(x.graph)))) };
 }
 
@@ -216,7 +325,7 @@ function mutations(graphs){
   const get = (g, path) => path.reduce((v, k) => v[k], g);
   const apply = (g, m) => { const h = JSON.parse(JSON.stringify(g)), last = m.path[m.path.length - 1], host = get(h, m.path.slice(0, -1));
     if (m.drop){ if (Array.isArray(host)) host.splice(+last, 1); else delete host[last]; } else host[last] = m.set; return h; };
-  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv'];
+  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { none: true }, { none: 1 }, { none: true, sym: 'x' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, { sym: 'none' }, { sym: '∅' }, { sym: 'none + 1' }, { sym: 'inf' }, { sym: '2 * Infinity' }, { sym: '∞' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv'];
   graphs.forEach((g, gi) => { const all = paths(g), ids = Object.keys(g.nodes), tried = new Set();
     const push = m => { const key = JSON.stringify(m); if (tried.has(key)) return; tried.add(key); out.push({ graph: gi, ...m, valid: validate(apply(g, m)).length === 0 }); };
     for (let n = 0; n < Math.min(260, all.length * 2); n++){ const path = all[rnd(all.length)], was = get(g, path), kind = rnd(6);
@@ -232,12 +341,43 @@ function mutations(graphs){
       push({ path: [...at, 'axes'], set: 2 }); push({ path: [...at, 'depth'], set: null }); push({ path: [...at, 'inner', '0', 'name'], set: 'named' }); push({ path: [...at, 'inner', '0', 'name'], set: '' });
       if (n.op === 'variable'){ const tail = inner.map(() => ',1').join('');
         for (const key of ['1,1', '1,1' + tail + ',1', '1,1' + tail.slice(2), '1,1' + inner.map(a => ',' + (a.length + 1)).join(''), '1,1' + tail.replace(/1$/, '0'), '1,1' + tail.replace(/1$/, '01'), '1,1' + tail]) push({ path: ['nodes', id, 'entries', key], set: 7 }); } }
-    if (g.version !== undefined) for (const v of [1, 2, 3, 0, '2']) push({ path: ['version'], set: v }); });
+    /* what a type's value and a variable's promise may be: each a change in one place */
+    const WORDS = ['any?', 'any', 'boolean', 'natural', 'natural?', 'integer?', 'real', 'complex', 'Integer', 'integer ?', '', '?', 7, null, true, ['real']];
+    for (const id of [...ids.filter(id => g.nodes[id].type.value !== undefined).slice(0, 3), ...ids.filter(id => g.nodes[id].op !== 'variable' && g.nodes[id].type.value !== undefined).slice(0, 3)]){ const at = ['nodes', id, 'type', 'value'];
+      for (const set of WORDS) push({ path: at, set }); push({ path: at, drop: true }); }
+    for (const id of ids.filter(id => g.nodes[id].op === 'variable').slice(0, 3)){ for (const set of [...WORDS, ...(g.nodes[id].type.value !== undefined ? [g.nodes[id].type.value] : [])]) push({ path: ['nodes', id, 'holds'], set }); if (g.nodes[id].holds !== undefined) push({ path: ['nodes', id, 'holds'], drop: true }); }
+    /* a choose and a source of None hold their operation's fields and no other */
+    for (const id of ids.filter(id => g.nodes[id].op === 'choose' || (g.nodes[id].op === 'source' && g.nodes[id].kind === 'none')).slice(0, 4))
+      for (const [k, set] of [['fn', 'mul'], ['formula', 'x'], ['kind', 'zeros'], ['seed', 1], ['holds', 'any'], ['entries', {}], ['name', 'A'], ['within', ['f:x']]]) push({ path: ['nodes', id, k], set });
+    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 5, 6, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }
 
+/* ---- the number spaces, as spaces.js has them ---- */
+const VALUES = [0, 1, 2, -1, -2, 7, -7, true, false, 'inf', '-inf', half, root2, { n: 3, d: 2, k: 0 }, { n: -1, d: 2, k: 0 }, { n: 1, d: 2, k: 1 }, { n: -2, k: 1 }, { n: 5, d: 4, k: 2 }, { none: true }, { err: 'no' },
+  { sym: '1+sqrt(2)' }, { sym: 'e^(-1)' }, { sym: '1208925819614629174706176' }, { sym: '-1208925819614629174706176' }, { sym: '1/1208925819614629174706176' }, { sym: '-1/1208925819614629174706176' }, { sym: '1208925819614629174706177/1208925819614629174706176' }, { sym: '(1208925819614629174706177/1)^(1/2)' },
+  /* whole numbers and fractions past the 4,300 digits Python will read as a number: told from their digits, as BigInt tells them */
+  { sym: '9'.repeat(4301) }, { sym: '-' + '9'.repeat(4301) }, { sym: '0'.repeat(4400) }, { sym: '0'.repeat(4400) + '1' }, { sym: '-' + '0'.repeat(4400) + '1' }, { sym: '1/' + '9'.repeat(4301) }, { sym: '9'.repeat(4301) + '/7' }, { sym: '9'.repeat(4301) + '/' + '9'.repeat(4301) },
+  { sym: '8' + '9'.repeat(4300) + '/' + '9'.repeat(4301) }, { sym: '-1/' + '9'.repeat(4301) }, { sym: '5/' + '0'.repeat(4400) }];
+const FORMULAS = ['1', '0', '2', '0.5', '1.5', '1.0', '5.', '.25', '123456789012345678901234567890', '0.' + '1'.repeat(38), '1' + '0'.repeat(45), '0.' + '0'.repeat(45) + '1', '9'.repeat(400), '∞', 'inf', '-inf', 'none', '∅', 'true', 'false && $1',
+  '$1 + $2', '$1 - $2', '$1 * $2', '$1 / $2', '$1 ^ 2', '$1 ^ $2', '2 ^ $1', '$1 ^ 0', '$1 ^ (1/3)', '-$1', '!$1', 'abs($1)', 'sqrt($1)', '√$1', '∜$1', 'exp($1)', 'ln($1)', 'tanh($1)', 'erf($1)', 'max($1, $2)', 'min($1, 0)',
+  'select($1, $2, $3)', 'select($1 > 0, none, $2)', 'select(none, $1, $2)', '$1 == $2', '$1 != none', '$1 < $2', '$1 >= none', '$1 && $2', '$1 || none', 'none + $1', 'none == none', 'index.x + index.y', 'k1 * 2', 'x + i * j', 'x / i', 'X ^ J',
+  '$4', '$1 + unknown', '2x', '2(3+1)', '1/0', '(-8)^(1/3)', '($1 + $2) * ($3 - 1) / 2 ^ 2', 'exp(-($1 ^ 2))', 'tanh(abs($1))', '1 - $3', 'abs($1 - $2)', 'max(1, $1)', 'ln($1 + 1)', 'ln(2)', 'sqrt(4)', '-1', '-(1)', '+$1', '2 - 1'];
+export function spaceTable(){
+  const words = [...S.SPACES.flatMap(s => [s, s + '?']), S.NONE], pairs = fn => Object.fromEntries(words.flatMap(a => words.map(b => [a + ' ' + b, fn(a, b)])));
+  const named = ['natural', 'integer?', 'probability'], lookup = arrow => name => { const m = name.match(/^\$(\d+)$/); if (m) return named[+m[1] - 1]; if (/^index\.[xy]$/i.test(name) || /^k[1-6]$/i.test(name)) return 'natural';
+    const k = name.toLowerCase(); return !arrow ? undefined : k === 'x' ? 'rational' : k === 'i' || k === 'j' ? 'natural' : undefined; };
+  return { spaces: S.SPACES, inside: Object.fromEntries(S.SPACES.flatMap(a => S.SPACES.map(b => [a + ' ' + b, S.inside(a, b)]))), within: pairs(S.within), both: pairs(S.both), choice: pairs(S.choice),
+    binary: Object.fromEntries(['+', '-', '*', '/', '^', '==', '!=', '<', '>', '<=', '>=', '&&', '||', 'max', 'min'].map(op => [op, pairs((a, b) => S.binary(op, a, b))])),
+    unary: Object.fromEntries(['neg', '!', 'abs', 'sqrt', 'exp', 'ln', 'tanh', 'erf'].map(fn => [fn, Object.fromEntries(words.map(a => [a, S.unary(fn, a)]))])),
+    sum: Object.fromEntries(words.flatMap(a => [1, 2, 3, 5].map(n => [a + ' ' + n, S.sum(a, n)]))), product: Object.fromEntries([1, 2, 4].map(n => [n, pairs((a, b) => S.product(a, b, n))])),
+    parse: ['integer', 'integer?', 'any?', 'complex', 'Integer', 'integer ?', '', '?', 'whole?', 'number', 'decimal', 'fraction', 'root', 'irrational', 'none', 'none?', 'None'].map(w => [w, S.parse(w) ? [S.parse(w).space, S.parse(w).none] : null]),
+    of: VALUES.map(v => [v, S.of(v)]), ofAll: [[], [1, 2], [0, 1], [1, -1], [2, half], [{ none: true }], [{ none: true }, 2, 3], [2, 'inf'], [{ err: 'x' }, -5], [half, root2], [true, { n: 3, d: 2, k: 0 }]].map(vs => [vs, S.ofAll(vs)]),
+    formulas: FORMULAS.flatMap(text => [false, true].map(arrow => [text, arrow, S.formula(treeOf(text), lookup(arrow))])) };
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]){
-  const made = fixtures(), texts = { 'graphs.json': JSON.stringify(made.graphs) + '\n', 'mutations.json': '[\n' + made.mutations.map(m => JSON.stringify(m)).join(',\n') + '\n]\n' };
+  const made = fixtures(), texts = { 'graphs.json': JSON.stringify(made.graphs) + '\n', 'mutations.json': '[\n' + made.mutations.map(m => JSON.stringify(m)).join(',\n') + '\n]\n', 'spaces.json': JSON.stringify(spaceTable()) + '\n' };
   if (process.argv.includes('--check')){ const stale = Object.keys(texts).filter(f => { try { return readFileSync(join(here, f), 'utf8') !== texts[f]; } catch { return true; } });
     console.log(stale.length ? 'out of date: ' + stale.join(', ') : 'up to date'); process.exit(stale.length ? 1 : 0); }
   for (const [f, t] of Object.entries(texts)) writeFileSync(join(here, f), t);

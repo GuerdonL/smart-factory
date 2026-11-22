@@ -17,7 +17,8 @@
                          its frame standing further off, round theirs, and its name a line higher for each level,
                          clear of theirs
               copies     what is drawn in the cells that are not the first: [{ cx, cy, x, y, w, h, color, name,
-                         values, tri }], one for each block in each drawn cell. cx, cy are the places of the slots
+                         values, tri, sunk }], one for each block in each drawn cell. sunk: the block is false in
+                         that cell, and its copy there is drawn sunk as a block is (block.js: sink). cx, cy are the places of the slots
                          it is in (indexes into xs and ys); x, y its corner in units from the cell's corner; w, h its
                          size in units; color its theme colour. values, where given, is a Map from "column,row" to
                          (a text; or, for a decimal, { level, text, stale }: drawn as its square, see matrix.js)
@@ -102,7 +103,7 @@ export function createTile(){
         const holder = html`<div class="tile-copy"></div>`; box(holder, { x: sx.at + c.x, y: sy.at + c.y, w: c.w, h: c.h });
         if (c.tri){ const svg = document.createElementNS(NS, 'svg'), tri = document.createElementNS(NS, 'polygon'); svg.setAttribute('viewBox', `0 0 ${c.w} ${c.h}`); svg.setAttribute('preserveAspectRatio', 'none');
           tri.setAttribute('points', c.tri.map(p => p.join(',')).join(' ')); svg.append(tri); holder.append(svg); }
-        else { const b = likeness({ cols: c.w, rows: c.h, unit, color: c.color, name: c.values ? '' : c.name }); holder.append(b.el); if (c.values) values(holder, c.values); }
+        else { const b = likeness({ cols: c.w, rows: c.h, unit, color: c.color, name: c.values ? '' : c.name, sunk: !!c.sunk }); holder.append(b.el); if (c.values) values(holder, c.values); }
         body.append(holder); }
       for (const c of written){ const holder = html`<div class="tile-copy"></div>`; box(holder, { x: c.x, y: c.y, w: c.w, h: c.h }); values(holder, c.values); overEl.append(holder); } } };
 }

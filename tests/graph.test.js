@@ -7,7 +7,12 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, validate, OPS, CODES, indexAt, VERSION } from '../graph.js';
+import { build as valued, validate, OPS, CODES, indexAt, VERSION } from '../graph.js';
+import { runningTotal } from './looping.js';
+/* The cases below were written for a graph's sizes: they are held to those. build is asked here for the graph
+   without each type's value, its number space, which has its own cases (tests/spaces.test.js and the end of
+   tests/graph.test.js); a type with no value is a type still (graph.js: Number spaces). */
+const build = snapshot => { const g = valued(snapshot); for (const n of Object.values(g.nodes)){ const { value, ...size } = n.type; n.type = size; } return g; };
 import { read } from '../project.js';
 
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -304,7 +309,7 @@ test('every error code', () => {
   assert.deepEqual(see(seat.nodes['v:H'].error), { code: 'seat', note: 'no-source' });
   const unknown = make(snap([B('Row', 0, 0, 4, 1), arrow('out', { id: 't1', as: 'tile' }), B('Tau', 0, 20, 1, 1)], [tile({ down: { expr: '@[Tau:m]' } })]));      /* a mass not yet given */
   assert.deepEqual(see(unknown.spaces.top.arrows[0].error), { code: 'size-unknown', note: '@[Tau:m]' });
-  assert.deepEqual([...seen].sort(), [...CODES].sort());
+  assert.deepEqual([...seen].sort(), CODES.filter(c => c !== 'type').sort());      /* (type is never written by build: a promise is held against the values, which evaluate.js has) */
 });
 test('a loop through a formula is in the graph as an error on each variable round it, and never a cycle', () => {
   const g = make(snap([B('S', 0, 0, 1, 1, { entries: { '1,1': { expr: '@[T:m] * 2' } } }), B('T', 9, 0, 1, 1, { entries: { '1,1': { expr: '@[S:x]' } } }), B('U', 20, 0, 1, 1, { entries: { '1,1': { expr: '@[T:m]' } } })]));
@@ -421,7 +426,8 @@ test('build never throws: half-built and broken canvases', () => {
 });
 
 /* ---- validate refuses ---- */
-const good = () => build(snap([
+const good = () => build(snap(good.shapes, good.groups));
+good.shapes = [
   B('A', 0, 0, 3, 2, { variable: 3, entries: { '1,1': 4, '2,1': { expr: '@[s:m]' } } }), B('W', 3, 0, 4, 3), B('s', 7, 0, 1, 1),      /* a product and a scale */
   B('C', 20, 0, 3, 2), B('D', 20, 2, 3, 2),                                                                                       /* a sum */
   B('E', 40, 2, 3, 2), B('F', 43, 1, 3, 1),                                                                                       /* times, a row broadcast */
@@ -434,18 +440,28 @@ const good = () => build(snap([
   B('Nz', 70, 70, 2, 2, { source: { noise: { seed: 1, dist: 'normal' } } }), B('Fl', 80, 80, 2, 2, { source: { file: 'data/w.csv' } }),
   /* matrices standing in the entries of a shape that holds inner data (a stack), and one of them taken out again (an entry) */
   B('QK', 0, 90, 2, 1, { inner: [{ length: 2, name: null }, { length: 3, name: null }], inside: space([B('q1', -5, -1, 2, 3, { standing: true }), B('q2', -3, -1, 2, 3, { standing: true })]) }),
-  B('Kout', 10, 90, 2, 3, { name: 'Shape 6', from: { id: 'QK', entry: { col: 2, row: 1 } } })],
-  [{ id: 't1', name: null, members: [11], groups: [], repeat: { x: 0, y: 52, cols: 1, rows: 2, across: 4, down: 1 } }, { id: 't2', name: null, members: [12], groups: [], repeat: { x: 0, y: 60, cols: 4, rows: 1, across: 1, down: 2 } }]));
+  B('Kout', 10, 90, 2, 3, { name: 'Shape 6', from: { id: 'QK', entry: { col: 2, row: 1 } } }),
+  /* a condition: an arrow that chooses between the two frames of its space, the second of them empty (a choose, and a source of None) */
+  B('yes', 0, 120, 1, 1, { entries: { '1,1': true } }), arrow('if', { id: 'yes', as: 'block' }, { output: { cols: 2, rows: 2 }, choose: { then: 'gt', else: 'ge' } }, { inside: space([B('in', -12, 0, 1, 1, { in: true }), B('then', -6, -1, 2, 2)], [{ id: 'gt', name: 'true', members: [1], groups: [] }, { id: 'ge', name: 'false', members: [], groups: [] }]) })];
+good.groups = [{ id: 't1', name: null, members: [11], groups: [], repeat: { x: 0, y: 52, cols: 1, rows: 2, across: 4, down: 1 } }, { id: 't2', name: null, members: [12], groups: [], repeat: { x: 0, y: 60, cols: 4, rows: 1, across: 1, down: 2 } }];
 const refused = (change, what) => { const g = JSON.parse(JSON.stringify(good())); change(g); const bad = validate(g); assert.ok(bad.length > 0, 'refused: ' + what); assert.ok(bad.every(b => typeof b === 'string')); return bad; };
 const first = (g, op) => Object.entries(g.nodes).find(([, n]) => n.op === op)[1];
 test('validate accepts what build made, of every operation', () => {
-  const g = good(); assert.deepEqual(validate(g), []);
-  assert.deepEqual([...new Set(Object.values(g.nodes).map(n => n.op))].sort(), Object.keys(OPS).sort());
+  const g = good(), looped = valued(runningTotal()); assert.deepEqual(validate(g), []); assert.deepEqual(validate(looped), []);      /* (a tile with a step is a canvas of its own: tests/looping.js) */
+  assert.deepEqual([...new Set([g, looped].flatMap(x => Object.values(x.nodes).map(n => n.op)))].sort(), Object.keys(OPS).sort());
 });
 test('validate refuses a graph that is not one', () => {
   for (const g of [null, 7, 'graph', {}, { version: 1 }, { version: 1, nodes: [], functions: {}, spaces: {}, blocks: {} }]) assert.ok(validate(g).length > 0);
-  refused(g => { g.version = 3; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
-  for (const v of [1, 2]){ const g = JSON.parse(JSON.stringify(good())); g.version = v; assert.deepEqual(validate(g), [], 'a version 1 graph is a version 2 graph as it stands'); }
+  refused(g => { g.version = 6; }, 'another version'); refused(g => { g.version = 0; }, 'no version');
+  /* a version 1, 2 or 3 graph is a version 4 graph as it stands, where it holds nothing a later version added: a graph that says a version too low for what it holds is refused (ruled 21 November 2026) */
+  const plain = v => { const g = JSON.parse(JSON.stringify(build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': 1, '2,1': 2 } })])))); g.version = v; return g; }, bare = g => { for (const n of Object.values(g.nodes)) delete n.type.value; return g; };
+  for (const v of [1, 2, 3, 4]) assert.deepEqual(validate(bare(plain(v))), [], 'version ' + v);
+  const valued = v => { const g = bare(plain(v)); g.nodes['v:A'].type.value = 'natural'; return g; };
+  assert.deepEqual(validate(valued(2)), ['v:A: it holds a number space, which needs version 3, and the graph says version 2']); assert.deepEqual(validate(valued(3)), []);
+  for (const v of [1, 2, 3, 4]){ const g = bare(JSON.parse(JSON.stringify(good()))); g.version = v; assert.equal(validate(g).length === 0, v >= 4, 'a choose needs version 4: version ' + v); }
+  const before = v => { const g = bare(JSON.parse(JSON.stringify(build(snap(good.shapes.slice(0, -2), good.groups))))); g.version = v; return g; };      /* the same without the condition */
+  for (const v of [1, 2, 3, 4]) assert.equal(validate(before(v)).length === 0, v >= 2, 'inner data needs version 2: version ' + v);
+  assert.ok(validate(before(1)).some(w => w.includes('it holds inner data, which needs version 2, and the graph says version 1')));
   const inf = good(); inf.nodes['v:A'].entries['1,1'] = Infinity; assert.ok(validate(inf).length > 0);      /* an infinity is written "inf" */
   const undef = good(); undef.nodes['v:A'].entries['1,1'] = undefined; assert.ok(validate(undef).length > 0);
 });
@@ -805,4 +821,118 @@ test('after review (phase 7): a formula in a graph is bounded as the backend bou
     const v = Object.values(g.nodes).find(n => n.op === 'variable' && n.inputs.length && Object.values(n.entries).some(e => e && e.expr));
     for (const k of Object.keys(v.entries)) if (v.entries[k] && v.entries[k].expr) v.entries[k] = { expr };
     assert.equal(validate(g).length === 0, ok, expr.slice(0, 30) + '… (' + expr.length + ')'); }
+});
+
+/* ---- None (phase 9) ---- */
+test('None: an entry that holds None is kept in the graph as { none: true }, in that one form, and both older versions are still read', () => {
+  const g = build(snap([B('A', 0, 0, 2, 1, { entries: { '1,1': { none: true }, '2,1': { expr: 'none + 1' } } })]));
+  assert.equal(g.version, 5); assert.equal(VERSION, 5); assert.deepEqual(validate(g), []);
+  assert.deepEqual(g.nodes['v:A'].entries, { '1,1': { none: true }, '2,1': { expr: 'none + 1' } });
+  for (const v of [{ none: 1 }, { none: false }, { none: true, sym: 'x' }, { none: true, more: 1 }, 'none']){ const h = JSON.parse(JSON.stringify(g)); h.nodes['v:A'].entries['1,1'] = v; assert.ok(validate(h).length > 0, JSON.stringify(v)); }
+  const older = version => { const h = JSON.parse(JSON.stringify(g)); h.version = version; for (const n of Object.values(h.nodes)) delete n.type.value; return h; };
+  assert.deepEqual(validate(older(3)), []);      /* and a version below 3 cannot hold None (ruled 21 November 2026) */
+  for (const version of [1, 2]) assert.deepEqual(validate(older(version)), ['v:A: it holds None, which needs version 3, and the graph says version ' + version]);
+  assert.deepEqual(validate({ ...g, version: 4 }), []); assert.deepEqual(validate({ ...g, version: 5 }), []); assert.ok(validate({ ...g, version: 6 }).length > 0);
+});
+
+/* ---- conditions (phase 9B): choose, the source of None, and the arrow that chooses between two frames ---- */
+const hand = (nodes, functions = {}, version = VERSION) => ({ version, nodes, functions, spaces: {}, blocks: {} });
+const vOf = (t, more = {}) => ({ op: 'variable', inputs: [], type: t, name: 'v', named: true, defined: 'entries', entries: {}, ...more });
+const chooseOf = (ta, tb, tc = type(1, 1), out = ta) => hand({ c: vOf(tc), a: vOf(ta), b: vOf(tb), ch: { op: 'choose', inputs: ['c', 'a', 'b'], type: out } });
+test('choose: its two sides are one size, whatever size its condition is, and its type is the first side\'s', () => {
+  assert.deepEqual(validate(chooseOf(type(2, 3), type(2, 3))), []);
+  assert.deepEqual(validate(chooseOf(type(2, 3), type(2, 3), type(5, 4))), []);      /* a condition of any size */
+  assert.deepEqual(validate(chooseOf(type(2, 3, 'key'), type(2, 3))), []); assert.deepEqual(validate(chooseOf(type(2, 3, 'key', 'row'), type(2, 3, 'key', 'row'))), []);
+  for (const [ta, tb] of [[type(2, 3), type(3, 2)], [type(2, 3), type(2, 4)], [type(2, 3, 'key'), type(2, 3, 'query')], [type(2, 3, null, 'r'), type(2, 3, null, 's')],
+    [{ ...type(2, 3), inner: [{ length: 2, name: null }] }, type(2, 3)], [{ ...type(2, 3), inner: [{ length: 2, name: null }] }, { ...type(2, 3), inner: [{ length: 3, name: null }] }], [{ ...type(2, 3), inner: [{ length: 2, name: 'k' }] }, { ...type(2, 3), inner: [{ length: 2, name: 'q' }] }]])
+    assert.deepEqual(validate(chooseOf(ta, tb)), ['ch: its two sides are not one size'], JSON.stringify([ta, tb]));
+  assert.deepEqual(validate(chooseOf(type(2, 3), type(2, 3, 'key'))), []);      /* one side named, the other not: the type is the first side's, which names nothing */
+  assert.deepEqual(validate(chooseOf(type(2, 3), type(2, 3, 'key'), type(1, 1), type(2, 3, 'key'))), ['ch: its type is 2 × 3 (key, null) and its inputs give 2 × 3 (null, null)']);
+  assert.ok(validate(chooseOf(type(2, 3), type(2, 3), type(1, 1), type(3, 2))).length > 0);
+  for (const inputs of [['c', 'a'], ['c', 'a', 'b', 'b'], []]){ const g = chooseOf(type(2, 2), type(2, 2)); g.nodes.ch.inputs = inputs; assert.ok(validate(g).length > 0); }
+});
+test('choose and a source of None hold their own fields and no other: a field another operation reads is refused', () => {
+  for (const [k, v] of [['fn', 'mul'], ['formula', 'x'], ['kind', 'zeros'], ['name', 'A']]){ const g = chooseOf(type(2, 2), type(2, 2)); g.nodes.ch[k] = v;
+    assert.deepEqual(validate(g), [`ch: a choose holds no ${k}`]); }
+  const inFn = hand({ p: { op: 'param', inputs: [], type: type(1, 1), within: ['f:1'] }, a: vOf(type(2, 2)), b: vOf(type(2, 2)), ch: { op: 'choose', inputs: ['p', 'a', 'b'], type: type(2, 2), within: ['f:1'] } }, { 'f:1': { input: 'p', body: 'ch' } });
+  assert.deepEqual(validate(inFn), []);      /* within is every node's */
+  const none = more => hand({ e: { op: 'source', inputs: [], type: type(2, 2), kind: 'none', ...more } });
+  assert.deepEqual(validate(none({})), []);
+  for (const [k, v] of [['seed', 1], ['holds', 'any'], ['entries', {}], ['dist', 'uniform']]) assert.deepEqual(validate(none({ [k]: v })), [`e: a source of None holds no ${k}`]);
+  assert.deepEqual(validate(none({ path: 'data/a.csv' })), ['e: only a file has a path']);
+});
+test('choose: its value is the smallest space that holds both sides, with None where either admits it', () => {
+  const g = valued(snap([B('yes', 0, 0, 1, 1, { entries: { '1,1': true } }),
+    arrow('if', { id: 'yes', as: 'block' }, { choose: { then: 'gt', else: 'ge' } }, { inside: space([B('in', -12, 0, 1, 1, { in: true }), B('T', -6, 0, 1, 1, { entries: { '1,1': 3 } }), B('E', -6, 6, 1, 1, { entries: { '1,1': { n: 3, d: 2, k: 0 } } })], [{ id: 'gt', name: 'true', members: [1], groups: [] }, { id: 'ge', name: 'false', members: [2], groups: [] }]) }),
+    arrow('or', { id: 'yes', as: 'block' }, { side: 's', choose: { then: 'ot', else: 'oe' } }, { inside: space([B('in', -12, 0, 1, 1, { in: true }), B('T2', -6, 0, 1, 1, { entries: { '1,1': -3 } })], [{ id: 'ot', name: 'true', members: [1], groups: [] }, { id: 'oe', name: 'false', members: [], groups: [] }]) })]));
+  assert.deepEqual(validate(g), []);
+  assert.equal(g.nodes['choose(param(f:if),v:T,v:E)'].type.value, 'rational');      /* a natural and a ratio: the smallest that holds both */
+  assert.equal(g.nodes['source(none;1×1)'].type.value, 'none'); assert.equal(g.nodes['choose(param(f:or),v:T2,source(none;1×1))'].type.value, 'integer?');
+  const wrong = JSON.parse(JSON.stringify(g)); wrong.nodes['choose(param(f:if),v:T,v:E)'].type.value = 'natural'; assert.ok(validate(wrong).some(w => w.includes('its value is natural and its inputs give rational')));
+});
+test('a choose and a source of None need version 4: both are refused under a lower one', () => {
+  for (const v of [1, 2, 3]) assert.deepEqual(validate({ ...chooseOf(type(2, 2), type(2, 2)), version: v }), [`ch: it holds a choose, which needs version 4, and the graph says version ${v}`]);
+  const none = v => hand({ e: { op: 'source', inputs: [], type: type(2, 2), kind: 'none' } }, {}, v);
+  assert.deepEqual(validate(none(4)), []); for (const v of [1, 2, 3]) assert.deepEqual(validate(none(v)), [`e: it holds a source of None, which needs version 4, and the graph says version ${v}`]);
+  assert.deepEqual(validate(hand({ e: { op: 'source', inputs: [], type: type(2, 2), kind: 'none', path: 'data/a.csv' } })), ['e: only a file has a path']);
+  assert.deepEqual(validate(hand({ e: { op: 'source', inputs: [], type: type(2, 2), kind: 'None' } })), ['e: kind is "None"']);
+});
+const side = (id, members) => ({ id, name: id, members, groups: [] });
+const condition = (shapes, then, other, arrowMore = {}, more = {}) => snap([B('yes', 0, 0, 1, 1, { entries: { '1,1': true } }),
+  arrow('if', { id: 'yes', as: 'block' }, { choose: { then: 'gt', else: 'ge' }, ...arrowMore }, { inside: space([B('in', -12, 0, 1, 1, { in: true }), ...shapes], [...(then ? [side('gt', then)] : []), ...(other ? [side('ge', other)] : [])]), ...more })]);
+test('a conditional arrow: its function is choose(its input, the then frame, the else frame), applied to what its base covers', () => {
+  const g = make(condition([B('P', -8, 0, 2, 2), B('Q', -6, 0, 2, 2), B('E', -8, 6, 2, 2)], [1, 2], [3]));
+  assert.deepEqual(g.functions, { 'f:if': { input: 'param(f:if)', body: 'choose(param(f:if),matmul(v:P,v:Q),v:E)' } });
+  assert.deepEqual(g.spaces.top.arrows, [{ arrow: 'if', node: 'apply(v:yes;f:if)', error: null }]);
+  assert.deepEqual(g.nodes['choose(param(f:if),matmul(v:P,v:Q),v:E)'], { op: 'choose', inputs: ['param(f:if)', 'matmul(v:P,v:Q)', 'v:E'], type: type(2, 2), within: ['f:if'] });
+  assert.deepEqual(g.nodes['apply(v:yes;f:if)'].type, type(2, 2));
+  assert.deepEqual(g.spaces['f:if'].pieces.map(p => [p.blocks, p.node]), [[['in'], 'param(f:if)'], [['P', 'Q'], 'matmul(v:P,v:Q)'], [['E'], 'v:E']]);
+});
+test('a conditional arrow: an empty frame is None at the other side\'s size; both empty, at the size it promises, else one by one', () => {
+  const none = (cols, rows) => ({ op: 'source', inputs: [], type: type(cols, rows), kind: 'none' });
+  const one = make(condition([B('T', -6, 0, 3, 2)], [1], []));
+  assert.equal(one.functions['f:if'].body, 'choose(param(f:if),v:T,source(none;3×2))'); assert.deepEqual(one.nodes['source(none;3×2)'], none(3, 2));
+  const other = make(condition([B('E', -6, 0, 3, 2)], [], [1])); assert.equal(other.functions['f:if'].body, 'choose(param(f:if),source(none;3×2),v:E)');
+  const both = make(condition([], [], [], { output: { cols: 4, rows: 2 } })); assert.equal(both.functions['f:if'].body, 'choose(param(f:if),source(none;4×2),source(none;4×2))'); assert.deepEqual(both.nodes['apply(v:yes;f:if)'].type, type(4, 2));
+  assert.equal(make(condition([], [], [])).functions['f:if'].body, 'choose(param(f:if),source(none;1×1),source(none;1×1))');
+  /* inner data on the side that is there: the empty one holds as much, under no names */
+  const deep = make(condition([B('T', -6, 0, 2, 1, { inner: [{ length: 3, name: 'head' }] })], [1], []));
+  assert.deepEqual(deep.nodes['source(none;2×1·3)'].type, { ...type(2, 1), inner: [{ length: 3, name: null }] });
+});
+test('a conditional arrow: what lies in neither frame takes no part, and an arrow in a frame is that side', () => {
+  const g = make(condition([B('T', -6, 0, 2, 2), B('stray', -6, 20, 5, 5), B('other', -1, 20, 4, 5)], [1], []));
+  assert.equal(g.functions['f:if'].body, 'choose(param(f:if),v:T,source(none;2×2))'); assert.deepEqual(g.spaces.top.arrows[0].error, null);
+  const inner = make(condition([B('T', -6, 0, 2, 2), arrow('relu', { id: 'T', as: 'block' }, { span: 2, formula: 'max(x, 0)' }, { name: 'Shape 4' })], [1, 2], []));
+  assert.equal(inner.functions['f:if'].body, 'choose(param(f:if),map(v:T;max(x, 0)),source(none;2×2))');
+});
+test('a conditional arrow: sides of two sizes, two pieces on one side, and a frame that is gone are errors on the arrow', () => {
+  const err = (s, fns = 0) => { const g = make(s); assert.equal(g.spaces.top.arrows[0].node, null); assert.equal(Object.keys(g.functions).length, fns); assert.equal(Object.values(g.nodes).some(n => n.op === 'apply'), fns > 0); return g.spaces.top.arrows[0].error; };
+  assert.deepEqual(err(condition([B('T', -6, 0, 2, 1), B('E', -6, 6, 1, 2)], [1], [2])), { code: 'size', note: '2 × 1 ≠ 1 × 2' });
+  assert.deepEqual(err(condition([B('T', -6, 0, 2, 1, { colsName: 'key' }), B('E', -6, 6, 2, 1, { colsName: 'query' })], [1], [2])), { code: 'size', note: '2 × 1 ≠ 2 × 1' });
+  assert.deepEqual(err(condition([B('T', -6, 0, 2, 1), B('T2', -6, 6, 2, 1)], [1, 2], [])), { code: 'pieces', note: '2 pieces' });
+  assert.deepEqual(err(condition([B('T', -6, 0, 2, 1)], [1], null)), { code: 'no-source', note: 'a side of its condition is gone' });
+  assert.deepEqual(err(condition([B('T', -6, 0, 2, 1)], null, [1])), { code: 'no-source', note: 'a side of its condition is gone' });
+  assert.deepEqual(err(condition([B('T', -6, 0, 3, 2), B('U', -3, 0, 4, 2)], [1, 2], [])), { code: 'mismatch', note: '3 ≠ 2' });      /* a side that is an error is the arrow's */
+  /* a piece that lies across a side's edge: a block that touches the true side's from outside every frame, or from the other frame. It is not left out, which would make the side None */
+  const ACROSS = k => ({ code: 'pieces', note: `a piece lies across the edge of its ${k ? 'false' : 'true'} side: move its blocks wholly into that frame, or wholly out of it` });
+  assert.deepEqual(err(condition([B('P', -8, 0, 2, 2), B('Q', -6, 0, 2, 2), B('V', -8, 2, 2, 2)], [1, 2], [])), ACROSS(0));
+  assert.deepEqual(err(condition([B('P', -8, 0, 2, 2), B('Q', -6, 0, 2, 2), B('V', -8, 2, 2, 2)], [1, 2], [3])), ACROSS(0));
+  assert.deepEqual(err(condition([B('P', -8, 0, 2, 2), B('V', -8, 2, 2, 2)], [], [2])), ACROSS(1));
+  assert.deepEqual(make(condition([B('P', -8, 0, 2, 2), B('V', -8, 2, 2, 2), B('E', -8, 20, 2, 2)], [1, 2], [3])).spaces.top.arrows[0].error, null);      /* wholly in: one piece of that side */
+  /* what it comes to against what it promises, as any arrow */
+  assert.deepEqual(err(condition([B('T', -6, 0, 2, 1)], [1], [], { output: { cols: 3, rows: 3 } }), 1), { code: 'size', note: '2 × 1 ≠ 3 × 3' });
+});
+test('a conditional arrow: its condition may be any size, a named one is used again, a block is seated on it, and it is repeated in a tile', () => {
+  const frames = [side('gt', [1]), side('ge', [])], fn = (cols, rows) => space([B('in', -12, 0, cols, rows, { in: true }), B('T', -6, 0, 2, 2)], frames);
+  const g = make(snap([B('M', 0, 0, 3, 2), arrow('if', { id: 'M', as: 'block' }, { span: 2, choose: { then: 'gt', else: 'ge' } }, { variable: 7, name: 'gate', inside: fn(3, 2) }),
+    B('N', 0, 10, 3, 2), arrow('again', { id: 'N', as: 'block' }, { span: 2 }, { variable: 7, name: 'gate', reference: true }), B('seat', 5, 10, 2, 2, { seat: 'again' }), B('next', 7, 10, 3, 2)]));
+  assert.deepEqual(g.spaces.top.arrows.map(a => a.node), ['apply(v:M;f:if)', 'apply(v:N;f:if)']); assert.deepEqual(g.nodes['param(f:if)'].type, type(3, 2));
+  assert.equal(g.nodes['v:seat'].defined, 'seat'); assert.equal(piece(g, 'top', 2).node, 'matmul(v:seat,v:next)');
+  const t = make(snap([B('Col', 0, 0, 1, 3), arrow('each', { id: 'Col', as: 'block' }, { choose: { then: 'gt', else: 'ge' } }, { x: 1, y: 0, inside: fn(1, 1) })], [{ id: 'loop', name: null, members: [1], groups: [], repeat: { x: 1, y: 0, cols: 4, rows: 1, across: 1, down: 3 } }]));
+  assert.equal(t.spaces.top.arrows[0].node, 'mapalong(v:Col;f:each;rows;1;1;3)'); assert.deepEqual(t.nodes['mapalong(v:Col;f:each;rows;1;1;3)'].type, type(2, 6));
+});
+test('an arrow whose choose is not two frame ids is an ordinary arrow, and a formula on a conditional arrow comes first', () => {
+  for (const choose of [null, 'gt', {}, { then: 'gt' }, { then: 1, else: 2 }]){ const g = make(snap([B('yes', 0, 0, 1, 1), arrow('if', { id: 'yes', as: 'block' }, { choose }, { inside: space([B('in', -12, 0, 1, 1, { in: true }), B('T', -6, 0, 2, 2)], [side('gt', [1])]) })]));
+    assert.deepEqual(g.spaces.top.arrows[0].error, { code: 'pieces', note: '2 pieces' }, JSON.stringify(choose)); assert.equal(Object.values(g.nodes).some(n => n.op === 'choose'), false); }      /* in, and a piece beside it: as any arrow's space */
+  const f = make(condition([B('T', -6, 0, 2, 2)], [1], [], { formula: 'x + 1' })); assert.equal(f.spaces.top.arrows[0].node, 'map(v:yes;x + 1)');
 });

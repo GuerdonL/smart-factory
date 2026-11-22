@@ -1,0 +1,76 @@
+{
+  "format": "smart-factory/frame",
+  "version": 7,
+  "id": "gqmo9dp",
+  "name": "Total",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 7,
+      "id": "bxhhpaz",
+      "type": "tensor",
+      "name": "x",
+      "named": true,
+      "commented": false,
+      "color": "variable-5",
+      "position": {
+        "x": -20,
+        "y": -9
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 39,
+      "seat": "bvogqzg"
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 7,
+      "id": "bom5bkc",
+      "type": "tensor",
+      "name": "S",
+      "named": true,
+      "commented": false,
+      "color": "variable-2",
+      "position": {
+        "x": -20,
+        "y": -8
+      },
+      "size": {
+        "cols": 1,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 0
+        }
+      },
+      "order": 40
+    }
+  ],
+  "groups": [],
+  "repeat": {
+    "x": -20,
+    "y": -9,
+    "cols": 1,
+    "rows": 2,
+    "across": 4,
+    "down": 1,
+    "step": "bh8p8eu"
+  }
+}

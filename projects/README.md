@@ -16,7 +16,15 @@ A saved project is a directory in here. Shapes and files are the same tree:
 `project.json` at the top marks the directory as a project.
 The full format is described at the top of [`../project.js`](../project.js).
 
-The format is 4. Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
+The format is 7. Format 7 adds to format 6, on a tile's `"repeat"`: `"step"`, the id of the arrow that is the tile's
+step; `"until"`, the id of its stop block; and a count of `"inf"`. A format 6 project has none of them and opens as it
+is; a program from before loops refuses a format 7 project rather than strip it. Format 6 adds to format 5 `"choose"` on an arrow (`{ "then", "else" }`: the two frames of its definition
+space a condition chooses between) and a frame file that holds no shapes, the empty side. A format 5 project has neither
+and opens as it is; a program from before conditions refuses a format 6 project rather than strip it.
+Format 5 adds to format 4 the value None, written `{ "none": true }` in an entry (typed `none`, drawn `∅`:
+nothing, said outright, which is not the same as an entry never given), and `"holds"` on a shape, the number space it
+promises (`"integer"`, `"natural?"`: see the README). A format 4 project has neither and opens as it is.
+Format 4 adds inner data to format 3: a shape whose entries each hold an array has `"inner"` in its
 `size` (the lengths of the inner axes, at most six) and in its `sides` (their names, `null` where unnamed), as in
 `"size": { "cols": 3, "rows": 1, "inner": [2, 4] }, "sides": { "cols": null, "rows": null, "inner": ["key", "embed"] }`;
 its entries are keyed `"column,row,k1,k2,…"`, one more number from 1 for each inner axis (`"2,1,1,3"` is entry 2,1,
@@ -276,3 +284,77 @@ the arrow, and its panel writes it out, `≈2.71828175`, with `exp(1)`, the exac
 
 In a file, a noise block has `"source": { "noise": { "seed": 0, "dist": "uniform" } }`, a file block
 `"source": { "file": "data/weights.csv" }`, and neither has entries: nothing the backend worked out is ever saved.
+
+## conditions/
+
+Conditions and truth as height, beside a copy of the default Menu's `.config`.
+
+At the top left `Go` holds `true`, and the arrow `gate` beside it, with a `?` on its triangle, is a condition: its
+output, where `Out` is seated, is `Keys · Weights`. Select the arrow and double-click it for its two sides: the
+frame `true` holds `Keys` and `Weights`, and the frame `false` is empty. Type `false` into `Go` and `Out` holds `∅`
+in all four entries, None at the true side's size, and inside the arrow the true side is faded.
+
+Under it `No` holds `false`, and the same `gate`, used again from the list, gives `∅` there.
+
+`Mask` holds 0, `∅` and 5: a whole matrix for a condition. One true entry makes it true, so its arrow gives `Then`
+(1, 2); make the 5 a 0 and it gives `Else` (7, 8), its false side.
+
+`Each` is a column of `true`, `false` and `∅`, and the arrow beside it is in the tile `Rows`, which repeats it down
+the column: three conditions, three outputs, (1, 2), then (-1, -2) twice.
+
+On the right, truth as height. `Zero`, a source of zeros, and `Nothing`, which holds only `∅`, are false, and are
+drawn sunk: no shadow, set down, the light along their bottom edge. `Some` holds a 3 and stands as a block always
+has. `Open` has an entry never given: its truth is not known, and it stands too. `No` is sunk, and so is
+`.dark_mode` in the `.config`, which holds 0.
+
+A conditional arrow's file carries `"choose": { "then": "<frame id>", "else": "<frame id>" }` in its `"arrow"`, and
+its definition directory holds `in.json`, `true.frame.json` and `false.frame.json`; the empty side is a frame file
+with no shapes.
+
+## running-total/
+
+A loop, beside a copy of the default Menu's `.config`. It was made by mouse, from New > Tensor, Function and Tile.
+
+`X` holds 3, 1, 4, 1. Under its first column is the arrow `take`, and the block `x` is seated on its output; under
+`x` is `S`, holding 0. The tile `Total` is drawn round `x` and `S` and is 4 across. The arrow east of the tile,
+`add`, is the tile's **step** (right-click an arrow on a tile's east side, Step): it is given one whole cell, `x`
+over `S`, and gives the state of the next cell. Open it: two arrows cut `in` into its two rows, and the blocks
+seated on them, `a` over `b`, are a sum.
+
+`S` is the tile's state, because its value is its own typed entry; `x` is worked out afresh in each cell, and since
+it lies in the pattern of a tile with a step it holds the k-th column of `X` in cell k. So the cells show `S` as
+0, 3, 4, 8, the total so far, and the step's output, east of the fourth cell, shows 9. An arrow on any other side of
+the tile reads its whole matrix, every cell with its state.
+
+Change an entry of `X`, or type another number into `S`, and every later cell follows. Type `inf` for the tile's
+`across` and the arrow `take` cannot be repeated, since an arrow cannot be repeated in a tile that does not end:
+the tile and the arrow are drawn in the warning colour, the cells are blank, and the tile's, the arrow's and the
+step's panels say why. The same is so where the tile has more cells than `X` has columns, or repeats down. (A tile
+that does not end and reads nothing outside it shows its first three cells, and its step's panel says that it runs
+until stopped.) Right-click a block of a pattern and choose Stop when true, and the tile stops at the first cell where
+that block is true.
+
+In a file the tile's `"repeat"` has `"step"`, the arrow's id.
+
+## none-and-spaces/
+
+None and the number spaces, beside a copy of the default Menu's `.config`.
+
+`W` holds 1, `∅`, 3 and 4: the second entry was typed `none`. Select `W` and its **Holds** row reads `natural`, with
+**or None** ticked: it promises natural numbers or None, and keeps the promise. Untick the box and the row turns to
+the warning colour and says which entry breaks it.
+
+`Pick` holds the formula `select(none, 2, 3)` and shows 3: None counts as false, so `select` takes its other side.
+Its Holds row is greyed, `natural (from its entries)`: it promises nothing, and that is what it is worked out as.
+`V`, holding 1 and 2, reads the same.
+
+`Bad` holds 2 and -3 and promises `natural`. Its row says "Bad is not natural: it holds -3 at 2, 1", and anything
+made of it has no value until the promise is changed or the entry is.
+
+At the bottom, `X` is read by the arrow `linear`, whose function multiplies its input by `Wf`, and `Out` is seated
+on the output. Select the arrow: **Takes** is `natural`, what the function's `in` block promises, held against what
+`X` gives it; **Gives** is `whole`, what `Out` promises. Type -4 into `X` and Takes says which entry breaks it:
+the arrow's output then has no value, and nor has `Out`.
+
+In a file, `W` has `"holds": "natural?"` and the entry `"2,1": { "none": true }`; a shape that promises nothing has
+no `holds`.

@@ -62,7 +62,7 @@ class Validate(unittest.TestCase):
             self.bad(g(inner), inner)
 
     def test_both_versions_are_read(self):
-        for version, good in ((1, True), (2, True), (3, False), (0, False), ('2', False), (True, False)):
+        for version, good in ((1, True), (2, True), (3, True), (4, True), (5, True), (6, False), (0, False), ('2', False), (True, False)):
             self.assertEqual(validate(graph_of({'a': variable(1, 1, [[1]])}, version=version)) == [], good, version)
 
     def test_an_entry_key_has_one_number_for_each_axis(self):
@@ -308,7 +308,7 @@ class WorkedOut(unittest.TestCase):
         self.assertEqual((p['cols'], p['rows'], p['inner']), (3, 1, [2, 4]))
         self.assertEqual(p['cells'], [[2, 1, 1, 3, 2 * qkv(2, 1, 1, 3)], [3, 1, 2, 4, 2 * qkv(3, 1, 2, 4)], [1, 1, 1, 1, 2 * qkv(1, 1, 1, 1)]])
         self.assertEqual((p['min'], p['max']), (2 * qkv(1, 1, 1, 1), 2 * qkv(3, 1, 2, 4)))      # of every number it holds
-        self.assertEqual(out['results']['x'], {'cols': 1, 'rows': 1, 'cells': [[1, 1, 4.0]], 'min': 4.0, 'max': 4.0, 'mean': 4.0})      # a node that holds none answers as it always did
+        self.assertEqual(out['results']['x'], {'cols': 1, 'rows': 1, 'cells': [[1, 1, 4.0]], 'min': 4.0, 'max': 4.0, 'mean': 4.0, 'truth': True})      # a node that holds none answers as it always did
         self.assertNotIn('inner', out['results']['s'])
 
     def test_cells_of_the_wrong_length_or_past_an_axis_are_that_want_s_error(self):

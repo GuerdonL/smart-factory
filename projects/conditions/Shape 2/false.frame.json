@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/frame",
+  "version": 6,
+  "id": "gcde004",
+  "name": "false",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 6,
+      "id": "bcdn004",
+      "type": "tensor",
+      "name": "Else",
+      "named": true,
+      "commented": false,
+      "color": "variable-5",
+      "position": {
+        "x": -7,
+        "y": 3
+      },
+      "size": {
+        "cols": 2,
+        "rows": 1
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": -1,
+          "2,1": -2
+        }
+      },
+      "order": 2
+    }
+  ],
+  "groups": []
+}
