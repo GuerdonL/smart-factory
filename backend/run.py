@@ -4,7 +4,13 @@
                                              { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean, truth } },
                                              (and "stopped": k on a loop that its stop block ended at cell k),
                                                "errors":  { key: "why" } }
-                                             and, only where a promise is broken by a number worked out here
+                                             and, where a stream that stops at its file's end was asked for past it,
+                                               "ended":   [ "<the stream's node id>", … ]
+                                             with, for each key that has no answer because of it, the stream and the
+                                             first tick at which it has no value,
+                                               "codes":   { key: { "code": "ended", "node": "<id>", "tick": 40 } }
+                                             beside that key's error ("it ended at tick 40: data/rows.csv has 40
+                                             rows, and it stops at its end"); and, only where a promise is broken by a number worked out here
                                              (a variable's holds, what a function's input promises to take),
                                                "codes":   { key: { "code": "type", "node": "<id>" } }
                                              beside that key's error, which is then the page's own sentence,
@@ -15,9 +21,12 @@
                                              1, for each inner axis. A node that holds none answers as it always did.
                                              It never raises: whatever is wrong is said in errors. What is wrong
                                              with the request as a whole is under the key "*".
-    upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows" } (and "small" where it has numbers too small for 32 bits); raises
-                                             data.Refused(why)
-    health()                              -> { "ok": true, "version": 5 }: the graph version (check.py: VERSION)
+    upload(project, path, body, root=None) -> what POST /data answers: { "path", "cols", "rows", "length" } (and "small" where it has numbers too small for 32 bits); raises
+                                             data.Refused(why). The file is a CSV, a text or a .npy, by its
+                                             path's ending: cols and rows are a CSV's table, one character of a
+                                             text (1 by 1) and one value of a .npy; length is how many units a
+                                             stream of it has: rows, characters, or indices along the first axis
+    health()                              -> { "ok": true, "version": 6 }: the graph version (check.py: VERSION)
 
 The request to /run:
     { "graph": { … },                     a graph (graph.js). It is checked by validate (check.py) before anything
@@ -27,7 +36,9 @@ The request to /run:
                                           hold inner data, [[c, r, k1, k2, …], …], with the inner position after
                   "binding": { … },       where it is looked at from, inside a function or a tile (evaluate.js); may be left out
                   "as": "<key>" } ],      what to call the answer in results and errors; left out, the node's id
-      "tick": 0,                          which draw of the noise: a whole number, 0 where left out
+      "tick": 0,                          the project's clock: a whole number, 0 where left out. Where a stream
+                                          stands, and how many steps a loop with no last cell has taken, follow
+                                          from it; a noise block is the same at every tick (evaluate.py)
       "counts": { "<loop's id>": 3 },     the counts the page has settled exactly, for loops whose count is settled
                                           only when run: taken as given where the count's node is in no function
                                           and no tile, so that a natural is not looked for in 32-bit floats; may be
@@ -47,9 +58,9 @@ import math
 import sys
 
 from . import arrays as A
-from .check import VERSION, is_int, is_obj, lengths, validate
-from .data import NAME, Refused, inspect, read_text, take
-from .evaluate import Broken, Run, Trouble, too_many
+from .check import VERSION, file_kind, is_int, is_obj, lengths, validate
+from .data import NAME, Refused, inspect, looked, read_bytes, read_text, taken, text_of
+from .evaluate import Broken, Ended, Run, Trouble, too_many
 from .limits import BYTES_AN_ENTRY, MAX_ALL_CELLS, MAX_BODY, MAX_CELLS, MAX_ENTRIES, MAX_NODES, MAX_WANTS, ROOM_TO_WORK, megabytes, memory_for_arrays, plural
 
 NO_VALUE = 'that has no value'
@@ -131,11 +142,24 @@ def answer(body, root, room):
             raise Trouble(str(e))
         return A.table(text, skip)
 
+    def read_roll(kind, path):
+        """A stream's file as its units (arrays.py: a roll): a CSV's rows, a text's characters, a .npy's first axis."""
+        if project is None:
+            raise Trouble('%s: the project has to be saved under a name before its data files can be read' % path)
+        try:
+            if kind == 'csv':
+                text = read_text(project, path, root)
+                return A.rows_of(A.table(text, inspect(text)[0]))
+            body = read_bytes(project, path, root)
+            return A.points(text_of(body, path)) if kind == 'text' else roll_of(body, path)
+        except Refused as e:
+            raise Trouble(str(e))
+
     counts = asked.get('counts', {})
     if not is_obj(counts) or not all(is_obj(graph['nodes'].get(i)) and graph['nodes'][i]['op'] == 'loop' and is_obj(graph['nodes'][i]['count']) and is_int(v) and not isinstance(v, bool) and 1 <= v < 2 ** 53 for i, v in counts.items()):
         return refuse('counts gives a whole number, at least 1, to loops whose count is settled when they are run')
-    work = Run(graph, read_file, int(tick), room, {i: int(v) for i, v in counts.items()})
-    results, errors, codes = {}, {}, {}
+    work = Run(graph, read_file, int(tick), room, {i: int(v) for i, v in counts.items()}, read_roll)
+    results, errors, codes, ended = {}, {}, {}, []
     last = {}      # of several wants under one key the last is the answer, as it always was
     for k, w in enumerate(want):
         key = w.get('as', w.get('node')) if is_obj(w) else None
@@ -158,6 +182,10 @@ def answer(body, root, room):
             codes.pop(key, None)
             if isinstance(e, Broken):      # a promise broken by a number worked out here: the error type, and whose promise it is
                 codes[key] = {'code': e.code, 'node': e.node}
+            if isinstance(e, Ended):      # a stream past its file's end: which, and the first tick at which it has no value
+                codes[key] = {'code': 'ended', 'node': e.node, 'tick': e.tick}
+                if e.node not in ended:
+                    ended.append(e.node)
         except (MemoryError, RecursionError):
             raise
         except Exception as e:      # this one alone has no answer; the others have theirs. What went wrong is the log's to say, not the answer's
@@ -165,7 +193,19 @@ def answer(body, root, room):
             errors[key] = BROKEN
             results.pop(key, None)
             codes.pop(key, None)
-    return {'results': results, 'errors': errors, 'codes': codes} if codes else {'results': results, 'errors': errors}
+    out = {'results': results, 'errors': errors}
+    if codes:
+        out['codes'] = codes
+    if ended:
+        out['ended'] = ended
+    return out
+
+
+def roll_of(body, path):
+    try:
+        return A.npy(body)
+    except ValueError as e:
+        raise Refused('%s is not read: %s' % (path, e))
 
 
 def in_turn(graph, w):
@@ -224,6 +264,16 @@ def one(work, graph, w):
     return out
 
 
+def look(body, path):
+    """What an uploaded file is (data.py: looked), a .npy among them, which arrays.py reads."""
+    if file_kind(path) != 'npy':
+        return looked(body, path)
+    roll = roll_of(body, path)
+    rows, cols = A.unit(roll)
+    return {'cols': cols, 'rows': rows, 'length': A.units(roll)}
+
+
 def upload(project, path, body, root=None):
-    cols, rows, small = take(project, path, body, root)
-    return {'path': path, 'cols': cols, 'rows': rows, **({'small': small} if small else {})}      # small: how many of its numbers are too small for 32 bits and are read as 0 (only where some are)
+    got = taken(project, path, body, root, look)
+    cols, rows, small = got['cols'], got['rows'], got.get('small', 0)
+    return {'path': path, 'cols': cols, 'rows': rows, 'length': got['length'], **({'small': small} if small else {})}      # small: how many of its numbers are too small for 32 bits and are read as 0 (only where some are)

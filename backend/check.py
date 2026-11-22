@@ -25,7 +25,7 @@ and across; step_fits says what graph.js's stepFits says, and a state block foll
 version 5. Which operations have a function for a body is said by the table ('body': the field that holds its id).
 
 Also here, since the evaluator asks the same things: T, same, one, inner_of, lengths, numbers, fn_whole, covered,
-covered_type, run_of, reads_index, tiles_of, data_path, as_int, applies, state_at."""
+covered_type, run_of, reads_index, tiles_of, data_path, file_kind, as_int, applies, state_at."""
 import math
 import re
 
@@ -33,8 +33,8 @@ from . import spaces as S
 from .formula import DOLLAR, INNER, SPACE as BLANK, Wrong, axis_of, formula_ok, parse as read_formula, reads_index as text_reads_index
 from .limits import MAX_JSON_DEPTH
 
-VERSION = 5                 # 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value; 4 choose and a source of kind none. An older graph is a version 4 graph as it stands
-VERSIONS = (1, 2, 3, 4, 5)
+VERSION = 6                 # 6 added stream; 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None and a type's value; 4 choose and a source of kind none. An older graph is a version 4 graph as it stands
+VERSIONS = (1, 2, 3, 4, 5, 6)
 AXES = 6                    # the most inner axes a type has
 CODES = ('mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type')
 PIECE_CODES = ('mismatch', 'not-a-row', 'mixed', 'size-unknown')
@@ -47,7 +47,10 @@ BIGGEST = 2 ** 1024 - 1      # past the largest number JavaScript holds, a numbe
 PLACE = re.compile(r'[1-9]\d*', re.ASCII)
 SIDE = re.compile(r'x|y|m|a|d[1-6]')
 TYPE_KEYS = ('cols', 'rows', 'colsName', 'rowsName', 'inner', 'value')
-PATH = re.compile(r'data/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.csv')
+PATH = re.compile(r'data/[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.(?:csv|txt|npy)')
+ENDINGS = {'csv': 'csv', 'txt': 'text', 'npy': 'npy'}      # what a data file is, by its ending (sources.js: fileKind)
+STREAM_KINDS = ('noise', 'csv', 'text', 'npy')
+ENDS = ('stop', 'wrap')
 MISSING = object()
 
 
@@ -79,6 +82,11 @@ def is_obj(v):
 def data_path(path):
     """The path where it is one a project may hold a data file at, else None (sources.js: dataPath)."""
     return path if isinstance(path, str) and PATH.fullmatch(path) and '..' not in path else None
+
+
+def file_kind(path):
+    """'csv', 'text' or 'npy': what a data file is, by its ending; None for what is no data file (sources.js: fileKind)."""
+    return ENDINGS[path.rsplit('.', 1)[1]] if data_path(path) else None
 
 
 # ---- types ----
@@ -384,7 +392,7 @@ def reads_index(n):
         return text_reads_index(n.get('formula'))
     if op == 'mapalong':
         return isinstance(n.get('through'), list) and len(n['through']) > 0
-    return op == 'noise'
+    return op in ('noise', 'stream')      # a stream in a tile that takes a step each tick is at its cell's tick
 
 
 # ---- the operations: for each, how many inputs, what is wrong with its own fields, and its type from its inputs' ----
@@ -469,7 +477,7 @@ def variable_type(n, ins, g):
                 return HELD_APART
         return n['type']
     t = ins[0]['type']
-    kinds = {'measure': ('measure',), 'standing': ('block', 'stack'), 'joined': ('block',), 'source': ('source', 'map', 'noise'), 'entry': ('entry',)}
+    kinds = {'measure': ('measure',), 'standing': ('block', 'stack'), 'joined': ('block',), 'source': ('source', 'map', 'noise', 'stream'), 'entry': ('entry',)}
     if n['defined'] in kinds and ins[0]['op'] not in kinds[n['defined']]:
         return 'defined "%s" over a %s' % (n['defined'], ins[0]['op'])
     if not same(t, n['type']):
@@ -557,7 +565,7 @@ def stray(n, fields, what):
 
 def source_fields(n):
     if n.get('kind') == 'file':
-        return [] if data_path(n.get('path')) else ['path is not a file under data/']
+        return [] if file_kind(n.get('path')) == 'csv' else ['path is not a .csv file under data/']
     if isinstance(n.get('kind'), str) and n['kind'] in KINDS:
         return ['only a file has a path'] if 'path' in n else stray(n, ('kind',), 'a source of None') if n['kind'] == 'none' else []
     return ['kind is "%s"' % (n.get('kind'),)]
@@ -567,6 +575,34 @@ def noise_fields(n):
     return ([] if is_safe(n.get('seed')) else ['seed is not a whole number']) \
         + ([] if isinstance(n.get('dist'), str) and n['dist'] in DISTS else ['dist is "%s"' % (n.get('dist'),)]) \
         + ([] if isinstance(n.get('key'), str) and n['key'] else ['key is not a block id'])
+
+
+def stream_fields(n):
+    kind = n.get('kind')
+    if not isinstance(kind, str) or kind not in STREAM_KINDS:
+        return ['kind is "%s"' % (kind,)]
+    bad = noise_fields(n) if kind == 'noise' else [] if file_kind(n.get('path')) == kind else ['path is not a %s file under data/' % ('.txt' if kind == 'text' else '.' + kind)]
+    if not (is_safe(n.get('length')) and n['length'] >= 1):
+        bad.append('length is not a whole number, at least 1')
+    if not ('start' in n and (n['start'] is None or (is_safe(n['start']) and n['start'] >= 0))):
+        bad.append('start is not a whole number, from 0, or null')
+    if not ('step' in n and (n['step'] is None or (is_safe(n['step']) and n['step'] >= 1))):
+        bad.append('step is not a whole number, at least 1, or null')
+    if not (isinstance(n.get('end'), str) and n['end'] in ENDS):
+        bad.append('end is "%s"' % (n.get('end'),))
+    return bad + stray(n, (('seed', 'dist', 'key') if kind == 'noise' else ('path',)) + ('kind', 'length', 'start', 'step', 'end'), 'a stream')
+
+
+def stream_type(n, ins, g):
+    if not ok_type(n.get('type')):
+        return 'it has no size of its own'
+    if inner_of(n['type']):
+        return 'a stream holds no inner data'
+    if int(n['type']['cols']) % int(n['length']):
+        return 'its columns are not a whole number of values'
+    if n['kind'] == 'text' and n['type']['rows'] != 1:
+        return 'a value of text is one row'
+    return T(n['type']['cols'], n['type']['rows'])
 
 
 def measure_fields(n):
@@ -855,6 +891,8 @@ RULES = {
     'block': {'inputs': (1, INF), 'fields': lambda n: [] if ok_places(n) else ['at is not one { col, row } for each part'], 'type': block_type, 'space': lambda n, ins, g: all_of(ins)},
     'slice': {'inputs': (1, 1), 'fields': lambda n: [] if ok_range(n.get('range')) and len(n['range']) == 4 else ['range is not { col, row, cols, rows }'], 'type': slice_type, 'space': lambda n, ins, g: value_of(ins[0])},
     'source': {'inputs': (0, 0), 'fields': source_fields, 'type': own_size, 'space': lambda n, ins, g: 'real' if n['kind'] == 'file' else S.NONE if n['kind'] == 'none' else 'boolean'},
+    'stream': {'inputs': (0, 0), 'fields': stream_fields, 'type': stream_type,
+               'space': lambda n, ins, g: ('probability' if n['dist'] == 'uniform' else 'real') if n['kind'] == 'noise' else 'whole' if n['kind'] == 'text' else 'real'},
     'noise': {'inputs': (0, 0), 'fields': noise_fields, 'type': lambda n, ins, g: own_size(dict(n, kind=None), ins, g), 'space': lambda n, ins, g: 'probability' if n['dist'] == 'uniform' else 'real'},
     'measure': {'inputs': (1, INF), 'fields': measure_fields, 'type': measure_type, 'space': measure_space},
     'map': {'inputs': (1, INF), 'fields': lambda n: [] if formula_ok(n.get('formula'), len(n['inputs']) - 1, arrow=True) else [UNHELD], 'type': map_type, 'space': lambda n, ins, g: space_in(n['formula'], ins, 1, value_of(ins[0]))},
@@ -998,6 +1036,8 @@ def version_for(n):
     """The version a node needs for what it holds (graph.js: versionFor): a choose and a source of kind none need 4;
     None among its entries, a number space or a promise need 3; inner data, a stack, an entry and a transpose's order
     need 2. -> (version, what), or None."""
+    if n['op'] == 'stream':
+        return (6, 'a stream')
     if n['op'] == 'loop':
         return (5, 'a loop')
     if n['op'] == 'repeat' and ('fn' in n or 'state' in n):

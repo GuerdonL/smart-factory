@@ -36,6 +36,25 @@ class Files(unittest.TestCase):
         self.assertEqual(data.take('mine', 'data/tiny.csv', b'1e-60,2\n3,1E-99\n', self.root), (2, 2, 2))      # and the same file again says the same
         self.assertEqual(data.take('mine', 'data/w.csv', b'1,2\n', self.root), (2, 1, 0))
 
+    def test_a_text_and_a_npy_are_data_files_too_and_a_text_is_looked_at_here(self):
+        for path in ('data/w.txt', 'data/w.npy', 'data/w.csv'):
+            self.assertTrue(data.where('mine', path, self.root).endswith(path[5:]))
+        self.assertEqual(data.taken('mine', 'data/w.txt', 'h\u00e9llo\n'.encode('utf8'), self.root), {'cols': 1, 'rows': 1, 'length': 6})
+        self.assertEqual(data.read_bytes('mine', 'data/w.txt', self.root), 'h\u00e9llo\n'.encode('utf8'))
+        self.assertEqual(data.text_of(b'\xef\xbb\xbfhi'), 'hi')      # a byte order mark is no character
+        for body, why in ((b'\xff\xfe', 'is not UTF-8 text: its byte 1 is no part of a UTF-8 character'), (b'', 'is empty: a text has at least one character'), (b'\xef\xbb\xbf', 'is empty')):
+            with self.assertRaises(data.Refused) as e:
+                data.taken('mine', 'data/bad.txt', body, self.root)
+            self.assertIn(why, str(e.exception))
+        with self.assertRaises(data.Refused) as e:      # what a .npy is, is arrays.py's to say: with nothing handed in to look at it, it is not taken
+            data.taken('mine', 'data/w.npy', b'x', self.root)
+        self.assertEqual(str(e.exception), 'data/w.npy is not a kind of data file that is read here')
+        self.assertEqual(data.taken('mine', 'data/w.npy', b'x', self.root, lambda body, path: {'cols': 1, 'rows': 1, 'length': 1}), {'cols': 1, 'rows': 1, 'length': 1})
+        self.assertEqual(sorted(os.listdir(os.path.join(self.root, 'mine', 'data'))), ['w.npy', 'w.txt'])
+        with self.assertRaises(data.Refused) as e:
+            data.where('mine', 'data/w.json', self.root)
+        self.assertEqual(str(e.exception), 'a data file is at data/ and one name ending .csv, .txt or .npy, of letters, digits, spaces, _ . and -')
+
     def test_only_into_a_project_that_has_been_saved(self):
         os.makedirs(os.path.join(self.root, 'half made'))      # a directory, and no project.json in it
         for project in ['new project', 'half made', 'menu']:
@@ -75,7 +94,7 @@ class Files(unittest.TestCase):
 
     def test_no_path_leaves_the_projects_own_data(self):
         for project, path in [('mine', '../other/data/secret.csv'), ('mine', 'data/../../other/data/secret.csv'), ('mine', '/etc/passwd'), ('mine', 'data/../project.json'), ('mine', 'data/a/b.csv'),
-                              ('mine', 'data/w.csv\0'), ('mine', 'data/\0.csv'), ('mine', 'data/w.txt'), ('mine', 'project.json'), ('mine', ''), ('mine', None), ('mine', 7), ('mine', ['data/w.csv']),
+                              ('mine', 'data/w.csv\0'), ('mine', 'data/\0.csv'), ('mine', 'data/w.json'), ('mine', 'data/w.csv.txt.exe'), ('mine', 'project.json'), ('mine', ''), ('mine', None), ('mine', 7), ('mine', ['data/w.csv']),
                               ('..', 'data/w.csv'), ('.', 'data/w.csv'), ('mine/../other', 'data/secret.csv'), ('/etc', 'data/w.csv'), ('', 'data/w.csv'), ('mine\0', 'data/w.csv'), (None, 'data/w.csv'),
                               ('other/data', 'data/w.csv'), ('a' * 65, 'data/w.csv'), ('.git', 'data/w.csv')]:
             for act in (lambda: data.where(project, path, self.root), lambda: data.read_text(project, path, self.root), lambda: data.keep(project, path, b'1,2\n', self.root)):

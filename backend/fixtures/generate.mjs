@@ -18,7 +18,7 @@
                                                     "column,row,k1,k2" is rows[k1 - 1][k2 - 1][row - 1][column - 1]
                                                     (the backend holds its arrays the same way round)
                      | { error: "<code>" }          it is worked out from a variable that has an error
-                     | { deferred: true }           not worked out in the browser (too large, noise, a data file)
+                     | { deferred: true }           not worked out in the browser (too large, noise, a data file, a stream)
                    bound: nodes asked for under a binding, as the page asks for what is inside a tile or a function.
    mutations.json  [{ graph: <index into graphs.json>, path: [keys], set: <value> } | { …, drop: true }, valid]
                    as { graph, path, set | drop, valid }: a graph changed in one place, and whether validate
@@ -42,6 +42,7 @@ import { read } from '../../project.js';
 import * as S from '../../spaces.js';
 import { treeOf } from '../../expression.js';
 import { total, LOOPS, inFunction, inStep } from '../../tests/looping.js';
+import { STREAMS } from '../../tests/streaming.js';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..');
 const B = (id, x, y, cols, rows, more = {}) => ({ id, type: 'tensor', name: id, x, y, cols, rows, colsName: null, rowsName: null, entries: {}, inside: null, variable: null, ...more });
@@ -310,8 +311,8 @@ export function fixtures(){
     /* what the page defers for its steps is worked out here with more steps allowed, so that the backend is held to it there too */
     const worked = (id, options = {}) => { const r = evaluate(g, id, options); return r.deferred && r.steps !== undefined ? evaluate(g, id, { ...options, maxSteps: 4096 }) : r; };
     graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(worked(id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(worked(b.node, { binding: b.binding })) })) }); };
-  for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$/.test(f.path)), ...given(name)])));
-  for (const [name, s] of Object.entries({ ...CASES, ...LOOPS })) add(name, build(s));
+  for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$|\.txt$/.test(f.path)), ...given(name)])));
+  for (const [name, s] of Object.entries({ ...CASES, ...LOOPS, ...STREAMS })) add(name, build(s));
   for (const [name, g] of Object.entries({ ...HAND, ...BY_HAND_LOOPS })) add(name, g);
   return { graphs: JSON.parse(JSON.stringify(graphs)), mutations: mutations(graphs.map(x => JSON.parse(JSON.stringify(x.graph)))) };
 }
@@ -325,7 +326,7 @@ function mutations(graphs){
   const get = (g, path) => path.reduce((v, k) => v[k], g);
   const apply = (g, m) => { const h = JSON.parse(JSON.stringify(g)), last = m.path[m.path.length - 1], host = get(h, m.path.slice(0, -1));
     if (m.drop){ if (Array.isArray(host)) host.splice(+last, 1); else delete host[last]; } else host[last] = m.set; return h; };
-  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { none: true }, { none: 1 }, { none: true, sym: 'x' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, { sym: 'none' }, { sym: '∅' }, { sym: 'none + 1' }, { sym: 'inf' }, { sym: '2 * Infinity' }, { sym: '∞' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv'];
+  const OTHER = [null, 0, 1, -1, 2, 1.5, '', 'x', true, false, [], {}, 1e9, 'inf', { n: 1, d: 2, k: 0 }, { n: 2, d: 4, k: 0 }, { n: 4, k: 1 }, { err: 'no' }, { none: true }, { none: 1 }, { none: true, sym: 'x' }, { expr: '$1 + 1' }, { expr: 'eval(x)' }, { expr: '((' }, { sym: 'x' }, { sym: 'none' }, { sym: '∅' }, { sym: 'none + 1' }, { sym: 'inf' }, { sym: '2 * Infinity' }, { sym: '∞' }, 'index.x', 'x + i', '$9', '__proto__', 'constructor', 'data/../x.csv', 'data/a.csv', 'data/a.txt', 'data/a.npy', 'noise', 'csv', 'text', 'npy', 'wrap', 'stop', 'uniform'];
   graphs.forEach((g, gi) => { const all = paths(g), ids = Object.keys(g.nodes), tried = new Set();
     const push = m => { const key = JSON.stringify(m); if (tried.has(key)) return; tried.add(key); out.push({ graph: gi, ...m, valid: validate(apply(g, m)).length === 0 }); };
     for (let n = 0; n < Math.min(260, all.length * 2); n++){ const path = all[rnd(all.length)], was = get(g, path), kind = rnd(6);

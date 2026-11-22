@@ -36,6 +36,18 @@ Making them
     grid(rows, cols)                 (i, j): each entry's column and its row, from 1, as arrays that spread over the matrix
     along(inner)                     [k1, k2, …]: each entry's place along each inner axis, from 1, likewise
     noise(seed, key, rows, cols, dist, tick, cells, inner)     see below
+What a stream reads (graph.js: stream). A roll is a data file as its units in order, each unit a matrix: an array
+of shape (units, rows, cols). It is the file whole, and is no value of the graph: only window gives one.
+    rows_of(table)                   a CSV's table as a roll: a unit is one of its rows
+    points(text)                     a text as a roll: a unit is one character, its Unicode code point, 1 by 1
+    npy(body)                        the bytes of a .npy file as a roll: a unit is the array at one index along its
+                                     first axis (a number, a row, or a matrix); raises ValueError(why) for what is
+                                     no such file. Only 32-bit floats are taken (see the function)
+    units(roll) -> how many;  unit(roll) -> (rows, cols) of one
+    window(roll, firsts, span, down) values side by side, one for each of firsts (the unit each begins at, from 0,
+                                     below units(roll)): span units from there, going round to the first unit after
+                                     the last, set one under the next (down) or side by side
+    beside(parts)                    matrices of one height side by side
 Putting them together
     matmul(a, b)                     the matrix product
     transpose(a)
@@ -180,6 +192,68 @@ def blank(rows, cols, inner=()):
 def table(text, skip):
     plain = text.replace('\r\n', '\n').replace('\r', '\n').replace('"', '').replace(' ', '').replace('\t', '')      # (it has been seen to hold numbers, commas, quotes and spaces, and nothing else)
     return np.loadtxt(io.StringIO(plain), delimiter=',', skiprows=skip, dtype=np.float64, ndmin=2, comments=None).astype(F)
+
+
+def rows_of(table):
+    return table[:, None, :]
+
+
+def points(text):
+    return np.frombuffer(text.encode('utf-32-le'), dtype='<u4').astype(F)[:, None, None]      # (a code point is below 2 ** 21, and a 32-bit float holds every whole number to 2 ** 24)
+
+
+NPY_HEADERS = {(1, 0): np.lib.format.read_array_header_1_0, (2, 0): np.lib.format.read_array_header_2_0, (3, 0): np.lib.format.read_array_header_2_0}
+SAID = {'f': 'floats', 'i': 'whole numbers', 'u': 'whole numbers', 'b': 'booleans', 'c': 'complex numbers'}
+
+
+def npy(body):
+    """A .npy file's bytes as a roll. The header is read first and held against the bytes that follow, so nothing is
+    made from what the file only claims to hold. A file of anything but 32-bit floats is refused, not converted: a
+    64-bit float or a whole number past 2 ** 24 would become another number on the way, and no number a file does
+    not hold is passed off as the file's (as a CSV's number too large for 32 bits is refused). Either byte order is
+    taken: that changes no number. An entry that is no number (NaN) is refused, as an empty cell of a CSV is."""
+    f = io.BytesIO(body)
+    try:
+        version = np.lib.format.read_magic(f)
+        shape, fortran, dtype = NPY_HEADERS[tuple(version)](f)
+    except Exception:
+        raise ValueError('it is not a .npy file: it does not begin as one')
+    if dtype.hasobject or dtype.kind != 'f' or dtype.itemsize != 4:
+        held = 'objects' if dtype.hasobject else '%d-bit %s' % (dtype.itemsize * 8, SAID[dtype.kind]) if dtype.kind in SAID else 'values of type %s' % dtype
+        raise ValueError('it holds %s, and a .npy data file holds 32-bit floats: nothing is converted, since that could change its numbers. Save it again with astype("float32")' % held)
+    if not 1 <= len(shape) <= 3:
+        raise ValueError('it has %s: a .npy data file has one to three, the first being the one a stream moves along' % ('no axes' if not shape else '%d axes' % len(shape)))
+    count = 1
+    for n in shape:
+        count *= int(n)
+    if count == 0:
+        raise ValueError('it holds no numbers')
+    if len(body) - f.tell() != count * 4:
+        raise ValueError('its header says %s numbers and it holds %s bytes of them' % (format(count, ','), format(len(body) - f.tell(), ',')))
+    a = np.frombuffer(body, dtype=dtype, count=count, offset=f.tell()).reshape(shape, order='F' if fortran else 'C').astype(F)
+    if np.isnan(a).any():
+        raise ValueError('it holds an entry that is no number (NaN), and a missing number is never taken for one')
+    a = np.ascontiguousarray(a)
+    return a[:, None, None] if a.ndim == 1 else a[:, None, :] if a.ndim == 2 else a
+
+
+def units(roll):
+    return int(roll.shape[0])
+
+
+def unit(roll):
+    return int(roll.shape[1]), int(roll.shape[2])
+
+
+def window(roll, firsts, span, down):
+    n, (r, c) = roll.shape[0], roll.shape[1:]
+    got = roll[(np.asarray(firsts, dtype=np.int64)[:, None] + np.arange(span, dtype=np.int64)[None, :]) % n]      # (values, span, r, c)
+    values = got.reshape(len(firsts), span * r, c) if down else got.transpose(0, 2, 1, 3).reshape(len(firsts), r, span * c)
+    return np.ascontiguousarray(values.transpose(1, 0, 2).reshape(values.shape[1], len(firsts) * values.shape[2]))
+
+
+def beside(parts):
+    return np.concatenate(parts, axis=-1)
 
 
 def row(values):

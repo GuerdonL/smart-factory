@@ -177,10 +177,10 @@ class Service(unittest.TestCase):
         self.assertEqual(self.request('GET', '/health')[0], 200)
 
     def test_a_file_is_uploaded_into_its_projects_data_and_nowhere_else(self):
-        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/w.csv', b'a,b\n1,2\n3,4\n'), (200, {'path': 'data/w.csv', 'cols': 2, 'rows': 2}))
+        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/w.csv', b'a,b\n1,2\n3,4\n'), (200, {'path': 'data/w.csv', 'cols': 2, 'rows': 2, 'length': 2}))
         with open(os.path.join(self.root, 'my project', 'data', 'w.csv')) as f:
             self.assertEqual(f.read(), 'a,b\n1,2\n3,4\n')
-        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/tiny.csv', b'1e-60,2\n-1e-50,1e-45\n'), (200, {'path': 'data/tiny.csv', 'cols': 2, 'rows': 2, 'small': 2}))      # too small for 32 bits: taken, read as 0, and counted
+        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/tiny.csv', b'1e-60,2\n-1e-50,1e-45\n'), (200, {'path': 'data/tiny.csv', 'cols': 2, 'rows': 2, 'length': 2, 'small': 2}))      # too small for 32 bits: taken, read as 0, and counted
         tiny = graph_of({'f': {'op': 'source', 'inputs': [], 'type': T(2, 2), 'kind': 'file', 'path': 'data/tiny.csv'}})
         status, out = self.run_graph(tiny, [{'node': 'f', 'cells': [[1, 1], [1, 2]]}], project='my project')
         self.assertEqual([c[2] for c in out['results']['f']['cells']], [0.0, -0.0])
@@ -198,7 +198,7 @@ class Service(unittest.TestCase):
             self.assertEqual((status, out), (200, {'error': 'there is no saved project called %s: save the project under a name first, and its data files are kept with it' % project}))
         status, out = self.request('POST', '/data?project=my%20project&path=data/w.csv', b'9,9\n')      # and a file that is there is not replaced
         self.assertIn('a data file is not replaced', out['error'])
-        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/w.csv', b'a,b\n1,2\n3,4\n'), (200, {'path': 'data/w.csv', 'cols': 2, 'rows': 2}))      # the same file again is the file
+        self.assertEqual(self.request('POST', '/data?project=my%20project&path=data/w.csv', b'a,b\n1,2\n3,4\n'), (200, {'path': 'data/w.csv', 'cols': 2, 'rows': 2, 'length': 2}))      # the same file again is the file
         status, out = self.request('POST', '/data?project=my%20project&path=data/bad.csv', b'1,2\n3,oops\n')
         self.assertEqual((status, out['error'][:21]), (200, 'line 2 is not numbers'))
         self.assertEqual(sorted(os.listdir(self.root)), ['my project'])

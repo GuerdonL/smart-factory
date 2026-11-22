@@ -20,7 +20,7 @@
                                  with a step), or undefined
    stateAt(node, k, type)        where input k of a looping node lies in its state rectangle, or null (see loop)
    placesOf(node)                where each part of a pattern lies, for every part that is in it once
-   VERSION                       5 (version 5 added loop, and a repeat's fn and state). Version 2 added inner axes, stack, entry and a transpose's order; version 3 the
+   VERSION                       6 (version 6 added stream; version 5 loop, and a repeat's fn and state). Version 2 added inner axes, stack, entry and a transpose's order; version 3 the
                                  value None ({ "none": true }) and a type's "value", the number space it lies in
                                  (spaces.js); version 4 choose, and a source of kind "none". An older graph has
                                  none of what came after it, and validate takes it as it stands; one that says
@@ -32,7 +32,7 @@
                                  reads the index, it is an arrow repeated through an outer tile, or it is noise
 
    The graph
-       { "version": 5,
+       { "version": 6,
          "nodes":     { "<node id>": { "op", "inputs": [node ids], "type": { "cols", "rows", "colsName", "rowsName" }, … } },
                       (a type also has "inner" where its entries hold inner data: see "Inner data", below)
          "functions": { "<function id>": { "input": "<the node of its in block>", "body": "<the node its space comes to>" } },
@@ -117,6 +117,20 @@
        noise       seed (a whole number), dist ("uniform" or "normal") and key (the id of the block the variable was
                    made as): numbers that follow from those, the entry's column and row and, in a tile, the cell.
                    Only the backend makes them (backend/arrays.py). It follows its cell without reading the index.
+                   They are the same at every tick: a noise block does not move on with the clock.
+       stream      successive values of noise or of a data file, as many as its length side by side, which move on
+                   with the tick (sources.js sets out the kinds, the units and a value's span). kind "noise" with
+                   seed, dist and key, as noise has them; or kind "csv", "text" or "npy" with path, a file of that
+                   ending under data/. length, a whole number of at least 1: its columns are that many values'.
+                   start (a whole number from 0) and step (at least 1), either null where it is not known, and the
+                   stream then has no value; end, "stop" or "wrap". Value j of its window (from 0) begins at unit
+                   start + tick × step + j × span. A noise value is the generator's draw with its unit for the
+                   tick and no cell in its key, so one unit is one draw wherever it is shown. Past a file's last
+                   unit a stream that stops has no value and has ended; one that wraps begins again. A value of
+                   text is one row. It holds no inner data. Only the backend has its numbers. The tick is the
+                   run's, but in cell k of a tile that takes one step each tick (a loop with an infinite count and
+                   no stop block) it is k − 1, so that such a loop's state at tick t is made of the stream's
+                   values at ticks 0 to t − 1: it follows its cell, as noise does.
        stack       matrices put into the entries of one: at, one { col, row } for each part, from 0. The parts are one
                    size and hold the same inner data, and cover a rectangle of entries, one part to an entry. Its
                    inner axes are the parts' two drawn sides, then the parts' own inner axes.
@@ -152,8 +166,8 @@
                    every entry is unknown; otherwise fn is applied to the cell and gives the next cell's state.
                    After count applications the value is the last output: the state of the cell after the last.
                    Its number space, and a stepped repeat's, is its inputs' (the state blocks' for a loop) joined
-                   with its function's body's. An infinite count with no stop block has no last cell: evaluate.js
-                   says so (forever). Every loop is named by a tile of spaces ("loop", beside "step", the arrow's
+                   with its function's body's. An infinite count with no stop block has no last cell: it takes one
+                   step each tick, so its value at tick t is the state of cell t + 1 (at.ticked). Every loop is named by a tile of spaces ("loop", beside "step", the arrow's
                    id), as every repeat is a tile's node: the cells are that tile's.
        mapalong    an arrow repeated in a tile: fn or formula applied to each run of span rows or columns (axis)
                    of its first input from start, count times, the outputs set side by side. through, where it
@@ -233,11 +247,12 @@ import { parts as textParts, evaluate as work, namesIn, refs, treeOf } from './e
 import * as S from './spaces.js';
 import { covered, coveredType, ends as endsOf, functionFor, check as promised, spread, passed, worked, SIDES, ACROSS } from './arrows.js';
 import * as tiles from './tiles.js';
-import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, dataPath, DISTS, EMPTY } from './sources.js';
+import { kept as sourceKept, kindOf as sourceKind, values as sourceValues, fileKind, streamKind, DISTS, EMPTY, ENDS } from './sources.js';
+const STREAM_KINDS = ['noise', 'csv', 'text', 'npy'];
 import { FUNCTIONS, CONFIG } from './system.js';
 
-export const VERSION = 5;                     /* 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise; 4 choose and a source of kind none. An older graph holds none of what came after it and is a version 4 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
-const VERSIONS = [1, 2, 3, 4, 5];
+export const VERSION = 6;                     /* 6 added stream; 5 added loop, and a repeat's fn and state; 2 added stack, entry, a transpose's order and inner axes; 3 the value None, a type's value and a promise; 4 choose and a source of kind none. An older graph holds none of what came after it and is a version 4 graph as it stands; one that says an older version and holds one of them is refused (versionFor) */
+const VERSIONS = [1, 2, 3, 4, 5, 6];
 export const CODES = ['mismatch', 'not-a-row', 'mixed', 'pieces', 'size', 'loop', 'no-source', 'seat', 'size-unknown', 'type'];
 /* An error in words, for whoever shows one: its note where that is a sentence, else what its code means. A note that
    is another error's code (what reads a thing with an error carries that error's code for its note) is said in words
@@ -416,7 +431,8 @@ function lookupIn(n, at, first, size, index){
 /* whether a formula of the node's own reads the index */
 export const readsIndex = n => (n.op === 'variable' && n.defined === 'entries' && Object.values(n.entries || {}).some(v => v && typeof v.expr === 'string' && tiles.reads(v.expr))) || (n.op === 'map' && tiles.reads(n.formula))
   || (n.op === 'mapalong' && Array.isArray(n.through) && n.through.length > 0)      /* an arrow repeated through an outer tile reads another part of its input in each of that tile's cells */
-  || n.op === 'noise';      /* noise reads no index, and still every cell holds other numbers: the cell joins its key */
+  || n.op === 'noise'       /* noise reads no index, and still every cell holds other numbers: the cell joins its key */
+  || n.op === 'stream';     /* nor does a stream, and in a tile that takes a step each tick the cell says which tick it is at */
 
 /* ---- the operations ----
    Each: inputs [least, most]; fields(n) -> what is wrong with its own fields (sentences); type(n, ins, g) -> the type
@@ -543,7 +559,7 @@ export const OPS = {
       /* what an entry's formula names holds inner data only where it is the variable's own size, inner data and all: a size that is settled when the graph is built is checked then, not met as an error in every entry */
       if (n.defined === 'entries' && ins.some(i => innerOf(i.type).length && !same(i.type, n.type))) return HELD_APART;
       if (n.defined === 'entries' || !ins.length) return n.type;
-      const t = ins[0].type, kinds = { measure: ['measure'], standing: ['block', 'stack'], joined: ['block'], source: ['source', 'map', 'noise'], entry: ['entry'] };
+      const t = ins[0].type, kinds = { measure: ['measure'], standing: ['block', 'stack'], joined: ['block'], source: ['source', 'map', 'noise', 'stream'], entry: ['entry'] };
       if (own(kinds, n.defined) && !kinds[n.defined].includes(ins[0].op)) return `defined "${n.defined}" over a ${ins[0].op}`;
       if (!same(t, n.type)) return 'what defines it is ' + sizes(t, n.type).replace('≠', 'and it is');
       if (n.defined === 'definition'){ for (const k of ['colsName', 'rowsName']) if (t[k] && n.type[k] && t[k] !== n.type[k]) return `its definition's side is ${t[k]} and its own is ${n.type[k]}`;
@@ -626,13 +642,24 @@ export const OPS = {
     value: (n, at) => passed(at.get(0), n.range) },
   source: { inputs: [0, 0], deep: true, space: n => n.kind === 'file' ? 'real' : n.kind === EMPTY ? S.NONE : 'boolean',      /* zeros, ones and an identity hold 0 and 1; a data file any numbers on the line; and the empty one None alone */
     id: n => `source(${n.kind}${n.kind === 'file' ? ':' + n.path : ''};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
-    fields: n => n.kind === 'file' ? (dataPath(n.path) ? [] : ['path is not a file under data/']) : typeof n.kind === 'string' && (n.kind === EMPTY || sourceKept(n.kind)) ? ('path' in n ? ['only a file has a path'] : n.kind === EMPTY ? stray(n, ['kind'], 'a source of None') : []) : [`kind is "${n.kind}"`],
+    fields: n => n.kind === 'file' ? (fileKind(n.path) === 'csv' ? [] : ['path is not a .csv file under data/']) : typeof n.kind === 'string' && (n.kind === EMPTY || sourceKept(n.kind)) ? ('path' in n ? ['only a file has a path'] : n.kind === EMPTY ? stray(n, ['kind'], 'a source of None') : []) : [`kind is "${n.kind}"`],
     type: n => !okType(n.type) ? 'it has no size of its own' : n.kind === 'file' && innerOf(n.type).length ? 'a data file holds no inner data' : T(n.type.cols, n.type.rows, null, null, unnamed(n.type)),
     value: n => sourceValues(n.kind, n.type.cols, n.type.rows, innerOf(n.type).map(a => a.length)) },      /* (a file's numbers are the backend's: evaluate.js does not ask here for them) */
   noise: { inputs: [0, 0], deep: true, space: n => n.dist === 'uniform' ? 'probability' : 'real', id: n => `noise(${n.seed};${n.dist};${n.key};${n.type.cols}×${n.type.rows}${innerText(n.type)})`,
     fields: n => [...(Number.isSafeInteger(n.seed) ? [] : ['seed is not a whole number']), ...(DISTS.includes(n.dist) ? [] : [`dist is "${n.dist}"`]), ...(typeof n.key === 'string' && n.key ? [] : ['key is not a block id'])],
     type: n => okType(n.type) ? T(n.type.cols, n.type.rows, null, null, unnamed(n.type)) : 'it has no size of its own',
     value: () => new Map() },      /* its numbers are the backend's (backend/arrays.py has the generator) */
+  stream: { inputs: [0, 0], deep: true, space: n => n.kind === 'noise' ? (n.dist === 'uniform' ? 'probability' : 'real') : n.kind === 'text' ? 'whole' : 'real',
+    id: n => `stream(${n.kind}:${n.kind === 'noise' ? `${n.seed};${n.dist};${n.key}` : n.path};${n.length};${n.start};${n.step};${n.end};${n.type.cols}×${n.type.rows})`,
+    fields(n){ if (!STREAM_KINDS.includes(n.kind)) return [`kind is "${n.kind}"`];
+      const bad = n.kind === 'noise' ? OPS.noise.fields(n) : fileKind(n.path) === n.kind ? [] : [`path is not a ${n.kind === 'text' ? '.txt' : '.' + n.kind} file under data/`];
+      if (!(Number.isSafeInteger(n.length) && n.length >= 1)) bad.push('length is not a whole number, at least 1');
+      if (!(n.start === null || (Number.isSafeInteger(n.start) && n.start >= 0))) bad.push('start is not a whole number, from 0, or null');
+      if (!(n.step === null || (Number.isSafeInteger(n.step) && n.step >= 1))) bad.push('step is not a whole number, at least 1, or null');
+      if (!ENDS.includes(n.end)) bad.push(`end is "${n.end}"`);
+      return [...bad, ...stray(n, [...(n.kind === 'noise' ? ['seed', 'dist', 'key'] : ['path']), 'kind', 'length', 'start', 'step', 'end'], 'a stream')]; },
+    type: n => !okType(n.type) ? 'it has no size of its own' : innerOf(n.type).length ? 'a stream holds no inner data' : n.type.cols % n.length ? 'its columns are not a whole number of values' : n.kind === 'text' && n.type.rows !== 1 ? 'a value of text is one row' : T(n.type.cols, n.type.rows),
+    value: () => new Map() },      /* its numbers are the backend's */
   measure: { inputs: [1, Infinity], deep: true,
     /* a length is a natural number; a single entry's side is the root of its mass; an attribute is what its formula comes to */
     space: (n, ins) => n.side === 'a' ? (n.formula.trim() ? spaceIn(n.formula, ins, 1) : 'boolean') : n.side === 'm' ? valueOf(ins[0]) : n.side[0] === 'd' || !one(ins[0].type) ? 'natural' : S.unary('sqrt', valueOf(ins[0])),
@@ -726,7 +753,7 @@ export const OPS = {
         if (isError(v)) return failed(n.type, v.err); count = v === true ? 1 : held(v);      /* (true counts as 1 in arithmetic, values.js, and so here; false as 0, which is no count) */
         if (count !== Infinity && !whole1(count)) return failed(n.type, BAD_COUNT); }
       if (count === 'inf') count = Infinity;
-      if (count === Infinity && n.until === null) return at.forever();      /* it has no last cell */
+      if (count === Infinity && n.until === null) return at.ticked();      /* it has no last cell: it takes a step each tick, and is the state of the cell after as many */
       if (n.until !== null) for (let k = 1; k <= count; k++){      /* (with no stop block there is nothing to look at on the way: the last state is asked for, and is deferred at once where it is past what is worked out here) */ const t = at.stopped(k); if (t === null) return new Map();      /* a stop block with an unknown entry that decides it: unknown, not "keep going" */
         if (t) return at.state(k, true); }
       return at.state(count + 1); } },
@@ -1012,6 +1039,12 @@ export function build(snapshot){
       return under(N('block', parts, { at }), v, 'joined'); }
     const src = sourceKept(d.source), size = T(v.type.cols, v.type.rows, null, null, unnamed(v.type));
     if (src && sourceKind(src) === 'file' && innerOf(v.type).length) return { error: E('no-source', 'a data file holds no inner data') };
+    if (src && src.stream){ const kind = streamKind(src);      /* a stream: successive values, as many as its length across */
+      if (innerOf(v.type).length) return { error: E('no-source', 'a stream holds no inner data') };
+      if (!kind) return { error: E('no-source', 'no file has been chosen for it') };
+      if (v.type.cols % src.stream.length) return { error: E('no-source', 'its columns are not a whole number of values') };
+      if (kind === 'text' && v.type.rows !== 1) return { error: E('no-source', 'a value of text is one row') };
+      return under(N('stream', [], { kind, ...(kind === 'noise' ? { seed: src.noise.seed, dist: src.noise.dist, key: v.src.id } : { path: src.file }), ...src.stream }, T(v.type.cols, v.type.rows)), v, 'source'); }
     if (src && src.noise) return under(N('noise', [], { seed: src.noise.seed, dist: src.noise.dist, key: v.src.id }, size), v, 'source');      /* keyed by the block the variable was made as, so every use of it shows the same numbers */
     if (src && sourceKind(src) === 'file') return src.file ? under(N('source', [], { kind: 'file', path: src.file }, size), v, 'source') : { error: E('no-source', 'no file has been chosen for it') };
     if (src) return under(N('source', [], { kind: src }, size), v, 'source');
@@ -1501,6 +1534,7 @@ export function validate(graph){
    graph that says an older version than something in it needs was not written by a program of that version, and
    whoever reads it by that version would not see what it holds: it is refused. */
 function versionFor(n){
+  if (n.op === 'stream') return [6, 'a stream'];
   if (n.op === 'loop') return [5, 'a loop'];
   if (n.op === 'repeat' && (n.fn !== undefined || n.state !== undefined)) return [5, 'a step'];
   if (n.op === 'choose') return [4, 'a choose'];

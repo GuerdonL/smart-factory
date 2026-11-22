@@ -255,8 +255,25 @@ class DataFiles(ServerCase):
         self.assertEqual(self.request('PUT', '/api/projects/p', [self.HEAD])[0], 200)      # saved without it, it is gone: the directory is exactly the files
         self.assertFalse(os.path.exists(os.path.join(self.dir, 'projects', 'p', 'data')))
 
+    def test_a_text_and_an_array_under_data_are_kept_and_given_back_the_array_as_its_bytes(self):
+        import base64
+        array = bytes(range(256)) * 3      # bytes that are no text: a .npy file passes to and from the page in base64
+        files = [self.HEAD, {'path': 'data/words.txt', 'text': 'h\u00e9llo \U0001F600\r\nbye\n'}, {'path': 'data/cube.npy', 'text': base64.b64encode(array).decode('ascii')}]
+        self.assertEqual(self.request('PUT', '/api/projects/p', files)[0], 200)
+        with open(os.path.join(self.dir, 'projects', 'p', 'data', 'cube.npy'), 'rb') as f:
+            self.assertEqual(f.read(), array)      # on disk it is the bytes themselves, which the backend reads
+        with open(os.path.join(self.dir, 'projects', 'p', 'data', 'words.txt'), 'rb') as f:
+            self.assertEqual(f.read(), 'h\u00e9llo \U0001F600\r\nbye\n'.encode('utf8'))
+        status, _, text = self.request('GET', '/api/projects/p')
+        self.assertEqual(sorted(json.loads(text), key=lambda f: f['path']), sorted(files, key=lambda f: f['path']))
+        self.assertEqual(self.request('PUT', '/api/projects/p', json.loads(text))[0], 200)      # saved again as it was given back: the same files
+        self.assertEqual(self.request('GET', '/api/projects/p')[2], text)
+        status, _, text = self.request('PUT', '/api/projects/q', [self.HEAD, {'path': 'data/cube.npy', 'text': 'not base64!'}])
+        self.assertEqual((status, json.loads(text)['error']), (400, "'data/cube.npy' is not base64: a .npy file is sent as its bytes in base64"))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, 'projects', 'q')))
+
     def test_a_csv_anywhere_else_is_refused_and_nothing_is_written(self):
-        for path in ['data/a..csv', 'data/a...b.csv', 'w.csv', 'data/../w.csv', '../data/w.csv', 'data/sub/w.csv', 'Keys/data/w.csv', 'data/.hidden.csv', 'data/w.csv/', '/data/w.csv', 'data\\w.csv', 'data/w\0.csv', 'data/w.CSV', 'data/' + 'a' * 81 + '.csv', 'data/w.txt', 'data/w.csv\n']:
+        for path in ['data/a..csv', 'data/a...b.csv', 'w.csv', 'data/../w.csv', '../data/w.csv', 'data/sub/w.csv', 'Keys/data/w.csv', 'data/.hidden.csv', 'data/w.csv/', '/data/w.csv', 'data\\w.csv', 'data/w\0.csv', 'data/w.CSV', 'data/' + 'a' * 81 + '.csv', 'data/w.json2', 'data/w.csv\n', 'w.txt', 'w.npy', 'data/sub/w.txt', 'data/w.TXT', 'data/w.npy.exe', 'Keys/data/w.npy']:
             status, _, text = self.request('PUT', '/api/projects/q', [self.HEAD, {'path': path, 'text': '1\n'}])
             self.assertEqual(status, 400, path)
             self.assertIn('not a path a project may contain', json.loads(text)['error'])

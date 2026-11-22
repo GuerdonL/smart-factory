@@ -1,7 +1,7 @@
 /* The page's side of the backend: when it is asked, for what, and which answers are kept. No drawing here; the
    network and the clock are handed in, so this is tested without either.
 
-   createBackend({ fetch, later, cancel, delay = 500, every = 15000, changed, told, project, version }) -> { health(), absent(), available(), older(), ask(graph, node, binding, cells, slot), problem(graph, node, binding), stopped(graph, node, binding), broke(graph, node, binding), pending() }
+   createBackend({ fetch, later, cancel, delay = 500, every = 15000, changed, told, project, version, counts, tick, ended }) -> { health(), absent(), available(), older(), ask(graph, node, binding, cells, slot), problem(graph, node, binding), stopped(graph, node, binding), broke(graph, node, binding), ended(graph), pending() }
      fetch      (path, options) -> a promise of a Response, as the browser's: asked for 'api/backend/health' and 'api/backend/run'
      later, cancel   setTimeout and clearTimeout
      delay      how long after the last change the backend is asked: half a second
@@ -13,6 +13,12 @@
      counts     graph -> { "<loop's id>": whole number }: the counts of loops that are settled only when run and
                 that the page has worked out exactly (evaluate.js: settledCounts); sent with a run as "counts"
                 where there are any, so that a natural is never looked for in 32-bit floats
+
+     tick       () -> the project's tick, a whole number from 0: sent with a run. An answer is an answer for one
+                graph at one tick: when the tick is another, everything is asked for afresh, as for a new graph
+                (and the answers of the tick before are given meanwhile, marked stale)
+     ended      (graph, node, tick) -> a sentence, or null: what to tell of a stream (its node) that the backend
+                says has ended, with the first tick at which it has no value; null leaves the backend's own words
 
      health()   asks whether there is a backend: a promise of true or false. Asked when the page loads, again every
                 `every` after that, and at once after a run that could not be asked or was refused whole, so that a
@@ -49,6 +55,9 @@
      broke(graph, node, binding)     { code: 'type', node } where that reason is a promise broken by a number the
                                      backend worked out (node: whose promise), else null. problem is then the
                                      sentence, "W is not natural: it holds ∞ at 3, 1", and told is not called for it
+     ended(graph)                    the streams the backend said have ended, for this graph at this tick: a Map from
+                                     a stream's node id to the first tick at which it has no value. broke gives
+                                     { code: 'ended', node, tick } for what has no numbers because of one
      pending()  how many nodes are wanted and not yet answered
 
    Nothing is kept beyond the answers of the graph being drawn and, for dimming, the ones before it. */
@@ -56,36 +65,41 @@ export const DELAY = 500, EVERY = 15000;
 export const keyFor = (node, binding) => binding ? node + '\n' + JSON.stringify(binding) : node;
 
 export const OLDER = 'the backend is older than this page: restart it';
-export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, changed = () => {}, told = () => {}, project = () => null, version = null, counts = () => ({}) }){
+export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout, delay = DELAY, every = EVERY, changed = () => {}, told = () => {}, project = () => null, version = null, counts = () => ({}), tick = () => 0, ended = () => null }){
   let older = false;                            /* a backend answers, and reads an older graph than this page writes: it is asked for no run */
   let there = null, now = null, before = new Map(), timer = null, beat = null, asking = null, gone = false, due = false;      /* due: this asking of its health is the regular one, at which what could not be asked for is tried again */
   /* now: { graph, wants: key -> { node, binding, cells, slot }, results: key -> result, errors: key -> why, asked: the keys sent, lost: the keys that could not be asked for }. before: the last answers, by slot, for dimming */
   const said = r => r.ok ? r.json() : r.json().then(j => Promise.reject(new Error((j && (j.error || (j.errors && j.errors['*']))) || 'the backend answered ' + r.status)), () => Promise.reject(new Error('the backend answered ' + r.status)));
-  const afresh = keys => { if (!now) return false; let any = false; for (const key of [...keys]) if (now.errors.has(key)){ now.errors.delete(key); now.codes.delete(key); now.asked.delete(key); now.lost.delete(key); any = true; } return any; };
+  const afresh = keys => { if (!now) return false; let any = false; for (const key of [...keys]) if (now.errors.has(key)){ now.errors.delete(key); now.codes.delete(key); now.asked.delete(key); now.lost.delete(key); any = true; } if (any) now.ended.clear(); return any; };
   function send(){
     timer = null; const at = now; if (!at || !there) return;
     const want = [...at.wants].filter(([key]) => !at.asked.has(key)); if (!want.length) return;
     for (const [key] of want) at.asked.add(key);
     const name = project(); let given = {}; try { given = counts(at.graph) || {}; } catch { given = {}; }      /* the counts the page has settled exactly, which the backend is not asked to find */
     Promise.resolve().then(() => fetch('api/backend/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: 0, ...(name ? { project: name } : {}), ...(Object.keys(given).length ? { counts: given } : {}) }) })).then(said)
+      body: JSON.stringify({ graph: at.graph, want: want.map(([key, w]) => ({ node: w.node, as: key, cells: w.cells, ...(w.binding ? { binding: w.binding } : {}) })), tick: at.tick, ...(name ? { project: name } : {}), ...(Object.keys(given).length ? { counts: given } : {}) }) })).then(said)
       .then(answer => { if (now !== at) return;      /* an answer for an older graph: dropped */
         const whole = answer && answer.errors && answer.errors['*'], why = new Set();
         for (const [key] of want){ const r = answer && answer.results && answer.results[key];
           if (r && typeof r === 'object') at.results.set(key, r); else { const e = (answer && answer.errors && answer.errors[key]) || whole || 'the backend gave no answer for it'; at.errors.set(key, e);
             /* a promise broken by a number the backend worked out (backend/run.py: codes): the error type, in the page's own sentence. It is no failure of the backend's, so it is written where the numbers would be and not said in the readout */
             const c = answer && answer.codes && typeof answer.codes === 'object' ? answer.codes[key] : null;
-            if (c && typeof c === 'object' && typeof c.code === 'string' && typeof c.node === 'string') at.codes.set(key, { code: c.code, node: c.node }); else why.add(e); } }
+            /* and a stream that has ended (codes: ended): which, and from which tick. Said once for each stream, in the page's words where it has them */
+            if (c && typeof c === 'object' && c.code === 'ended' && typeof c.node === 'string' && Number.isSafeInteger(c.tick)){ at.codes.set(key, { code: 'ended', node: c.node, tick: c.tick });
+              if (!at.ended.has(c.node)){ at.ended.set(c.node, c.tick); let s = null; try { s = ended(at.graph, c.node, c.tick); } catch { s = null; } why.add(typeof s === 'string' && s ? s : e); } }
+            else if (c && typeof c === 'object' && typeof c.code === 'string' && typeof c.node === 'string') at.codes.set(key, { code: c.code, node: c.node }); else why.add(e); } }
         if (why.size) told([...why]); changed(); if (whole) self.health(); },      /* refused whole: it may be that the backend is gone, and the server said so */
       e => { if (now !== at) return;      /* a failure of a run for an older graph: dropped */
         const why = 'the backend could not be asked: ' + (e && e.message ? e.message : e);
         for (const [key] of want){ at.errors.set(key, why); at.lost.add(key); } told([why]); changed(); self.health(); });
   }
   const soon = () => { if (timer !== null) cancel(timer); timer = later(send, delay); };
+  const whole = () => { let t = 0; try { t = tick(); } catch { t = 0; } return Number.isSafeInteger(t) && t >= 0 ? t : 0; };
+  const cur = graph => (now && now.graph === graph && now.tick === whole() ? now : null);      /* what is known of this graph at this tick */
   function at(graph){
-    if (now && now.graph === graph) return now;
+    if (cur(graph)) return now;
     if (now){ const kept = new Map(); for (const [key, w] of now.wants){ const r = now.results.get(key) || before.get(w.slot); if (r) kept.set(w.slot, r); } before = kept; }      /* what was last known of what was last drawn, for dimming */
-    now = { graph, wants: new Map(), results: new Map(), errors: new Map(), codes: new Map(), asked: new Set(), lost: new Set() };
+    now = { graph, tick: whole(), wants: new Map(), results: new Map(), errors: new Map(), codes: new Map(), ended: new Map(), asked: new Set(), lost: new Set() };
     return now;
   }
   const heard = answer => { const was = there, wasOlder = older, alive = !!(answer && answer.ok === true);
@@ -115,10 +129,11 @@ export function createBackend({ fetch, later = setTimeout, cancel = clearTimeout
       if (a.errors.has(key)) return null;
       return before.has(slot) ? { result: before.get(slot), stale: true } : null;
     },
-    problem(graph, node, binding){ return now && now.graph === graph ? now.errors.get(keyFor(node, binding)) || null : null; },
+    problem(graph, node, binding){ return cur(graph) ? now.errors.get(keyFor(node, binding)) || null : null; },
+    ended(graph){ return cur(graph) ? new Map(now.ended) : new Map(); },
     /* the cell at which the backend's run of a loop was stopped by its stop block (backend/run.py: stopped), or null: where it has not answered, or the loop ran to its count */
-    stopped(graph, node, binding){ const r = now && now.graph === graph ? now.results.get(keyFor(node, binding)) : null; return r && Number.isInteger(r.stopped) && r.stopped >= 1 ? r.stopped : null; },
-    broke(graph, node, binding){ return now && now.graph === graph ? now.codes.get(keyFor(node, binding)) || null : null; },
+    stopped(graph, node, binding){ const r = cur(graph) ? now.results.get(keyFor(node, binding)) : null; return r && Number.isInteger(r.stopped) && r.stopped >= 1 ? r.stopped : null; },
+    broke(graph, node, binding){ return cur(graph) ? now.codes.get(keyFor(node, binding)) || null : null; },
     pending: () => now ? [...now.wants.keys()].filter(k => !now.results.has(k) && !now.errors.has(k)).length : 0,
   };
   return self;

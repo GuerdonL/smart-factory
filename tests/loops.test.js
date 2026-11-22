@@ -47,7 +47,7 @@ test('loop: 256 steps and then it is the backend\'s; an infinite count with no s
   const zero = total({ count: 'inf', across: 'inf', until: 1, s0: 0, c: { '1,1': 0 } });      /* never true */
   assert.deepEqual(evaluate(zero, 'lp'), { type: zero.nodes.lp.type, deferred: true, steps: 256 });
   const f = total({ count: 'inf', across: 'inf' });
-  assert.deepEqual(evaluate(f, 'lp'), { type: f.nodes.lp.type, deferred: true, forever: true });
+  assert.equal(one(evaluate(f, 'lp')), 0);      /* it takes one step each tick: at tick 0 it is the first cell's state (tests/streams.test.js has the other ticks) */
   assert.deepEqual([1, 2, 3].map(k => one(cell(f, 's', k, 1e9))), [0, 1, 3]);      /* and its first cells are still worked out */
 });
 test('loop: a count that is settled only when it is run', () => {
@@ -126,7 +126,7 @@ test('build: a settled count across and down; Stop when true; a stop block not k
   assert.deepEqual(m.g.nodes[m.t.loop].count, 'inf'); assert.equal(m.g.nodes[m.t.loop].until, 2); assert.equal(m.t.node, null); assert.equal(m.t.error.note, tiles.ENDLESS);
   assert.deepEqual(evaluate(m.g, m.t.loop).entries, { '1,1': 6 }); assert.equal(stoppedAt(m.g, m.t.loop), 4);      /* 0, 1, 3, 6: the fourth cell is the first where S >= 4 */
   m = made(LOOPS['loops: a stop block that is not known']); assert.deepEqual(evaluate(m.g, m.t.loop).entries, {});
-  m = made(LOOPS['loops: no end and no stop block']); assert.deepEqual(evaluate(m.g, m.t.loop), { type: m.g.nodes[m.t.loop].type, deferred: true, forever: true });
+  m = made(LOOPS['loops: no end and no stop block']); assert.deepEqual(evaluate(m.g, m.t.loop).entries, { '1,1': 0 });      /* at tick 0: the first cell's state */
   assert.deepEqual([1, 2, 3].map(k => evaluate(m.g, 'v:S', { binding: { cells: [{ x: k - 1, y: 0, dx: 0, dy: 1, cx: k, cy: 1, of: ['t:T'] }] } }).entries['1,1']), [0, 1, 3]);      /* its first cells show their state */
   m = made(LOOPS['loops: a count settled only when it is run']);
   assert.deepEqual(m.g.nodes[m.t.loop].count, { input: 2 }); assert.equal(m.t.error.note, tiles.AT_RUN); assert.deepEqual(evaluate(m.g, m.t.loop).entries, { '1,1': 15 });      /* five steps */

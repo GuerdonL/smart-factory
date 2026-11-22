@@ -171,7 +171,7 @@ class Rules(unittest.TestCase):
     def noise_graph(self, seed=0, key='b1', cols=4, rows=4, dist='uniform'):
         return graph_of({'n': {'op': 'noise', 'inputs': [], 'type': T(cols, rows), 'seed': seed, 'dist': dist, 'key': key}, 'v:%s' % key: {'op': 'variable', 'inputs': ['n'], 'type': T(cols, rows), 'name': 'N', 'named': True, 'defined': 'source', 'entries': {}}})
 
-    def test_noise_is_the_generators_and_follows_seed_block_and_tick(self):
+    def test_noise_is_the_generators_and_follows_seed_and_block_and_not_the_tick(self):
         from .test_arrays import noise_entry
         import struct
         g = self.noise_graph(5, 'b1')
@@ -183,7 +183,7 @@ class Rules(unittest.TestCase):
         self.assertTrue(all(0 <= v < 1 for row in got for v in row))
         other = whole(self.noise_graph(6, 'b1'), 'v:b1')
         self.assertTrue(all(a != b for ra, rb in zip(got, other) for a, b in zip(ra, rb)))      # another seed: every one changes
-        self.assertNotEqual(whole(g, 'v:b1', tick=1), got)
+        self.assertEqual(whole(g, 'v:b1', tick=1), got)      # a noise block is the same at every tick: only a stream moves on (ruling 5)
         wider = whole(self.noise_graph(5, 'b1', 6, 5), 'v:b1')
         self.assertEqual([row[:4] for row in wider[:4]], got)      # resized: no entry that still exists changes
 
@@ -242,8 +242,8 @@ class DataFiles(unittest.TestCase):
             os.makedirs(os.path.join(self.root, name), exist_ok=True)
             with open(os.path.join(self.root, name, 'project.json'), 'w') as f:
                 f.write('{}')
-        self.assertEqual(R.upload('mine', 'data/w.csv', b'a,b,c\n1,2,3\n4,5.5,-6\n', self.root), {'path': 'data/w.csv', 'cols': 3, 'rows': 2})
-        self.assertEqual(R.upload('mine', 'data/tiny.csv', b'1e-60,2\n', self.root), {'path': 'data/tiny.csv', 'cols': 2, 'rows': 1, 'small': 1})      # one number too small for 32 bits: read as 0, and said
+        self.assertEqual(R.upload('mine', 'data/w.csv', b'a,b,c\n1,2,3\n4,5.5,-6\n', self.root), {'path': 'data/w.csv', 'cols': 3, 'rows': 2, 'length': 2})
+        self.assertEqual(R.upload('mine', 'data/tiny.csv', b'1e-60,2\n', self.root), {'path': 'data/tiny.csv', 'cols': 2, 'rows': 1, 'length': 1, 'small': 1})      # one number too small for 32 bits: read as 0, and said
         self.assertEqual(whole(self.g, 'f', root=None), 'data/w.csv: the project has to be saved under a name before its data files can be read')
         out = R.run(json.dumps({'graph': self.g, 'want': [{'node': 't', 'cells': all_cells(T(2, 3))}], 'project': 'mine'}).encode(), self.root, ROOM)
         self.assertEqual([v for _, _, v in out['results']['t']['cells']], [1, 4, 2, 5.5, 3, -6])
@@ -266,7 +266,7 @@ class DataFiles(unittest.TestCase):
             g = json.loads(json.dumps(self.g))
             g['nodes']['f']['path'] = path
             out = R.run(json.dumps({'graph': g, 'want': [{'node': 'f', 'cells': []}], 'project': 'mine'}).encode(), self.root, ROOM)
-            self.assertIn('path is not a file under data/', out['errors']['*'])
+            self.assertIn('path is not a .csv file under data/', out['errors']['*'])
 
 
 @needs_numpy

@@ -1,6 +1,6 @@
 /* A graph worked out, exactly. No drawing here: a graph (graph.js) and a node's id in, that node's entries out.
 
-   evaluate(graph, nodeId, { maxEntries = 4096, binding = null, maxSteps = 256 })
+   evaluate(graph, nodeId, { maxEntries = 4096, binding = null, maxSteps = 256, tick = 0 })
        -> { type, entries }                    worked out: entries is keyed "column,row" from 1 (and, where the type
                                                holds inner data, "column,row,k1,k2,…": one more number, from 1, for
                                                each inner axis) and holds values of
@@ -16,12 +16,15 @@
                                                A variable that promises a number space (holds) and has a value
                                                outside it is such a variable: the code is type, and the note names
                                                the entry. It is found here, where the values are, not by build.
-        | { type, deferred: true, backend: true }   it is worked out from noise or from a data file, whose numbers
-                                               only the backend has (backend/): nothing here can say them
+        | { type, deferred: true, backend: true }   it is worked out from noise, from a data file or from a stream,
+                                               whose numbers only the backend has (backend/): nothing here can say them
         | { type, deferred: true, steps: 256 }      a tile's step was applied maxSteps times and the loop had not
                                                stopped (or its tile has more cells than that): the backend's
-        | { type, deferred: true, forever: true }   a loop with an infinite count and no stop block: it has no last
-                                               cell, and runs until it is stopped
+   tick is the project's clock, a whole number from 0. One thing here reads it: a loop with an infinite count and
+   no stop block takes one step each tick, so at tick t it is the state of cell t + 1 (and is deferred for its steps
+   where t is past maxSteps). What is remembered of a graph is of one tick: asked at another, everything that
+   follows the tick (such a loop and whatever is worked out from one, and whatever was worked out under a binding)
+   is forgotten first, so no answer of one tick is ever given at another.
    It never throws, for a well-formed graph (graph.js: validate) or any other, and it finishes: a function that
    reaches itself, which validate refuses, is the error loop here and not an endless descent, and whatever else
    goes wrong in a graph that is not well formed is the error no-source with what went wrong for its note.
@@ -122,7 +125,7 @@
        at.rest(k)          what input k, a sum or a product of several, set aside at each entry (graph.js: RESTS), or null
        at.state(k, stopped)   a loop's: the state of cell k of its tile (stopped: it ends there, which is noted)
        at.stopped(k)       a loop's: whether its stop block is true as a whole matrix in cell k (null: not known)
-       at.forever()        a loop's: it has no last cell
+       at.ticked()         a loop's with no last cell: the state of the cell after as many steps as the tick
        at.ks               where the rule is being repeated over inner data, the inner position of this run */
 import { OPS, RESTS, readsIndex, tailsOf, inferred, fnOf, stateAt, placesOf, cellAt } from './graph.js';
 import { broken, untold, within, NOT_HELD, UNPROVEN } from './spaces.js';
@@ -182,7 +185,7 @@ function needsOf(graph, st, id, open = new Set()){
   const n = nodeAt(graph, id);
   if (!n) return { most: 0, bad: { code: 'no-source', note: 'no such node', node: String(id) } };
   let most = numbers(n.type), bad = n.op === 'variable' && n.error ? { code: n.error.code, note: n.error.note, node: id } : null;
-  let remote = n.op === 'noise' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
+  let remote = n.op === 'noise' || n.op === 'stream' || (n.op === 'source' && n.kind === 'file');      /* numbers only the backend has */
   let bound = fnsOf(n).length ? most : 0;       /* the most numbers of anything it is worked out from that follows a function's input: that is worked out again for each thing the function is applied to */
   let kept = (n.op === 'variable' && typeof n.holds === 'string') || fnOf(n) !== undefined ? [id] : NO_IDS;      /* the variables among them, itself included, that promise a number space, and the functions applied, whose input may promise one */
   if (open.has(id)) return { most, bound, bad: bad || { code: 'loop', note: '', node: id }, remote, kept };
@@ -343,7 +346,7 @@ function run(graph, st, id, env){
       /* where it cannot be told, which cell that was and why is kept for whoever says so (stuckAt): an entry that is an error, or one not known */
       if (told === null){ const bad = [...c.values()].find(v => v && typeof v === 'object' && typeof v.err === 'string'); st.stuck.set(id, { cell: k, err: bad ? bad.err : null }); } else st.stuck.delete(id);
       return told; },
-    forever(){ throw { later: { forever: true } }; },
+    ticked(){ return at.state(st.tick + 1); },
     given(node){ const fn = fnsOf(node).slice(-1)[0], p = fn !== undefined && own(env.params, fn) ? env.params[fn] : null; if (!p) return new Map();
       if (!p.values){ const spec = p.spec, of = typeof spec === 'string' ? spec : spec.of, rest = { ...env.params }; delete rest[fn];      /* what it was given is not worked out from itself */
         const from = nodeAt(graph, of), all = from ? run(graph, st, of, { ...env, params: rest }) : new Map(), part = typeof spec === 'string' || !spec.range ? all : passed(all, spec.range);
@@ -366,12 +369,34 @@ function run(graph, st, id, env){
   mine.set(key, value); return value;
 }
 
-export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null, maxSteps = STEPS } = {}){
+/* Whether a node's value follows the tick: it is a loop with no last cell, or is worked out from one (through its
+   inputs or its function's body). A stream follows it too, and is never worked out here. */
+const endless = n => n.op === 'loop' && n.count === 'inf' && n.until === null;
+function ticks(graph, st, id){
+  if (!st.ticks) st.ticks = new Map();
+  if (!st.ticks.has(id)){ st.ticks.set(id, false); const n = nodeAt(graph, id), f = n && fnOf(n) !== undefined ? fnAt(graph, fnOf(n)) : null;
+    st.ticks.set(id, !!n && (endless(n) || n.op === 'stream' || n.inputs.some(i => ticks(graph, st, i)) || (!!f && ticks(graph, st, f.body)))); }
+  return st.ticks.get(id);
+}
+/* a state is of one tick: at another, what follows the tick is forgotten, and so is all that was worked out under a
+   binding (a function's body does not say what it was given, and that may follow the tick) */
+function atTick(graph, st, tick){
+  const was = st.tick; st.tick = tick; if (was === undefined || was === tick) return;
+  if (st.anyTicks === undefined) st.anyTicks = Object.keys(graph.nodes || {}).some(id => { const n = nodeAt(graph, id); return !!n && endless(n); });
+  if (!st.anyTicks) return;      /* nothing in the graph steps with the tick: every answer stands */
+  for (const [id, mine] of st.values) for (const key of [...mine.keys()]) if (key !== '' || ticks(graph, st, id)) mine.delete(key);
+  for (const [id, mine] of st.answers) for (const key of [...mine.keys()]) if (!key.endsWith('\n') || ticks(graph, st, id)) mine.delete(key);
+  st.stepped.clear();
+  for (const kept of [st.stops, st.stuck]) for (const id of [...kept.keys()]) if (ticks(graph, st, id)) kept.delete(id);
+}
+const tickOf = tick => (Number.isSafeInteger(tick) && tick >= 0 ? tick : 0);
+export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null, maxSteps = STEPS, tick = 0 } = {}){
   const n = graph && typeof graph === 'object' && typeof nodeId === 'string' ? nodeAt(graph, nodeId) : null;
   if (!n) return { error: { code: 'no-source', note: 'no such node', node: String(nodeId) } };
   /* what is remembered is remembered for one maxSteps: a value worked out with more steps allowed is no answer where fewer are (others: the states for every maxSteps but the default) */
   const base = stateOf(graph); if (maxSteps !== STEPS && !base.others) base.others = new Map(); if (maxSteps !== STEPS && !base.others.has(maxSteps)) base.others.set(maxSteps, stateOf({}));
-  const st = maxSteps === STEPS ? base : base.others.get(maxSteps), bkey = binding ? JSON.stringify(binding) : '', kept = under(st.answers, nodeId), akey = maxEntries + (maxSteps === STEPS ? '' : '/' + maxSteps) + '\n' + bkey;
+  const st = maxSteps === STEPS ? base : base.others.get(maxSteps); atTick(graph, st, tickOf(tick));
+  const bkey = binding ? JSON.stringify(binding) : '', kept = under(st.answers, nodeId), akey = maxEntries + (maxSteps === STEPS ? '' : '/' + maxSteps) + '\n' + bkey;
   if (kept.has(akey)) return kept.get(akey);
   const done = answer => { kept.set(akey, answer); return answer; };
   let brokeIn = () => null;
@@ -393,7 +418,7 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null, max
       /* one whose values can be read off the graph (a source filled with one known value, entries all typed in) is held to its promise by them at any size, itself included */
       const kn = nodeAt(graph, v), plain = kn && kn.op === 'variable' && typeof kn.holds === 'string' ? plainly(graph, v) : null, out = plain ? broken(kn.holds, plain) : null;
       if (out) return { code: 'type', note: NOT_HELD(kn.name || v, kn.holds, out.key, out.value), node: v };
-      if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding, maxSteps }); if (a.error && a.error.code === 'type') return a.error; } } return null; };
+      if (v !== nodeId){ const a = evaluate(graph, v, { maxEntries, binding, maxSteps, tick }); if (a.error && a.error.code === 'type') return a.error; } } return null; };
     brokeIn = broke;
     if (needs.some(d => d.most > maxEntries)){ const b = broke(); return done(b ? { error: b } : { type: n.type, deferred: true, ...(needs.some(d => d.remote) ? { backend: true } : {}) }); }
     const bad = needs.map(d => d.bad).find(Boolean); if (bad) return done({ error: bad });
@@ -407,7 +432,7 @@ export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null, max
   } catch (e){      /* never thrown: a function inside itself is a loop, and anything else is a graph that is not well formed */
     if (e && e.broke) return done({ error: e.broke });      /* a promise broken by a value, here or in what this is worked out from; or an error in the side a choose took */
     if (e && e.later){ let b = null; try { b = brokeIn([e.later]); } catch { b = null; }      /* the side a choose took is too large to work out here, or the backend's: so is this */
-      return done(b ? { error: b } : { type: n.type, deferred: true, ...(e.later.remote ? { backend: true } : {}), ...(e.later.steps !== undefined ? { steps: e.later.steps } : {}), ...(e.later.forever ? { forever: true } : {}) }); }
+      return done(b ? { error: b } : { type: n.type, deferred: true, ...(e.later.remote ? { backend: true } : {}), ...(e.later.steps !== undefined ? { steps: e.later.steps } : {}) }); }
     return done({ error: e === LOOP ? { code: 'loop', note: '', node: nodeId } : { code: 'no-source', note: 'it could not be worked out: ' + (e && e.message ? e.message : String(e)), node: nodeId } });
   }
 }
@@ -432,7 +457,7 @@ export function promiseOf(graph, id, options = {}){
   if (!holds) return { holds, inferred: was, state: 'inferred', note: '' };
   const a = evaluate(graph, id, options);
   if (a.error && a.error.code === 'type' && a.error.node === id) return { holds, inferred: was, state: 'broken', note: a.error.note };
-  const plain = a.deferred && a.steps === undefined && !a.forever ? plainly(graph, id) : null;      /* too large to work out, and its values can be read off the graph all the same: they were held to the promise (evaluate), and keep it */
+  const plain = a.deferred && a.steps === undefined ? plainly(graph, id) : null;      /* too large to work out, and its values can be read off the graph all the same: they were held to the promise (evaluate), and keep it */
   if (((a.deferred && !(plain && !untold(holds, plain))) || (a.entries && untold(holds, a.entries))) && !within(was, holds)) return { holds, inferred: was, state: 'unproven', note: UNPROVEN(n.name || id, holds, was) };
   return { holds, inferred: was, state: 'kept', note: '' };
 }
@@ -491,7 +516,7 @@ export function truthAt(graph, id, options = {}){
   const n = graph && typeof graph === 'object' && typeof id === 'string' ? nodeAt(graph, id) : null; if (!n) return null;
   const a = evaluate(graph, id, options), all = (values, count) => { const t = truthOf(values); return t === false && values.length < count ? null : t; };      /* an entry never given is absent: with none true, not known */
   if (a.entries) return all(Object.values(a.entries), numbers(n.type));
-  if (!a.deferred || a.backend || a.steps !== undefined || a.forever) return null;      /* (deferred for its steps, a state block is not its own entries: what it holds is the backend's to say) */
+  if (!a.deferred || a.backend || a.steps !== undefined) return null;      /* (deferred for its steps, a state block is not its own entries: what it holds is the backend's to say) */
   let at = id, m = n; for (let k = 0; m && k < 64 && m.op === 'transpose'; k++){ at = m.inputs[0]; m = nodeAt(graph, at); }      /* turned, it holds the same numbers */
   const plain = m ? plainly(graph, at) : null; if (!plain) return null;
   for (let k = 0; m && k < 64 && m.op === 'variable' && m.defined !== 'entries' && !m.error && m.inputs.length === 1; k++) m = nodeAt(graph, m.inputs[0]);
@@ -523,6 +548,8 @@ const texts = new WeakMap();
 export function carry(from, to){
   const a = from && typeof from === 'object' ? states.get(from) : null; if (!a || !to || typeof to !== 'object' || from === to) return 0;
   const b = stateOf(to), told = new Map();
+  if (b.tick === undefined) b.tick = a.tick;
+  const sameTick = b.tick === a.tick, moves = id => sameTick || !ticks(from, a, id);      /* what follows the tick is taken over only to the same tick */
   /* a node written out, but for its entries, kept with it (it is asked again at the next carry); entries are told apart one by one, and are mostly the very same values */
   const written = n => { if (!texts.has(n)) texts.set(n, JSON.stringify(n, (k, v) => k === 'entries' && v && typeof v === 'object' ? undefined : v)); return texts.get(n); };
   const alike = (p, q) => { if (p === q || !p || !q || typeof p !== 'object' || typeof q !== 'object') return p === q; const ks = Object.keys(p); if (ks.length !== Object.keys(q).length) return false;
@@ -540,10 +567,10 @@ export function carry(from, to){
       told.set(id, deps.every(d => told.get(d) !== false)); todo.pop(); }
     return told.get(start); };
   let n = 0;
-  for (const [id, mine] of a.values){ if (!mine.has('') || !sameAt(id)) continue; under(b.values, id).set('', mine.get('')); n++; }
-  for (const [id, mine] of a.answers) if (sameAt(id)) for (const [key, answer] of mine) if (key.endsWith('\n')) under(b.answers, id).set(key, answer);
+  for (const [id, mine] of a.values){ if (!mine.has('') || !moves(id) || !sameAt(id)) continue; under(b.values, id).set('', mine.get('')); n++; }
+  for (const [id, mine] of a.answers) if (moves(id) && sameAt(id)) for (const [key, answer] of mine) if (key.endsWith('\n')) under(b.answers, id).set(key, answer);
   for (const [id, need] of a.needs) if (sameAt(id)) b.needs.set(id, need);
-  for (const [id, cell] of a.stops) if (sameAt(id)) b.stops.set(id, cell);
-  for (const [id, why] of a.stuck) if (sameAt(id)) b.stuck.set(id, why);      /* and the cell a loop stopped at goes with its answer, which is not worked out again */
+  for (const [id, cell] of a.stops) if (moves(id) && sameAt(id)) b.stops.set(id, cell);
+  for (const [id, why] of a.stuck) if (moves(id) && sameAt(id)) b.stuck.set(id, why);      /* and the cell a loop stopped at goes with its answer, which is not worked out again */
   return n;
 }

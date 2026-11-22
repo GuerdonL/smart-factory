@@ -26,7 +26,7 @@ def tile(g):
 class Validate(unittest.TestCase):
     def test_a_loop_and_a_step_need_version_5(self):
         g = named('by hand: loop')
-        self.assertEqual(VERSION, 5)
+        self.assertEqual(VERSION, 6)
         self.assertEqual(validate(g), [])
         for version in (1, 2, 3, 4):
             said = validate(dict(g, version=version))
@@ -231,9 +231,9 @@ class Loops(unittest.TestCase):
             self.assertGreaterEqual(len(third), 2, name)
             self.assertTrue(all('rows' in b['answer'] for b in third), name)
 
-    def test_no_end_and_no_stop_block_runs_until_stopped(self):
+    def test_no_end_and_no_stop_block_takes_a_step_each_tick(self):
         g = named('loops: no end and no stop block')
-        self.assertEqual(whole(g, tile(g)['loop']), 'it runs until stopped: its count is infinite and it has no stop block')
+        self.assertEqual(whole(g, tile(g)['loop']), [[0]])      # at tick 0: the first cell's state (test_streams.Tick has the other ticks)
 
     def test_the_step_limit_and_its_sentence(self):
         self.assertEqual(limits.MAX_STEPS, 1_000_000)
