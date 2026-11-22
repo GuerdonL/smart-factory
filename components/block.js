@@ -1,6 +1,6 @@
 /* A block on the canvas: a solid, slightly raised rectangle in its shape's colour, with its name above it.
 
-   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, inner, set(rect), select(on), nest(n), dim(on), sink(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
+   createBlock(shape, rect, name) -> { id, el, nameEl, shape, rect, name, sides, values, inner, set(rect), select(on), nest(n), cells(n, down), dim(on), sink(on), grips(on), stripes(way, unit), paint(color), off(on), warn(on), call(name), rename(after) }
      id       a name for this block that nothing else has: how messages say which block they mean. null until whoever
               made the block gives it one.
      shape    a config from shapes/; its "color" names the theme variable to use ("tensor" -> --tensor)
@@ -27,6 +27,9 @@
      stripes  bands the block's face, one band to each `unit` of world length, paler and deeper by turns in the
               block's own colour: 'rows' across (one band per row), 'cols' down (one per column), 'both', or
               null for a plain face
+     cells    cells(n, down): draws it as n cells side by side (down: one under the next), a thin line of its own
+              edge's colour where one ends and the next begins: a stream, which shows n successive values and is
+              drawn as a tile is, one cell to a value (0 or 1: no lines)
      nest     nest(n): draws it as a shape whose entries hold inner data, with n inner axes: one offset outline
               behind its face for each, down and to the right, at most three drawn (0: none). Its name stays
               where every block's is.
@@ -70,6 +73,9 @@ style('block', `
 /* the shadow underneath is drawn on a layer below every block (z-index -1), so it falls on the canvas and never on another block */
 .block::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
   box-shadow: 0 calc(2 * var(--px)) calc(3 * var(--px)) var(--cast), 0 calc(8 * var(--px)) calc(14 * var(--px)) calc(-4 * var(--px)) var(--cast); }
+/* a stream's cells: a line of the rim's colour at the end of each, over whatever else is on the face */
+.block.cells { background: repeating-linear-gradient(to right, transparent 0 calc(var(--cell) - 1.5 * var(--px)), var(--rim) calc(var(--cell) - 1.5 * var(--px)) var(--cell)), var(--bands, none) var(--face); }
+.block.cells.cells-down { background: repeating-linear-gradient(to bottom, transparent 0 calc(var(--cell) - 1.5 * var(--px)), var(--rim) calc(var(--cell) - 1.5 * var(--px)) var(--cell)), var(--bands, none) var(--face); }
 /* bands start at the block's top and left edge, so each one is exactly a row or a column */
 .block.rows { --bands: repeating-linear-gradient(to bottom, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
 .block.cols { --bands: repeating-linear-gradient(to right, var(--stripe-light) 0 var(--u), var(--stripe-deep) var(--u) calc(2 * var(--u))); }
@@ -187,6 +193,7 @@ export function createBlock(shape, rect, name = ''){
     sit(on){ el.classList.toggle('seated', !!on); },
     given(on){ el.classList.toggle('input', !!on); },
     turn(on){ block.t = !!on; el.classList.toggle('transposed', !!on); },
+    cells(n, down = false){ const on = Number.isInteger(n) && n > 1; el.classList.toggle('cells', on); el.classList.toggle('cells-down', on && !!down); if (on) el.style.setProperty('--cell', (100 / n) + '%'); },
     stripes(way, unit){ el.classList.toggle('rows', way === 'rows' || way === 'both'); el.classList.toggle('cols', way === 'cols' || way === 'both');
       if (way) el.style.setProperty('--u', unit + 'px'); },
     set(r){ block.rect = r; Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' }); },

@@ -215,3 +215,56 @@ test('backend.js sends the tick, asks afresh when it changes, and tells of a str
   const sent0 = [], b0 = createBackend({ fetch: (path, options) => { if (options) sent0.push(JSON.parse(options.body)); return Promise.resolve({ ok: true, json: () => Promise.resolve(path.endsWith('health') ? { ok: true, version: g.version } : { results: {}, errors: {} }) }); }, later: fn => { waits.push(fn); return waits.length; }, cancel: () => {}, version: g.version });
   await b0.health(); b0.ask(g, loop, null, [[1, 1]], 'a'); await flush(); assert.equal(sent0[0].tick, 0);
 });
+
+/* ---- in a project's files (project.js) ---- */
+import { write, read, FORMAT } from '../project.js';
+const shape = (name, cols, rows, more = {}) => ({ id: 'b' + name, type: 'data-in', name, color: 'variable-1', x: 0, y: 0, cols, rows, colsName: null, rowsName: null, inner: null, entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, ...more });
+const snapOf = (shapes, more = {}) => ({ top: { shapes, groups: [], operations: [] }, saved: '2026-11-22T00:00:00.000Z', ids: null, data: {}, ...more });
+const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
+
+test('project: a stream is written beside its source, the tick in project.json, and saved, reopened, saved gives the same files', () => {
+  assert.equal(FORMAT, 8);
+  const p = snapOf([shape('N', 8, 2, { source: noisy(3, 'normal', st(4, 5, 2, 'wrap')) }), shape('R', 3, 4, { source: filed('data/rows.csv', st(1, 0, 4)) }), shape('W', 6, 1, { source: filed('data/words.txt', st(2, 0, 3)) }),
+    shape('C', 2, 3, { source: filed('data/cube.npy', st()) }), shape('U', 2, 1, { source: noisy(0, 'uniform', st(2, null, null)) }), shape('F', 2, 2, { source: filed(null, st()) }), shape('P', 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } })],
+    { tick: 41, data: { 'data/rows.csv': '1,2,3\n', 'data/words.txt': 'héllo 😀\n', 'data/cube.npy': 'AAAA', 'data/notes.md': 'no data file' } });
+  const files = write(p), back = read(files);
+  assert.deepEqual(json(files, 'project.json'), { format: 'smart-factory/project', version: 8, saved: '2026-11-22T00:00:00.000Z', tick: 41 });
+  assert.deepEqual(json(files, 'N.json').source, { noise: { seed: 3, dist: 'normal' } }); assert.deepEqual(json(files, 'N.json').stream, { length: 4, start: 5, step: 2, end: 'wrap' });
+  assert.deepEqual(json(files, 'R.json').source, { file: 'data/rows.csv' }); assert.deepEqual(json(files, 'R.json').stream, { length: 1, start: 0, step: 4, end: 'stop' });
+  assert.deepEqual(json(files, 'U.json').stream, { length: 2, start: null, step: null, end: 'stop' }); assert.deepEqual(json(files, 'F.json').source, { file: null });
+  assert.equal(json(files, 'P.json').stream, undefined);      /* a plain noise block is written as it always was */
+  assert.deepEqual(files.filter(f => f.path.startsWith('data/')).map(f => f.path), ['data/cube.npy', 'data/rows.csv', 'data/words.txt']);      /* the three kinds of data file, and nothing else */
+  assert.equal(back.tick, 41); assert.equal(back.ticked, null); assert.deepEqual(back.streamed, []);
+  assert.deepEqual(back.top.shapes.map(d => d.source), p.top.shapes.map(d => d.source));
+  assert.deepEqual(back.data, { 'data/cube.npy': 'AAAA', 'data/rows.csv': '1,2,3\n', 'data/words.txt': 'héllo 😀\n' });
+  assert.deepEqual(write(back), files); assert.deepEqual(write(read(write(back))), files);
+});
+
+test('project: a project saved before streams opens as it was, with tick 0; a tick or a stream that is none is read and said', () => {
+  const old = snapOf([shape('P', 2, 2, { source: { noise: { seed: 1, dist: 'uniform' } } }), shape('F', 2, 2, { source: { file: 'data/w.csv' } })], { data: { 'data/w.csv': '1,2\n3,4\n' } });
+  const seven = write(old).map(f => ({ path: f.path, text: f.path.endsWith('.json') ? JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(f.text)).filter(([k]) => k !== 'tick').map(([k, v]) => [k, k === 'version' ? 7 : v])), null, 2) + '\n' : f.text }));
+  assert.equal(json(seven, 'project.json').tick, undefined); assert.equal(json(seven, 'project.json').version, 7);
+  const opened = read(seven); assert.equal(opened.tick, 0); assert.equal(opened.ticked, null); assert.deepEqual(opened.streamed, []);
+  assert.deepEqual(opened.top.shapes.map(d => d.source), [{ noise: { seed: 1, dist: 'uniform' } }, { file: 'data/w.csv' }]);
+  assert.deepEqual(write(opened), write(old));      /* saved again: the format number, and "tick": 0 */
+  const head = tick => [{ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: 8, tick }) }];
+  for (const [tick, said] of [[-1, -1], [1.5, 1.5], ['7', '7'], [null, null], [2 ** 53, 2 ** 53]]){ const r = read(head(tick)); assert.equal(r.tick, 0); assert.deepEqual(r.ticked, tick === null ? null : said, String(tick)); }
+  assert.equal(read(head(7)).tick, 7); assert.equal(read(head(7)).ticked, null);
+  /* what was written for a stream and is not read as written: each is said, and the project opens */
+  const cfg = (name, more) => ({ path: name + '.json', text: JSON.stringify({ format: 'smart-factory/shape', version: 8, id: 'b' + name, type: 'data-in', name, named: true, position: { x: 0, y: 0 }, size: { cols: 4, rows: 2 }, sides: { cols: null, rows: null }, value: { as: 'resolved', entries: {} }, order: 0, ...more }) });
+  const odd = read([...head(0), cfg('A', { source: { noise: { seed: 1, dist: 'uniform' } }, stream: { length: 2, start: 0, step: 1, end: 'loop' } }), cfg('B', { source: 'zeros', stream: { length: 2 } }),
+    cfg('C', { source: { noise: { seed: 1, dist: 'uniform' } }, stream: { length: 3, start: 0, step: 1, end: 'stop' } }), cfg('D', { source: { file: 'data/gone.csv' }, stream: { length: 1, start: 0, step: 1, end: 'stop' } }),
+    cfg('E', { source: { noise: { seed: 1, dist: 'uniform' } }, stream: 'yes' }), cfg('G', { source: { file: 'data/words.txt' }, stream: { length: 1, start: 0, step: 1, end: 'stop' } }), cfg('H', { source: { file: 'data/words.txt' } }),
+    { path: 'data/words.txt', text: 'hi' }]);
+  const by = name => odd.top.shapes.find(d => d.name === name).source;
+  assert.deepEqual(by('A'), noisy(1, 'uniform', st(2))); assert.equal(by('B'), 'zeros'); assert.deepEqual(by('C'), noisy(1, 'uniform', st(1))); assert.deepEqual(by('D'), filed('data/gone.csv', st()));
+  assert.deepEqual(by('E'), { noise: { seed: 1, dist: 'uniform' } }); assert.deepEqual(by('G'), filed('data/words.txt', st())); assert.deepEqual(by('H'), { file: null });      /* (a plain file block reads a CSV: a text is no file chosen) */
+  assert.deepEqual(odd.streamed, [
+    { name: 'A', why: 'an end of "loop" is read as "stop"' },
+    { name: 'B', why: 'it is written as a stream, and only noise and a data file are streamed: it is read as what it is without one' },
+    { name: 'C', why: 'it is 4 columns for a length of 3, which is no whole number of values: its length is read as 1' },
+    { name: 'E', why: 'its stream is not { length, start, step, end }, and it is read as no stream' },
+    { name: 'D', why: 'it reads data/gone.csv, which is not among the project\'s files: choose the file again' }]);
+  assert.deepEqual(read(write(odd)).streamed, [{ name: 'D', why: 'it reads data/gone.csv, which is not among the project\'s files: choose the file again' }]);      /* saved, only what is still so is said again */
+  assert.throws(() => read([{ path: 'project.json', text: JSON.stringify({ format: 'smart-factory/project', version: 9 }) }]), /saved by a newer version \(format 9\)/);
+});

@@ -14,7 +14,7 @@ import { evaluate, promiseOf, truthAt } from '../evaluate.js';
 const shape = (name, more = {}) => ({ id: null, type: 'tensor', name, color: isNamed(name) ? 'variable-1' : null, x: 0, y: 0, cols: 2, rows: 3, colsName: null, rowsName: null, inner: null,
   entries: {}, inside: null, variable: null, standing: false, source: null, transposed: false, attributes: [], reference: false, from: null, arrow: null, seat: null, in: false, joined: null, ...more });
 const space = (shapes = [], groups = [], operations = []) => ({ shapes, groups, operations });
-const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, data: {}, converted: 0, changed: 0, resized: [], unheld: [], unstepped: [], ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently; resized: the references it set to their variable's size */
+const project = (top, more = {}) => ({ top, saved: '2026-11-16T00:00:00.000Z', ids: null, tick: 0, data: {}, converted: 0, changed: 0, resized: [], unheld: [], unstepped: [], streamed: [], ticked: null, ...more });      /* converted, changed: read says how many old stacks it fused, and how many other pieces read differently; resized: the references it set to their variable's size */
 const json = (files, path) => JSON.parse(files.find(f => f.path === path).text);
 const paths = files => files.map(f => f.path).sort();
 const file = (path, body) => ({ path, text: JSON.stringify(body) });
@@ -51,7 +51,7 @@ test('a space is a directory, a shape a file, a definition a directory beside it
   assert.deepEqual(paths(files), ['.config', 'Keys.json', 'Keys/Embedding.json', 'Lone.json', 'Pair.frame.json', 'project.json']);
   assert.equal(json(files, 'Keys.json').definition, 'Keys/');
   assert.equal(json(files, 'Pair.frame.json').shapes[0].name, 'Framed');
-  assert.deepEqual(json(files, 'project.json'), { format: 'smart-factory/project', version: FORMAT, saved: '2026-11-16T00:00:00.000Z' });
+  assert.deepEqual(json(files, 'project.json'), { format: 'smart-factory/project', version: FORMAT, saved: '2026-11-16T00:00:00.000Z', tick: 0 });
   for (const f of files) assert.ok(f.text.endsWith('\n'), f.path + ' ends with a newline');
 });
 
@@ -196,7 +196,7 @@ test('what is not a project is refused, with the reason', () => {
   assert.throws(() => read([]), /no project\.json/);
   assert.throws(() => read([file('A.json', config('A'))]), /no project\.json/);
   assert.throws(() => read([file('project.json', { format: 'other' })]), /not a smart-factory project/);
-  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 8\)/);
+  assert.throws(() => read([head(FORMAT + 1)]), /newer version \(format 9\)/);
   assert.throws(() => read([head(), { path: 'Bad.json', text: '{ not json' }]), /Bad\.json is not valid JSON/);
 });
 
@@ -222,7 +222,7 @@ test('format 1: the settings become the Menu, and the old top level one block be
 const at = (name, x, y, cols, rows, more = {}) => config(name, { position: { x, y }, size: { cols, rows }, ...more });
 const rectsOf = shapes => shapes.map(d => ({ x: d.x, y: d.y, w: d.cols, h: d.rows, wName: d.colsName, hName: d.rowsName }));
 
-test('the format is 7', () => { assert.equal(FORMAT, 7); });
+test('the format is 8', () => { assert.equal(FORMAT, 8); });
 
 test('format 2: a stack is fused into one shape, which holds its shapes top to bottom', () => {
   const p = read([head(2), file('Top.json', at('Top', 4, 0, 3, 2, { id: 'btop', order: 1, value: { entries: { '1,1': 5 } } })), file('Under.json', at('Under', 4, 2, 3, 1, { id: 'bunder', order: 0 })),
@@ -737,13 +737,13 @@ test('format 4: inner with things missing or wrong is read with safe values, and
   assert.equal(got({ cols: 3, rows: 1, inner: [2] }, {}, { type: 'arrow', arrow: {} }), null);
 });
 test('format 3 is read exactly as it is, and saved again differs only in the format number', () => {
-  const v3 = v => [file('project.json', { format: 'smart-factory/project', version: v, saved: null }),
+  const v3 = (v, more = {}) => [file('project.json', { format: 'smart-factory/project', version: v, saved: null, ...more }),
     file('A.json', { format: 'smart-factory/shape', version: v, id: 'b000001', type: 'tensor', name: 'A', named: true, commented: false, color: 'variable-1', position: { x: 0, y: 0 }, size: { cols: 2, rows: 2 }, sides: { cols: 'k', rows: null },
       value: { as: 'variable', entries: { '1,1': 3, '2,2': { expr: '2^3' } } }, order: 0 })].map(f => ({ path: f.path, text: JSON.stringify(JSON.parse(f.text), null, 2) + '\n' }));
   const old = read(v3(3));
   assert.equal(old.converted, 0); assert.equal(old.changed, 0); assert.equal(old.top.shapes[0].inner, null);
   assert.deepEqual(old.top.shapes[0].entries, { '1,1': 3, '2,2': { expr: '2^3' } });
-  assert.deepEqual(write(old), v3(FORMAT));
+  assert.deepEqual(write(old), v3(FORMAT, { tick: 0 }));      /* (and project.json says the tick, which is 0: format 8) */
 });
 test('projects/inner-data holds a shape of matrices with a matrix standing in each entry, a function that takes it whole, and its entries taken out', () => {
   const files = shipped('inner-data'), p = read(files), by = name => p.top.shapes.find(d => d.name === name);
@@ -957,16 +957,16 @@ test('a tile\'s step, its stop block and a count of "inf" are kept in its repeat
   const snap = { top: { shapes: [at('C', 0, 0, 1, 1, { entries: { '1,1': { expr: 'index.x' } } }), at('S', 0, 1, 1, 1, { entries: { '1,1': 0 } }), arrow],
     groups: [{ id: 't1', name: 'Count', members: [0, 1], groups: [], repeat: { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 's' } }], operations: [] } };
   const files = write(read(write(snap))), back = read(files);
-  assert.equal(FORMAT, 7);
+  assert.equal(FORMAT, 8);
   assert.deepEqual(back.top.groups[0].repeat, { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 's' });
   assert.deepEqual(write(back), files);      /* saved, reopened, saved: the same files */
   assert.deepEqual(JSON.parse(files.find(f => f.path === 'Count.frame.json').text).repeat, { x: 0, y: 0, cols: 1, rows: 2, across: 'inf', down: 1, step: 'a1', until: 's' });
   /* a tile with none of them is written as it always was, and a format 6 project is read exactly as it is */
   const plain = JSON.parse(JSON.stringify(snap)); plain.top.groups[0].repeat = { x: 0, y: 0, cols: 1, rows: 2, across: 4, down: 1 };
-  const now = write(read(write(plain))), six = now.map(f => ({ ...f, text: f.text.replace(/"version": 7/g, '"version": 6') }));
+  const now = write(read(write(plain))), six = now.map(f => ({ ...f, text: f.text.replace(/"version": 8/g, '"version": 6') }));
   assert.deepEqual(Object.keys(JSON.parse(six.find(f => f.path === 'Count.frame.json').text).repeat), ['x', 'y', 'cols', 'rows', 'across', 'down']);
   assert.deepEqual(write(read(six)), now);
-  assert.throws(() => read(files.map(f => f.path === 'project.json' ? { ...f, text: f.text.replace('"version": 7', '"version": 8') } : f)), /saved by a newer version \(format 8\)/);
+  assert.throws(() => read(files.map(f => f.path === 'project.json' ? { ...f, text: f.text.replace('"version": 8', '"version": 9') } : f)), /saved by a newer version \(format 9\)/);
 });
 
 test('projects/running-total: a tile with a step; its cells show 0, 3, 4, 8 and the step gives 9', () => {
@@ -977,8 +977,10 @@ test('projects/running-total: a tile with a step; its cells show 0, 3, 4, 8 and 
   assert.deepEqual(evaluate(g, tile.loop).entries, { '1,1': 9 });
   assert.deepEqual(evaluate(g, tile.node).entries, { '1,1': 3, '2,1': 1, '3,1': 4, '4,1': 1, '1,2': 0, '2,2': 3, '3,2': 4, '4,2': 8 });      /* x holds the k-th column of X in cell k, and S the total so far */
   const paths = list => Object.fromEntries(list.filter(f => f.path !== 'project.json').map(f => [f.path, f.text]));
-  assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(paths(write(p)), paths(files));      /* saved again it is the files that are shipped */
-  for (const f of files) if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? FORMAT, FORMAT, f.path);
+  /* saved again it is the files that are shipped, but for the format number: it was saved at format 7, and is not saved again for a later one */
+  const at7 = list => Object.fromEntries(Object.entries(paths(list)).map(([path, text]) => [path, text.replace(/"version": \d+/g, '"version": 7')]));
+  assert.deepEqual(paths(write(read(write(p)))), paths(write(p))); assert.deepEqual(at7(write(p)), paths(files));
+  for (const f of files) if (f.path.endsWith('.json')) assert.equal(JSON.parse(f.text).version ?? 7, 7, f.path);
 });
 
 test('read: a tile whose step or stop block names what is none of its own has it dropped, and read says which tile', () => {
