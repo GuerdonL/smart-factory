@@ -283,6 +283,7 @@ function stateIn(graph, st, tile, outer, k){
   const id = st.loops.get(tile), n = graph.nodes[id], key = tile + '|' + paramsKey(outer.params) + '|' + outer.cells.map(c => c.x + ',' + c.y).join(';');
   if (!st.stepped.has(key)) st.stepped.set(key, [null, null]);
   const list = st.stepped.get(key), f = fnAt(graph, n.fn); if (!f) throw new Error('no such function');
+  if (k - 1 > outer.steps) throw { later: { steps: outer.steps } };      /* more steps than are worked out here: said at once, not after working out those that are */
   while (list.length <= k){ const j = list.length;      /* cell j's state, from cell j − 1 */
     if (j - 1 > outer.steps) throw { later: { steps: outer.steps } };
     if (outer.active.includes(n.fn)) throw LOOP;

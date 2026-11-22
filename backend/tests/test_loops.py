@@ -91,6 +91,12 @@ class Loops(unittest.TestCase):
             got = {i: [[float(E.A.item(run.value(i), r, c)) for c in range(g['nodes'][i]['type']['cols'])] for r in range(g['nodes'][i]['type']['rows'])] for i in order}
             self.assertEqual(got, {'lp': [[11.0]], 'rep': [[1.0, 2.0, 3.0], [0.0, 1.0, 4.0]]}, order)
 
+    def test_a_count_that_is_true_is_one_step_and_false_is_no_count(self):
+        g = named('by hand: loop, a count that is true')      # as on the page: true counts as 1, false as 0
+        self.assertEqual(whole(g, 'lp'), [[1.0]])
+        g = named('by hand: loop, a count that is false')
+        self.assertEqual(whole(g, 'lp'), [[{'err': 'that has no value'}]])
+
     def test_no_end_and_no_stop_block_runs_until_stopped(self):
         g = named('loops: no end and no stop block')
         self.assertEqual(whole(g, tile(g)['loop']), 'it runs until stopped: its count is infinite and it has no stop block')

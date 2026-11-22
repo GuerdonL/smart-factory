@@ -268,6 +268,8 @@ const BY_HAND_LOOPS = {
   'by hand: loop, a count that is an input': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': 4 } } } }),
   'by hand: loop, a count that is no whole number': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': { n: 1, d: 2, k: 0 } } } } }),
   'by hand: loop, None as state': total({ s0: { none: true } }),
+  'by hand: loop, a count that is true': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': true } } } }),
+  'by hand: loop, a count that is false': total({ count: { input: 2 }, across: 'inf', more: { n: { op: 'variable', inputs: [], type: { cols: 1, rows: 1, colsName: null, rowsName: null }, name: '', named: false, defined: 'entries', entries: { '1,1': false } } } }),
   'by hand: loop, in a function': inFunction(), 'by hand: loop, in a step': inStep(),
 };
 

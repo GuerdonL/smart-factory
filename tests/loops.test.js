@@ -197,3 +197,14 @@ test('carry: the cell a loop stopped at goes over to the next graph with its ans
   const k = stopping(); k.nodes.s.entries = { '1,1': 5 }; carry(g, k); assert.equal(stoppedAt(k, 'lp'), null);      /* a loop that is no longer the same takes nothing over */
   assert.equal(one(evaluate(k, 'lp')), 5); assert.equal(stoppedAt(k, 'lp'), 1);
 });
+
+test('loop: a count far past what is worked out here is deferred at once, and a count that is true is one step', () => {
+  const n = v => ({ n: V(ty(1, 1), { '1,1': v }) }), by = v => total({ count: { input: 2 }, across: 'inf', more: n(v) });
+  const big = by(3000000000), began = Date.now();
+  assert.deepEqual(evaluate(big, 'lp'), { type: big.nodes.lp.type, deferred: true, steps: 256 }); assert.ok(Date.now() - began < 1000, 'took ' + (Date.now() - began) + ' ms');
+  const fixed = total({ count: 3000000000, across: 'inf' }); assert.deepEqual(evaluate(fixed, 'lp'), { type: fixed.nodes.lp.type, deferred: true, steps: 256 });
+  assert.deepEqual(evaluate(by(257), 'lp'), { type: big.nodes.lp.type, deferred: true, steps: 256 });
+  assert.equal(one(evaluate(by(256), 'lp')), 256 * 257 / 2);
+  assert.equal(one(evaluate(by(true), 'lp')), 1);      /* true counts as 1: one step, 0 + 1 */
+  assert.match(one(evaluate(by(false), 'lp')).err, /whole number/);      /* and false as 0, which is no count */
+});

@@ -722,10 +722,11 @@ export const OPS = {
       return stepFits(n, pat, g); },
     value(n, at){ let count = n.count;
       if (count && typeof count === 'object'){ const v = cell(at.get(count.input), '1,1'); if (v === null) return new Map();      /* a count not known yet: so is what it comes to */
-        if (isError(v)) return failed(n.type, v.err); count = held(v); if (count !== Infinity && !whole1(count)) return failed(n.type, BAD_COUNT); }
+        if (isError(v)) return failed(n.type, v.err); count = v === true ? 1 : held(v);      /* (true counts as 1 in arithmetic, values.js, and so here; false as 0, which is no count) */
+        if (count !== Infinity && !whole1(count)) return failed(n.type, BAD_COUNT); }
       if (count === 'inf') count = Infinity;
       if (count === Infinity && n.until === null) return at.forever();      /* it has no last cell */
-      for (let k = 1; k <= count; k++) if (n.until !== null){ const t = at.stopped(k); if (t === null) return new Map();      /* a stop block with an unknown entry that decides it: unknown, not "keep going" */
+      if (n.until !== null) for (let k = 1; k <= count; k++){      /* (with no stop block there is nothing to look at on the way: the last state is asked for, and is deferred at once where it is past what is worked out here) */ const t = at.stopped(k); if (t === null) return new Map();      /* a stop block with an unknown entry that decides it: unknown, not "keep going" */
         if (t) return at.state(k, true); }
       return at.state(count + 1); } },
   /* one of two matrices, by whether a third is true as a whole. The sides are typed and held to one size whether or
