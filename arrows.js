@@ -14,7 +14,9 @@
          gap:    how far the output's near edge is from the input's edge, in units: a whole number, at least 1
          gapName:   a name given to the gap, or null. It is layout and nothing else
          output: { cols, rows } the function promises, or null for no promise
-         formula:   an entry formula, or null }
+         formula:   an entry formula, or null
+         choose:    { then, else }, the ids of two frames of its definition space, where it is a condition (see
+                    "Conditions", below); left out of any other arrow }
 
    A rect is { x, y, w, h } in units, y downward, as in algebra.js. A type is { cols, rows, colsName, rowsName },
    with inner (the axes of what each entry holds, algebra.js) where it holds inner data. An arrow's span, and all
@@ -112,9 +114,13 @@
                                    it covers, with a little air. whole: the result is read by an arrow, so its
                                    matrix has to stand on whole units: below, it is two units after the sign in
                                    place of one and a half (everywhere else it is on whole units already).
-   writtenWhere(box, size, taken, whole) -> writtenAt's answer with the side and drop chosen: to the right; if that
+   writtenWhere(box, size, taken, whole, firm) -> writtenAt's answer with the side and drop chosen: to the right; if that
                                    lies over one of taken, just below, to the left, or one or two units further
-                                   below; and if all of those are taken, to the right all the same.
+                                   below; and if all of those are taken, to the right all the same. firm, where
+                                   given, is the part of taken that is drawn solid (blocks, arrows, a tile's
+                                   copies; not the bare ground of a tile's own pattern): with every place taken,
+                                   the same places are tried against firm alone before the right is settled for,
+                                   so that a result with no free place is not written over an arrow that has one.
    readAt(written, hollow, copies) -> the rectangle an arrow reads of a written result, or null where none is
                                    written. written: { usable: [first, second] the pair's hollows that the result
                                    could be written in (null where not), drawn: [{ n, x, y, w, h }] those it is
@@ -162,6 +168,48 @@
                                    an input of that type at row or column `at`: a span the length of inner's side
                                    along the base (the whole side where inner names it), slid to take in `at`.
                                    inner null (a function with no input of its own yet) fits anything: the whole side.
+
+   Conditions. A conditional arrow chooses between the two frames its choose names, by whether what its base covers
+   (the condition, any size) is true as a whole matrix: the then frame where it is, the else frame where it is not.
+   Each frame holds one piece or nothing, and an empty one is None at the other's size. Its function has no formula.
+   conditionable({ blocks, pieces, fixed, read }) -> { ok: true } | { refused: a sentence }: whether a selection can be made
+                                   conditional. blocks: how many blocks are selected; pieces: the pieces of the
+                                   canvas that hold any of them, [{ members: how many blocks it has, chosen: how many
+                                   of those are selected, error: why it comes to no matrix, or null }]; fixed: why
+                                   one of the blocks cannot be folded away (an arrow, a function's input, a seated
+                                   block), or null; read: the name of one of the blocks that an arrow has for its
+                                   input (any arrow: a condition's own entry is one), or null: folded away, it would
+                                   leave that arrow reading nothing. It takes exactly one piece, whole, that comes
+                                   to a matrix.
+   chosenType(sides, promise, across) -> what a conditional arrow comes to: a type, or { error }. sides: for the then frame
+                                   and the else frame, the ends that lie wholly in it ([{ type }], as ends gives
+                                   them); promise: the arrow's output, { cols, rows } or null. Several ends in one
+                                   frame are { error: 'n pieces' }; an end that is an error is that error; two sides
+                                   that are not one size (drawn sides, inner axes, or a side under two names) are
+                                   { error: TWO_SIZES }. The type is the then side's; with that side empty, the else
+                                   side's size under no names; with both empty, the promise, else one by one.
+                                   across: for each frame, whether some piece has blocks in it and blocks out of it.
+                                   Such a piece belongs to neither: it is { error: ACROSS(0 | 1) }, a sentence that
+                                   names the side, before anything else is asked. A side is None only where its
+                                   frame holds nothing.
+   conditionSaid(entries)       -> what an arrow's panel says of a condition that is neither true nor false. entries:
+                                   the condition's, { "c,r": value }. Where one is an error ({ err }), the first of
+                                   them by row, then column, then inner position: "Its condition is an error: divide
+                                   by zero at 1, 1"; where none is (an entry was never given), "Its condition is
+                                   not known".
+   conditionAt(at, size, taken) -> { x, y }: where Make conditional sets its new entry, in units, so that what it
+                                   makes lies over nothing that is there. at: where the selection's top left corner
+                                   was; size: the output as it is written, { cols, rows }; taken: the rectangles of
+                                   what is there and stays. The entry is one unit, its arrow's strip the two after
+                                   it, and the output the size given after those. at itself where that is free;
+                                   else the nearest free place to its left on the same line (a definition space's
+                                   equation is on the right), up to 12 units; else the nearest free place anywhere,
+                                   leftwards first; and at itself where there is none within 60 units.
+   emptySide(which, other, size) -> where an empty frame of a condition is drawn, a rect in units: which is 'then' or
+                                   'else', other the box of the other frame's blocks (null where that is empty
+                                   too), size { cols, rows }. The two stand one above the other, then on top, three
+                                   units apart: the equation is on their right and the input block on their left.
+   TWO_SIZES                    -> 'its two sides are not one size'
 
    Seats. A block that sits on a drawn output is seated: its value is the output.
    seatable(block)              -> { ok: true } | { refused: a sentence }. A seat gives a variable its value, so a
@@ -304,9 +352,10 @@ export function writtenAt(box, size, { side = 'right', drop = 0, whole = false }
   const top = below ? on(box.y + box.h) + 1 + drop + (h ? 0 : .5) : h ? on(box.y + box.h / 2 - h / 2) : box.y + box.h / 2;
   return { sign: { x: left, y: top + h / 2 }, body: { x: left + lead, y: top, w, h }, at: { x: left - .5, y: top - (h ? air : .5), w: lead + 1 + w + air, h: (h || 1) + 2 * air } };
 }
-export function writtenWhere(box, size, taken, whole = false){
-  const tries = [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }, {}];
-  for (const [i, where] of tries.entries()){ const got = writtenAt(box, size, { ...where, whole }); if (i === tries.length - 1 || !taken.some(t => over(t, got.at))) return { side: where.side || 'right', drop: where.drop || 0, ...got }; }
+export function writtenWhere(box, size, taken, whole = false, firm = null){
+  const tries = [{}, { side: 'below' }, { side: 'left' }, { side: 'below', drop: 1 }, { side: 'below', drop: 2 }];
+  for (const list of firm ? [taken, firm] : [taken]) for (const where of tries){ const got = writtenAt(box, size, { ...where, whole }); if (!list.some(t => over(t, got.at))) return { side: where.side || 'right', drop: where.drop || 0, ...got }; }
+  return { side: 'right', drop: 0, ...writtenAt(box, size, { whole }) };
 }
 export function readAt(written, hollow, copies){
   const named = hollow && copies > 0 ? written.usable[hollow - 1] : null;
@@ -346,6 +395,42 @@ export function fitting(inner, side, type, at){
   const start = Math.max(1, Math.min(n - span + 1, at)), fit = fits(inner, coveredType({ side, start, span }, type));
   return fit.refused ? fit : { start, span };
 }
+
+export const TWO_SIZES = 'its two sides are not one size';
+export function conditionable({ blocks = 0, pieces = [], fixed = null, read = null } = {}){
+  if (!blocks) return { refused: 'Make conditional takes one piece: select the shapes of one' };
+  if (fixed) return { refused: fixed };
+  if (read) return { refused: `${read} is what an arrow reads: it cannot be made conditional, which would fold it away from under the arrow` };
+  if (pieces.length !== 1) return { refused: `Make conditional takes exactly one piece, and ${pieces.length} are selected` };
+  if (pieces[0].chosen < pieces[0].members) return { refused: 'Make conditional takes a whole piece: select every shape of it' };
+  if (pieces[0].error) return { refused: `That piece comes to no one matrix (${pieces[0].error}): there is nothing to choose` };
+  return { ok: true };
+}
+export const ACROSS = k => `a piece lies across the edge of its ${k ? 'false' : 'true'} side: move its blocks wholly into that frame, or wholly out of it`;
+export function chosenType(sides, promise = null, across = null){
+  const over = Array.isArray(across) ? across.findIndex(Boolean) : -1; if (over >= 0) return { error: ACROSS(over) };
+  const came = [0, 1].map(k => { const es = (sides && sides[k]) || []; return es.length > 1 ? { error: es.length + ' pieces' } : es.length ? es[0].type || { error: 'no value' } : null; });
+  const bad = came.find(c => c && c.error); if (bad) return { error: bad.error };
+  const [a, b] = came, inner = t => (Array.isArray(t.inner) ? t.inner : []);
+  if (a && b && (a.cols !== b.cols || a.rows !== b.rows || !nested(inner(a), inner(b), true).ok || ['colsName', 'rowsName'].some(k => a[k] && b[k] && a[k] !== b[k]))) return { error: TWO_SIZES };
+  if (a) return { cols: a.cols, rows: a.rows, colsName: a.colsName || null, rowsName: a.rowsName || null, ...(inner(a).length ? { inner: inner(a) } : {}) };
+  if (b) return { cols: b.cols, rows: b.rows, colsName: null, rowsName: null, ...(inner(b).length ? { inner: inner(b).map(x => ({ length: x.length, name: null })) } : {}) };
+  return promise && whole(promise.cols) && whole(promise.rows) ? { cols: promise.cols, rows: promise.rows, colsName: null, rowsName: null } : { cols: 1, rows: 1, colsName: null, rowsName: null };
+}
+export function conditionSaid(entries){
+  const bad = Object.entries(entries || {}).filter(([, v]) => v && typeof v === 'object' && typeof v.err === 'string').map(([key, v]) => [key.split(',').map(Number), v.err])
+    .sort(([[c, r, ...ks]], [[d, s, ...ls]]) => r - s || c - d || ks.reduce((n, k, i) => n || k - ls[i], 0))[0];
+  return bad ? `Its condition is an error: ${bad[1]} at ${bad[0].join(', ')}` : 'Its condition is not known';
+}
+export function conditionAt(at, size, taken){
+  const lies = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const free = (x, y) => ![{ x, y, w: 3, h: 1 }, { x: x + 3, y, w: size.cols, h: size.rows }].some(r => taken.some(t => lies(r, t)));      /* the entry and the triangle's strip, two units deep; and the output */
+  for (let d = 0; d <= 12; d++) if (free(at.x - d, at.y)) return { x: at.x - d, y: at.y };      /* on its own line, as far left as it takes; then anywhere near */
+  for (let d = 1; d <= 60; d++) for (let sy = 0; sy <= d; sy++) for (const [dx, dy] of [[-(d - sy), sy], [-(d - sy), -sy], [d - sy, sy], [d - sy, -sy]]) if (free(at.x + dx, at.y + dy)) return { x: at.x + dx, y: at.y + dy };
+  return { x: at.x, y: at.y };
+}
+export const emptySide = (which, other, size) => other ? { x: other.x, y: which === 'else' ? other.y + other.h + 3 : other.y - 3 - size.rows, w: size.cols, h: size.rows }
+  : { x: -6 - size.cols, y: which === 'then' ? -2 - size.rows : 2, w: size.cols, h: size.rows };
 
 export function seatable(b){
   const name = b.name || 'It';

@@ -26,6 +26,7 @@ place and put give back what was set into, which is a Held once a None has been 
 Making them
     number(x)                        one number
     full(rows, cols, x, inner)       every entry x
+    empty(rows, cols, inner)         every entry None
     identity(rows, cols, inner)      1 where the column is the row, else 0, at every inner position
     blank(rows, cols, inner)         every entry without a value, to be set into (place, put)
     table(text, skip)                the numbers of a CSV already seen to be one (data.py: inspect), skip lines passed over
@@ -63,6 +64,9 @@ Putting them together
     join(parts, inner)               and matrices, one for each inner position in order, joined into one array
 Reading them
     outside(a, space, none)          the first entry that lies outside a number space, or None (see the function)
+    truth(a)                         whether a whole matrix counts as true (values.js: truthOf): True where any
+                                     entry is a number other than 0; False where every entry is 0 or None; None
+                                     where neither is so, which is where an entry has no value and none is true
     shape(a) -> (rows, cols);  inner(a) -> the lengths of its inner axes;  size(a) -> how many bytes it takes
     item(a, r, c, ks) -> one entry as a Python float (from 0; ks: its inner position, from 0)
     summary(a) -> (least, most, mean) of the entries that have a value and are not None, as Python floats, or
@@ -158,6 +162,11 @@ def number(x):
 
 def full(rows, cols, x, inner=()):
     return np.full(tuple(inner) + (rows, cols), x, dtype=F)
+
+
+def empty(rows, cols, inner=()):
+    to = tuple(inner) + (rows, cols)
+    return Held(np.zeros(to, dtype=F), np.ones(to, dtype=bool))
 
 
 def identity(rows, cols, inner=()):
@@ -447,6 +456,43 @@ def is_none(a, r, c, ks=()):
 def nones(a):
     none = _split(a)[1]
     return 0 if none is None else int(none.sum())
+
+
+TRUTH_AT_ONCE = 1 << 20      # entries looked at together by truth
+
+
+def _pieces(values, none, most):
+    """An array, and what says which of it is None, cut along their first axes into parts of at most so many entries
+    (a part is a view: nothing is copied)."""
+    if values.size <= most or values.ndim == 0:
+        yield values, none
+        return
+    each = values.size // values.shape[0]
+    if each > most:      # one step along this axis is too much: each is cut along the next
+        for k in range(values.shape[0]):
+            yield from _pieces(values[k], None if none is None else none[k], most)
+        return
+    step = most // each
+    for k in range(0, values.shape[0], step):
+        yield values[k:k + step], None if none is None else none[k:k + step]
+
+
+def truth(a):
+    values, none = _split(a)
+    values = np.asarray(values)
+    none = None if none is None else np.broadcast_to(none, values.shape)
+    lost = False
+    for part, gone in _pieces(values, none, TRUTH_AT_ONCE):      # in pieces: the flags made on the way are a few megabytes whatever the size of the matrix
+        nan = np.isnan(part)
+        if gone is not None:
+            nan &= ~gone      # what lies under a None is not looked at: None is false whatever number is held beside it
+        yes = ~nan & (part != 0)
+        if gone is not None:
+            yes &= ~gone
+        if bool(yes.any()):
+            return True
+        lost = lost or bool(nan.any())
+    return None if lost else False
 
 
 def summary(a):

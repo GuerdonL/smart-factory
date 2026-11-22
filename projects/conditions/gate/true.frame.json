@@ -1,0 +1,74 @@
+{
+  "format": "smart-factory/frame",
+  "version": 6,
+  "id": "gcdt001",
+  "name": "true",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 6,
+      "id": "bcdk001",
+      "type": "tensor",
+      "name": "Keys",
+      "named": true,
+      "commented": false,
+      "color": "variable-1",
+      "position": {
+        "x": -9,
+        "y": -1
+      },
+      "size": {
+        "cols": 2,
+        "rows": 2
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 1,
+          "2,1": 2,
+          "1,2": 3,
+          "2,2": 4
+        }
+      },
+      "order": 1
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 6,
+      "id": "bcdw001",
+      "type": "tensor",
+      "name": "Weights",
+      "named": true,
+      "commented": false,
+      "color": "variable-3",
+      "position": {
+        "x": -7,
+        "y": -1
+      },
+      "size": {
+        "cols": 2,
+        "rows": 2
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {
+          "1,1": 0,
+          "2,1": 1,
+          "1,2": 1,
+          "2,2": 0
+        }
+      },
+      "order": 2
+    }
+  ],
+  "groups": []
+}

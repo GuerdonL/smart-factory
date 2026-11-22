@@ -59,6 +59,8 @@ const filled = (cols, rows, inner, fill) => { const out = {};
   return out; };
 const I = (id, x, y, cols, rows, inner, fill, more = {}) => B(id, x, y, cols, rows, { inner, entries: fill ? filled(cols, rows, inner, fill) : {}, ...more });
 const whole = { cols: false, rows: false };
+/* a conditional arrow's definition space: its in block, then these shapes, and its two frames holding the shapes numbered in sides (from 1: in is 0) */
+const cond = (shapes, sides, then = 'gt', other = 'ge', cols = 1, rows = 1) => space([B('in', -20, 0, cols, rows, { in: true }), ...shapes], [{ id: then, name: 'true', members: sides[0] || [], groups: [] }, { id: other, name: 'false', members: sides[1] || [], groups: [] }]);
 
 /* the canvases: between them, every operation, every kind of value, the infinities and the entries that are errors */
 const CASES = {
@@ -198,6 +200,21 @@ const CASES = {
     B('Ns', 60, 0, 2, 2, { source: { noise: { seed: 2, dist: 'uniform' } }, holds: 'probability' }), B('Id', 70, 0, 2, 2, { source: 'identity' })]),
   'None: inner data': snap([I('X', 0, 0, 2, 1, [ax(2)], (c, r, k) => c === k ? NONE : c + k), B('W', 2, 0, 1, 2, { entries: rowsOf([[1], [2]]) }),      /* a product repeated at each inner position, a None in each */
     I('A', 10, 0, 2, 1, [ax(2)], (c, r, k) => k === 2 && c === 1 ? NONE : c * k), I('Bn', 10, 1, 2, 1, [ax(2)], (c, r, k) => k === 1 && c === 2 ? NONE : 10)]),
+  /* ---- conditions (phase 9B): an arrow that chooses between the two frames of its space ---- */
+  'conditions': snap([B('yes', 0, 0, 1, 1, { entries: { '1,1': true } }),
+    arrow('gate', { id: 'yes', as: 'block' }, { output: { cols: 2, rows: 2 }, choose: { then: 'gt', else: 'ge' } }, { variable: 7, name: 'gate', inside: cond([B('T', -6, -1, 2, 2, { entries: rowsOf([[1, 2], [3, half]]) })], [[1]]) }),      /* the else side empty: None of that size */
+    B('no', 0, 10, 1, 1, { entries: { '1,1': false } }), arrow('gate2', { id: 'no', as: 'block' }, { output: { cols: 2, rows: 2 } }, { variable: 7, name: 'gate', reference: true }),      /* the named arrow used again */
+    B('seat', 3, 10, 2, 2, { seat: 'gate2' }), B('after', 5, 10, 1, 2, { entries: rowsOf([[1], [1]]) }),      /* a block seated on the output goes on being worked with: None with anything is None */
+    B('M', 0, 20, 3, 1, { entries: rowsOf([[0, { none: true }, 5]]) }), arrow('pick', { id: 'M', as: 'block' }, { choose: { then: 'pt', else: 'pe' } }, { inside: cond([B('P', -8, 0, 2, 2, { entries: rowsOf([[1, 2], [3, 4]]) }), B('Q', -6, 0, 2, 2, { entries: rowsOf([[0, 1], [1, 0]]) }), B('E', -8, 6, 2, 2, { entries: rowsOf([[9, 9], [9, 9]]) })], [[1, 2], [3]], 'pt', 'pe', 3) }),      /* a whole matrix for the condition, and a product on the true side */
+    B('Z', 0, 30, 2, 2, { source: 'zeros' }), arrow('zero', { id: 'Z', as: 'block' }, { span: 2, choose: { then: 'zt', else: 'ze' } }, { inside: cond([B('P2', -8, 0, 2, 1, { entries: rowsOf([[1, 2]]) }), B('E2', -8, 6, 2, 1, { entries: rowsOf([[7, 8]]) })], [[1], [2]], 'zt', 'ze', 2, 2) }),      /* a matrix of zeros is false */
+    B('F', 0, 40, 1, 1, { entries: { '1,1': f('@[M:x] > 2') } }), arrow('form', { id: 'F', as: 'block' }, { choose: { then: 'ft', else: 'fe' } }, { inside: cond([B('E3', -8, 6, 1, 1, { entries: { '1,1': 4 } })], [[], [1]], 'ft', 'fe') }),      /* a formula for the condition; the true side empty */
+    B('U', 0, 50, 1, 1), arrow('open', { id: 'U', as: 'block' }, { choose: { then: 'ut', else: 'ue' } }, { inside: cond([B('T4', -6, 0, 1, 1, { entries: { '1,1': 1 } })], [[1]], 'ut', 'ue') }),      /* a condition never given: not known */
+    B('yes2', 0, 60, 1, 1, { entries: { '1,1': 1 } }), arrow('sizes', { id: 'yes2', as: 'block' }, { choose: { then: 'st', else: 'se' } }, { inside: cond([B('T5', -6, 0, 2, 1), B('E5', -6, 6, 1, 2)], [[1], [2]], 'st', 'se') }),      /* two sides of two sizes: the arrow has the error size */
+    arrow('two', { id: 'yes2', as: 'block' }, { side: 's', choose: { then: 'tt', else: 'te' } }, { inside: cond([B('T6', -6, 0, 1, 1), B('T7', -9, 0, 1, 1)], [[1, 2]], 'tt', 'te') }),      /* two pieces on one side: pieces */
+    arrow('gone', { id: 'yes2', as: 'block' }, { side: 'n', choose: { then: 'nowhere', else: 'te' } }, { inside: cond([B('T8', -6, 0, 1, 1)], [[1]], 'xt', 'te') }),      /* a frame that is gone: no-source */
+    B('Col', 20, 0, 1, 3, { entries: rowsOf([[true], [false], [{ none: true }]]) }),
+    arrow('each', { id: 'Col', as: 'block' }, { choose: { then: 'et', else: 'ee' } }, { x: 21, y: 0, inside: cond([B('T9', -6, 0, 2, 1, { entries: rowsOf([[1, 2]]) }), B('E9', -6, 6, 2, 1, { entries: rowsOf([[-1, -2]]) })], [[1], [2]], 'et', 'ee') })],      /* repeated in a tile, down a column of conditions */
+    [tile('loop', [19], { x: 21, y: 0, cols: 3, rows: 1, down: 3 })]),
 };
 
 /* ---- graphs written by hand: what a backend may be sent that no canvas makes yet ---- */
@@ -205,6 +222,7 @@ const ty = (cols, rows, inner = null, colsName = null, rowsName = null) => ({ co
 const N = (op, inputs, type, more = {}) => ({ op, inputs, type, ...more });
 const V = (type, fill, more = {}) => ({ op: 'variable', inputs: [], type, name: 'v', named: true, defined: 'entries', entries: filled(type.cols, type.rows, type.inner || [], fill), ...more });
 const G = (nodes, functions = {}) => ({ version: VERSION, nodes, functions, spaces: {}, blocks: {} });
+const CH = (c, a, b, type = ty(2, 2)) => N('choose', [c, a, b], type);
 const QKV = ty(3, 1, [ax(2, 'key'), ax(4, 'embed')]), Wm = k => V(ty(2, 4, null, 'key', 'embed'), (c, r) => k * 100 + c * 10 + r), fn = (body, input = 'param(f:1)') => ({ 'f:1': { input, body } });
 const HAND = {
   'by hand: stack, and an entry taken out again': G({ wq: Wm(1), wk: Wm(2), wv: Wm(3), q: N('stack', ['wq', 'wk', 'wv'], QKV, { at: [{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 2, row: 0 }] }),
@@ -223,6 +241,24 @@ const HAND = {
   'by hand: a function whose input block holds inner data': G({ q: V(QKV, (c, r, k1, k2) => c * 100 + k1 * 10 + k2), 'param(f:1)': N('param', [], QKV, { within: ['f:1'] }),
     body: N('entry', ['param(f:1)'], ty(2, 4, null, 'key', 'embed'), { at: { col: 1, row: 0 }, within: ['f:1'] }), y: N('apply', ['q'], ty(2, 4, null, 'key', 'embed'), { fn: 'f:1' }),
     d: N('measure', ['q'], ty(1, 1), { side: 'd2' }), m: N('map', ['q', 'd'], QKV, { formula: 'x + k1 * k2 + $1' }) }, fn('body')),
+  /* ---- conditions (phase 9B): choose, and the source that holds None. The condition true, false, None, a whole matrix,
+     and not known; a side not chosen that is an error, holds an entry never given, is worked out from too much to work
+     out in the browser, or is noise ---- */
+  'by hand: choose': G({ yes: V(ty(1, 1), () => true), no: V(ty(1, 1), () => false), nil: V(ty(1, 1), () => NONE), seven: V(ty(1, 1), () => 7),
+    a: V(ty(2, 2), (c, r) => c + 10 * r), b: V(ty(2, 2), (c, r) => (c === r ? half : -c)),
+    t: CH('yes', 'a', 'b'), f: CH('no', 'a', 'b'), n: CH('nil', 'a', 'b'), s: CH('seven', 'a', 'b'),
+    some: V(ty(3, 2), (c, r) => (c === 2 && r === 2 ? root2 : 0)), zeros: V(ty(3, 2), () => 0), flat: V(ty(2, 1), c => (c === 1 ? 0 : NONE)), mixed: V(ty(2, 1), c => (c === 1 ? { err: 'divide by zero' } : 3)),
+    m1: CH('some', 'a', 'b'), m0: CH('zeros', 'a', 'b'), mn: CH('flat', 'a', 'b'), me: CH('mixed', 'a', 'b'),      /* any size: what counts is the whole matrix's truth, and one true entry settles it beside an error */
+    open: V(ty(2, 1), c => (c === 1 ? null : 0)), lost: V(ty(2, 1), c => (c === 1 ? { err: 'divide by zero' } : 0)), u: CH('open', 'a', 'b'), e: CH('lost', 'a', 'b'),      /* not known: every entry unknown */
+    bad: { ...V(ty(2, 2), () => 1), error: { code: 'mismatch', note: '4 ≠ 3' } }, tb: CH('yes', 'a', 'bad'), fb: CH('no', 'a', 'bad'), bt: CH('no', 'bad', 'b'),      /* an error on the side not chosen does no harm */
+    part: V(ty(2, 2), (c, r) => (c === 1 && r === 1 ? null : 1)), tp: CH('yes', 'a', 'part'), fp: CH('no', 'a', 'part'),
+    wide: N('source', [], ty(70, 70), { kind: 'zeros' }), cut: N('slice', ['wide'], ty(2, 2), { range: { col: 1, row: 1, cols: 2, rows: 2 } }), tw: CH('yes', 'a', 'cut'), fw: CH('no', 'a', 'cut'),      /* too large for the browser, on the side not chosen */
+    nz: N('noise', [], ty(2, 2), { seed: 3, dist: 'uniform', key: 'nz' }), tn: CH('yes', 'a', 'nz'), fn: CH('no', 'a', 'nz'),
+    none: N('source', [], ty(2, 2), { kind: 'none' }), te: CH('yes', 'a', 'none'), fe: CH('no', 'a', 'none'), sum: N('add', ['fe', 'a'], ty(2, 2)),      /* the empty side: None of that size, and None with anything is None */
+    ai: V(ty(2, 1, [ax(2)]), (c, r, k) => c * k), bi: V(ty(2, 1, [ax(2)]), (c, r, k) => -c - k), ci: V(ty(1, 1, [ax(3)]), (c, r, k) => (k === 3 ? 1 : 0)), ti: CH('ci', 'ai', 'bi', ty(2, 1, [ax(2)])), fi: CH('no', 'ai', 'bi', ty(2, 1, [ax(2)])),      /* inner data on the sides, and on the condition */
+    nest: CH('t', 'f', 'n'), deep: CH('m0', 'tb', 'nest'),      /* a choose of chooses */
+    'param(f:1)': N('param', [], ty(1, 1), { within: ['f:1'] }), body: { ...CH('param(f:1)', 'a', 'none'), within: ['f:1'] }, y1: N('apply', ['yes'], ty(2, 2), { fn: 'f:1' }), y0: N('apply', ['nil'], ty(2, 2), { fn: 'f:1' }),      /* as a conditional arrow is: a function of the condition */
+    two: V(ty(1, 2), (c, r) => r - 1), runs: N('mapalong', ['two'], ty(2, 4), { fn: 'f:1', axis: 'rows', start: 1, span: 1, count: 2 }) }, fn('body')),
 };
 
 const files = (dir, at = '') => readdirSync(join(dir, at)).sort().flatMap(n => statSync(join(dir, at, n)).isDirectory() ? files(dir, at + n + '/') : [{ path: at + n, text: readFileSync(join(dir, at, n), 'utf8') }]);
@@ -291,7 +327,10 @@ function mutations(graphs){
     for (const id of [...ids.filter(id => g.nodes[id].type.value !== undefined).slice(0, 3), ...ids.filter(id => g.nodes[id].op !== 'variable' && g.nodes[id].type.value !== undefined).slice(0, 3)]){ const at = ['nodes', id, 'type', 'value'];
       for (const set of WORDS) push({ path: at, set }); push({ path: at, drop: true }); }
     for (const id of ids.filter(id => g.nodes[id].op === 'variable').slice(0, 3)){ for (const set of [...WORDS, ...(g.nodes[id].type.value !== undefined ? [g.nodes[id].type.value] : [])]) push({ path: ['nodes', id, 'holds'], set }); if (g.nodes[id].holds !== undefined) push({ path: ['nodes', id, 'holds'], drop: true }); }
-    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 0, '2']) push({ path: ['version'], set: v }); });
+    /* a choose and a source of None hold their operation's fields and no other */
+    for (const id of ids.filter(id => g.nodes[id].op === 'choose' || (g.nodes[id].op === 'source' && g.nodes[id].kind === 'none')).slice(0, 4))
+      for (const [k, set] of [['fn', 'mul'], ['formula', 'x'], ['kind', 'zeros'], ['seed', 1], ['holds', 'any'], ['entries', {}], ['name', 'A'], ['within', ['f:x']]]) push({ path: ['nodes', id, k], set });
+    if (g.version !== undefined) for (const v of [1, 2, 3, 4, 5, 0, '2']) push({ path: ['version'], set: v }); });
   return out;
 }
 

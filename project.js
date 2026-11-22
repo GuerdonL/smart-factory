@@ -105,14 +105,20 @@
                                                  whole, each with the part of this one it takes up (as fractions).
                                                  Its entries are theirs: they are written there, not here.
          "type": "arrow", "arrow": { "input": { "id": "b3k…", "as": "block" }, "side": "e", "start": 1, "span": 3, "gap": 2,
-                                     "gapName": null, "output": { "cols": 4, "rows": 3 }, "formula": "max(x, 0)" },
+                                     "gapName": null, "output": { "cols": 4, "rows": 3 }, "formula": "max(x, 0)",
+                                     "choose": { "then": "g4k09zq", "else": "g7m21xa" } },
                                                  an arrow, a function drawn as a triangle (arrows.js has what each field
                                                  means). input.as is "block", or "result" for the drawn result of the
                                                  piece holding that block (with "hollow": 1 or 2 for a times or over
                                                  pair's hollow) or, where the id is an arrow's, that arrow's output, or
                                                  "tile" where the id is a tile's frame and it reads the tile's matrix.
                                                  output is null where nothing is promised, formula null where there is
-                                                 no entry formula. An arrow's definition space is written as any
+                                                 no entry formula. choose is there only on a conditional arrow (arrows.js):
+                                 the ids of two frames of its definition space, the one it comes to where what
+                                 it reads is true and the one where it is not. They are ordinary frames, written
+                                 as any frame is, and either may hold no shapes: an empty one is None. No format
+                                 number marks it: a project saved before has no such field, and no arrow of it
+                                 is read as a condition. An arrow's definition space is written as any
                                                  shape's is. Its position and size are where it is drawn, worked out
                                                  from its input on opening: nothing reads them back. Where its output
                                                  is drawn is never written.
@@ -201,7 +207,12 @@
    resized: the references that were drawn at another size than their variable's and have been set to it (see
    oneSize), [{ name, cols, rows, was }]; empty for every project a page saved.
 
-   The format is 5. Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
+   The format is 6. Format 6 adds to format 5 the field "choose" on an arrow, { then, else }, and with it a frame file
+   that holds no shapes (an empty side of a condition). A format 5 project has neither and is read exactly as it is;
+   saved again it differs only in the format number. The number went up so that a program from before conditions
+   refuses such a project ("saved by a newer version") where it would have opened it, dropped every choose and the
+   empty side's file, and saved it so.
+   Format 5 adds to format 4 the value None, { "none": true }, as a literal entry, and "holds" on a
    shape: the number space it promises (spaces.js), one of the ten words with a "?" after it where it may hold None
    ("integer?"), or "none" for None alone, left out where nothing is promised. A format 4 project has neither and is read exactly as it is;
    saved again it differs only in the format number. Reading, a holds that is no such word is dropped, and so is one
@@ -261,7 +272,7 @@
               inside: space | null, standing: true for a standing shape, source: 'zeros' | 'ones' | 'identity' | { noise: { seed, dist } } | { file } | null,
               variable: a number shared by shapes that are one variable, or null,
               from: { id, side } | { id, range: { col, row, cols, rows, toEnd: { cols, rows } } } | { id, entry: { col, row } } | { id, index: 'x' | 'y' } | null,
-              arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula } for type 'arrow', else null,
+              arrow: { input: { id, as, hollow }, side, start, span, gap, gapName, output: { cols, rows } | null, formula, choose: { then, else } only on a condition } for type 'arrow', else null,
               seat: an arrow's id | { hollow: [id, id] } | null, in: true for an arrow's input block,
               joined: [{ fx, fy, fw, fh, shape }] for a shape joined from several, or null,
               axes: [variable axis, …] only on a use that is turned } */
@@ -271,7 +282,7 @@ import { parse as spaceOf, promise as promiseOf } from './spaces.js';
 import { kept as sourceOf, dataPath } from './sources.js';
 import { kept as repeatOf } from './tiles.js';
 
-export const FORMAT = 5;
+export const FORMAT = 6;
 /* a shape's inner axes as they are kept: [{ length, name }], at most six, each a whole length of at least 1; null for none */
 const innerOf = list => { const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object').slice(0, 6).map(a => ({ length: Math.min(LONGEST, Math.max(1, Math.round(+a.length || 1))), name: typeof a.name === 'string' && a.name ? a.name : null })); return out.length ? out : null; };
 const LONGEST = 16000000;                       /* the most an inner axis is long (inner.js) */
@@ -306,7 +317,8 @@ const arrowOf = a => { a = a && typeof a === 'object' ? a : {}; const n = v => M
   return { input: { id: typeof a.input?.id === 'string' ? a.input.id : '', as, ...(as === 'result' && (a.input.hollow === 1 || a.input.hollow === 2) ? { hollow: a.input.hollow } : {}) },
     side: ['n', 'e', 's', 'w'].includes(a.side) ? a.side : 'e', start: n(a.start), span: n(a.span), gap: n(a.gap), gapName: typeof a.gapName === 'string' && a.gapName.trim() ? a.gapName.trim() : null,
     output: a.output && typeof a.output === 'object' && +a.output.cols >= 1 && +a.output.rows >= 1 ? { cols: n(a.output.cols), rows: n(a.output.rows) } : null,
-    formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null }; };
+    formula: typeof a.formula === 'string' && a.formula.trim() ? a.formula : null,
+    ...(a.choose && typeof a.choose === 'object' && typeof a.choose.then === 'string' && a.choose.then && typeof a.choose.else === 'string' && a.choose.else && a.choose.then !== a.choose.else ? { choose: { then: a.choose.then, else: a.choose.else } } : {}) }; };      /* a condition: the two frames it chooses between, and nothing where it is none */
 /* a shape's from, as it is written and as it is read: a range, the index, or a measure's side */
 const placeOf = e => ({ col: Math.max(1, Math.round(+e.col || 1)), row: Math.max(1, Math.round(+e.row || 1)) });      /* an entry's column and row, from 1 */
 const fromOut = f => f.range ? { id: f.id, range: rangeOf(f.range) } : f.entry ? { id: f.id, entry: placeOf(f.entry) } : f.index ? { id: f.id, index: f.index === 'y' ? 'y' : 'x' } : { id: f.id, side: f.side };
