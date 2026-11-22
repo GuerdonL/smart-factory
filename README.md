@@ -962,7 +962,7 @@ and each answer is `[c, r, k1, …, value]`; it holds every array with rows and 
 - Noise is the generator written out at the top of `backend/arrays.py`, the same on any machine.
 - All array code is in `backend/arrays.py`, the one module that imports NumPy, so another library can take its place.
 - It refuses what is outsized, with the reason: a request of more than 5 MB; a graph of more than 20,000 nodes; any
-  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; a loop that has not stopped after 1,000,000 steps, which is stopped too ("not stopped after 1,000,000 steps: a loop is stopped then"); an uploaded file
+  node of more than 16 million entries; a run that takes longer than 30 seconds, which is stopped; a loop that has not stopped after 1,000,000 steps, which is stopped too ("not stopped after 1,000,000 steps: a loop is stopped then"); (measured on the machine it was built on, a loop whose step adds two numbers takes about 5,000 to 6,000 steps a second, so some 150,000 to 170,000 fit in the 30 seconds and through `/run` it is the 30 seconds that stop a long loop, not the million steps: both limits stay as specified); an uploaded file
   of more than 50 MB. The five numbers are together at the top of `backend/limits.py`, with its smaller bounds
   beneath them: a run that would hold more in arrays than a worker may (see above), more than 65,536 entries asked
   for in one run, more than 64 files or 200 MB under one project's `data/`.

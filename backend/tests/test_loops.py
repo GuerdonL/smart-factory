@@ -97,6 +97,77 @@ class Loops(unittest.TestCase):
         g = named('by hand: loop, a count that is false')
         self.assertEqual(whole(g, 'lp'), [[{'err': 'that has no value'}]])
 
+    def test_a_loop_in_a_step_keeps_the_states_of_one_pass_and_they_are_counted(self):
+        g = named('by hand: loop, in a step')      # the outer step holds an inner tile with a step: one more list of states at every outer step, before
+        n = 400
+        g['nodes']['lp'].update(count=n, across=n)
+        g['nodes']['rep'].update(across=n)
+        g['nodes']['rep']['type']['cols'] = n
+        g['nodes']['c']['entries'] = {'1,1': {'expr': 'index.x - index.x'}}      # (so that s' = 2s + c stays 0)
+        self.assertEqual(validate(g), [])
+        run = E.Run(g)
+        self.assertEqual(float(E.A.item(run.value('lp'), 0, 0)), 0.0)
+        self.assertLessEqual(len(run.stepped), 2)      # the outer tile's, and at most the last inner pass
+        self.assertEqual(set(run.stepped), set(run.stepped_cells))
+        self.assertEqual(run.stepped_held, sum(E.A.size(a) for kept in run.stepped.values() for a in kept.values()))
+        self.assertGreater(run.stepped_held, 0)
+        self.assertEqual(run.weight('ilp') - sum(E.numbers(g['nodes'][i]['type']) for i in ('ilp', 'ic', 'is', 'bot', 'param(f:1)', 'ibody', 'itop', 'ibot', 'param(f:3)')), 2)      # two states of one number
+        small = E.Run(g, room=1)      # and what is kept is held against the room
+        with self.assertRaises(E.Trouble) as told:
+            small.value('lp')
+        self.assertIn('take more memory than the run may', str(told.exception))
+
+    def test_wants_of_one_loop_are_served_by_one_pass_whatever_their_order(self):
+        import json
+        import random
+        from backend import run as R
+        g = named('by hand: loop, 256 steps')
+        n = 3000
+        g['nodes']['lp'].update(count=n, across=n)
+        g['nodes']['rep'].update(across=n)
+        g['nodes']['rep']['type']['cols'] = n
+        g['nodes']['reader'] = {'op': 'add', 'inputs': ['lp', 'lp'], 'type': g['nodes']['lp']['type']}
+        self.assertEqual(validate(g), [])
+        cell = lambda k: {'cells': [{'x': k - 1, 'y': 0, 'dx': 0, 'dy': 1, 'cx': k, 'cy': 1, 'of': ['t:T'], 'at': {'c': {'col': 0, 'row': 0}, 's': {'col': 0, 'row': 1}}}]}
+        made, real = [0], E.whole_cell
+
+        def counted(*a):
+            made[0] += 1
+            return real(*a)
+
+        def ask(want):
+            made[0] = 0
+            out = R.run(json.dumps({'graph': g, 'want': want}).encode(), None, 2 << 30)
+            self.assertEqual(out['errors'], {})
+            return {k: v['cells'][0][-1] for k, v in out['results'].items()}, made[0]
+        E.whole_cell = counted
+        try:
+            ks = list(range(2, n + 1, 250))
+            cells = [{'node': 's', 'as': 's%d' % k, 'binding': cell(k), 'cells': [[1, 1]]} for k in ks]
+            want = {'s%d' % k: (k - 1) * k / 2 for k in ks}      # by hand: the state of cell k is 1 + 2 + … + (k - 1)
+            up, passes = ask(cells)
+            self.assertEqual(up, want)
+            self.assertLessEqual(passes, n)
+            random.Random(1).shuffle(cells)
+            mixed, passes = ask(cells)
+            self.assertEqual(mixed, want)
+            self.assertLessEqual(passes, n)      # one pass, not one for each want that came out of order
+            # the loop, its matrix and a reader of the loop: the matrix's pass serves all three, and the cells are read off it
+            three = [{'node': 'lp', 'cells': [[1, 1]]}, {'node': 'reader', 'cells': [[1, 1]]}, {'node': 'rep', 'cells': [[n, 2]]}]
+            got, passes = ask(three + cells)
+            self.assertEqual(got, dict(want, lp=n * (n + 1) / 2, reader=n * (n + 1), rep=(n - 1) * n / 2))
+            self.assertLessEqual(passes, n + 1)
+            was = E.MAX_KEPT
+            E.MAX_KEPT = 50      # and with next to nothing remembered the answers are the same, and the loop is not made again for its reader
+            try:
+                few, passes = ask(three + cells)
+                self.assertEqual(few, got)
+                self.assertLessEqual(passes, n + 1)
+            finally:
+                E.MAX_KEPT = was
+        finally:
+            E.whole_cell = real
+
     def test_no_end_and_no_stop_block_runs_until_stopped(self):
         g = named('loops: no end and no stop block')
         self.assertEqual(whole(g, tile(g)['loop']), 'it runs until stopped: its count is infinite and it has no stop block')

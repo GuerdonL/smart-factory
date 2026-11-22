@@ -128,10 +128,17 @@ def answer(body, root, room):
 
     work = Run(graph, read_file, int(tick), room)
     results, errors, codes = {}, {}, {}
-    for w in want:
+    last = {}      # of several wants under one key the last is the answer, as it always was
+    for k, w in enumerate(want):
+        key = w.get('as', w.get('node')) if is_obj(w) else None
+        if isinstance(key, str):
+            last[key] = k
+    for k, w in sorted(enumerate(want), key=lambda kw: in_turn(graph, kw[1]) + (kw[0],)):
         key = w.get('as', w.get('node')) if is_obj(w) else None
         if not isinstance(key, str):
             errors[WHOLE] = 'want holds what names no node'
+            continue
+        if last[key] != k:
             continue
         try:
             results[key] = one(work, graph, w)
@@ -151,6 +158,24 @@ def answer(body, root, room):
             results.pop(key, None)
             codes.pop(key, None)
     return {'results': results, 'errors': errors, 'codes': codes} if codes else {'results': results, 'errors': errors}
+
+
+def in_turn(graph, w):
+    """Where a want comes in the order they are worked out in, so that one pass over a tile with a step serves all
+    that is wanted of it (evaluate.py keeps a tile's last two states, and what its matrix came to): first the
+    matrices of tiles with a step, then what is looked at from a cell, the cells in order, then everything else as
+    it was asked. The answers are the same in any order; only the time differs."""
+    if not is_obj(w):
+        return (3, ())
+    n = graph['nodes'].get(w.get('node')) if isinstance(w.get('node'), str) else None
+    binding = w.get('binding')
+    cells = binding.get('cells') if is_obj(binding) and isinstance(binding.get('cells'), list) else []
+    if is_obj(n) and n.get('op') == 'repeat' and 'fn' in n and not cells:
+        return (0, ())
+    if cells:
+        number = lambda v: v if is_int(v) else 0
+        return (1, tuple((number(c.get('cy')), number(c.get('cx'))) if is_obj(c) else (0, 0) for c in cells))
+    return (2, ())
 
 
 def one(work, graph, w):
