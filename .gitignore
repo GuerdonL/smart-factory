@@ -16,6 +16,8 @@ __pycache__/
 
 # a project's own .config is each machine's: the one that comes with a project is projects/<name>.config (see projects/README.md)
 projects/*/.config
+# loop state checkpoints are a backend cache, never project source (phase 9E)
+projects/*/data/checkpoints/
 
 # the backend's own Python environment (see README: The backend), and what Python leaves behind
 backend/.venv/

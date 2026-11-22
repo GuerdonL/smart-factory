@@ -32,14 +32,18 @@ import json
 import multiprocessing
 import os
 import queue
+import re
 import secrets
 import signal
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import limits
+
+PLAY_PATH = re.compile(r'^/play/([a-f0-9]{8,64})$')
 
 def graph_version():
     """check.py's VERSION, read off its text: this process imports nothing of the graph (the workers do), and so the
@@ -101,6 +105,8 @@ def worker(conn, root, room, address, parent):
                     return run.upload(job['project'], job['path'], body, root)
                 except Refused as e:
                     return {'error': str(e)}
+            if job['kind'] == 'checkpoint':
+                return run.checkpoint(body, root, room, job.get('budget', limits.MAX_CHECKPOINT_BYTES))
             return run.run(body, root, room)
         except MemoryError:
             return run.refuse(run.NO_MEMORY) if job['kind'] == 'run' else {'error': run.NO_MEMORY}
@@ -206,6 +212,294 @@ class Workers:
             p.join(5)
 
 
+def play_worker(conn, root, room, address, parent):
+    """Long-lived playing worker: keeps one PlaySession across ticks under the exact same memory, stack, and
+    parent-death limits as the run workers."""
+    def watch():
+        while os.getppid() == parent:
+            time.sleep(0.5)
+        os._exit(1)
+    threading.Thread(target=watch, daemon=True).start()
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    for var in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+        os.environ.setdefault(var, '1')
+    try:
+        import resource
+        if address:
+            resource.setrlimit(resource.RLIMIT_AS, (address, address))
+    except (ImportError, ValueError, OSError):
+        pass
+    from . import run
+    from .evaluate import Trouble
+    sys.setrecursionlimit(1_000_000)
+
+    session = [None]
+
+    def execute(job, body):
+        kind = job['kind']
+        try:
+            if kind == 'start':
+                session[0] = run.PlaySession(body, root, room, job.get('budget', limits.MAX_CHECKPOINT_BYTES))
+                return {'ok': True, 'from': session[0].from_tick, 'to': session[0].to_tick, 'seconds': session[0].requested_seconds}
+            if kind == 'step':
+                if session[0] is None:
+                    return {'tick': job['tick'], 'results': {}, 'errors': {'*': 'no playing run'}, 'ended': []}
+                return session[0].step(job['tick'])
+            if kind == 'checkpoint':
+                if session[0] is None:
+                    return {'written': 0}
+                return {'written': session[0].save_checkpoints()}
+            if kind == 'clear':
+                session[0] = None
+                return {'ok': True}
+            return {'error': 'unknown play command'}
+        except Trouble as e:
+            return {'error': str(e)} if kind == 'start' else {'tick': job.get('tick'), 'results': {}, 'errors': {'*': str(e)}, 'ended': []}
+        except MemoryError:
+            session[0] = None
+            return {'error': run.NO_MEMORY} if kind == 'start' else {'tick': job.get('tick'), 'results': {}, 'errors': {'*': run.NO_MEMORY}, 'ended': []}
+        except BaseException as e:
+            sys.stderr.write('the playing worker could not finish: %s: %s\n' % (type(e).__name__, e))
+            return {'error': run.BROKEN} if kind == 'start' else {'tick': job.get('tick'), 'results': {}, 'errors': {'*': run.BROKEN}, 'ended': []}
+
+    inbox, outbox = queue.Queue(maxsize=1), queue.Queue(maxsize=1)
+
+    def loop():
+        while True:
+            item = inbox.get()
+            if item is None:
+                return
+            outbox.put(execute(*item))
+
+    threading.stack_size(STACK)
+    runner = threading.Thread(target=loop, daemon=True)
+    try:
+        runner.start()
+    except (MemoryError, RuntimeError):
+        runner = None
+    while True:
+        try:
+            job = json.loads(conn.recv_bytes().decode('utf8'))
+            body = conn.recv_bytes()
+        except (EOFError, OSError):
+            if runner is not None:
+                inbox.put(None)
+            return
+        if runner is not None:
+            inbox.put((job, body))
+            answer = outbox.get()
+        else:
+            answer = {'error': run.NO_MEMORY}
+        conn.send_bytes(json.dumps(answer).encode())
+
+
+class Player:
+    """Manages the single playing run beside the run workers: one long-lived playing worker, per-pass time limit,
+    unpolled watchdog, and checkpoints on stop and when idle between passes."""
+
+    def __init__(self, root, room, address, max_seconds=limits.MAX_SECONDS, unpolled=limits.UNPOLLED_SECONDS,
+                 checkpoint_idle=limits.CHECKPOINT_IDLE_SECONDS, checkpoint_budget=limits.MAX_CHECKPOINT_BYTES):
+        self.root, self.room, self.address = root, room, address
+        self.max_seconds = max_seconds
+        self.unpolled = unpolled
+        self.checkpoint_idle = checkpoint_idle
+        self.checkpoint_budget = checkpoint_budget
+        self.spawn = multiprocessing.get_context('spawn')
+        self.lock = threading.Lock()
+        self.closed = False
+        self.proc = None
+        self.current = None
+        self.runs = {}      # run_id -> state (keeps the last 8 finished runs so final polls still succeed)
+        self.order = []
+
+    def _ensure_worker(self):
+        if self.proc is not None and self.proc[0].is_alive():
+            return self.proc
+        self._kill_worker()
+        here, there = self.spawn.Pipe()
+        p = self.spawn.Process(target=play_worker, args=(there, self.root, self.room, self.address, os.getpid()), daemon=True)
+        p.start()
+        there.close()
+        self.proc = (p, here)
+        return self.proc
+
+    def _kill_worker(self):
+        if self.proc is None:
+            return
+        p, conn = self.proc
+        self.proc = None
+        try:
+            conn.close()
+        except OSError:
+            pass
+        p.kill()
+        p.join(5)
+
+    def _send(self, job, body=b'', timeout=10.0, stop_event=None):
+        p, conn = self._ensure_worker()
+        conn.send_bytes(json.dumps(job).encode())
+        conn.send_bytes(body)
+        deadline = time.monotonic() + timeout
+        stop_at = None
+        while True:
+            now = time.monotonic()
+            if stop_event is not None and stop_event.is_set() and stop_at is None:
+                stop_at = min(deadline, now + 1.0)
+            limit = stop_at if stop_at is not None else deadline
+            left = limit - now
+            if left <= 0:
+                return None, 'stopped' if stop_at is not None and stop_at < deadline else 'timeout'
+            if conn.poll(min(0.05, left)):
+                return json.loads(conn.recv_bytes().decode('utf8')), None
+
+    def start(self, body):
+        with self.lock:
+            if self.closed:
+                return {'error': 'the backend is stopping'}
+            if self.current is not None and self.current['running']:
+                return {'error': 'another run is already playing: stop it first'}
+            try:
+                reply, status = self._send({'kind': 'start', 'budget': self.checkpoint_budget}, body, timeout=min(self.max_seconds, 15))
+            except (EOFError, OSError):
+                self._kill_worker()
+                return {'error': 'it ended before it was done: it needed more memory than the backend may take'}
+            if status is not None:
+                self._kill_worker()
+                return {'error': 'starting the run took too long and was stopped'}
+            if 'error' in reply:
+                return {'error': reply['error']}
+            requested = reply.get('seconds')
+            want_seconds = limits.MAX_SECONDS if requested is None else int(requested)
+            granted = min(want_seconds, self.max_seconds)
+            capped = requested is not None and int(requested) > self.max_seconds
+            run_id = secrets.token_hex(16)
+            state = {
+                'id': run_id,
+                'running': True,
+                'from_tick': reply['from'],
+                'to_tick': reply['to'],
+                'granted': granted,
+                'latest': None,
+                'last_tick': None,
+                'reason': None,
+                'last_polled': time.monotonic(),
+                'stop_event': threading.Event(),
+                'done_event': threading.Event(),
+            }
+            self.current = state
+            self.runs[run_id] = state
+            self.order.append(run_id)
+            while len(self.order) > 8:
+                gone = self.order.pop(0)
+                if gone != run_id:
+                    self.runs.pop(gone, None)
+            t = threading.Thread(target=self._drive, args=(state,), daemon=True)
+            t.start()
+            out = {'run': run_id, 'seconds': granted, 'ceiling': self.max_seconds}
+            if capped:
+                out['capped'] = True
+            return out
+
+    def _flush_checkpoint(self):
+        if self.proc is None or not self.proc[0].is_alive():
+            return
+        try:
+            self._send({'kind': 'checkpoint'}, b'', timeout=10.0)
+        except (EOFError, OSError):
+            self._kill_worker()
+
+    def _drive(self, state):
+        cur = state['from_tick']
+        last_ckpt = time.monotonic()
+        last_ckpt_tick = None
+        worker_alive = True
+        try:
+            while not self.closed and not state['stop_event'].is_set():
+                if time.monotonic() - state['last_polled'] >= self.unpolled:
+                    state['reason'] = 'stopped: no poll for %s' % limits.plural(int(self.unpolled), 'second')
+                    break
+                try:
+                    answer, status = self._send({'kind': 'step', 'tick': cur}, b'', timeout=state['granted'], stop_event=state['stop_event'])
+                except (EOFError, OSError):
+                    self._kill_worker()
+                    worker_alive = False
+                    state['reason'] = 'it ended before it was done: it needed more memory than the backend may take'
+                    break
+                if status == 'timeout':
+                    self._kill_worker()
+                    worker_alive = False
+                    state['reason'] = 'pass at tick %s took longer than %s and was stopped' % (format(cur, ','), limits.plural(state['granted'], 'second'))
+                    break
+                if status == 'stopped':
+                    self._kill_worker()
+                    worker_alive = False
+                    break
+                done_now = bool(answer.get('ended') or '*' in (answer.get('errors') or {}) or (state['to_tick'] is not None and cur >= state['to_tick']))
+                if done_now:
+                    if worker_alive and not self.closed and cur > 0 and cur != last_ckpt_tick:
+                        self._flush_checkpoint()
+                        last_ckpt_tick = cur
+                    with self.lock:
+                        state['latest'] = answer
+                        state['last_tick'] = cur
+                        if answer.get('errors', {}).get('*'):
+                            state['reason'] = answer['errors']['*']
+                        state['running'] = False
+                    break
+                with self.lock:
+                    state['latest'] = answer
+                    state['last_tick'] = cur
+                now = time.monotonic()
+                if cur > 0 and cur != last_ckpt_tick and now - last_ckpt >= self.checkpoint_idle:
+                    self._flush_checkpoint()
+                    last_ckpt = time.monotonic()
+                    last_ckpt_tick = cur
+                cur += 1
+        finally:
+            if worker_alive and not self.closed and state['last_tick'] is not None and state['last_tick'] > 0 and state['last_tick'] != last_ckpt_tick:
+                self._flush_checkpoint()
+            with self.lock:
+                state['running'] = False
+                state['done_event'].set()
+
+    def poll(self, run_id, after=None):
+        with self.lock:
+            state = self.runs.get(run_id)
+            if state is None:
+                return {'error': 'no such playing run'}
+            state['last_polled'] = time.monotonic()
+            latest = state['latest']
+            running = state['running']
+            reason = state['reason']
+        if latest is not None and (after is None or latest['tick'] > after):
+            out = dict(latest, running=running)
+        else:
+            out = {'tick': None, 'results': {}, 'errors': {}, 'ended': [], 'running': running}
+        if reason:
+            out['reason'] = reason
+        return out
+
+    def stop(self, run_id):
+        with self.lock:
+            state = self.runs.get(run_id)
+            if state is None:
+                return {'error': 'no such playing run'}
+        state['stop_event'].set()
+        state['done_event'].wait(timeout=5.0)
+        with self.lock:
+            tick = state['last_tick'] if state['last_tick'] is not None else state['from_tick']
+        return {'tick': tick}
+
+    def close(self):
+        self.closed = True
+        with self.lock:
+            cur = self.current
+        if cur is not None:
+            cur['stop_event'].set()
+            cur['done_event'].wait(timeout=2.0)
+        self._kill_worker()
+
+
 class Handler(BaseHTTPRequestHandler):
     timeout = 60                     # seconds a connection may sit silent before it is dropped
     server_version = 'SmartFactoryBackend/1'
@@ -261,8 +555,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.allowed():
             return
-        if urlsplit(self.path).path == '/health':
-            return self.reply(200, {'ok': True, 'version': GRAPH_VERSION})
+        url = urlsplit(self.path)
+        if url.path == '/health':
+            return self.reply(200, {'ok': True, 'version': GRAPH_VERSION, 'play': True, 'ceiling': self.server.max_seconds})
+        m = PLAY_PATH.fullmatch(url.path)
+        if m:
+            asked = parse_qs(url.query, keep_blank_values=True)
+            after_raw = (asked.get('after') or [None])[-1]
+            after = None
+            if after_raw is not None and after_raw != '':
+                try:
+                    after = int(after_raw)
+                except ValueError:
+                    return self.reply(200, {'error': 'after is a whole number'})
+            return self.reply(200, self.server.player.poll(m.group(1), after))
         self.reply(404, {'error': 'not found'})
 
     def do_POST(self):
@@ -273,6 +579,28 @@ class Handler(BaseHTTPRequestHandler):
             body = self.body(limits.MAX_BODY, 'the request')
             if body is not None:
                 self.reply(200, self.server.workers.ask({'kind': 'run'}, body))
+            return
+        if url.path == '/play':
+            body = self.body(limits.MAX_BODY, 'the request')
+            if body is not None:
+                self.reply(200, self.server.player.start(body))
+            return
+        if url.path == '/stop':
+            body = self.body(64 * 1024, 'the request')
+            if body is None:
+                return
+            try:
+                asked = json.loads(body.decode('utf8'))
+            except ValueError:
+                return self.reply(200, {'error': 'the request is not JSON'})
+            run_id = asked.get('run') if isinstance(asked, dict) else None
+            if not isinstance(run_id, str) or not re.fullmatch(r'[a-f0-9]{8,64}', run_id):
+                return self.reply(200, {'error': 'no such playing run'})
+            return self.reply(200, self.server.player.stop(run_id))
+        if url.path == '/checkpoint':
+            body = self.body(limits.MAX_BODY, 'the request')
+            if body is not None:
+                self.reply(200, self.server.workers.ask({'kind': 'checkpoint', 'budget': self.server.checkpoint_budget}, body))
             return
         if url.path == '/data':
             if not self.server.uploads.acquire(blocking=False):      # a file is up to 50 MB held here on its way to a worker: only so many at once
@@ -293,15 +621,20 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, seconds=limits.MAX_SECONDS, root=None, workers=limits.WORKERS, quiet=False, memory=None, address=None, token=None):
+    def __init__(self, port, seconds=limits.MAX_SECONDS, root=None, workers=limits.WORKERS, quiet=False, memory=None, address=None, token=None,
+                 max_seconds=None, unpolled=limits.UNPOLLED_SECONDS, checkpoint_idle=limits.CHECKPOINT_IDLE_SECONDS, checkpoint_budget=None):
         super().__init__(('127.0.0.1', port), Handler)      # the loopback address, and no other
         self.quiet = quiet
         self.token = token if token is not None else new_token(TOKEN_FILE)
+        self.max_seconds = limits.max_seconds_ceiling(os.environ.get('SMART_FACTORY_BACKEND_MAX_SECONDS')) if max_seconds is None else int(max_seconds)
+        self.checkpoint_budget = limits.checkpoint_budget(os.environ.get('SMART_FACTORY_BACKEND_CHECKPOINT_BYTES')) if checkpoint_budget is None else int(checkpoint_budget)
         self.uploads = threading.BoundedSemaphore(limits.UPLOADS)
         self.workers = Workers(workers, seconds, root, memory, address)
+        self.player = Player(root, self.workers.room, self.workers.address, self.max_seconds, unpolled, checkpoint_idle, self.checkpoint_budget)
 
     def server_close(self):
         super().server_close()
+        self.player.close()
         self.workers.close()
 
 

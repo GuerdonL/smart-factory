@@ -243,7 +243,7 @@ def taken(project, path, body, root=None, look=None):
                 if _same_file(full, body):
                     return seen
                 raise Refused('%s is already a file of %s, and holds something else: a data file is not replaced' % (path, project))
-            there = [os.path.join(folder, n) for n in os.listdir(folder) if not n.startswith('.')] if os.path.isdir(folder) else []
+            there = [os.path.join(folder, n) for n in os.listdir(folder) if not n.startswith('.') and n != 'checkpoints'] if os.path.isdir(folder) else []
             if len(there) >= MAX_DATA_FILES:
                 raise Refused('%s already has %d data files, which is as many as a project keeps' % (project, len(there)))
             if sum(os.path.getsize(f) for f in there if os.path.isfile(f) and not os.path.islink(f)) + len(body) > MAX_DATA_BYTES:

@@ -75,8 +75,9 @@ class BackendCase(ServerCase):
 
 class PassedOn(BackendCase):
     def test_health_and_a_run_are_passed_on_and_the_answer_comes_back(self):
-        status, _, text = self.request('GET', '/api/backend/health')
+        status, h_headers, text = self.request('GET', '/api/backend/health')
         self.assertEqual((status, json.loads(text)), (200, {'ok': True, 'version': 1}))
+        self.assertEqual(h_headers.get('X-Smart-Factory-Play'), '1')
         self.backend.answer = (200, {}, b'{"results": {"a": 1}, "errors": {}}')
         status, headers, text = self.request('POST', '/api/backend/run', {'graph': {'nodes': {}}, 'want': []}, {'Cookie': 'secret=1', 'Origin': 'http://page.example', 'X-Other': 'x', 'Authorization': 'Basic abc'})
         self.assertEqual((status, json.loads(text)), (200, {'results': {'a': 1}, 'errors': {}}))
@@ -113,6 +114,22 @@ class PassedOn(BackendCase):
         self.request('POST', '/api/backend/data?project=a%26path%3Devil%0d%0aX-Injected:%201&path=../../x', b'1\n')
         self.assertEqual([r['path'] for r in self.backend.seen], ['/run', '/health', '/data?project=last&path=data%2Fw.csv', '/data?project=a%26path%3Devil%0D%0AX-Injected%3A%201&path=..%2F..%2Fx'])
         self.assertNotIn('x-injected', self.backend.seen[-1]['headers'])
+
+    def test_play_poll_stop_and_checkpoint_are_passed_on(self):
+        rid = 'a1b2c3d4e5f60718'
+        self.backend.answer = (200, {}, json.dumps({'run': rid}).encode())
+        self.assertEqual(self.request('POST', '/api/backend/play', {'graph': {}, 'want': []})[0], 200)
+        self.backend.answer = (200, {}, b'{"tick": 1, "results": {}, "errors": {}, "ended": [], "running": true}')
+        self.assertEqual(self.request('GET', '/api/backend/play/%s?after=0&extra=1' % rid)[0], 200)
+        self.backend.answer = (200, {}, b'{"tick": 1}')
+        self.assertEqual(self.request('POST', '/api/backend/stop', {'run': rid})[0], 200)
+        self.backend.answer = (200, {}, b'{"ok": true, "written": 1, "tick": 1}')
+        self.assertEqual(self.request('POST', '/api/backend/checkpoint', {'graph': {}, 'tick': 1, 'project': 'p'})[0], 200)
+        self.assertEqual([(r['method'], r['path']) for r in self.backend.seen],
+                         [('POST', '/play'), ('GET', '/play/%s?after=0' % rid), ('POST', '/stop'), ('POST', '/checkpoint')])
+        # Bad play id or wrong methods are refused with 404
+        for method, path in [('GET', '/api/backend/play'), ('POST', '/api/backend/play/' + rid), ('GET', '/api/backend/play/not-hex!'), ('GET', '/api/backend/play/short'), ('GET', '/api/backend/stop'), ('GET', '/api/backend/checkpoint')]:
+            self.assertEqual(self.request(method, path, b'{}' if method == 'POST' else None)[0], 404, (method, path))
 
     def test_an_answer_that_sends_the_request_elsewhere_is_not_followed(self):
         there = 'http://127.0.0.1:%d/run' % self.elsewhere.server_address[1]
@@ -234,7 +251,8 @@ class BehindThePin(BackendCase):
     def test_nothing_reaches_the_backend_without_the_pin(self):
         right = {'Authorization': 'Basic ' + base64.b64encode(b'anyone:4821').decode()}
         for headers in [{}, {'Authorization': 'Basic ' + base64.b64encode(b'anyone:0000').decode()}, {'Authorization': 'Bearer 4821'}, {'Cookie': 'pin=4821'}]:
-            for method, path in [('GET', '/api/backend/health'), ('POST', '/api/backend/run'), ('POST', '/api/backend/data?project=p&path=data/a.csv')]:
+            for method, path in [('GET', '/api/backend/health'), ('POST', '/api/backend/run'), ('POST', '/api/backend/data?project=p&path=data/a.csv'),
+                                 ('POST', '/api/backend/play'), ('GET', '/api/backend/play/' + 'a' * 16), ('POST', '/api/backend/stop'), ('POST', '/api/backend/checkpoint')]:
                 status, _, _ = self.request(method, path, b'{}' if method == 'POST' else None, headers)
                 self.assertEqual(status, 401, (method, path, headers))
         self.assertEqual(self.backend.seen, [])
@@ -298,3 +316,23 @@ class DataFiles(ServerCase):
         status, _, text = self.request('GET', '/api/projects/p')
         self.assertEqual(sorted(f['path'] for f in json.loads(text)), ['data/w.csv', 'project.json'])
         self.assertNotIn('9', ''.join(f['text'] for f in json.loads(text) if f['path'] != 'data/w.csv'))
+
+    def test_checkpoints_are_excluded_from_loads_and_preserved_across_saves_and_backend_file_is_kept(self):
+        files = [self.HEAD, {'path': '.backend', 'text': '{"format":"smart-factory/frame","version":9,"name":".backend","named":true,"shapes":[],"groups":[]}\n'}]
+        self.assertEqual(self.request('PUT', '/api/projects/p', files)[0], 200)
+        ckdir = os.path.join(self.dir, 'projects', 'p', 'data', 'checkpoints')
+        os.makedirs(ckdir, exist_ok=True)
+        with open(os.path.join(ckdir, 'a' * 32 + '.npy'), 'wb') as f:
+            f.write(b'\x93NUMPYfake')
+        with open(os.path.join(ckdir, 'a' * 32 + '.json'), 'w') as f:
+            f.write('{"kept": false}')
+        # GET /api/projects/p returns .backend and project.json, NEVER anything in data/checkpoints/
+        status, _, text = self.request('GET', '/api/projects/p')
+        self.assertEqual(status, 200)
+        got = json.loads(text)
+        self.assertEqual(sorted(f['path'] for f in got), ['.backend', 'project.json'])
+        # Saving the project again preserves data/checkpoints/ intact
+        self.assertEqual(self.request('PUT', '/api/projects/p', got)[0], 200)
+        self.assertTrue(os.path.isfile(os.path.join(ckdir, 'a' * 32 + '.npy')))
+        self.assertTrue(os.path.isfile(os.path.join(ckdir, 'a' * 32 + '.json')))
+        self.assertEqual(self.request('GET', '/api/projects/p')[2], text)
