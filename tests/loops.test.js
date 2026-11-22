@@ -184,3 +184,16 @@ test('build: an arrow that cannot be repeated through a tile with a step says wh
   assert.equal(tiles.mapped(arrowS, rep, 2, 2, 4).warn, 'its tile repeats down, and an arrow against columns is repeated across only');
   assert.deepEqual(tiles.mapped(arrowS, rep, 1, 1, 4, { open: true }), { count: 1, through: [], warn: tiles.STEP.openMapped });
 });
+
+import { carry } from '../evaluate.js';
+test('carry: the cell a loop stopped at goes over to the next graph with its answer', () => {
+  const stopping = () => { const more = { stop: V(ty(1, 1), { '1,1': { expr: '$1 >= 3' } }, { inputs: ['s'], within: ['t:T'] }) };
+    const g = total({ count: 'inf', across: 'inf', until: 2, more, loop: { inputs: ['c', 's', 'stop'], at: [{ col: 0, row: 0 }, { col: 0, row: 1 }, { col: 0, row: 2 }], pattern: { cols: 1, rows: 3 } } });
+    g.nodes['param(f:1)'].type = ty(1, 3); g.spaces.top.tiles[0].blocks.push('stop'); g.blocks.stop = 'stop'; return g; };
+  const g = stopping(); assert.equal(one(evaluate(g, 'lp')), 3); assert.equal(stoppedAt(g, 'lp'), 3);
+  const h = stopping(); h.nodes.other = V(ty(1, 1), { '1,1': 7 });      /* an unrelated block was added */
+  assert.equal(stoppedAt(h, 'lp'), null); assert.ok(carry(g, h) > 0);
+  assert.equal(one(evaluate(h, 'lp')), 3); assert.equal(stoppedAt(h, 'lp'), 3);
+  const k = stopping(); k.nodes.s.entries = { '1,1': 5 }; carry(g, k); assert.equal(stoppedAt(k, 'lp'), null);      /* a loop that is no longer the same takes nothing over */
+  assert.equal(one(evaluate(k, 'lp')), 5); assert.equal(stoppedAt(k, 'lp'), 1);
+});

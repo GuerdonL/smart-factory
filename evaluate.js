@@ -502,5 +502,6 @@ export function carry(from, to){
   for (const [id, mine] of a.values){ if (!mine.has('') || !sameAt(id)) continue; under(b.values, id).set('', mine.get('')); n++; }
   for (const [id, mine] of a.answers) if (sameAt(id)) for (const [key, answer] of mine) if (key.endsWith('\n')) under(b.answers, id).set(key, answer);
   for (const [id, need] of a.needs) if (sameAt(id)) b.needs.set(id, need);
+  for (const [id, cell] of a.stops) if (sameAt(id)) b.stops.set(id, cell);      /* and the cell a loop stopped at goes with its answer, which is not worked out again */
   return n;
 }
