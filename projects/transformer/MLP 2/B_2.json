@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf128",
+  "type": "tensor",
+  "name": "B_2",
+  "named": true,
+  "commented": false,
+  "color": "variable-6",
+  "position": {
+    "x": 0,
+    "y": 4
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "B_2/",
+  "order": 1
+}

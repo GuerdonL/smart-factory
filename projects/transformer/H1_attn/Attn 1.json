@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf050",
+  "type": "tensor",
+  "name": "Attn 1",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": 0,
+    "y": 4
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "order": 1,
+  "variable": 103,
+  "reference": true
+}

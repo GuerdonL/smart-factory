@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf121",
+  "type": "tensor",
+  "name": "B_1",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": 0,
+    "y": 4
+  },
+  "size": {
+    "cols": 8,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "B_1/",
+  "order": 1
+}

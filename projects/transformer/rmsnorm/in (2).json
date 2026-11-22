@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf009",
+  "type": "tensor",
+  "name": "in",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": 15,
+    "y": -4
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 7,
+  "variable": 114,
+  "reference": true
+}

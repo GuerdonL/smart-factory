@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf056",
+  "type": "tensor",
+  "name": "Up",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 8,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Up/",
+  "order": 0
+}

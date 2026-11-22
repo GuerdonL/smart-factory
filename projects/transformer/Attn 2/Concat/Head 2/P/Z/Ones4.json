@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf101",
+  "type": "tensor",
+  "name": "Ones4",
+  "named": true,
+  "commented": false,
+  "color": "tensor",
+  "position": {
+    "x": 4,
+    "y": 0
+  },
+  "size": {
+    "cols": 1,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {}
+  },
+  "order": 1,
+  "source": "ones"
+}

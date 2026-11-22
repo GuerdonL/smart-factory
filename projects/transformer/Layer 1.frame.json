@@ -1,0 +1,299 @@
+{
+  "format": "smart-factory/frame",
+  "version": 9,
+  "id": "gtf133",
+  "name": "Layer 1",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf001",
+      "type": "data-in",
+      "name": "X",
+      "named": true,
+      "commented": false,
+      "color": "data-in",
+      "position": {
+        "x": -26,
+        "y": -14
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "resolved",
+        "entries": {}
+      },
+      "order": 37,
+      "variable": 100,
+      "source": {
+        "file": "data/x.csv"
+      }
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf010",
+      "type": "arrow",
+      "name": "rmsnorm",
+      "named": true,
+      "commented": false,
+      "color": "function",
+      "position": {
+        "x": -22,
+        "y": -14
+      },
+      "size": {
+        "cols": 2,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "rmsnorm/",
+      "order": 38,
+      "variable": 101,
+      "arrow": {
+        "input": {
+          "id": "btf001",
+          "as": "block"
+        },
+        "side": "e",
+        "start": 1,
+        "span": 4,
+        "gap": 2,
+        "gapName": null,
+        "output": null,
+        "formula": null
+      }
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf011",
+      "type": "tensor",
+      "name": "N1",
+      "named": true,
+      "commented": false,
+      "color": "variable-2",
+      "position": {
+        "x": -18,
+        "y": -14
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 39,
+      "variable": 102,
+      "seat": "btf010"
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf048",
+      "type": "tensor",
+      "name": "Attn 1",
+      "named": true,
+      "commented": false,
+      "color": "variable-3",
+      "position": {
+        "x": -12,
+        "y": -14
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "Attn 1/",
+      "order": 40,
+      "variable": 103
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf051",
+      "type": "tensor",
+      "name": "H1_attn",
+      "named": true,
+      "commented": false,
+      "color": "variable-4",
+      "position": {
+        "x": -6,
+        "y": -14
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "H1_attn/",
+      "order": 41,
+      "variable": 104
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf052",
+      "type": "arrow",
+      "name": "rmsnorm",
+      "named": true,
+      "commented": false,
+      "color": "function",
+      "position": {
+        "x": -2,
+        "y": -14
+      },
+      "size": {
+        "cols": 2,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "order": 42,
+      "variable": 101,
+      "reference": true,
+      "arrow": {
+        "input": {
+          "id": "btf051",
+          "as": "block"
+        },
+        "side": "e",
+        "start": 1,
+        "span": 4,
+        "gap": 2,
+        "gapName": null,
+        "output": null,
+        "formula": null
+      }
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf053",
+      "type": "tensor",
+      "name": "M1",
+      "named": true,
+      "commented": false,
+      "color": "variable-2",
+      "position": {
+        "x": 2,
+        "y": -14
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 43,
+      "variable": 105,
+      "seat": "btf052"
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf067",
+      "type": "tensor",
+      "name": "MLP 1",
+      "named": true,
+      "commented": false,
+      "color": "variable-5",
+      "position": {
+        "x": 8,
+        "y": -14
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "MLP 1/",
+      "order": 44,
+      "variable": 106
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf070",
+      "type": "tensor",
+      "name": "H1",
+      "named": true,
+      "commented": false,
+      "color": "variable-6",
+      "position": {
+        "x": 14,
+        "y": -14
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "H1/",
+      "order": 45,
+      "variable": 107
+    }
+  ],
+  "groups": []
+}

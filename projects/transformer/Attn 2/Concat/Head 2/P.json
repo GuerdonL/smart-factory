@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf103",
+  "type": "tensor",
+  "name": "P",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "P/",
+  "order": 0
+}

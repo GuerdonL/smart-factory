@@ -1,0 +1,33 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf005",
+  "type": "tensor",
+  "name": "inv_d",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": 7,
+    "y": 0
+  },
+  "size": {
+    "cols": 1,
+    "rows": 1
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "resolved",
+    "entries": {
+      "1,1": {
+        "n": 1,
+        "d": 4,
+        "k": 0
+      }
+    }
+  },
+  "order": 3
+}

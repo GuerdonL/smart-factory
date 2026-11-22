@@ -938,3 +938,16 @@ test('an arrow whose choose is not two frame ids is an ordinary arrow, and a for
     assert.deepEqual(g.spaces.top.arrows[0].error, { code: 'pieces', note: '2 pieces' }, JSON.stringify(choose)); assert.equal(Object.values(g.nodes).some(n => n.op === 'choose'), false); }      /* in, and a piece beside it: as any arrow's space */
   const f = make(condition([B('T', -6, 0, 2, 2)], [1], [], { formula: 'x + 1' })); assert.equal(f.spaces.top.arrows[0].node, 'map(v:yes;x + 1)');
 });
+test('number space inference visits every dependency before its consumer in a diamond DAG (e.g. softmax E / (E · Ones))', () => {
+  const E = B('E', 0, 0, 2, 2, { variable: 50, source: { file: 'data/e.csv' } });
+  const Eref = B('E', 0, 0, 2, 2, { id: 'Eref', variable: 50, reference: true, source: { file: 'data/e.csv' } });
+  const Z = B('Z', 2, 2, 1, 2, { inside: space([Eref, B('Ones', 2, 0, 1, 2, { source: 'ones' })]) });
+  const P = B('P', 0, 0, 2, 2, { inside: space([E, Z]) });
+  const g = valued(snap([P]));
+  assert.deepEqual(validate(g), []);
+  assert.equal(g.nodes['v:E'].type.value, 'real');
+  assert.equal(g.nodes['matmul(v:E,v:Ones)'].type.value, 'real');
+  assert.equal(g.nodes['v:Z'].type.value, 'real');
+  assert.equal(g.nodes['ewise(v:E,v:Z;div;col)'].type.value, 'real');
+  assert.equal(g.nodes['v:P'].type.value, 'real');
+});

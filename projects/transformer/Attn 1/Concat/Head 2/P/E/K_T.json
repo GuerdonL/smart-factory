@@ -1,0 +1,28 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf034",
+  "type": "tensor",
+  "name": "K_T",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": 3,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 2
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "K_T/",
+  "order": 2
+}

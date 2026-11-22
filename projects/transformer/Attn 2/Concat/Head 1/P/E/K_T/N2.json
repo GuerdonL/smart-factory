@@ -1,0 +1,30 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf078",
+  "type": "tensor",
+  "name": "N2",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": 4,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 1,
+  "variable": 108,
+  "transposed": true,
+  "reference": true
+}

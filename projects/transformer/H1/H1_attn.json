@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf068",
+  "type": "tensor",
+  "name": "H1_attn",
+  "named": true,
+  "commented": false,
+  "color": "variable-4",
+  "position": {
+    "x": 0,
+    "y": 0
+  },
+  "size": {
+    "cols": 4,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "order": 0,
+  "variable": 104,
+  "reference": true
+}

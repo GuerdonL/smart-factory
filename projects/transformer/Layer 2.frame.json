@@ -1,0 +1,297 @@
+{
+  "format": "smart-factory/frame",
+  "version": 9,
+  "id": "gtf134",
+  "name": "Layer 2",
+  "named": true,
+  "shapes": [
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf071",
+      "type": "tensor",
+      "name": "H1",
+      "named": true,
+      "commented": false,
+      "color": "variable-6",
+      "position": {
+        "x": -26,
+        "y": -6
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "order": 46,
+      "variable": 107,
+      "reference": true
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf072",
+      "type": "arrow",
+      "name": "rmsnorm",
+      "named": true,
+      "commented": false,
+      "color": "function",
+      "position": {
+        "x": -22,
+        "y": -6
+      },
+      "size": {
+        "cols": 2,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "order": 47,
+      "variable": 101,
+      "reference": true,
+      "arrow": {
+        "input": {
+          "id": "btf071",
+          "as": "block"
+        },
+        "side": "e",
+        "start": 1,
+        "span": 4,
+        "gap": 2,
+        "gapName": null,
+        "output": null,
+        "formula": null
+      }
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf073",
+      "type": "tensor",
+      "name": "N2",
+      "named": true,
+      "commented": false,
+      "color": "variable-2",
+      "position": {
+        "x": -18,
+        "y": -6
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 48,
+      "variable": 108,
+      "seat": "btf072"
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf110",
+      "type": "tensor",
+      "name": "Attn 2",
+      "named": true,
+      "commented": false,
+      "color": "variable-3",
+      "position": {
+        "x": -12,
+        "y": -6
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "Attn 2/",
+      "order": 49,
+      "variable": 109
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf113",
+      "type": "tensor",
+      "name": "H2_attn",
+      "named": true,
+      "commented": false,
+      "color": "variable-4",
+      "position": {
+        "x": -6,
+        "y": -6
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "H2_attn/",
+      "order": 50,
+      "variable": 110
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf114",
+      "type": "arrow",
+      "name": "rmsnorm",
+      "named": true,
+      "commented": false,
+      "color": "function",
+      "position": {
+        "x": -2,
+        "y": -6
+      },
+      "size": {
+        "cols": 2,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "order": 51,
+      "variable": 101,
+      "reference": true,
+      "arrow": {
+        "input": {
+          "id": "btf113",
+          "as": "block"
+        },
+        "side": "e",
+        "start": 1,
+        "span": 4,
+        "gap": 2,
+        "gapName": null,
+        "output": null,
+        "formula": null
+      }
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf115",
+      "type": "tensor",
+      "name": "M2",
+      "named": true,
+      "commented": false,
+      "color": "variable-2",
+      "position": {
+        "x": 2,
+        "y": -6
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "variable",
+        "entries": {}
+      },
+      "order": 52,
+      "variable": 111,
+      "seat": "btf114"
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf129",
+      "type": "tensor",
+      "name": "MLP 2",
+      "named": true,
+      "commented": false,
+      "color": "variable-5",
+      "position": {
+        "x": 8,
+        "y": -6
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "MLP 2/",
+      "order": 53,
+      "variable": 112
+    },
+    {
+      "format": "smart-factory/shape",
+      "version": 9,
+      "id": "btf132",
+      "type": "tensor",
+      "name": "Out",
+      "named": true,
+      "commented": false,
+      "color": "variable-1",
+      "position": {
+        "x": 14,
+        "y": -6
+      },
+      "size": {
+        "cols": 4,
+        "rows": 4
+      },
+      "sides": {
+        "cols": null,
+        "rows": null
+      },
+      "value": {
+        "as": "computation",
+        "entries": {}
+      },
+      "definition": "Out/",
+      "order": 54,
+      "variable": 113
+    }
+  ],
+  "groups": []
+}

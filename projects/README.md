@@ -404,3 +404,63 @@ the arrow's output then has no value, and nor has `Out`.
 
 In a file, `W` has `"holds": "natural?"` and the entry `"2,1": { "none": true }`; a shape that promises nothing has
 no `holds`.
+
+## transformer/
+
+A complete 2-layer Pre-RMSNorm causal Transformer with multi-head self-attention and GELU MLPs, beside a copy of the
+default Menu's `.config`. Its weights and pre-embedded input sequence `X` ($T = 4$ tokens $\times$ $d = 4$ embedding
+dimension) live in 23 deterministic CSVs under `data/`, so the browser defers evaluation cleanly to the NumPy backend.
+
+On the top canvas, `Layer 1` and `Layer 2` sit in two horizontal frames (`X` → `rmsnorm` → `N1` → `Attn 1` → `H1_attn`
+→ `rmsnorm` → `M1` → `MLP 1` → `H1`, and then `H1` → `rmsnorm` → `N2` → `Attn 2` → `H2_attn` → `rmsnorm` → `M2` →
+`MLP 2` → `Out`):
+
+- **`rmsnorm`** is one reusable arrow definition applied four times across both layers: it squares `in` (`x^2`), takes
+  the row mean via `inv_d · Sq · Ones4` ($\frac{1}{4}\sum_c x_{rc}^2$), applies `sqrt(x + 1/100000)` ($\epsilon = 10^{-5}$),
+  and divides `in` by `Rms` using the corner-touch Over broadcast.
+- **`Attn 1` / `Attn 2`** compute 2-head causal scaled dot-product self-attention ($H = 2$, $d_h = 2$): open either to
+  see `Concat · W_O`, where `Concat` is defined by two standing shapes (`Head 1` and `Head 2`) placed side by side. Open
+  a head to see `P · V`; inside `P` is `E` over `Z` (row-wise softmax); inside `E` is `(1/sqrt(2)) · Q · K_T` passed
+  through `causal_exp` (`select(i <= j, exp(x), 0)`), and inside `Z` is `E · Ones4`.
+- **`MLP 1` / `MLP 2`** compute a two-layer feed-forward block ($d = 4 \to d_{ff} = 8 \to d = 4$) with exact GELU
+  (`0.5 * x * (1 + erf(x / sqrt(2)))`) and broadcast row biases (`Ones4 · b_1` and `Ones4 · b_2` stacked vertically onto
+  `Up` and `Down` to add).
+- **`H1_attn`, `H1`, `H2_attn`, `Out`** are residual sums (two references stacked vertically).
+
+### Tooling limitations noted while building `transformer/`
+
+Building a working 2-layer Transformer surfaced several real limitations in the currently implemented tooling (and one
+graph-builder bug in `graph.js:valued()`, fixed alongside this example, where diamond DAGs such as `E / (E · Ones)`
+failed number-space validation):
+
+1. **No reduction operations (`sum`, `max`, `mean`, `argmax`):** Row sums must be emulated by multiplying with an
+   all-ones column (`E · Ones4`), and row-wise `max` cannot be computed cleanly. Softmax therefore uses unshifted
+   `exp(x)` rather than the numerically stable `exp(x - max(x))` (which would overflow `float32` for logits above
+   $\approx 88.7$), and output logits cannot be decoded via `argmax`.
+2. **No `reshape` / `flatten` / `unstack` between inner axes and drawn axes:** Multi-head projections can run in
+   parallel over an `inner: [head]` axis (as in `inner-data/`), but there is no inverse of `stack` to flatten
+   `(inner=[H], cols=d_h, rows=T)` back into a drawn `H*d_h × T` matrix for `W_O`. Multi-head concatenation therefore
+   requires separate per-head blocks assembled as `standing` shapes.
+3. **Single-input arrows and no heterogeneous parameter bundles:** An arrow takes one input (`in`), and inner-data
+   `stack` requires identical inner shapes. You cannot pass a bundle `(X, W_Q, W_K, W_V, W_O, W_1, b_1, W_2, b_2)` to
+   reuse a single untied `TransformerLayer` arrow across layers; only weight-free operations like `rmsnorm` can be
+   shared, while untied layers require separate definitions.
+4. **Definition-space `ends()` ignores cross-space variable references:** `arrows.js:ends()` and `graph.js:endOf()`
+   only treat a piece as consumed if an arrow *in the same space* reads it. Placing helper blocks (`Q`, `K_T`, `V`,
+   `Head 1`, `Head 2`) beside the final piece on one canvas and referencing them from child spaces triggers `pieces`
+   errors (`N pieces`), forcing deep nested definition spaces so every space has a single unconsumed end.
+5. **No broadcasting on addition (`+`) and no subtraction (`-`) touch rule:** Corner-touch Times/Over broadcast scalars,
+   rows, and columns, but vertical stack addition requires identical shapes. Adding a `1 × d` bias vector $b$ to a
+   `T × d` activation requires materializing `Ones_T · b` (or a `Tile`), and subtraction requires scaling by `-1` or an
+   entry formula.
+6. **No dynamic indexing / `gather` for token embeddings:** `text` streams emit integer Unicode code points and `slice`
+   only supports static ranges, so token-ID lookup $E[\text{ids}]$ cannot be expressed; the input must be pre-embedded
+   $X \in \mathbb{R}^{T \times d}$.
+7. **No `sin` / `cos` in `expression.js` / `backend/formula.py`:** Formulas support `select`, `max`, `min`, `abs`,
+   `sqrt`, `exp`, `ln`, `tanh`, and `erf`, but not trigonometric functions, so sinusoidal positional encodings and RoPE
+   cannot be written directly as formulas.
+8. **No numeric/backend toggle for typed blocks (symbolic blowup):** Typing exact numeric weights into a 2-layer
+   Transformer causes `evaluate.js` (`nerdamer`) to build exponentially large nested symbolic `exp`/`erf`/`sqrt`
+   expressions instead of deferring to float32. Weights must be stored in `data/*.csv` (or `noise` blocks) to trigger
+   backend execution.
+9. **Inference only (no `grad` / autograd):** Automatic differentiation and parameter updates are not yet implemented.

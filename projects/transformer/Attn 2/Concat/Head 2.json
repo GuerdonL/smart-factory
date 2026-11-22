@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf107",
+  "type": "tensor",
+  "name": "Head 2",
+  "named": true,
+  "commented": false,
+  "color": "variable-3",
+  "position": {
+    "x": -3,
+    "y": -2
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Head 2/",
+  "order": 1,
+  "standing": true
+}

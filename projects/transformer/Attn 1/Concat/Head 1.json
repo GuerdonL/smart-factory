@@ -1,0 +1,29 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf028",
+  "type": "tensor",
+  "name": "Head 1",
+  "named": true,
+  "commented": false,
+  "color": "variable-2",
+  "position": {
+    "x": -5,
+    "y": -2
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "computation",
+    "entries": {}
+  },
+  "definition": "Head 1/",
+  "order": 0,
+  "standing": true
+}

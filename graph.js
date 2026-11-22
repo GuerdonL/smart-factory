@@ -1508,14 +1508,15 @@ export function build(snapshot){
    what it is made of (its inputs, and the body of a function it applies), by its operation's rule. takes: what each
    function's input promises, by its node. (Walked with a list of its own: a graph may be deeper than a stack.) */
 function valued(nodes, functions, takes){
-  const g = { node: id => nodes.get(id), fn: id => (own(functions, id) ? functions[id] : undefined) }, done = new Set();
-  const deps = n => fnOf(n) !== undefined && own(functions, fnOf(n)) ? [...n.inputs, functions[fnOf(n)].body] : n.inputs;
-  for (const start of nodes.keys()){ if (done.has(start)) continue; const todo = [start], open = new Set([start]);
-    while (todo.length){ const id = todo[todo.length - 1], n = nodes.get(id), wait = deps(n).filter(d => nodes.has(d) && !done.has(d) && !open.has(d));
-      if (wait.length){ for (const d of wait){ open.add(d); todo.push(d); } continue; }
-      todo.pop(); if (done.has(id)) continue; done.add(id);
-      const value = n.op === 'param' ? takes.get(id) || ANY : OPS[n.op].space(n, n.inputs.map(i => nodes.get(i)), g);
-      n.type = { ...n.type, value }; } }
+  const g = { node: id => nodes.get(id), fn: id => (own(functions, id) ? functions[id] : undefined) }, state = new Map();
+  const deps = n => fnOf(n) !== undefined && own(functions, fnOf(n)) ? [...n.inputs, functions[fnOf(n)].body, functions[fnOf(n)].input] : n.inputs;
+  for (const start of nodes.keys()){ if (state.has(start)) continue; const todo = [[start, deps(nodes.get(start)), 0]]; state.set(start, 1);
+    while (todo.length){ const top = todo[todo.length - 1];
+      if (top[2] < top[1].length){ const d = top[1][top[2]++];
+        if (nodes.has(d) && !state.has(d)){ state.set(d, 1); todo.push([d, deps(nodes.get(d)), 0]); } }
+      else { const id = top[0], n = nodes.get(id); state.set(id, 2); todo.pop();
+        const value = n.op === 'param' ? takes.get(id) || ANY : OPS[n.op].space(n, n.inputs.map(i => nodes.get(i)), g);
+        n.type = { ...n.type, value }; } } }
 }
 /* what a variable's space would be with no promise: what defines it, or its entries. For whoever says of a promise
    that it cannot be shown to be kept (the page). undefined for what is no variable of the graph. */

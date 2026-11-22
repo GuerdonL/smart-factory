@@ -1,0 +1,40 @@
+{
+  "format": "smart-factory/shape",
+  "version": 9,
+  "id": "btf060",
+  "type": "arrow",
+  "name": "gelu",
+  "named": true,
+  "commented": false,
+  "color": "function",
+  "position": {
+    "x": 8,
+    "y": 0
+  },
+  "size": {
+    "cols": 2,
+    "rows": 4
+  },
+  "sides": {
+    "cols": null,
+    "rows": null
+  },
+  "value": {
+    "as": "variable",
+    "entries": {}
+  },
+  "order": 2,
+  "arrow": {
+    "input": {
+      "id": "btf056",
+      "as": "result"
+    },
+    "side": "e",
+    "start": 1,
+    "span": 4,
+    "gap": 2,
+    "gapName": null,
+    "output": null,
+    "formula": "0.5 * x * (1 + erf(x / sqrt(2)))"
+  }
+}
