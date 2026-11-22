@@ -227,11 +227,12 @@
    oneSize), [{ name, cols, rows, was }]; empty for every project a page saved. And unstepped: the tiles whose
    "step" or "until" named what is no step or stop block of theirs and has been dropped (see unstepped),
    [{ tile, key }]; empty for every project a page saved. And streamed: what was written for a stream and is not
-   read as written, [{ name, why }]: a setting that is none (it is read as its default), a "stream" on what is
+   read as written, [{ id, name, why }] (the shape's id and name): a setting that is none (it is read as its default), a "stream" on what is
    neither noise nor a file (dropped), a size that is no whole number of values (its length is read as 1), a text
    more than one row tall (read as a text of one row is not: the block keeps its size, and says so itself), a file
-   that is not among the project's files; empty for every project a page saved. And ticked: null, or the tick as
-   it was written where that was no whole number from 0.
+   that is not among the project's files, a file that is no data file this program reads (it is no file chosen);
+   empty for every project a page saved. And ticked: null, or the tick as it was written (its JSON text) where that
+   was no whole number from 0.
 
    The format is 8. Format 8 adds to format 7 "stream" on a shape, beside its source; "tick" in project.json; and
    .txt and .npy files under data/. A format 7 project has none of the three and is read exactly as it is (its
@@ -431,15 +432,17 @@ export function write(project){
 
 export function read(files){
   const unheld = [];                            /* the promises that could not be kept as written: [{ name, holds, why }] */
-  const streamed = [];                          /* what was written for a stream and is not read as written: [{ name, why }] */
+  const streamed = [];                          /* what was written for a stream and is not read as written: [{ id, name, why }] */
   /* a shape's source as it is read: with its stream, where "stream" is beside a source of noise or of a file */
-  const sourceBack = c => { const plain = sourceOf(c.source), name = String(c.name ?? 'Shape'); if (c.stream === undefined || c.stream === null) return plain;
-    if (!plain || typeof plain === 'string'){ streamed.push({ name, why: 'it is written as a stream, and only noise and a data file are streamed: it is read as what it is without one' }); return plain; }
-    const r = streamRead(c.stream); for (const why of r.said) streamed.push({ name, why });
+  const sourceBack = c => { const plain = sourceOf(c.source), name = String(c.name ?? 'Shape'), id = typeof c.id === 'string' ? c.id : null; if (c.stream === undefined || c.stream === null) return plain;
+    if (!plain || typeof plain === 'string'){ streamed.push({ id, name, why: 'it is written as a stream, and only noise and a data file are streamed: it is read as what it is without one' }); return plain; }
+    const r = streamRead(c.stream); for (const why of r.said) streamed.push({ id, name, why });
     if (!r.stream) return plain;
     const cols = Math.max(1, Math.round(+c.size?.cols || 1));
-    if (cols % r.stream.length){ streamed.push({ name, why: `it is ${cols} columns for a length of ${r.stream.length}, which is no whole number of values: its length is read as 1` }); r.stream.length = 1; }
-    return sourceOf({ ...c.source, stream: r.stream }); };
+    if (cols % r.stream.length){ streamed.push({ id, name, why: `it is ${cols} columns for a length of ${r.stream.length}, which is no whole number of values: its length is read as 1` }); r.stream.length = 1; }
+    const got = sourceOf({ ...c.source, stream: r.stream });
+    if (got && 'file' in got && got.file === null && c.source.file !== null && c.source.file !== undefined) streamed.push({ id, name, why: `it reads ${JSON.stringify(c.source.file).slice(0, 60)}, which is no data file this program reads (data/ and one name ending .csv, .txt or .npy): it has no file chosen` });
+    return got; };
   /* whatever directory project.json is in is the project's; everything is read relative to it */
   const all = files.map(f => ({ path: f.path.replace(/\\/g, '/').replace(/^\/+/, ''), text: f.text }));
   const head = all.filter(f => /(^|\/)project\.json$/.test(f.path)).sort((a, b) => a.path.length - b.path.length)[0];
@@ -487,7 +490,7 @@ export function read(files){
   const top = space('');
   const data = {}; for (const [path, text] of at) if (dataPath(path) && typeof text === 'string') data[path] = text;
   let project = { top, saved: meta.saved || null, ids: meta.ids || null, tick: tickOf(meta.tick), data };
-  const ticked = meta.tick === undefined || tickOf(meta.tick) === meta.tick ? null : meta.tick;
+  const ticked = meta.tick === undefined || tickOf(meta.tick) === meta.tick ? null : JSON.stringify(meta.tick);
   if ((meta.version || 1) < 2 && [...at.keys()].some(p => p.startsWith('_settings/'))){      /* format 1: see the note above */
     const menu = space('_settings/');
     if (top.shapes.length) menu.shapes.push({ type: 'tensor', name: 'Top level', color: 'variable-3', x: Math.min(0, ...menu.shapes.map(s => s.x)) - 5, y: Math.min(0, ...menu.shapes.map(s => s.y)),
@@ -515,7 +518,7 @@ export function read(files){
   const shown = d => d.variable != null && [...inSpace].some(v => !v.arrow && v.variable === d.variable);
   for (const s of spaces) for (const o of s.operations || []) for (const d of o.sources) if (d.holds !== undefined && !shown(d)){ unheld.push({ name: d.name, holds: d.holds, why: 'it is kept off the canvas by a cut, where a promise can be neither seen nor taken off' }); delete d.holds; }
   /* a stream that reads a file the project has not got: said, so that it does not open as if nothing were missing */
-  const told = new Set(); for (const d of every){ const st = streamOf(d.source), file = st && d.source.file; if (file && !(file in data) && !told.has(d.name + file)){ told.add(d.name + file); streamed.push({ name: d.name, why: `it reads ${file}, which is not among the project's files: choose the file again` }); } }
+  const told = new Set(); for (const d of every){ const st = streamOf(d.source), file = st && d.source.file; if (file && !(file in data) && !told.has(d.name + file)){ told.add(d.name + file); streamed.push({ id: d.id || null, name: d.name, why: `it reads ${file}, which is not among the project's files: choose the file again` }); } }
   return { ...project, converted: old.fused, changed: old.changed, resized: oneSize(project.top), unheld, unstepped: unstepped(spaces), streamed, ticked };
 }
 

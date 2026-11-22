@@ -372,7 +372,12 @@ function answerOf(node, binding = null){
 const backend = createBackend({ fetch: (path, options) => fetch(path, options), later: (fn, ms) => setTimeout(fn, ms), cancel: id => clearTimeout(id),
   changed: () => { if (holding) return; if (space.owner) write(); shown(); }, project: () => (kept ? current : null), version: GRAPH_VERSION, counts: g => settledCounts(g),
   tick: () => tick, ended: (g, node, at) => endedSays(g, node, at),
-  told: why => hud.say((/^the backend /.test(why[0]) ? cap(why[0]) : /^The stream /.test(why[0]) ? why[0] : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
+  /* (what a project said as it opened is not written over by the first answer that comes: it stays in front for as long as the readout shows a sentence) */
+  told: why => hud.say((asOpened.said && Date.now() - asOpened.at < 5000 ? asOpened.said + '. ' : '') + (/^the backend /.test(why[0]) ? cap(why[0]) : /^The stream /.test(why[0]) ? why[0] : 'The backend gave no numbers: ' + why[0]) + (why.length > 1 ? `; and ${why.length - 1} more: each is written where its numbers would be` : '')) });
+/* What the project said as it was opened, where it had more to say than its name: kept for the few seconds the readout
+   shows it. And notes, block id -> what its stream's file words were read as (project.js: streamed): written in that
+   block's panel until its stream is set again or another project is opened, since the readout's sentence is soon gone. */
+const asOpened = { said: null, at: 0, notes: new Map() };
 /* which stream ended, and at which tick, in a sentence: the backend names its node (backend.js: ended), and the
    block is the one whose variable that node defines */
 function endedSays(g, node, at){
@@ -1358,7 +1363,7 @@ function paint(){
       ...(path.length ? { trail: nesting.trail(bare(one.name), path) } : {}),
       ...((originOf(one).inner || []).length && !one.members ? { axes: { labels: orderNow(one).map(i => nesting.axisLabels(variableAxes(one))[i]), drawn: 2 } } : {}),      /* which of its variable's axes this use draws: dragged to turn it */
       ...(kind === 'file' ? { actions: [{ key: 'file', label: streamOf(one.source) ? (one.source.file ? 'Choose another file…' : 'Choose a CSV, a text or a .npy file…') : one.source.file ? 'Choose another CSV file…' : 'Choose a CSV file…' }] } : {}), ...(kind === 'noise' || kind === 'file' ? { plain: true } : {}),
-      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(stateSaid(one) ? [stateSaid(one)] : []), ...(strays.has(one) ? [acrossNote(space, one) || 'It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && fileKind(one.source.file) === 'csv' && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
+      notes: [...(whyNot(one) ? [whyNot(one)] : []), ...(asOpened.notes.get(originOf(one).id) || []).map(why => 'As it was opened: ' + why), ...(stateSaid(one) ? [stateSaid(one)] : []), ...(strays.has(one) ? [acrossNote(space, one) || 'It lies in neither side of the condition, so it takes no part: drag it into true or false'] : []), ...(quiet ? [quiet] : []), ...(kind === 'file' && fileKind(one.source.file) === 'csv' && smallSays(smallIn(one.source.file)) ? [smallSays(smallIn(one.source.file))] : []), ...wrong.slice(0, 6).map(([k, v]) => `entry ${k}: ${v.err}`), ...(wrong.length > 6 ? [`and ${wrong.length - 6} more`] : [])],
       matrix: { letter: initials(one.name), values: once(values, all, quiet), transposed: turned(one) && !path.length, ...(path.length ? {} : { colsName: at.colsName, rowsName: at.rowsName }), ...(at.inner.length ? { inner: at.inner } : {}) } }); }      /* an opened entry is written in full, whatever its axes are called: it is there to be typed into */
   else properties.show(null);
   if (one && !isArrow(one)){ measure ||= createMeasure(view.unit); view.world.append(measure.el); measure.set(one.rect, { ...sides(view, one.rect), wName: shownSide(one, 'w'), hName: shownSide(one, 'h'), ...rootOf(one), inner: nesting.measured(dataOf(one)) }); }
@@ -2944,7 +2949,9 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
    backend.forget();      /* what was wanted of the project before is wanted no more: nothing of it is sent under this one's name */
    dataFiles.clear(); dataSmall.clear(); tick = data.tick || 0; clock.show(tick); rebuild(data); history.clear(); current = name;      /* a project just opened has no steps to undo; its tick is the one it was saved at */
   /* a project saved before format 3 may hold stacks, which then appended rows and would now be sums: project.js has fused each into one shape, and says how many */
-  hud.say(`Opened ${name ? name + ': ' : ''}${count(data)} shapes` + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
+  asOpened.notes = new Map(); for (const u of data.streamed || []) if (u.id) asOpened.notes.set(u.id, [...(asOpened.notes.get(u.id) || []), u.why]);
+  const head = `Opened ${name ? name + ': ' : ''}${count(data)} shapes`, saidOpen = text => { asOpened.said = text === head ? null : text; asOpened.at = Date.now(); hud.say(text); };
+  saidOpen(head + (data.converted ? `. ${data.converted === 1 ? '1 stack was fused into one shape' : data.converted + ' stacks were each fused into one shape'}: a stack is now a sum` : '')
     /* and what could not be kept as it was: shapes at a corner, or under a shape in a product, did not touch then and do now */
     + (data.changed ? `. ${data.changed === 1 ? '1 piece reads' : data.changed + ' pieces read'} differently now: shapes that meet at a corner, or stand under one in a product, touch` : '')
     /* a use that the files drew at another size than its variable's: project.js has set it to its variable's, and says which (no page saves one) */
@@ -2954,7 +2961,7 @@ function openFrom(files, name = null){ let data; try { data = project.read(files
     + (data.unstepped && data.unstepped.length ? `. ${data.unstepped.slice(0, 3).map(u => `${u.tile ? 'The tile ' + u.tile : 'A tile'} named ${u.key === 'step' ? 'a step that is no arrow on its east side: it has no step now' : 'a stop block that is no block of its pattern: it has no stop block now'}`).join('; ')}${data.unstepped.length > 3 ? `; and ${data.unstepped.length - 3} more` : ''}` : '')
     /* what was written for a stream and is not read as written, and a tick that was none: project.js says which (no page saves one) */
     + (data.streamed && data.streamed.length ? `. ${data.streamed.slice(0, 3).map(u => `The stream ${bare(u.name)}: ${u.why}`).join('; ')}${data.streamed.length > 3 ? `; and ${data.streamed.length - 3} more` : ''}` : '')
-    + (data.ticked !== null && data.ticked !== undefined ? `. Its tick was written as ${JSON.stringify(data.ticked)}, which is no whole number from 0: it is read as 0` : '')
+    + (data.ticked !== null && data.ticked !== undefined ? `. Its tick was written as ${data.ticked}, which is no whole number from 0: it is read as 0` : '')
     + (data.resized && data.resized.length ? `. ${data.resized.slice(0, 3).map(r => `${bare(r.name)} was drawn ${r.was.cols} × ${r.was.rows} and its variable is ${r.cols} × ${r.rows}`).join('; ')}${data.resized.length > 3 ? `; and ${data.resized.length - 3} more` : ''}: every use of a variable is its size, so ${data.resized.length === 1 ? 'it has' : 'they have'} been set to it` : '')); }
 const openKept = name => fetch('api/projects/' + encodeURIComponent(name)).then(r => r.ok ? r.json() : Promise.reject(new Error('the server answered ' + r.status)))
   .then(files => bus.send('project.load', { files, name })).catch(e => hud.say('Could not open: ' + (e.message || e)));
@@ -3259,6 +3266,7 @@ bus.on('project.load', ({ files, name = null }) => openFrom(files, name), change
 /* a source's settings. Noise: its seed, its distribution. A file: which file of the project it reads, and the size that file has, which the block takes. Every use of the variable is the one source. */
 bus.on('source.set', ({ id, seed, dist, file, cols, rows, length }) => { const b = blockOf(id), kind = b && sourceKind(b.source); if (!b || (kind !== 'noise' && kind !== 'file')) return;
   const st = streamOf(b.source), streamed = st ? { stream: st } : {};      /* a stream stays one: its settings are its own (stream.set) */
+  for (const k of kinOf(b)) asOpened.notes.delete(k.id);
   const next = kind === 'noise' ? { ...noiseOf(seed === undefined ? b.source.noise.seed : seed, dist === undefined ? b.source.noise.dist : dist), ...streamed } : sourceKept({ file, ...(st ? { stream: { ...st, step: 1 } } : {}) });      /* (a stream given a file begins at one value of it a tick: its step is that value's span, which is 1) */
   if (kind === 'file' && !next.file) return hud.say(st ? 'That is not a file a project may hold: a data file is data/ and one name ending .csv, .txt or .npy' : 'That is not a file a plain file block reads: it reads data/ and one name ending .csv (a text or a .npy file is read by a File stream)');
   for (const k of kinOf(b)) k.source = next;
@@ -3272,6 +3280,7 @@ bus.on('source.set', ({ id, seed, dist, file, cols, rows, length }) => { const b
 /* a stream's settings: one of length, cols and rows (a value's), start, step, end. What cannot be is refused with its sentence (sources.js: resized), and nothing changes. Every use of the variable is the one stream. */
 bus.on('stream.set', ({ id, ...set }) => { const b = blockOf(id); if (!b || !streamOf(b.source)) return;
   const got = streamResized(b.source, streamSize(b), set, bare(b.name)); if (got.refused){ hud.say(got.refused); return shown(); }
+  for (const k of kinOf(b)) asOpened.notes.delete(k.id);
   restream(b, got); shown(); }, changes);
 /* the tick: the project's clock. Not a change that undo records (it is sent with no `changes`): what the page shows is asked afresh at the new tick. */
 bus.on('tick', ({ tick: to }) => { if (!Number.isSafeInteger(to) || to < 0){ hud.say('The tick is a whole number, from 0'); clock.show(tick); return; }
