@@ -274,7 +274,8 @@ export const sideFree = (repeat, side, id = null, name = null) => repeat && repe
 /* whether a count can be changed by pulling the tile's edge: one that is open (it does not end, or is settled only
    when it is run) is typed, never pulled, so that it is not replaced by a number without a word. */
 export const pullable = how => how ? { refused: STEP.openPull(how) } : { ok: true };
-const keptCount = v => whole1(v) || v === INF ? v : v && typeof v === 'object' && typeof v.expr === 'string' && v.expr.trim() ? { expr: v.expr } : 1;
+const keptCount = v => whole1(v) ? v : typeof v === 'string' && /^\s*(inf|infinity|∞)\s*$/i.test(v) ? INF :      /* (read in any capitals, as it may be typed; written "inf") */
+  v && typeof v === 'object' && typeof v.expr === 'string' && v.expr.trim() ? { expr: v.expr } : 1;
 const keptId = v => typeof v === 'string' && v ? v : null;
 export function kept(repeat){
   if (!repeat || typeof repeat !== 'object') return null;

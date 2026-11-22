@@ -270,3 +270,31 @@ test('loop: a state block in a later cell is the backend\'s where its pattern is
   assert.deepEqual(evaluate(h, 's', at(300)), { type: h.nodes.s.type, deferred: true, steps: 256 }); assert.equal(truthAt(h, 's', at(300)), null);
   assert.equal(truthAt(h, 's', at(1)), false); assert.equal(truthAt(h, 's', at(3)), true);      /* 0, and 0 + 1 + 2 */
 });
+
+test('a count that does not end is read in any capitals and written "inf"', () => {
+  const rep = { x: 0, y: 0, cols: 1, rows: 2, down: 1 };
+  for (const v of ['inf', 'INF', 'Inf', 'Infinity', ' infinity ', '∞']) assert.equal(tiles.kept({ ...rep, across: v }).across, 'inf', v);
+  for (const v of ['info', 'in', '', null, 0, 'many']) assert.equal(tiles.kept({ ...rep, across: v }).across, 1, String(v));
+  assert.equal(tiles.kept({ ...rep, across: 7 }).across, 7); assert.deepEqual(tiles.kept({ ...rep, across: { expr: '2 + 1' } }).across, { expr: '2 + 1' });
+});
+test('loop: a promise broken on a step\'s in names the tile\'s node, whichever of the loop and the matrix is asked', () => {
+  const g = total({ s0: -1 }); g.nodes['param(f:1)'].type = { ...ty(1, 2), value: 'natural' }; g.nodes.top.type = { ...g.nodes.top.type }; 
+  const a = evaluate(g, 'lp'), b = evaluate(g, 'rep');
+  assert.equal(a.error && a.error.code, 'type'); assert.equal(b.error && b.error.code, 'type'); assert.equal(a.error.node, b.error.node); assert.equal(a.error.node, 'rep');
+  assert.match(a.error.note, /^in is not natural: it holds -1 at 1, 2 in cell 1$/);
+});
+test('evaluate: what a higher maxSteps worked out is not handed to a call with the default', () => {
+  const g = total({ count: 300, across: 300 });
+  assert.equal(one(evaluate(g, 'lp', { maxSteps: 400 })), 300 * 301 / 2);
+  assert.deepEqual(evaluate(g, 'lp'), { type: g.nodes.lp.type, deferred: true, steps: 256 });
+  assert.deepEqual(evaluate(g, 'rep'), { type: g.nodes.rep.type, deferred: true, steps: 256 });      /* nor through what the other call remembered of its cells */
+  assert.equal(evaluate(g, 'rep', { maxSteps: 400 }).entries['300,2'], 299 * 300 / 2);
+});
+
+test('backend.js: the cell the backend\'s run of a loop stopped at is there to be said', async () => {
+  const waits = [], g = total();
+  const fetch = path => Promise.resolve({ ok: true, json: () => Promise.resolve(path.endsWith('health') ? { ok: true, version: g.version } : { results: { lp: { cols: 1, rows: 1, cells: [[1, 1, 6]], stopped: 4 } }, errors: {} }) });
+  const b = createBackend({ fetch, later: fn => { waits.push(fn); return waits.length; }, cancel: () => {}, version: g.version });
+  await b.health(); assert.equal(b.stopped(g, 'lp', null), null); b.ask(g, 'lp', null, [[1, 1]], 'a'); while (waits.length) waits.shift()(); await new Promise(r => setTimeout(r, 0));
+  assert.equal(b.stopped(g, 'lp', null), 4); assert.equal(b.stopped(g, 'rep', null), null); assert.equal(b.stopped({}, 'lp', null), null);
+});

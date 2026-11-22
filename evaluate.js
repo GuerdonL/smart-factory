@@ -67,7 +67,7 @@
    side too large to work out here and one only the backend has do no harm. (Only where a function is run at each
    inner position is the larger of the two sides counted beforehand, since that count is made before anything runs.)
 
-   Remembering. Results are remembered for one graph: evaluate on a new graph starts clean, unless they are carried
+   Remembering. Results are remembered for one graph and one maxSteps: evaluate on a new graph starts clean, unless they are carried
    to it (carry). A node outside every
    function and every tile has one value. A node the graph marks as within a function has one for each thing that
    function is applied to, and one within a tile has one for each cell: such a node is remembered under its id
@@ -369,7 +369,9 @@ function run(graph, st, id, env){
 export function evaluate(graph, nodeId, { maxEntries = MOST, binding = null, maxSteps = STEPS } = {}){
   const n = graph && typeof graph === 'object' && typeof nodeId === 'string' ? nodeAt(graph, nodeId) : null;
   if (!n) return { error: { code: 'no-source', note: 'no such node', node: String(nodeId) } };
-  const st = stateOf(graph), bkey = binding ? JSON.stringify(binding) : '', kept = under(st.answers, nodeId), akey = maxEntries + (maxSteps === STEPS ? '' : '/' + maxSteps) + '\n' + bkey;
+  /* what is remembered is remembered for one maxSteps: a value worked out with more steps allowed is no answer where fewer are (others: the states for every maxSteps but the default) */
+  const base = stateOf(graph); if (maxSteps !== STEPS && !base.others) base.others = new Map(); if (maxSteps !== STEPS && !base.others.has(maxSteps)) base.others.set(maxSteps, stateOf({}));
+  const st = maxSteps === STEPS ? base : base.others.get(maxSteps), bkey = binding ? JSON.stringify(binding) : '', kept = under(st.answers, nodeId), akey = maxEntries + (maxSteps === STEPS ? '' : '/' + maxSteps) + '\n' + bkey;
   if (kept.has(akey)) return kept.get(akey);
   const done = answer => { kept.set(akey, answer); return answer; };
   let brokeIn = () => null;

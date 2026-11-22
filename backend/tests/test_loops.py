@@ -200,6 +200,37 @@ class Loops(unittest.TestCase):
         finally:
             E.whole_cell = real
 
+    def test_a_promise_broken_on_a_step_s_in_names_the_tile_s_node_as_the_page_does(self):
+        import json
+        from backend import run as R
+        g = named('by hand: loop')
+        g['nodes']['s']['entries'] = {'1,1': -1}
+        g['nodes']['param(f:1)']['type']['value'] = 'natural'
+        self.assertEqual(validate(g), [])
+        out = R.run(json.dumps({'graph': g, 'want': [{'node': 'lp', 'cells': [[1, 1]]}, {'node': 'rep', 'cells': [[1, 1]]}]}).encode(), None, 2 << 30)
+        self.assertEqual(out['errors']['lp'], 'in is not natural: it holds -1 at 1, 2 in cell 1')
+        self.assertEqual(out['codes'], {'lp': {'code': 'type', 'node': 'rep'}, 'rep': {'code': 'type', 'node': 'rep'}})      # tests/loops.test.js holds the page to the same node
+
+    def test_the_answer_says_the_cell_a_loop_was_stopped_at(self):
+        import json
+        from backend import run as R
+        g = named('loops: Stop when true')
+        lp = tile(g)['loop']
+        out = R.run(json.dumps({'graph': g, 'want': [{'node': lp, 'cells': [[1, 1]]}]}).encode(), None, 2 << 30)
+        self.assertEqual((out['results'][lp]['cells'], out['results'][lp]['stopped']), ([[1, 1, 6.0]], 4))      # as the page's stoppedAt says of the same loop
+        g = named('by hand: loop')
+        self.assertNotIn('stopped', R.run(json.dumps({'graph': g, 'want': [{'node': 'lp', 'cells': [[1, 1]]}]}).encode(), None, 2 << 30)['results']['lp'])
+
+    def test_the_fixtures_hold_the_300_step_loop_and_cells_of_tiles_with_an_open_count(self):
+        G = {x['name']: x for x in fixture('graphs.json')}
+        long = G['loops: more steps than are worked out in the browser']
+        lp = tile(long['graph'])['loop']
+        self.assertEqual(long['nodes'][lp], {'rows': [[45150]]})      # worked out by evaluate.js with more steps allowed: SameAnswers holds the backend to it
+        for name in ('loops: Stop when true', 'loops: no end and no stop block', 'loops: a count settled only when it is run'):
+            third = [b for b in G[name]['bound'] if b['binding']['cells'][0]['cx'] == 3]
+            self.assertGreaterEqual(len(third), 2, name)
+            self.assertTrue(all('rows' in b['answer'] for b in third), name)
+
     def test_no_end_and_no_stop_block_runs_until_stopped(self):
         g = named('loops: no end and no stop block')
         self.assertEqual(whole(g, tile(g)['loop']), 'it runs until stopped: its count is infinite and it has no stop block')

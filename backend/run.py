@@ -2,6 +2,7 @@
 
     run(body, root=None)                  -> what POST /run answers, for the bytes it was sent:
                                              { "results": { key: { cols, rows, cells: [[c, r, value], …], min, max, mean, truth } },
+                                             (and "stopped": k on a loop that its stop block ended at cell k),
                                                "errors":  { key: "why" } }
                                              and, only where a promise is broken by a number worked out here
                                              (a variable's holds, what a function's input promises to take),
@@ -217,6 +218,8 @@ def one(work, graph, w):
     out = {'cols': cols, 'rows': rows}
     if inner:
         out['inner'] = list(inner)      # only where it holds inner data: a node that holds none answers as it always did
+    if graph['nodes'][node]['op'] == 'loop' and not w.get('binding') and node in work.stops:
+        out['stopped'] = work.stops[node]      # the cell its stop block ended it at, from 1: for the page to say (only on a loop that was stopped so)
     out.update({'cells': [read(c) for c in cells], 'min': written(least), 'max': written(most), 'mean': written(mean), 'truth': A.truth(value)})
     return out
 

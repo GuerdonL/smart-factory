@@ -2064,7 +2064,7 @@ const countSaid = (t, k) => !t.open || !t.open[k] ? String(t[k]) : t.open[k] ===
 const stepTile = a => isArrow(a) && a.arrow.input.as === 'tile' && space.repeats.has(a.arrow.input.id) ? a.arrow.input.id : null;
 function steppable(list){
   const a = list.length === 1 ? list[0] : null, g = a ? stepTile(a) : null;
-  if (!a || !isArrow(a) || g === null || a.arrow.side !== 'e') return { refused: 'Step takes one arrow on a tile\'s east side: ' + cap(tiles.STEP.east) };
+  if (!a || !isArrow(a) || g === null || a.arrow.side !== 'e') return { refused: 'Step takes one arrow, set against the east side of the tile it reads: it is then given one cell of the tile and gives the state of the next' };
   const r = space.repeats.get(g); if (r.step && r.step !== a.id) return { refused: cap(tiles.STEP.second) + ': take the other off first (Step, on that arrow)' };
   return { ok: true, a, g, on: r.step === a.id };
 }
@@ -2102,7 +2102,7 @@ function stopSaid(s, g, gr, node){
 function stepNotes(s, g){
   const r = s.repeats.get(g); if (!r || (!r.step && !r.until)) return [];
   const a = r.step ? s.blocks.find(k => k.id === r.step) : null, stop = r.until ? s.blocks.find(k => k.id === r.until) : null, out = [];
-  const found = steadily(() => { const gr = graphNow(), f = findIn(gr), e = a ? f.arrows.get(a.id) : null, t = f.tiles.get('t:' + g); if (e && e.node) workOut(gr, e.node); return { e, t, at: e && e.node ? stoppedAt(gr, e.node) : null, stuck: e && e.node ? stopSaid(s, g, gr, e.node) : null }; }) || {};
+  const found = steadily(() => { const gr = graphNow(), f = findIn(gr), e = a ? f.arrows.get(a.id) : null, t = f.tiles.get('t:' + g); if (e && e.node) workOut(gr, e.node); return { e, t, at: e && e.node ? stoppedAt(gr, e.node) ?? backend.stopped(gr, e.node, bindingOf(readBy(a, s), s, false, a)) : null, stuck: e && e.node ? stopSaid(s, g, gr, e.node) : null }; }) || {};
   if (a) out.push(found.e && found.e.error ? (found.e.error.code === 'size-unknown' ? 'Its step has no count to run by' + (tileInfo(s, g).warn ? ': ' + tileInfo(s, g).warn : '') : 'Its step does not fit: ' + errorSaid(found.e.error)) : `It has a step${isNamed(a) ? ', ' + bare(a.name) : ''}: its cells are worked out in order, each from the one before`);
   if (stop) out.push(`It stops at the first cell where ${bare(stop.name) || 'its stop block'} is true` + (found.at ? `: that is cell ${found.at}` : ''));
   if (found.stuck) out.push(found.stuck);
@@ -2111,7 +2111,7 @@ function stepNotes(s, g){
 /* what there is to say of an arrow that is a tile's step, in the arrow's panel */
 function stepSaid(a){
   const g = stepTile(a), r = g !== null ? space.repeats.get(g) : null; if (!r || r.step !== a.id) return [];
-  const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) : null, stuck: e && e.node ? stopSaid(space, g, gr, e.node) : null }; }) || {};
+  const found = steadily(() => { const gr = graphNow(), e = findIn(gr).arrows.get(a.id); if (e && e.node) workOut(gr, e.node); return { e, at: e && e.node ? stoppedAt(gr, e.node) ?? backend.stopped(gr, e.node, bindingOf(readBy(a, space), space, false, a)) : null, stuck: e && e.node ? stopSaid(space, g, gr, e.node) : null }; }) || {};
   const mapWarn = mapWarnIn(space, g);      /* an arrow its tile's cells are made from cannot be repeated: the cells, and so the step, have no value */
   return [`It is the step of ${space.groupNames.get(g) || 'its tile'}: its in is one cell, and it gives the state of the next`, ...(found.e && found.e.error ? [cap(found.e.error.code === 'size-unknown' ? tiles.STEP.noCount(tileInfo(space, g).warn) : errorSaid(found.e.error))] : []), ...(mapWarn ? ['An arrow repeated in its tile has no output, so its cells have no value: ' + mapWarn] : []), ...(found.at ? [`It stopped at cell ${found.at}`] : []), ...(found.stuck ? [found.stuck] : [])];
 }

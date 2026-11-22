@@ -290,6 +290,11 @@ function bindings(g){
     const at = {}; n.inputs.forEach((id, k) => { if (n.inputs.indexOf(id) === n.inputs.lastIndexOf(id)) at[id] = n.at[k]; });
     for (const [cx, cy] of [[1, 1], [n.across, n.down]]) n.inputs.forEach((id, k) => { if (g.nodes[id].op === 'repeat') return;
       out.push({ node: id, binding: { cells: [{ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: n.at[k].col, dy: n.at[k].row, cx, cy, of: [t.tile], at }] } }); }); }
+  /* a tile with an open count has no matrix: the parts of its pattern in its first cell and its third, as the page draws them */
+  for (const s of Object.values(g.spaces)) for (const t of s.tiles){ const n = !t.node && t.loop && g.nodes[t.loop]; if (!n) continue;
+    const at = {}; n.at.forEach((a, k) => { const id = n.inputs[k]; if (n.inputs.indexOf(id) === n.inputs.lastIndexOf(id)) at[id] = a; });
+    for (const k of [1, 3]) n.at.forEach((a, i) => { const cx = n.across === 'inf' ? k : 1, cy = n.across === 'inf' ? 1 : k;
+      out.push({ node: n.inputs[i], binding: { cells: [{ x: (cx - 1) * n.pattern.cols, y: (cy - 1) * n.pattern.rows, dx: a.col, dy: a.row, cx, cy, of: [t.tile], at }] } }); }); }
   /* an arrow in a tile, in the first cell and in another of every tile it is in (a tile whose pattern has no matrix has cells all the same) */
   for (const s of Object.values(g.spaces)) for (const t of s.tiles) for (const id of t.arrows){ const a = s.arrows.find(a => a.arrow === id); if (!a || !a.node) continue;
     for (const x of [0, 2]) out.push({ node: a.node, binding: { cells: [{ x, y: 0, dx: 0, dy: 0, cx: 1 + x / 2, cy: 1, of: [t.tile] }] } }); }
@@ -302,7 +307,9 @@ function bindings(g){
 export function fixtures(){
   const graphs = [];
   const add = (name, g) => { const bad = validate(g); if (bad.length) throw new Error(name + ' is not well formed: ' + bad[0]);
-    graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(evaluate(g, id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(evaluate(g, b.node, { binding: b.binding })) })) }); };
+    /* what the page defers for its steps is worked out here with more steps allowed, so that the backend is held to it there too */
+    const worked = (id, options = {}) => { const r = evaluate(g, id, options); return r.deferred && r.steps !== undefined ? evaluate(g, id, { ...options, maxSteps: 4096 }) : r; };
+    graphs.push({ name, graph: g, nodes: Object.fromEntries(Object.keys(g.nodes).map(id => [id, answer(worked(id))])), bound: bindings(g).map(b => ({ ...b, answer: answer(worked(b.node, { binding: b.binding })) })) }); };
   for (const name of readdirSync(join(root, 'projects')).sort()) if (statSync(join(root, 'projects', name)).isDirectory()) add('projects/' + name, build(read([...files(join(root, 'projects', name)).filter(f => /\.json$|(^|\/)\.config$|\.csv$/.test(f.path)), ...given(name)])));
   for (const [name, s] of Object.entries({ ...CASES, ...LOOPS })) add(name, build(s));
   for (const [name, g] of Object.entries({ ...HAND, ...BY_HAND_LOOPS })) add(name, g);

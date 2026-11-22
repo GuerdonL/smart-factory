@@ -463,7 +463,7 @@ def whole_cell(run, tile, n, outer, j):
     return out
 
 
-def state_in(run, tile, outer, k, node=None):
+def state_in(run, tile, outer, k):
     """The state of cell k (2 or more) of a tile with a step: what the step made of cell k - 1 (evaluate.js: stateIn).
     Worked out in order, one step each; the last two are kept (a cell is made of the state before it, and is asked
     for its own while it is set down), so a loop of a million steps holds two states and no more. One asked for
@@ -485,7 +485,7 @@ def state_in(run, tile, outer, k, node=None):
         if n['fn'] in outer.active:
             raise Trouble('a function applies itself')
         values = whole_cell(run, tile, n, outer, j - 1)
-        hold(values, run.nodes[f['input']]['type'].get('value'), 'in', node or i, ' in cell %d' % (j - 1))
+        hold(values, run.nodes[f['input']]['type'].get('value'), 'in', i, ' in cell %d' % (j - 1))      # (the tile's node, its matrix else its loop, whoever asked: as evaluate.js names it)
         call = 'step %s#%d' % (key, j)
         made = run.work(f['body'], Env(dict(outer.params, **{n['fn']: {'values': values, 'key': call}}), (), outer.active + (n['fn'],)))
         kept = run.stepped.get(key)      # (let go meanwhile, where the run ran short of room: begun again from here)
@@ -553,7 +553,7 @@ def v_loop(n, at):
         count = math.inf
     if count == math.inf and n['until'] is None:
         raise Trouble('it runs until stopped: its count is infinite and it has no stop block')
-    state = lambda k: state_in(run, tile, at.env, k, at.id) if k > 1 else A.part(whole_cell(run, tile, n, at.env, 1), int(n['state']['row']), int(n['state']['col']), int(n['state']['rows']), int(n['state']['cols']))
+    state = lambda k: state_in(run, tile, at.env, k) if k > 1 else A.part(whole_cell(run, tile, n, at.env, 1), int(n['state']['row']), int(n['state']['col']), int(n['state']['rows']), int(n['state']['cols']))
     k = 1
     while n['until'] is not None and k <= count:
         if k - 1 > MAX_STEPS:
